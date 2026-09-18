@@ -4,6 +4,7 @@
 import { player, type Song } from "../player";
 import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQuality, QUALITY_SHORT } from "../lib/api";
 import { icon } from "../verse/icons";
+import { loadingInlineHtml } from "../verse/loading";
 
 export function NowPlaying(): HTMLElement {
   const el = document.createElement("div");
@@ -70,7 +71,7 @@ export function NowPlaying(): HTMLElement {
     lastIdx = -1;
     browsing = false;
     if (!s) { lyrics.innerHTML = `<div class="np-ly-empty">未在播放</div>`; lineEls = []; return; }
-    if (player.lyricState === "loading" || (player.lyricState === "idle" && !player.lyrics.length)) { lyrics.innerHTML = `<div class="np-ly-empty">歌词加载中…</div>`; lineEls = []; return; }
+    if (player.lyricState === "loading" || (player.lyricState === "idle" && !player.lyrics.length)) { lyrics.innerHTML = `<div class="np-ly-empty">${loadingInlineHtml("歌词加载中")}</div>`; lineEls = []; return; }
     if (!player.lyrics.length) { lyrics.innerHTML = `<div class="np-ly-empty">暂无歌词</div>`; lineEls = []; return; }
     lyrics.innerHTML = "";
     for (const line of player.lyrics) {

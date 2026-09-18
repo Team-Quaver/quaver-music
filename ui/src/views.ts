@@ -4,6 +4,7 @@ import { api, upPic, coverUrl, getQuality, setQuality, setSessionQuality, getStr
 import { renderSongRows, loadLiked, tableHead, emptyState, type RowHooks } from "./lib/songs";
 import { icon } from "./verse/icons";
 import { formatTime } from "./verse/format";
+import { loadingHtml, loadingInlineHtml } from "./verse/loading";
 import { getMyMusicid, isFavSonglist, loadFavSonglists, onFavSonglistsChange, toggleFavSonglist } from "./lib/favs";
 import { pushHistory } from "./components/SearchBox";
 import { SelectBox, type SelectBoxOption } from "./components/SelectBox";
@@ -163,7 +164,7 @@ async function homeView(root: HTMLElement) {
     <h2 class="title-18" id="home-featured-title">今日精选</h2>
     <span class="caption-12">编辑推荐</span>
   </div>`;
-  const featureHost = h("div", "home-feature-host", `<div class="caption-12">加载中…</div>`);
+  const featureHost = h("div", "home-feature-host", loadingHtml());
   featured.append(featureHost);
 
   const newest = h("section", "home-panel home-new");
@@ -177,7 +178,7 @@ async function homeView(root: HTMLElement) {
   playNew.classList.add("v-btn--sm");
   playNew.disabled = true;
   newHead.append(playNew);
-  const newRows = h("div", "v-rows home-new-list", `<div class="caption-12">加载中…</div>`);
+  const newRows = h("div", "v-rows home-new-list", loadingHtml());
   newest.append(newHead, newRows);
 
   lead.append(featured, newest);
@@ -188,14 +189,14 @@ async function homeView(root: HTMLElement) {
     <h2 class="title-18" id="home-recommend-title">推荐歌单</h2>
     <span class="caption-12">为你挑选</span>
   </div>`;
-  const grid = h("div", "v-cards home-cards", `<div class="caption-12">加载中…</div>`);
+  const grid = h("div", "v-cards home-cards", loadingHtml());
   recommendations.append(grid);
 
   root.append(pageHead, lead, recommendations);
 
   const loadPlaylists = async () => {
-    featureHost.innerHTML = `<div class="caption-12">加载中…</div>`;
-    grid.innerHTML = `<div class="caption-12">加载中…</div>`;
+    featureHost.innerHTML = loadingHtml();
+    grid.innerHTML = loadingHtml();
     try {
       const d: any = await api("/recommend/songlist?page=1&num=13");
       const list: any[] = d?.songlists ?? [];
@@ -259,7 +260,7 @@ async function homeView(root: HTMLElement) {
   const loadNewSongs = async () => {
     playNew.disabled = true;
     playNew.onclick = null;
-    newRows.innerHTML = `<div class="caption-12">加载中…</div>`;
+    newRows.innerHTML = loadingHtml();
     try {
       const d: any = await api("/recommend/newsong?type=5");
       const songs: any[] = (d?.songs ?? []).slice(0, 6);
@@ -332,7 +333,7 @@ async function favSonglistButton(meta: {
 async function playlistView(root: HTMLElement, q: URLSearchParams) {
   const name = q.get("name") || "歌单";
   const id = q.get("id") || "";
-  const box = h("div", "v-rows", `<div class="caption-12">加载中…</div>`);
+  const box = h("div", "v-rows", loadingHtml());
   root.append(box);
   if (!/^\d+$/.test(id)) { box.innerHTML = ""; box.append(emptyState("歌单 id 无效", "检查链接后重试", { label: "回首页", href: "#/" })); return; }
 
@@ -415,7 +416,7 @@ const SINGER_TABS = [
 async function singerView(root: HTMLElement, q: URLSearchParams) {
   const mid = q.get("mid") || "";
   const name = decodeURIComponent(q.get("name") || "歌手");
-  root.append(h("div", "v-rows", `<div class="caption-12">加载中…</div>`));
+  root.append(h("div", "v-rows", loadingHtml()));
   if (!mid) { root.innerHTML = ""; root.append(emptyState("缺少歌手信息", "检查链接后重试", { label: "回首页", href: "#/" })); return; }
   // 五路并拉（热门/最新两种排序各拉一份）；简介/专辑失败不阻塞主内容（各 .catch 归 null）
   const [homeInfo, detail, songData, newSongData, albumData] = await Promise.all([
@@ -511,7 +512,7 @@ async function singerView(root: HTMLElement, q: URLSearchParams) {
 async function singerAlbumsView(root: HTMLElement, q: URLSearchParams) {
   const mid = q.get("mid") || "";
   const name = decodeURIComponent(q.get("name") || "歌手");
-  root.append(h("div", "v-rows", `<div class="caption-12">加载中…</div>`));
+  root.append(h("div", "v-rows", loadingHtml()));
   if (!mid) { root.innerHTML = ""; root.append(emptyState("缺少歌手信息", "检查链接后重试", { label: "回首页", href: "#/" })); return; }
   // 分页拉全：上游单页封顶 30（num 再大也只回 30），循环条件按 total + 空批兜底
   const albums: any[] = [];
@@ -545,7 +546,7 @@ async function singerAlbumsView(root: HTMLElement, q: URLSearchParams) {
 // —— 专辑页（点击行内专辑跳转的落点）：detail + songs 两个端点 ——
 async function albumView(root: HTMLElement, q: URLSearchParams) {
   const mid = q.get("mid") || "";
-  root.append(h("div", "v-rows", `<div class="caption-12">加载中…</div>`));
+  root.append(h("div", "v-rows", loadingHtml()));
   if (!mid) { root.innerHTML = ""; root.append(emptyState("缺少专辑信息", "检查链接后重试", { label: "回首页", href: "#/" })); return; }
   try {
     const [detail, list] = await Promise.all([
@@ -606,7 +607,7 @@ function listPage(root: HTMLElement, title: string, note?: string, actions?: HTM
   }
   const table = h("div", "");
   table.append(tableHead(true));
-  const rows = h("div", "v-rows", `<div class="caption-12">加载中…</div>`);
+  const rows = h("div", "v-rows", loadingHtml());
   table.append(rows);
   root.append(head, table);
   return rows;
@@ -683,7 +684,7 @@ async function likedView(root: HTMLElement) {
     </div>`;
   const table = h("div", "");
   table.append(tableHead(true));
-  const box = h("div", "v-rows", `<div class="caption-12">加载中…</div>`);
+  const box = h("div", "v-rows", loadingHtml());
   table.append(box);
   root.append(head, table);
   const art = head.querySelector<HTMLElement>("#liked-art")!;
@@ -1084,7 +1085,7 @@ async function settingsView(root: HTMLElement) {
 // —— 调试：日志页面（壳层 electron-dev.log 尾部；由 relay.ts /api/log 提供） ——
 async function logView(root: HTMLElement) {
   const bar = h("div", "log-bar");
-  const pre = h("pre", "log-pre", `<span class="muted">加载中…</span>`);
+  const pre = h("pre", "log-pre", loadingHtml());
   const back = h("button", "v-btn v-btn--ghost", "返回设置");
   const refresh = h("button", "v-btn v-btn--ghost", "刷新");
   const meta = h("span", "muted");
@@ -1092,7 +1093,7 @@ async function logView(root: HTMLElement) {
   root.append(bar, pre);
   back.onclick = () => (location.hash = "#/settings");
   async function load() {
-    meta.textContent = "读取中…";
+    meta.innerHTML = loadingInlineHtml("读取中");
     try {
       const r = await fetch("/api/log?tail=800");
       if (!r.ok) throw new Error((await r.json().catch(() => null))?.msg || `HTTP ${r.status}`);
@@ -1148,7 +1149,7 @@ async function loginView(root: HTMLElement) {
         </ol>
       </div>
       <div class="login__side">
-        <div id="qr" class="login__qr"><div class="muted">正在生成二维码…</div></div>
+        <div id="qr" class="login__qr">${loadingHtml("正在生成二维码")}</div>
         <p id="lstate" class="caption-12 login__state" aria-live="polite"></p>
         <div class="login__actions">
           <span id="channel"></span>
@@ -1177,7 +1178,7 @@ async function loginView(root: HTMLElement) {
   async function start() {
     window.clearInterval(timer);
     qr.classList.remove("is-expired");
-    qr.innerHTML = `<div class="muted">生成中…</div>`;
+    qr.innerHTML = loadingHtml("生成中");
     setState("");
     let d: any;
     try {
@@ -1248,7 +1249,7 @@ async function searchView(root: HTMLElement, q: URLSearchParams) {
   tabs.innerHTML = SEARCH_TABS.map(
     (t) => `<button class="v-tabs__item${t.type === tab.type ? " v-tabs__item--active" : ""}" role="tab" aria-selected="${t.type === tab.type}" data-type="${t.type}" type="button">${t.label}</button>`,
   ).join("");
-  const box = h("div", "", `<div class="caption-12">搜索中…</div>`);
+  const box = h("div", "", loadingHtml("搜索中"));
   root.append(head, tabs, box);
   tabs.querySelectorAll<HTMLElement>(".v-tabs__item").forEach((b) => {
     b.onclick = () => {

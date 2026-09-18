@@ -5,6 +5,7 @@ import { api, coverUrl } from "./api";
 import { player } from "../player";
 import { icon } from "../verse/icons";
 import { formatTime } from "../verse/format";
+import { loadingHtml } from "../verse/loading";
 
 export interface RowHooks {
   onPlay?: (song: any, index: number, all: any[]) => void;
@@ -263,7 +264,7 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
 
 // 分页加载我喜欢（30/页），返回歌曲数组（供视图计数/播放）
 export async function loadLiked(box: HTMLElement, hooks: RowHooks = {}, limit = 300): Promise<any[]> {
-  box.innerHTML = `<div class="caption-12">加载中…</div>`;
+  box.innerHTML = loadingHtml();
   const all: any[] = [];
   for (let page = 1; (page - 1) * 30 < limit; page++) {
     const r: any = await api(`/user/liked?page=${page}&num=30`);

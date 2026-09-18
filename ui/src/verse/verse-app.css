@@ -451,3 +451,20 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
   .login { grid-template-columns: 1fr; }
   .login__side { align-items: start; }
 }
+
+/* —— 加载指示（转圈）：全站「加载中 / 搜索中 / 生成中 / 读取中…」文字占位的统一替换 ——
+   中性色（不用 accent：accent 只标记正在播放）；尺寸与圆角走 token。 */
+.v-loading { display: flex; align-items: center; justify-content: center; padding: var(--space-5) 0; }
+.v-spinner {
+  width: var(--icon-16); height: var(--icon-16); flex: none;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--line-200);
+  border-top-color: transparent;
+  animation: v-spin 0.8s linear infinite;
+}
+@keyframes v-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .v-spinner { animation: none; border-top-color: var(--line-200); }
+}
+/* 歌词区加载：文字已换成转圈，保持居中（复用 .np-ly-empty 的上下留白） */
+.np-ly-empty:has(> .v-spinner) { display: flex; justify-content: center; }
