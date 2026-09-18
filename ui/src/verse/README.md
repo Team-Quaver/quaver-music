@@ -19,10 +19,3 @@
 `@font-face` 在 `verse-app.css` 头部声明；`dist/**` 随 Electron 一起打包，
 无需运行时联网下载。上游 `tokens.css` 末尾注释掉的 `@font-face` 不用解开
 （vendor 文件保持原样，声明只活在 app 层这一处）。
-
-`--brand-1`（橄榄金备用色）：上游 HANDOFF 要求"给明确用途或删掉"。
-本项目不给它第二强调色的用途；为保持 vendor 文件与上游字节一致以便整体覆盖更新，
-此处选择**保留变量、零引用**（`grep brand-1 src/` 无命中），不删除、不使用。
-
-自检页：根目录 `verse-preview.html`（dev-only，不进构建）在 dev 服务器下打开，
-对照上游 README 的自检清单目检：控件高度、一处青绿填充、数字等宽、深浅两主题。
