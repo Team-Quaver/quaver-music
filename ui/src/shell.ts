@@ -118,7 +118,7 @@ export function bootShell() {
         <nav class="v-nav" aria-label="主导航" id="mainnav"></nav>
         <div class="q-playlists" id="playlists"><div class="caption-12" style="padding: 0 12px">登录后可见歌单</div></div>
         <button type="button" class="v-nav__item" id="nav-settings">
-          ${icon("settings")} <span>设置</span>
+          ${icon("settings")} <span class="ellipsis">设置</span>
         </button>
       </aside>
       <main class="q-content">

@@ -52,22 +52,19 @@
   border-right: 1px solid var(--line-100);
   padding-bottom: var(--space-2);
 }
-.q-side .v-nav { flex: none; }
+/* vendor .v-nav 定宽 --sidebar-w；侧栏变窄时须跟随父宽，否则溢出侧栏 */
+.q-side .v-nav { flex: none; width: auto; }
+/* 文字 span 是 flex 子项，默认 min-width:auto 不收缩 → 省略号失效、文字被裁掉 */
+.q-side .v-nav__item > span { min-width: 0; }
 /* 用户头与主导航之间的发丝分隔线（通栏） */
 .q-side-sep { flex: none; height: 1px; background: var(--line-100); }
 .q-playlists { flex: 1; overflow-y: auto; min-height: 0; padding-bottom: var(--space-2); }
 .q-side #nav-settings { margin: 0 var(--space-2); width: auto; }
 .q-content { flex: 1; min-width: 0; min-height: 0; display: flex; background: var(--surface-100); }
 .route { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: var(--space-4) var(--space-5) var(--space-5); }
-/* 窄窗口：侧栏收起为 64px 图标栏（专辑列隐藏由列表处处理），每项靠 title tooltip */
+/* 窄窗口：侧栏收窄但保留文字（不收成图标栏），过长的用省略号截断 */
 @media (max-width: 1000px) {
-  .q-side { flex-basis: 64px; }
-  .q-side .v-nav__item span:not(.v-nav__count),
-  .q-side .v-nav__group,
-  .q-side .q-plmeta,
-  .q-side .q-user-meta { display: none; }
-  .q-side .v-nav__item { justify-content: center; padding: 0; }
-  .q-side #nav-settings { justify-content: center; }
+  .q-side { flex-basis: calc(var(--sidebar-w) - var(--space-7)); }
 }
 /* macOS：隐藏自绘窗口钮，左侧留 80px 给系统红绿灯；SSD：系统标题栏接管窗口钮 */
 body.mac .v-titlebar__win { display: none; }
