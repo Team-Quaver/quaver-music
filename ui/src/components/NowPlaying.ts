@@ -14,7 +14,7 @@ export function NowPlaying(): HTMLElement {
     <div class="np-backdrop" aria-hidden="true">
       <img id="np-backdrop-img" alt="" hidden>
     </div>
-    <div class="np-top v-drag">
+    <div class="np-top">
       <button type="button" class="v-btn v-btn--ghost v-nodrag" id="np-collapse">${icon("chevronDown", 16)}收起播放页</button>
     </div>
     <div class="np-body">
@@ -40,6 +40,7 @@ export function NowPlaying(): HTMLElement {
   const backdrop = $<HTMLImageElement>("np-backdrop-img");
   const title = $("np-title"), artist = $("np-artist"), album = $("np-album");
   const tags = $("np-tags"), love = $("np-love"), trans = $("np-trans");
+  const top = el.querySelector<HTMLElement>(".np-top")!;
 
   $("np-collapse").onclick = () => { player.expanded = false; player.notifyPublic(); };
   trans.onclick = () => player.toggleTrans();
@@ -111,6 +112,9 @@ export function NowPlaying(): HTMLElement {
     const s = player.current;
     const open = player.expanded;
     el.classList.toggle("open", open);
+    // 收起态整页 translateY(100%) 落在底栏上半截，Chromium 照收其 drag 区
+    // （pointer-events/opacity 不影响收集）→ 只在展开时挂 v-drag。
+    top.classList.toggle("v-drag", open);
     el.classList.toggle("no-trans", !player.showTrans);
     trans.classList.toggle("is-loved", player.showTrans);
     trans.setAttribute("aria-pressed", String(player.showTrans));
