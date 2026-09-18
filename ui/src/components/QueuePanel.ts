@@ -19,7 +19,7 @@ export function QueuePanel(): HTMLElement {
   const cnt = win.meta;
   cnt.id = "qp-cnt";
   win.actions.insertAdjacentHTML("afterbegin",
-    `<button type="button" class="v-iconbtn v-iconbtn--sm" id="qp-clear" title="清空播放列表" aria-label="清空播放列表">${icon("more", 16)}</button>`);
+    `<button type="button" class="v-iconbtn v-iconbtn--sm" id="qp-clear" title="清空播放列表" aria-label="清空播放列表">${icon("trash", 16)}</button>`);
   el.querySelector<HTMLElement>("#qp-clear")!.onclick = () => player.clearQueue();
   win.setOpen(player.queueOpen);
 

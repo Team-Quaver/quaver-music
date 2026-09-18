@@ -1,5 +1,5 @@
 // 底部播放条（常驻壳层）：Verse PlayerBar 结构（v-player），逻辑沿用 player。
-// 进度 = 上边框 rail（2px，悬停 4px + 拇指），条上无时间读数，进度只走 aria-valuetext。
+// 进度 = 上边框 rail（2px，悬停 4px + 拇指），控制组左侧显示当前时间 / 总时长。
 // 右组 = 音质扩展（outline tag 按钮 + 共用右下浮窗 FloatWindow）· 队列 · 音量（mute + 内联 volume slider）。
 import { player } from "../player";
 import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQuality, QUALITY_SHORT, QUALITIES, type Quality } from "../lib/api";
@@ -29,10 +29,15 @@ export function PlayerBar(): HTMLElement {
       <button type="button" class="v-iconbtn v-iconbtn--sm" id="pb-love" aria-label="收藏" title="收藏"></button>
     </div>
     <div class="v-player__center"><div class="v-player__transport">
-      <button type="button" class="v-iconbtn" id="pb-prev" aria-label="上一首" title="上一首">${icon("prev")}</button>
+      <div class="v-player__transport-side v-player__transport-side--before">
+        <span class="v-player__time" id="pb-time" aria-hidden="true">--:-- / --:--</span>
+        <button type="button" class="v-iconbtn" id="pb-prev" aria-label="上一首" title="上一首">${icon("prev")}</button>
+      </div>
       <button type="button" class="v-iconbtn v-iconbtn--lg v-iconbtn--play" id="pb-play" aria-label="播放" title="播放"></button>
-      <button type="button" class="v-iconbtn" id="pb-next" aria-label="下一首" title="下一首">${icon("next")}</button>
-      <button type="button" class="v-iconbtn v-iconbtn--sm" id="pb-loop" aria-label="循环模式" title="循环模式"></button>
+      <div class="v-player__transport-side v-player__transport-side--after">
+        <button type="button" class="v-iconbtn" id="pb-next" aria-label="下一首" title="下一首">${icon("next")}</button>
+        <button type="button" class="v-iconbtn v-iconbtn--sm" id="pb-loop" aria-label="循环模式" title="循环模式"></button>
+      </div>
     </div></div>
     <div class="v-player__right">
       <button type="button" class="v-tag v-tag--outline v-tagbtn" id="pb-quality" aria-haspopup="dialog" aria-expanded="false" title="音质（本会话生效，不保存）">…</button>
@@ -50,7 +55,7 @@ export function PlayerBar(): HTMLElement {
   `;
 
   const $ = <T extends HTMLElement>(id: string) => el.querySelector<T>("#" + id)!;
-  const rail = $("pb-rail"), fill = $("pb-fill"), knob = $("pb-knob");
+  const rail = $("pb-rail"), fill = $("pb-fill"), knob = $("pb-knob"), time = $("pb-time");
   const coverImg = el.querySelector<HTMLImageElement>("#pb-cover-img")!;
   const title = $("pb-title"), sub = $("pb-sub");
   const play = $("pb-play"), loop = $("pb-loop"), love = $("pb-love");
@@ -89,6 +94,9 @@ export function PlayerBar(): HTMLElement {
     rail.setAttribute("aria-valuemax", String(Math.round(d)));
     rail.setAttribute("aria-valuenow", String(Math.round(frac * d)));
     rail.setAttribute("aria-valuetext", `${formatTime(frac * d)} / ${formatTime(d)}`);
+    time.textContent = player.current
+      ? `${formatTime(frac * d)} / ${formatTime(d)}`
+      : "--:-- / --:--";
   };
   rail.addEventListener("pointerdown", (e) => {
     if (!player.duration) return;

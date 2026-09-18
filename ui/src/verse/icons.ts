@@ -21,6 +21,7 @@ export const STROKE: Record<string, string> = {
   heart: "M12 19.6c-1.3-1-8.1-5.7-8.1-11A4.6 4.6 0 0112 5.9a4.6 4.6 0 018.1 2.7c0 5.3-6.7 10-8.1 11z",
   plus: "M12 5.5v13M5.5 12h13",
   more: "M6 12h.01M12 12h.01M18 12h.01",
+  trash: "M5 7h14M9 7V4.5h6V7M7 7l.8 12.5h8.4L17 7M10 10v6M14 10v6",
   list: "M4 7h16M4 12h16M4 17h10",
   download: "M12 4.5v10.5M7.6 10.6L12 15l4.4-4.4M5 19.5h14",
   lyrics: "M4 6.5h13M4 12h16M4 17.5h9",
