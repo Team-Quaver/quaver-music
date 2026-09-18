@@ -1111,7 +1111,7 @@ async function logView(root: HTMLElement) {
 }
 
 async function userView(root: HTMLElement) {
-  const wrap = h("div", "me");
+  const wrap = h("div", "account-view", loadingHtml("正在读取账号"));
   root.append(wrap);
   try {
     const [home, vip] = await Promise.all([
@@ -1120,12 +1120,33 @@ async function userView(root: HTMLElement) {
     ]);
     const base = home?.base_info;
     if (!base?.name) { location.hash = "#/login"; return; }
+    const avatar = base.avatar
+      ? `<img src="${escHtml(String(base.avatar).replace(/^http:/, "https:"))}" alt=""/>`
+      : icon("discover", 32);
+    const uid = String(base.encrypted_uin ?? "").trim();
     wrap.innerHTML = `
-      <div class="avatar-big">${base.avatar ? `<img src="${String(base.avatar).replace(/^http:/, "https:")}" alt=""/>` : ""}</div>
-      <h2 class="display-24" style="margin:12px 0 4px">${base.name}</h2>
-      <div class="badges" style="justify-content:center">${identityBadges(home, vip)}</div>
-      <p class="v-colhead__count">UID: ${base.encrypted_uin ?? ""}</p>
-      <button id="logout" class="v-btn v-btn--danger">退出登录</button>`;
+      <h1 class="display-24">账号</h1>
+      <section class="account-profile" aria-label="个人资料">
+        <div class="account-avatar">${avatar}</div>
+        <div class="account-profile__main">
+          <h2 class="display-24">${escHtml(base.name)}</h2>
+          <div class="badges">${identityBadges(home, vip)}</div>
+        </div>
+      </section>
+      <section class="account-row" aria-labelledby="account-info-title">
+        <div class="account-row__copy">
+          <h2 class="title-15" id="account-info-title">账号信息</h2>
+          <p class="caption-12">QQ 音乐 UID</p>
+        </div>
+        <code class="account-uid time-12">${escHtml(uid || "—")}</code>
+      </section>
+      <section class="account-row account-row--danger" aria-labelledby="account-logout-title">
+        <div class="account-row__copy">
+          <h2 class="title-15" id="account-logout-title">退出登录</h2>
+          <p class="caption-12">退出后，需要重新扫码才能使用账号相关功能。</p>
+        </div>
+        <button id="logout" class="v-btn v-btn--danger" type="button">退出登录</button>
+      </section>`;
     wrap.querySelector<HTMLElement>("#logout")!.onclick = async () => {
       await api("/login/logout", { method: "POST" }).catch(() => {});
       location.href = "/login.html"; // 登录态变化走整页，重置侧栏

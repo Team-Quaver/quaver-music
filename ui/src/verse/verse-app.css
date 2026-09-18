@@ -417,6 +417,34 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 .set-about .title-18, .set-about .time-12 { margin: 0; }
 .set-about .set-about-sub { margin: 0; color: var(--ink-muted); }
 
+/* —— 账号页（头像是唯一视觉焦点；其余信息用开放表面和发丝线组织） —— */
+.account-view { max-width: calc(var(--cover-md) * 4); font-family: var(--font-sans); }
+.account-profile {
+  display: flex; align-items: center; gap: var(--space-5);
+  padding: var(--space-5) 0 var(--space-6);
+}
+.account-avatar {
+  width: calc(var(--space-7) * 2); height: calc(var(--space-7) * 2); flex: none;
+  display: grid; place-items: center; overflow: hidden;
+  border-radius: var(--radius-full); background: var(--art-100); color: var(--ink-muted);
+}
+.account-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.account-profile__main { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.account-profile__main .display-24 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-profile__main .badges:empty { display: none; }
+.account-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-5);
+  padding: var(--space-5) 0; border-top: 1px solid var(--line-100);
+}
+.account-row__copy { min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.account-row__copy p { margin: 0; }
+.account-uid { min-width: 0; overflow-wrap: anywhere; }
+.account-row--danger .v-btn { flex: none; }
+@media (max-width: 720px) {
+  .account-profile { padding-bottom: var(--space-5); }
+  .account-row { align-items: flex-start; flex-direction: column; gap: var(--space-3); }
+}
+
 /* —— 登录页（任务式双栏：左列步骤说明 / 右列二维码卡，发丝线分隔，不用色块） —— */
 .login {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-6);
