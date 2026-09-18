@@ -139,6 +139,11 @@ button.v-tag { font-family: inherit; cursor: pointer; }
 button.v-tag:disabled { opacity: 0.45; cursor: default; }
 /* 右组宽度自适应：240px 固定宽放不下 tag + 3 图标 + 音量条时 tag 会被压缩换行（“自动”变两行） */
 .v-player__right { width: auto; flex: none; }
+/* 播放键真居中：三列等分 grid（1fr auto 1fr），两侧轨道等宽，中列恒居底栏正中，不随左右内容宽度漂移 */
+.v-player { display: grid; grid-template-columns: 1fr auto 1fr; }
+.v-player__now { width: auto; min-width: 0; justify-self: start; }
+.v-player__center { min-width: 0; justify-self: center; }
+.v-player__right { min-width: 0; justify-self: end; }
 #pb-quality { flex: none; white-space: nowrap; }
 /* 单曲循环角标：repeat 常开 + 右上 "1"（aria-label 区分，颜色不单独表意） */
 #pb-loop[data-mode="one"] { position: relative; }
