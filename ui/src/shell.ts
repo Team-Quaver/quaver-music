@@ -15,6 +15,7 @@ import { QueuePanel } from "./components/QueuePanel";
 import { SearchBox } from "./components/SearchBox";
 import { views } from "./views";
 import { icon } from "./verse/icons";
+import { cfg, cfgSetSoon } from "./lib/config";
 
 export const nav = [
   { id: "home", path: "#/", label: "首页", icon: "home" },
@@ -121,6 +122,7 @@ export function bootShell() {
           ${icon("settings")} <span class="ellipsis">设置</span>
         </button>
       </aside>
+      <div class="q-side-resizer" role="separator" aria-orientation="vertical" title="拖拽调整侧栏宽度（双击恢复默认）"></div>
       <main class="q-content">
         <div class="route" id="route"></div>
       </main>
@@ -129,6 +131,33 @@ export function bootShell() {
   document.body.prepend(frame);
   state.content = frame.querySelector<HTMLElement>(".q-content")!;
   state.route = frame.querySelector<HTMLElement>("#route")!;
+
+  // —— 侧栏宽度：拖拽条调节（不随窗口宽度变化），持久化到 quaver.conf 的 Window.SidebarWidth ——
+  const SB_MIN = 180, SB_MAX = 400, SB_DEF = 220;
+  const clampW = (w: number) => Math.min(SB_MAX, Math.max(SB_MIN, Math.round(w)));
+  const setSidebarW = (w: number) => {
+    const px = clampW(w);
+    document.documentElement.style.setProperty("--sidebar-w", `${px}px`); // 行内覆盖 verse-tokens 的 :root 定义
+    cfgSetSoon({ "Window.SidebarWidth": String(px) }); // 拖拽高频：合并落盘
+  };
+  const savedW = Number(cfg("Window.SidebarWidth", String(SB_DEF)));
+  document.documentElement.style.setProperty("--sidebar-w", `${clampW(Number.isFinite(savedW) ? savedW : SB_DEF)}px`);
+
+  const resizer = frame.querySelector<HTMLElement>(".q-side-resizer")!;
+  const side = frame.querySelector<HTMLElement>(".q-side")!;
+  let drag: { x: number; w: number } | null = null;
+  resizer.addEventListener("pointerdown", (e) => {
+    drag = { x: e.clientX, w: side.getBoundingClientRect().width };
+    resizer.setPointerCapture(e.pointerId);
+    document.body.classList.add("sidebar-resizing");
+  });
+  resizer.addEventListener("pointermove", (e) => {
+    if (drag) setSidebarW(drag.w + e.clientX - drag.x);
+  });
+  const endDrag = () => { drag = null; document.body.classList.remove("sidebar-resizing"); };
+  resizer.addEventListener("pointerup", endDrag);
+  resizer.addEventListener("pointercancel", endDrag);
+  resizer.addEventListener("dblclick", () => setSidebarW(SB_DEF));
 
   // 主导航按钮（bundle SidebarNav 同构：button + aria-current）
   const mainnav = frame.querySelector<HTMLElement>("#mainnav")!;

@@ -222,6 +222,12 @@ export const SCHEMA = [
         doc: ["窗口右上角 ✕ 的行为：tray=缩放到托盘（默认）｜quit=退出程序"],
         valid: (v) => ["tray", "quit"].includes(v),
       },
+      {
+        key: "SidebarWidth",
+        def: "220",
+        doc: ["侧栏宽度（px）：主界面左侧栏拖拽分隔条调节，双击分隔条恢复默认；范围 180..400"],
+        valid: (v) => { const n = Number(v); return Number.isInteger(n) && n >= 180 && n <= 400; },
+      },
     ],
   },
   {

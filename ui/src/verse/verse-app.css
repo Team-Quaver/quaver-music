@@ -62,10 +62,13 @@
 .q-side #nav-settings { margin: 0 var(--space-2); width: auto; }
 .q-content { flex: 1; min-width: 0; min-height: 0; display: flex; background: var(--surface-100); }
 .route { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: var(--space-4) var(--space-5) var(--space-5); }
-/* 窄窗口：侧栏收窄但保留文字（不收成图标栏），过长的用省略号截断 */
-@media (max-width: 1000px) {
-  .q-side { flex-basis: calc(var(--sidebar-w) - var(--space-7)); }
+/* 侧栏拖拽条：独立 flex 项压在 .q-side 右缘，悬停/拖拽时高亮；双击恢复默认宽度 */
+.q-side-resizer {
+  flex: none; width: 5px; margin-left: -5px; z-index: 5;
+  cursor: col-resize; touch-action: none;
 }
+.q-side-resizer:hover, body.sidebar-resizing .q-side-resizer { background: var(--accent); opacity: 0.6; }
+body.sidebar-resizing { cursor: col-resize; user-select: none; }
 /* 窗口钮只有标题栏这一套：提到全屏播放页（.np，z-50）之上，全屏时仍是同一组按钮，位置严格一致 */
 .v-titlebar__win { position: relative; z-index: 60; }
 /* macOS：隐藏自绘窗口钮，左侧留 80px 给系统红绿灯；SSD：系统标题栏接管窗口钮 */
