@@ -275,9 +275,9 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 .home-status .body-14 { color: var(--ink-muted); }
 /* 集合头圆形变体（歌手 128px 圆头像） */
 .v-colhead__art--round { width: 128px; height: 128px; border-radius: var(--radius-full); }
-/* 简介：右侧独立滚动栏，高度随头部拉伸；上下渐隐提示可滚，细滚动条 */
+/* 简介：右侧独立滚动栏，高度不超过左侧封面（超出在栏内滚）；上下渐隐提示可滚，细滚动条 */
 .v-colhead__desc {
-  flex: none; width: 320px; min-height: 0; overflow-y: auto;
+  flex: none; align-self: flex-start; width: 320px; min-height: 0; max-height: var(--cover-md); overflow-y: auto;
   padding: var(--space-2) 0;
   scrollbar-width: thin; scrollbar-color: var(--line-200) transparent;
   mask-image: linear-gradient(180deg, transparent, #000 var(--space-3), #000 calc(100% - var(--space-3)), transparent);
@@ -286,6 +286,7 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 .v-colhead__desc::-webkit-scrollbar-thumb { background: var(--line-200); border-radius: var(--radius-full); }
 .v-colhead__desc::-webkit-scrollbar-track { background: transparent; }
 .v-desc { margin: 0; font-size: 14px; line-height: 20px; color: var(--ink-muted); }
+.v-colhead:has(.v-colhead__art--round) .v-colhead__desc { max-height: 128px; }
 /* 窄窗：简介栏落到头部下方，仍保持固定高滚动 */
 @media (max-width: 720px) {
   .v-colhead { flex-wrap: wrap; }
