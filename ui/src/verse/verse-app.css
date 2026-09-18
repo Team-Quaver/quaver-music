@@ -295,10 +295,9 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 .v-colhead__desc::-webkit-scrollbar-track { background: transparent; }
 .v-desc { margin: 0; font-size: 14px; line-height: 20px; color: var(--ink-muted); }
 .v-colhead:has(.v-colhead__art--round) .v-colhead__desc { max-height: 128px; }
-/* 窄窗：简介栏落到头部下方，仍保持固定高滚动 */
-@media (max-width: 720px) {
-  .v-colhead { flex-wrap: wrap; }
-  .v-colhead__desc { flex-basis: 100%; width: auto; max-height: 120px; }
+/* 窄窗（≤1050px）：右侧简介栏直接隐藏，避免三栏头部溢出内容区 */
+@media (max-width: 1050px) {
+  .v-colhead__desc { display: none; }
 }
 /* 热搜词（button 版 v-tag，胶囊组） */
 .v-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
