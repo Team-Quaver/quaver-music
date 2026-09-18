@@ -795,7 +795,7 @@ async function settingsView(root: HTMLElement) {
               aria-label="歌词字体 font-family 列表" placeholder="" />
           </div>
         </div>
-        <p class="set-hint">输入框里填的就是 CSS font-family 列表（逗号分隔、按优先级挑第一个装得上的），改完即时生效；留空表示不覆盖，走内置默认栈。</p>
+        <p class="set-hint">选一个预设字体即可，立即生效，不用自己填。想用自己的字体，选「自定义」，在框里写字体名——多个名字用逗号隔开，靠前的优先，没装就自动用后面的。留空则用默认字体。</p>
       </div>
     </section>
 
@@ -921,8 +921,9 @@ async function settingsView(root: HTMLElement) {
   });
   syncFade();
 
-  // 字体：下拉给预设，右侧输入框可直接编辑 CSS font-family 列表（不必再去手改配置文件）。
-  // 两边互相同步：选预设 → 填进输入框；输入框改成非预设值 → 下拉自动切到「自定义」。输入即时生效。
+  // 字体：下拉给预设，选「自定义」时才出现右侧输入框，可直接编辑 CSS font-family 列表
+  // （不必再去手改配置文件）。两边互相同步：选预设 → 填进输入框；输入框改成非预设值 →
+  // 下拉自动切到「自定义」。输入即时生效。
   const bindFont = (
     sel: SelectBox,
     input: HTMLInputElement,
@@ -930,13 +931,16 @@ async function settingsView(root: HTMLElement) {
     pickPreset: (key: string) => void,
     current: string,
   ) => {
+    const syncVis = () => { input.hidden = sel.value !== FONT_CUSTOM; };
     input.value = current;
     sel.value = fontKeyOf(current);
+    syncVis();
     sel.onchange = () => {
-      if (sel.value === FONT_CUSTOM) return; // 「自定义」= 保持输入框现有内容，不动配置
+      if (sel.value === FONT_CUSTOM) { syncVis(); input.focus(); return; } // 「自定义」= 保持输入框现有内容，不动配置
       const css = FONT_PRESETS[sel.value]?.css ?? "";
       input.value = css;
       pickPreset(sel.value);
+      syncVis();
     };
     input.oninput = () => { applyList(input.value); sel.value = fontKeyOf(input.value); };
     // 失焦时把输入框回写成规范化结果，跟落进配置的值保持一致（多余空格、半截分号都在这里清掉）
@@ -945,6 +949,7 @@ async function settingsView(root: HTMLElement) {
       if (norm !== input.value) input.value = norm;
       applyList(norm);
       sel.value = fontKeyOf(norm);
+      syncVis();
     };
   };
   const mountSel = (mountId: string, ariaLabel: string, value: string) => {

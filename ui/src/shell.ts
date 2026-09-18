@@ -23,7 +23,7 @@ export const nav = [
 ] as const;
 
 export const navMine = [
-  { id: "like", path: "#/liked", label: "我喜欢", icon: "heartOn" },
+  { id: "like", path: "#/liked", label: "我喜欢", icon: "heart" },
 ] as const;
 
 // content = .q-content 主内容区整体；route = 内容区里可被路由替换的部分。
@@ -114,6 +114,7 @@ export function bootShell() {
             <span class="badges" id="badges"></span>
           </span>
         </a>
+        <div class="q-side-sep" aria-hidden="true"></div>
         <nav class="v-nav" aria-label="主导航" id="mainnav"></nav>
         <div class="q-playlists" id="playlists"><div class="caption-12" style="padding: 0 12px">登录后可见歌单</div></div>
         <button type="button" class="v-nav__item" id="nav-settings">

@@ -53,6 +53,8 @@
   padding-bottom: var(--space-2);
 }
 .q-side .v-nav { flex: none; }
+/* 用户头与主导航之间的发丝分隔线（通栏） */
+.q-side-sep { flex: none; height: 1px; background: var(--line-100); }
 .q-playlists { flex: 1; overflow-y: auto; min-height: 0; padding-bottom: var(--space-2); }
 .q-side #nav-settings { margin: 0 var(--space-2); width: auto; }
 .q-content { flex: 1; min-width: 0; min-height: 0; display: flex; background: var(--surface-100); }
@@ -124,9 +126,12 @@ body.ssd .v-titlebar__win { display: none; }
   outline-offset: 2px;
 }
 /* 搜索下拉：锚在搜索框下方 */
-.v-search { position: relative; }
+.v-search { position: relative; border-color: var(--line-100); }
 /* 只保留内层 border 高亮，去掉 vendor 的外层 outline */
-.v-search:focus-within { outline: none; }
+.v-search:focus-within { outline: none; border-color: var(--accent); }
+/* 清空按钮：未聚焦（未选中）时不显示，聚焦且有内容才出现 */
+.v-search__clear { display: none; }
+.v-search:focus-within .v-search__clear:not([hidden]) { display: inline-flex; }
 .v-search__drop { top: calc(100% + 6px); left: 0; right: 0; max-height: 320px; overflow-y: auto; }
 /* 音质菜单（装在共用右下浮窗 .v-float 里：档位 + VIP 标签 + 回退说明） */
 #pb-qpop .v-float__body { display: flex; flex-direction: column; gap: 2px; padding: 6px; }
