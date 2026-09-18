@@ -237,8 +237,9 @@ export function PlayerBar(): HTMLElement {
   };
   void initQuality();
 
-  // 订阅状态
-  player.on(() => {
+  // 状态绘制既用于首帧，也用于后续播放器通知。
+  // Player.on 只订阅未来变化，不会回放当前状态，因此组件必须主动绘制一次。
+  const paint = () => {
     const s = player.current;
     title.textContent = s?.name ?? "未在播放";
     title.classList.toggle("is-err", !!player.error && !player.loading);
@@ -275,6 +276,8 @@ export function PlayerBar(): HTMLElement {
     mute.classList.toggle("v-iconbtn--on", player.muted);
     queueBtn.setAttribute("aria-expanded", String(player.queueOpen));
     player.markActive();
-  });
+  };
+  player.on(paint);
+  paint();
   return el;
 }

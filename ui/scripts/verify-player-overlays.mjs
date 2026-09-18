@@ -57,6 +57,13 @@ try {
   await page.waitForSelector("#pb-qpop");
   await page.evaluate(() => { window.__overlayQueueNode = document.querySelector("#queue-panel"); });
 
+  await step("player bar paints stateful icons on its first frame", async () => {
+    const missing = await page.evaluate(() => ["#pb-love", "#pb-play", "#pb-loop", "#pb-mute"]
+      .filter((selector) => !document.querySelector(selector)?.querySelector("svg")));
+    if (missing.length) throw new Error(`missing icons: ${missing.join(", ")}`);
+    return "love + play + loop + volume";
+  });
+
   await step("quality menu is initially hidden and has no box", async () => {
     const state = await page.$eval("#pb-qpop", (menu) => {
       const rect = menu.getBoundingClientRect();
