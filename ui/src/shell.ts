@@ -248,10 +248,7 @@ function plItem(x: any, sub = ""): HTMLElement {
 function renderSidebarPlaylists(box: HTMLElement) {
   const favs = sidebarFavsReady ? favSonglists() : null; // null = 尚未拉回：不画空态，避免闪一下「暂无」
   box.innerHTML = "";
-  if (!sidebarCreated.length && !favs?.length) {
-    box.innerHTML = `<div class="caption-12" style="padding: 0 12px">暂无歌单</div>`;
-    return;
-  }
+  if (!sidebarCreated.length && !favs?.length) return; // 无歌单时留空，不写空态文案
   const group = (label: string, list: any[], sub: (x: any) => string) => {
     if (!list.length) return;
     const head = document.createElement("div");
