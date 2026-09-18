@@ -27,6 +27,27 @@ const h = (tag: string, cls: string, html = "") => {
 const escHtml = (s: string) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
+// 上游歌单简介夹带 <br> 等展示标记；首页精选只取纯文本，避免把接口 HTML 带进页面。
+const plainText = (s: unknown) => String(s ?? "")
+  .replace(/<br\s*\/?>/gi, " ")
+  .replace(/<[^>]*>/g, " ")
+  .replace(/&nbsp;/gi, " ")
+  .replace(/&amp;/gi, "&")
+  .replace(/&lt;/gi, "<")
+  .replace(/&gt;/gi, ">")
+  .replace(/&quot;/gi, '"')
+  .replace(/\s+/g, " ")
+  .trim();
+
+const compactCount = (value: unknown) => {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  const fmt = (v: number) => v.toFixed(v >= 100 ? 0 : 1).replace(/\.0$/, "");
+  if (n >= 100_000_000) return `${fmt(n / 100_000_000)} 亿`;
+  if (n >= 10_000) return `${fmt(n / 10_000)} 万`;
+  return Math.round(n).toLocaleString("zh-CN");
+};
+
 // 信息头（Likes/Artist 范式：160px 方封面 / 128px 圆头像 + 标题 + 元信息 + 简介 + 行动区）。
 // 简介默认两行截断，真溢出时出 ghost「展开」按钮。
 function mountHead(root: HTMLElement, opts: {
@@ -108,29 +129,155 @@ function navCard(href: string, cover: string, title: string, sub: string, play?:
   return el;
 }
 
-// —— 首页：大标题 + 推荐歌单（单数据源，只撑起一个区块；双区块等上游再出推荐维度） ——
-async function homeView(root: HTMLElement) {
-  root.append(h("h1", "display-24", "首页"));
-  const sec = h("div", "v-section");
-  sec.innerHTML = `<div class="v-section__head"><h2 class="title-18">推荐歌单</h2><span class="caption-12">官方推荐</span></div>`;
-  const grid = h("div", "v-cards", `<div class="caption-12">加载中…</div>`);
-  sec.append(grid);
-  root.append(sec);
-
-  const d: any = await api("/recommend/songlist?num=30");
-  const list: any[] = d?.songlists ?? [];
-  grid.innerHTML = "";
-  for (const x of list) {
-    const href = `#/playlist?id=${encodeURIComponent(x.id ?? "")}&name=${encodeURIComponent(x.title ?? "")}`;
-    grid.append(navCard(
-      href,
-      upPic(x.picurl),
-      x.title ?? "歌单",
-      x.creator_nick ? `歌单 · ${x.creator_nick}` : "歌单",
-      () => cardPlay("playlist", String(x.id ?? ""), href),
-    ));
+function homeStatus(
+  box: HTMLElement,
+  title: string,
+  note: string,
+  retry?: () => void,
+) {
+  box.innerHTML = "";
+  const status = h("div", "home-status", `
+    <p class="title-15">${escHtml(title)}</p>
+    <p class="body-14">${escHtml(note)}</p>`);
+  if (retry) {
+    const btn = h("button", "v-btn v-btn--secondary v-btn--sm", "重试") as HTMLButtonElement;
+    btn.type = "button";
+    btn.onclick = retry;
+    status.append(btn);
   }
-  if (!list.length) grid.innerHTML = `<div class="caption-12">暂无推荐</div>`;
+  box.append(status);
+}
+
+// —— 首页：精选歌单 + 新歌速递 + 推荐网格。两个数据源并行、独立降级。 ——
+async function homeView(root: HTMLElement) {
+  const pageHead = h("div", "home-pagehead", `
+    <h1 class="display-24">首页</h1>
+    <p class="body-14">从一张歌单开始，听见今天的新声音</p>`);
+
+  const lead = h("div", "home-lead");
+
+  const featured = h("section", "home-panel");
+  featured.setAttribute("aria-labelledby", "home-featured-title");
+  featured.innerHTML = `<div class="v-section__head">
+    <h2 class="title-18" id="home-featured-title">今日精选</h2>
+    <span class="caption-12">编辑推荐</span>
+  </div>`;
+  const featureHost = h("div", "home-feature-host", `<div class="caption-12">加载中…</div>`);
+  featured.append(featureHost);
+
+  const newest = h("section", "home-panel home-new");
+  newest.setAttribute("aria-labelledby", "home-new-title");
+  const newHead = h("div", "home-section-head");
+  newHead.innerHTML = `<div class="v-section__head">
+    <h2 class="title-18" id="home-new-title">新歌速递</h2>
+    <span class="caption-12">最新发行</span>
+  </div>`;
+  const playNew = playAllButton();
+  playNew.classList.add("v-btn--sm");
+  playNew.disabled = true;
+  newHead.append(playNew);
+  const newRows = h("div", "v-rows home-new-list", `<div class="caption-12">加载中…</div>`);
+  newest.append(newHead, newRows);
+
+  lead.append(featured, newest);
+
+  const recommendations = h("section", "v-section home-recommendations");
+  recommendations.setAttribute("aria-labelledby", "home-recommend-title");
+  recommendations.innerHTML = `<div class="v-section__head">
+    <h2 class="title-18" id="home-recommend-title">推荐歌单</h2>
+    <span class="caption-12">为你挑选</span>
+  </div>`;
+  const grid = h("div", "v-cards home-cards", `<div class="caption-12">加载中…</div>`);
+  recommendations.append(grid);
+
+  root.append(pageHead, lead, recommendations);
+
+  const loadPlaylists = async () => {
+    featureHost.innerHTML = `<div class="caption-12">加载中…</div>`;
+    grid.innerHTML = `<div class="caption-12">加载中…</div>`;
+    try {
+      const d: any = await api("/recommend/songlist?page=1&num=13");
+      const list: any[] = d?.songlists ?? [];
+      const first = list[0];
+      if (!first) {
+        homeStatus(featureHost, "暂时没有今日精选", "稍后回来，这里会出现新的推荐", loadPlaylists);
+        grid.innerHTML = `<div class="caption-12">暂无推荐歌单</div>`;
+        return;
+      }
+
+      const id = String(first.id ?? "");
+      const title = String(first.title ?? "歌单");
+      const href = `#/playlist?id=${encodeURIComponent(id)}&name=${encodeURIComponent(title)}`;
+      const meta = [
+        first.creator_nick ? `${first.creator_nick} 制作` : "",
+        first.songnum ? `${first.songnum} 首` : "",
+        compactCount(first.listennum) ? `${compactCount(first.listennum)}次播放` : "",
+      ].filter(Boolean).join(" · ");
+      const feature = h("div", "home-feature");
+      feature.innerHTML = `
+        <div class="home-feature__art">${first.picurl ? `<img src="${escHtml(upPic(String(first.picurl)))}" alt=""/>` : ""}</div>
+        <div class="home-feature__main">
+          <p class="overline-11">PLAYLIST</p>
+          <h3 class="title-18 home-feature__title">${escHtml(title)}</h3>
+          ${meta ? `<p class="home-feature__meta time-12">${escHtml(meta)}</p>` : ""}
+          ${first.desc ? `<p class="home-feature__desc body-14">${escHtml(plainText(first.desc))}</p>` : ""}
+          <div class="home-feature__actions"></div>
+        </div>`;
+      const actions = feature.querySelector<HTMLElement>(".home-feature__actions")!;
+      const play = h("button", "v-btn v-btn--secondary", `${icon("play", 16)}播放歌单`) as HTMLButtonElement;
+      play.type = "button";
+      play.onclick = () => { void cardPlay("playlist", id, href); };
+      const open = h("button", "v-btn v-btn--ghost", "查看详情") as HTMLButtonElement;
+      open.type = "button";
+      open.onclick = () => { location.hash = href; };
+      actions.append(play, open);
+      featureHost.replaceChildren(feature);
+
+      grid.innerHTML = "";
+      for (const x of list.slice(1, 13)) {
+        const cardId = String(x.id ?? "");
+        const cardTitle = String(x.title ?? "歌单");
+        const cardHref = `#/playlist?id=${encodeURIComponent(cardId)}&name=${encodeURIComponent(cardTitle)}`;
+        const listens = compactCount(x.listennum);
+        const sub = [x.creator_nick || "", listens ? `${listens}次播放` : ""].filter(Boolean).join(" · ") || "歌单";
+        grid.append(navCard(
+          cardHref,
+          upPic(x.picurl),
+          cardTitle,
+          sub,
+          () => cardPlay("playlist", cardId, cardHref),
+        ));
+      }
+      if (!grid.childElementCount) grid.innerHTML = `<div class="caption-12">暂无更多推荐</div>`;
+    } catch (e: any) {
+      homeStatus(featureHost, "推荐加载失败", String(e?.message ?? "网络暂时不可用"), loadPlaylists);
+      grid.innerHTML = `<div class="caption-12">重新加载后显示推荐歌单</div>`;
+    }
+  };
+
+  const loadNewSongs = async () => {
+    playNew.disabled = true;
+    playNew.onclick = null;
+    newRows.innerHTML = `<div class="caption-12">加载中…</div>`;
+    try {
+      const d: any = await api("/recommend/newsong?type=5");
+      const songs: any[] = (d?.songs ?? []).slice(0, 6);
+      if (!songs.length) {
+        homeStatus(newRows, "暂时没有新歌", "稍后回来看看", loadNewSongs);
+        return;
+      }
+      playNew.disabled = false;
+      playNew.onclick = () => player.playList(songs, 0);
+      renderSongRows(newRows, songs, {
+        showAlbum: false,
+        onPlay: (_song, index, all) => player.playList(all, index),
+      });
+    } catch (e: any) {
+      homeStatus(newRows, "新歌加载失败", String(e?.message ?? "网络暂时不可用"), loadNewSongs);
+    }
+  };
+
+  await Promise.all([loadPlaylists(), loadNewSongs()]);
 }
 
 // —— 歌单页收藏按钮（在线收藏写接口：PlaylistFavWrite Fav/CancelFavPlaylist） ——

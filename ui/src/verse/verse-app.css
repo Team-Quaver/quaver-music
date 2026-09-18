@@ -194,11 +194,46 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 .v-row__sub a:hover, .v-row__album a:hover { color: var(--accent); }
 /* 取消收藏后行淡出移除（我喜欢页） */
 .v-row.leaving { opacity: 0; transform: translateX(-10px); transition: opacity 0.2s ease, transform 0.2s ease; pointer-events: none; }
-/* 专辑卡网格（首页范式：固定 160px，间距 8px） */
+/* 专辑卡网格（固定 160px） */
 .v-cards { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 /* 区块头（首页范式：title-18 + 一行 caption 说明） */
 .v-section { display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-6); }
 .v-section__head { display: flex; align-items: baseline; gap: var(--space-3); }
+
+/* —— 首页（开放表面：精选 / 新歌双栏，下方发丝线分隔推荐网格） —— */
+.home-pagehead { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-5); }
+.home-pagehead p { margin: 0; color: var(--ink-muted); }
+.home-lead {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--cover-md) * 3)), 1fr));
+  gap: var(--space-6); margin-bottom: var(--space-6);
+}
+.home-panel { min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.home-section-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.home-feature-host { min-width: 0; }
+.home-feature { display: grid; grid-template-columns: var(--cover-md) minmax(0, 1fr); gap: var(--space-5); min-width: 0; }
+.home-feature__art {
+  width: var(--cover-md); height: var(--cover-md); overflow: hidden;
+  border-radius: var(--radius-lg); background: var(--art-100);
+}
+.home-feature__art img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.home-feature__main { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); }
+.home-feature__title { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-feature__meta { margin: 0; }
+.home-feature__desc {
+  display: -webkit-box; overflow: hidden; margin: 0; color: var(--ink-muted);
+  -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+}
+.home-feature__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: auto; }
+.home-new-list { margin-top: 0; padding-bottom: 0; }
+.home-new-list .v-row { padding-right: var(--space-2); padding-left: var(--space-2); }
+.home-recommendations { padding-top: var(--space-5); border-top: 1px solid var(--line-100); }
+.home-cards {
+  display: grid; grid-template-columns: repeat(auto-fill, var(--cover-md));
+  gap: var(--space-4) var(--space-3); justify-content: space-between;
+}
+.home-status { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); padding: var(--space-5) 0; }
+.home-status p { margin: 0; }
+.home-status .body-14 { color: var(--ink-muted); }
 /* 集合头圆形变体（歌手 128px 圆头像） */
 .v-colhead__art--round { width: 128px; height: 128px; border-radius: var(--radius-full); }
 /* 简介：两行截断，展开看全文（ghost 小按钮） */
