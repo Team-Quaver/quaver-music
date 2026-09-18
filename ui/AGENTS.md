@@ -1,6 +1,6 @@
 ## Development
 
-Vite MPA（无框架）。启动 dev server 用后台模式：
+Vite SPA（无框架，hash 路由）。启动 dev server 用后台模式：
 
 ```sh
 npm run dev -- --port 5173 --strictPort --host 127.0.0.1
@@ -12,12 +12,14 @@ npm run dev -- --port 5173 --strictPort --host 127.0.0.1
 
 ## Conventions
 
-- 页面 = 根目录 `<name>.html` + `src/entries/<name>.ts`；新页面要同时加进
-  `vite.config.ts` 的 `PAGES`。
-- 页面脚本第一行必须 `mountLayout("标题")`（注入顶栏/侧栏/播放条并搬运 `.page` 内容），
-  之后才可查询页面 DOM。
+- SPA 壳层（`src/main.ts` → `src/shell.ts:bootShell`）：标题栏 / 侧栏 / 播放条 /
+  正在播放页 / 队列面板常驻，`#route` 按 hash 切视图（`src/views.ts:views`）。
+  新视图 = `views` 加路由 + 渲染函数；根目录 `*.html` 只是旧深链的薄跳转层。
+- 界面语言 = Verse（`src/verse/`，详见其 README）：`verse-tokens.css` 与
+  `verse-components.css` 原样 vendor 不许手改；新增样式进 `verse-app.css` 且只许用
+  `var()`。accent 只标记正在播放；分隔用线不用块；数字一律等宽 `mm:ss`。
 - `/api/*` 由 `src/relay.ts`（vite 插件中间件，dev 与 preview 都挂）转发 sidecar :3200 —— 纯透传 +
-  封面取色代理；会话凭证只存在本机配置目录（Linux `~/.config/quaver-music/credential.json`，0600），
+  封面代理；会话凭证只存在本机配置目录（Linux `~/.config/quaver-music/credential.json`，0600），
   不进浏览器。
 
 ## 配置持久化（quaver.conf）
@@ -37,9 +39,8 @@ npm run dev -- --port 5173 --strictPort --host 127.0.0.1
 - 打包态页面跑在**固定端口**（`main.mjs:STABLE_PORT`）：origin 稳定，Chromium 的
   localStorage/IndexedDB/Cache 才能跨启动延续；端口被占时 native-server 自动回落随机端口。
 - `app.setPath("userData")` 钉在配置目录，必须在任何 `app.getPath("userData")` 之前执行。
-- 跨页导航一律 `.html` 后缀绝对路径（Vite dev 对 `/foo.html` 与 `/foo` 都可解析；
-  壳层直接加载 dist 文件时只有 `.html` 形式可用）。
-- 播放全局对象 `window.QuaverPlayer` 由 `PlayerBar()` 挂载。
+- 页内导航一律 hash 路由（`#/playlist?id=…`）；根目录 `.html` 薄跳转层只给旧外链保留。
+- dev 钩子：`import.meta.env.DEV` 下 `window.__player` 即播放器实例（生产构建不含）。
 
 ## Documentation
 

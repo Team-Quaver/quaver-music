@@ -1,41 +1,11 @@
-/* Quaver — 全局样式（SPA 壳层：标题栏/侧栏/内容区/播放条/正在播放页/队列面板） */
-/* 封面染色变量注册为 <color> 类型 → 可被 transition 插值。:root 上 transition 这两个变量，
-   applyCoverTint 换色时全局平滑过渡（含 gradient 内的 var 引用，每帧重算 → 颜色连续变化，
-   不跳变）。未播放时回落 --acc/--cyan（主题感知），播放后由 shell.applyCoverTint 覆盖为封面主色。 */
-@property --cvg-accent { syntax: "<color>"; inherits: true; initial-value: #2f7d5c; }
-@property --cvg-glow { syntax: "<color>"; inherits: true; initial-value: #19c2d8; }
-:root {
-  --bg: #f7f7f8; --card: #fff; --side: #ececec; --ink: #1f2329; --ink2: #6b7280;
-  --acc: #2f7d5c; --hover: #e3e3e4; --line: #d9d9db;
-  --cyan: #19c2d8; /* 播放进度条青色（对齐设计稿） */
-  /* 表面/玻璃 token：明暗主题只在 html[data-theme=dark] 换值，组件结构不动 */
-  --panel: rgba(255,255,255,.72); --panel-line: rgba(255,255,255,.4);
-  --glass: rgba(236,236,238,.62); --glass-line: rgba(255,255,255,.35);
-  --ink3: #3c4048; --ph: #e8e8ea; --ph2: #d5d5d7; --idx: #9aa0a6;
-  --row-hover: #f2f2f3; --nav-active: #d8d8da; --nav-active-line: #c9c9cc; --sep: #bdbdc0;
-  --pill: rgba(247,247,248,.55); --volpop: rgba(246,246,248,.78);
-  --track: #cfcfd2; --press: #0000000d; --tint-row: #e8f3ee;
-  /* 字体族（用户偏好写入；未设置时回退默认栈） */
-  --font-default: "Noto Sans CJK SC", system-ui, -apple-system, sans-serif;
-  /* 封面染色默认值 = 主题强调色（未播放时与 --acc/--cyan 一致，播放后由 applyCoverTint 覆盖）。
-     transition 这两个变量 → 换曲染色时全局平滑过渡（所有消费 var(--cvg-*) 的属性都跟着动）。 */
-  --cvg-accent: var(--acc); --cvg-glow: var(--cyan);
-  transition: --cvg-accent .45s ease, --cvg-glow .45s ease;
-}
+/* Quaver — 全局基底（颜色/字体系 Verse token，此处只留结构性规则）。
+   主题变量全部来自 src/verse/verse-tokens.css，本文件不许定义颜色 token。 */
 html[data-theme="dark"] {
-  --bg: #131417; --card: #232529; --side: #1b1d21; --ink: #e6e8ec; --ink2: #a6adb8;
-  --acc: #6cc79c; --hover: #2e3138; --line: #3a3d45;
-  --panel: rgba(26,28,33,.74); --panel-line: rgba(255,255,255,.07);
-  --glass: rgba(30,32,37,.62); --glass-line: rgba(255,255,255,.08);
-  --ink3: #c3c8d0; --ph: #2b2e34; --ph2: #34373e; --idx: #767c85;
-  --row-hover: #26292f; --nav-active: #31343b; --nav-active-line: #3f434b; --sep: #43464e;
-  --pill: rgba(32,34,39,.55); --volpop: rgba(32,34,39,.8);
-  --track: #43464e; --press: #ffffff12; --tint-row: #1e3129;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.55 var(--font-ui, var(--font-default)); }
+body { margin: 0; background: var(--surface-100); color: var(--ink); font: 14px/1.55 var(--font-sans); }
 a { color: inherit; text-decoration: none; }
 /* 关于页图标：浅色主题用深色图标，深色主题用浅色图标（互衬底色） */
 .about-img .ic-light { display: none; }
@@ -43,157 +13,8 @@ html[data-theme="dark"] .about-img .ic-light { display: inline-block; }
 html[data-theme="dark"] .about-img .ic-dark { display: none; }
 button { font: inherit; }
 
-/* 环境色层：当前封面模糊铺底（玻璃面板的色彩来源）。
-   z-index:-1：画在 body 画布背景之上、所有常规流内容之下——
-   透明缝隙与 backdrop-filter 面板都能透出它，且不污染白色内容卡。 */
-.ambient { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
-.ambient-art {
-  position: absolute; inset: 0; background-size: cover; background-position: center;
-  transform: scale(1.15); /* 扩边避免 blur() 边缘发白 */
-  filter: blur(70px) saturate(1.5) brightness(1.06);
-  opacity: 0; transition: opacity 1.2s ease;
-}
-.ambient-art.ready { opacity: .55; }
+/* （壳层：标题栏/侧栏/播放条样式已迁入 src/verse；此处只剩视图与覆盖层样式） */
 
-.frame { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; position: relative; }
-/* CSD（frame:false）：无标题栏、无浮窗。三按钮+抓握点平铺在窗口右上角，
-   容器底即拖拽区（双击最大化），按钮本体 no-drag。浏览器 dev 下同样可见（点击走占位事件）。
-   top 下探到 ContentView 面板缘（y=10）之下：钮完全落在面板内，不压边框。 */
-.winbtns {
-  position: fixed; top: 18px; right: 12px; z-index: 90;
-  display: flex; gap: 4px; padding: 2px;
-  -webkit-app-region: drag; user-select: none;
-}
-.winbtns button {
-  width: 26px; height: 26px; border: 0; border-radius: 50%;
-  background: transparent; color: var(--ink2); display: grid; place-items: center; cursor: pointer; padding: 0;
-  -webkit-app-region: no-drag;
-}
-.winbtns button:hover { background: var(--hover); }
-.winbtns button[data-win="close"]:hover { background: #e81123; color: #fff; }
-/* 抓握点：按钮组内最左的圆点阵区（drag），明示「这里可以拖动窗口」 */
-.win-grip {
-  width: 26px; height: 26px; display: grid; place-items: center;
-  color: var(--ink2); opacity: .55; cursor: grab;
-}
-.winbtns:active .win-grip { cursor: grabbing; }
-/* 顶缘隐形拖拽条：整窗顶部 8px 都是 drag 把手（双击=最大化切换）。
-   与按钮簇（top:18）不在同一水平带，无重叠，铺满整缘即可。 */
-.win-dragtop {
-  position: fixed; top: 0; left: 0; right: 0; height: 8px; z-index: 88;
-  -webkit-app-region: drag; cursor: grab; user-select: none;
-}
-
-/* .body 底部不再给播放条留 absolute 空间——播放条已改为 .frame 流内固定行（任何窗口高度都必然可见） */
-.body { flex: 1; display: flex; gap: 10px; padding: 10px; min-height: 0; }
-.sidebar {
-  flex: 0 0 216px; border-radius: 14px; padding: 14px 10px;
-  display: flex; flex-direction: column; gap: 10px; overflow: hidden; min-height: 0;
-  background: var(--glass); border: 1px solid var(--glass-line);
-  box-shadow: 0 8px 32px rgba(15,20,30,.10);
-  backdrop-filter: blur(26px) saturate(1.5); -webkit-backdrop-filter: blur(26px) saturate(1.5);
-}
-.user { display: flex; gap: 10px; align-items: center; padding: 2px 6px; border-radius: 10px; }
-.user:hover { background: var(--hover); }
-.avatar {
-  width: 44px; height: 44px; flex: 0 0 auto; border-radius: 50%; overflow: hidden;
-  background: var(--ph2); color: var(--ink2); display: grid; place-items: center;
-  box-shadow: 0 2px 6px #00000022;
-}
-.avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
-.user-meta { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.nick { font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.badges { display: flex; gap: 4px; flex-wrap: wrap; }
-.badge { font-style: normal; font-size: 10px; line-height: 16px; padding: 0 5px; border-radius: 4px; color: #fff; }
-.badge.blue { background: #3b7cff; } .badge.orange { background: #ff8a3c; } .badge.green { background: #22b06b; }
-
-.nav { display: flex; flex-direction: column; gap: 2px; }
-.nav a {
-  position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 9px;
-  color: var(--ink3); font-weight: 500;
-  transition: background .14s, transform .1s ease;
-}
-/* 激活态左侧强调条：从封面主色染色（--cvg-accent），激活时纵向滑入（scaleY 0→1），
-   切换导航时新旧条交接有动效。无封面染色（未播放）时回落 --acc 保持视觉一致。 */
-.nav a::before {
-  content: ""; position: absolute; left: 1px; top: 9px; bottom: 9px; width: 3px; border-radius: 2px;
-  background: var(--cvg-accent, var(--acc));
-  transform: scaleY(0); transform-origin: center; transition: transform .2s cubic-bezier(.32,.72,.24,1);
-}
-.nav a:hover { background: var(--hover); }
-.nav a:active { transform: scale(.97); }
-.nav a.active { background: color-mix(in srgb, var(--cvg-glow, var(--nav-active)) 16%, var(--nav-active)); color: var(--ink); }
-.nav a.active::before { transform: scaleY(1); }
-
-.sep { border: 0; border-top: 1px dashed var(--sep); margin: 4px 6px; }
-
-.playlists { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; margin: 0 -4px; padding: 0 4px; }
-.pl { display: flex; gap: 9px; align-items: center; padding: 6px 7px; border-radius: 8px; min-height: 44px; transition: background .14s, transform .1s ease; }
-.pl:hover { background: var(--hover); }
-.pl:active { transform: scale(.97); }
-.pl .thumb { width: 32px; height: 32px; flex: 0 0 auto; border-radius: 6px; background: var(--ph2); overflow: hidden; }
-.pl .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.pname { min-width: 0; display: flex; flex-direction: column; gap: 1px; font-size: 13px; color: var(--ink3); }
-.pl .ptitle, .pl .psub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pl .psub { font-size: 11px; color: var(--idx); }
-.pl-empty { color: var(--idx); font-size: 12px; padding: 8px; }
-/* 侧栏歌单分组标题（我创建的歌单 / 收藏的歌单）：随列表滚动，只作分区不吸顶 */
-.pl-group { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 10px 7px 3px;
-  font-size: 11px; font-weight: 700; color: var(--idx); }
-.pl-group:first-child { padding-top: 2px; }
-.pl-cnt { font-weight: 500; }
-
-.settings { margin-top: auto; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 9px; color: var(--ink3); }
-.settings:hover { background: var(--hover); }
-
-.content { flex: 1; border-radius: 14px; overflow: hidden; padding: 0; min-width: 0; min-height: 0; position: relative;
-  display: flex; flex-direction: column;
-  background: var(--panel); border: 1px solid var(--panel-line);
-  backdrop-filter: blur(24px) saturate(1.4); -webkit-backdrop-filter: blur(24px) saturate(1.4);
-}
-/* 顶部渐隐层：从上缘 panel 实色往下渐隐到透明——CSD 按钮簇与搜索栏所在的顶部带
-   由此获得「标题栏」质感，与下方内容自然过渡而非硬切。盖在 content-top / route 顶部
-   之上（z:1），但 pointer-events:none 不挡交互；搜索框 z:6、CSD 按钮 z:90 都在其上。
-   route 滚动时顶部内容从渐变下缘滑入，形成自然的渐隐入屏。 */
-.content::before {
-  content: ""; position: absolute; top: 0; left: 0; right: 0; height: 112px; z-index: 1;
-  background: linear-gradient(to bottom,
-    var(--panel) 0%,
-    color-mix(in srgb, var(--panel) 55%, transparent) 45%,
-    transparent 100%);
-  border-radius: 14px 14px 0 0; pointer-events: none;
-}
-/* 内容区顶带：常驻搜索框所在的独立一行（不再与页面标题同带浮层）。
-   顶带本身就是 CSD 按钮簇所在的水平区间——右缘永远为其预留避让位（SSD 下不预留），
-   #route 从顶带之下开始滚动，滚动条与内容都碰不到按钮簇。
-   水平布局用「左占位 = 右预留」的对称技巧：预留位挂在 ::after（流内幽灵项），
-   而非容器 padding——这样 margin:auto 的搜索框仍精确居于整条带的几何中心，
-   只是当条带可用宽 < 搜索框宽+簇宽 时（极窄窗）才会被幽灵项推开，届时装不下的将是胶囊本身（可接受）。 */
-.content-top {
-  flex: 0 0 auto; position: relative; display: flex; align-items: center; min-height: 42px; padding: 6px 24px 4px;
-}
-/* CSD 顶带拖拽：把手是顶带内的**独立层** .top-drag，而不是 .content-top 整块。
-   原因：drag 矩形会吞掉落在其下的所有指针事件，而 no-drag 的豁免只在**同一子树内**成立——
-   窗口按钮簇（.winbtns）是顶带的兄弟子树，它给按钮打的 no-drag 挡不住顶带铺过来的 drag 矩形，
-   于是三颗按钮一点就变窗口拖动。所以 drag 矩形必须自己止步在按钮之前。
-   几何（都是距窗口右缘的距离，顶带右缘在距窗口右 11px 处：body 10 + .content 边框 1）：
-     .winbtns right:12 / 宽 120（2+26+4+26+4+26+4+26+2）→ 簇左缘 132、抓握点 130~104、按钮区 100~14。
-   故 top-drag 右缩 94px → drag 止于距窗口右 105px：抓握点整块在把手内，按钮区还留 5px 余量。
-   若调整按钮尺寸/间距/簇右偏移，这个数字要跟着改。 */
-body:not(.ssd) .content-top { user-select: none; }
-body:not(.ssd) .content-top .top-drag {
-  position: absolute; inset: 0 94px 0 0;
-  -webkit-app-region: drag; cursor: grab;
-}
-body:not(.ssd) .content-top .top-center { -webkit-app-region: no-drag; cursor: default; }
-body:not(.ssd) .content-top .sb-field input { user-select: text; }
-.content-top::before, .content-top::after { content: ""; flex: 0 0 0; }
-body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-basis: 134px; } /* 左右对称：按钮簇宽120 + 间隙 */
-/* 路由视图区：renderRoute 只重建这里，搜索框（顶带流内）不受影响。
-   .content-body = route 与停靠态队列面板的横向 flex 容器：面板停靠时 route 让宽，
-   面板不挂载（浮窗态/关闭）时 route 独占整行 —— 主页/搜索/歌手页随宽度整体缩放。 */
-.content-body { flex: 1; min-height: 0; display: flex; min-width: 0; }
-.route { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 6px 24px 20px; }
 /* ContentView 进入动画：只让 .route 的直接子元素淡入上移，容器本身保持稳定 ——
    滚动位置 / 容器背景不闪，避免「整个 ContentView 刷新」的观感。entering class 常驻
    在 .route 上，renderRoute 重建子元素时新挂载的节点立即匹配此选择器、从 from 态开始播放
@@ -210,553 +31,93 @@ body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-b
 
 /* —— 全局滚动条：细圆条、透明轨道、悬停加深（不做大滑块） ——
    宽槽(10px) + 3px 透明描边 + background-clip：可见滑块只占 4px，轨道完全不画底色，
-   视觉上等同悬浮式细条；滚动区（.route/.playlists/.qp-list/.sb-drop）都在这层样式管辖内。 */
+   视觉上等同悬浮式细条；各滚动区都在这层样式管辖内（unit 7 按 Verse 滚动条规则重写）。 */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-corner { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--ink2) 32%, transparent);
+  background: color-mix(in srgb, var(--ink-faint) 32%, transparent);
   background-clip: padding-box;
   border: 3px solid transparent; border-radius: 999px;
 }
-::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--ink2) 55%, transparent); background-clip: padding-box; border: 3px solid transparent; }
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--ink-faint) 55%, transparent); background-clip: padding-box; border: 3px solid transparent; }
 /* 注意：不要再给这些滚动区加 scrollbar-width/scrollbar-color——新版 Chromium（≥121，含 Electron）
    一旦设置就会整体禁用 ::-webkit-scrollbar 自定义样式，细圆条会被浏览器默认款顶掉。 */
-.content h2 { margin: 0 0 14px; font-size: 18px; }
-.muted { color: var(--ink2); }
 
-/* 常驻搜索框：小号胶囊，居于内容区顶带（.content-top）正中。
-   顶带是独立一行，不再浮在页面标题上——任意窗口宽度下都不会遮挡标题/歌手名；
-   右缘避让位由 .content-top 的 padding-right 统一给出。z-index 低于下拉(60)。 */
-/* 顶带居中组：wrapper 与胶囊同宽、margin auto 精确居中；返回钮绝对挂在胶囊左缘之外
-   （落在左侧 134px 幽灵预留位内），胶囊位置不随按钮显隐移动。 */
-.top-center { position: relative; width: clamp(180px, 26vw, 260px); margin: 0 auto; }
-.searchbar { position: relative; z-index: 6; width: 100%; margin: 0; }
-.top-back {
-  position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%);
-  width: 30px; height: 30px; border-radius: 50%; z-index: 7;
-  border: 1px solid var(--line); background: var(--card); color: var(--ink2);
-  display: grid; place-items: center; cursor: pointer; padding: 0;
-}
-.top-back:hover { background: var(--hover); color: var(--ink); }
-.top-back[hidden] { display: none; }
-.sb-field {
-  display: flex; align-items: center; gap: 7px; min-width: 0; height: 29px; padding: 0 11px;
-  border-radius: 999px; background: var(--card); border: 1px solid var(--line); color: var(--ink2);
-  box-shadow: 0 1px 4px rgba(15,20,30,.06);
-}
-.sb-field:focus-within { border-color: var(--cvg-accent, var(--acc)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cvg-accent, var(--acc)) 18%, transparent); }
-.sb-field input {
-  flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
-  color: var(--ink); font: inherit; font-size: 12.5px;
-}
-.sb-field input::-webkit-search-cancel-button { -webkit-appearance: none; }
-.sb-drop {
-  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 60;
-  max-height: 320px; overflow-y: auto; border-radius: 12px; padding: 6px;
-  background: var(--card); border: 1px solid var(--line);
-  box-shadow: 0 12px 32px rgba(15,20,30,.18);
-}
-.sb-item {
-  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
-  padding: 7px 10px; border: 0; border-radius: 8px; background: transparent;
-  color: var(--ink); font: inherit; font-size: 13px; cursor: pointer;
-}
-.sb-item:hover, .sb-item.hi { background: var(--hover); }
-.sb-kind { flex: 0 0 20px; text-align: center; color: var(--ink2); font-size: 12px; }
-.sb-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* —— 搜索视图（#/search 落点页）—— */
-/* —— 分类标签组：搜索页（.search-tabs/.stab）与歌手页（.tag-tabs/.tag）共用同一套胶囊样式 —— */
-.search-tabs, .tag-tabs { display: flex; gap: 6px; margin-bottom: 16px; }
-.stab, .tag {
-  padding: 5px 14px; border-radius: 999px; border: 1px solid var(--line);
-  background: transparent; color: var(--ink2); font-size: 13px; cursor: pointer;
-}
-.stab:hover, .tag:hover { background: var(--hover); color: var(--ink); }
-.stab.sel, .tag.sel { background: var(--cvg-accent, var(--acc)); border-color: var(--cvg-accent, var(--acc)); color: #fff; font-weight: 600; }
-/* 面板组：三块常驻 DOM，只切 hidden（切换标签不重排、不重拉数据） */
-.tag-body > .tag-panel[hidden] { display: none; }
-.hot-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip {
-  padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line);
-  background: var(--card); color: var(--ink3); font-size: 13px; cursor: pointer;
-}
-.chip:hover { border-color: var(--cvg-accent, var(--acc)); color: var(--cvg-accent, var(--acc)); }
-.card .art.round { border-radius: 50%; }
-.more-bar { display: flex; justify-content: center; margin: 18px 0 4px; }
-
-/* 歌单/专辑/歌手信息头（设计稿：左封面 右 标题/详情/简介；整体上对齐；返回钮在顶带不在这里） */
-.pl-head { display: flex; gap: 20px; align-items: flex-start; margin: 6px 0 20px; }
-.pl-art { width: 168px; height: 168px; flex: 0 0 auto; border-radius: 12px; overflow: hidden; background: var(--ph); box-shadow: 0 8px 24px #00000022; }
-.pl-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
-/* 歌手页：头像圆形（与搜索页歌手卡 .art.round 同一语言） */
-.pl-art.round { border-radius: 50%; }
-.pl-info { min-width: 0; flex: 1; display: flex; flex-direction: column; }
-.pl-name { margin: 0 0 8px; font-size: 26px; font-weight: 800; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pl-meta { font-size: 12.5px; color: var(--ink2); margin-bottom: 6px; }
-/* 简介：默认两行截断（折叠态换行符并空格，省略号自然落在第二行末尾；展开态恢复段落），
-   「展开」按钮切换全文（按钮由 JS 按溢出情况决定是否显示） */
-.pl-desc { font-size: 12.5px; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.pl-desc.open { display: block; -webkit-line-clamp: unset; overflow: visible; white-space: pre-line; }
-.pl-expand {
-  align-self: flex-start; margin-top: 4px; padding: 2px 10px; border-radius: 999px;
-  border: 1px solid var(--line); background: transparent; color: var(--ink2);
-  font-size: 12px; cursor: pointer; transition: border-color .12s, color .12s;
-}
-.pl-expand:hover { border-color: var(--cvg-accent, var(--acc)); color: var(--cvg-accent, var(--acc)); }
-/* 信息头行动区（歌单页收藏按钮）；自有歌单/未登录不渲染该行 */
-.pl-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.fav-btn {
-  display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border-radius: 999px;
-  border: 1px solid var(--line); background: var(--card); color: var(--ink);
-  font-size: 13px; cursor: pointer; transition: border-color .12s, background .12s, color .12s;
-}
-.fav-btn:hover:not(:disabled) { border-color: var(--ink2); }
-.fav-btn .fb-ic { font-size: 14px; line-height: 1; color: var(--idx); }
-/* 已收藏：红心红框（与行内单曲红心 .row-love.on 同色） */
-.fav-btn.on { border-color: #e8465a; color: #e8465a; }
-.fav-btn.on .fb-ic { color: #e8465a; }
-.fav-btn:disabled { opacity: .6; cursor: default; }
-.fav-btn.failed { border-color: #d33; color: #e66; }
-html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-color: #f3b4b4; color: #c62828; }
-/* 歌手页分区标题（热门歌曲/最新发布/专辑）：比信息头大名字小一档 */
-.sec-title { margin: 22px 0 10px; font-size: 16px; font-weight: 800; color: var(--ink); }
-/* 分区标题行（标题 + 右侧「查看全部」链接，如歌手页专辑区） */
-.sec-row { display: flex; align-items: baseline; justify-content: space-between; margin: 22px 0 10px; }
-.sec-row .sec-title { margin: 0; }
-.sec-more { font-size: 12.5px; color: var(--ink2); text-decoration: none; white-space: nowrap; }
-.sec-more:hover { color: var(--cvg-accent, var(--acc)); }
-
-/* SPA 页面大标题（对齐设计稿：首页 = 超大深灰粗体） */
-.page-title { margin: 6px 0 18px; font-size: 26px; font-weight: 800; letter-spacing: .5px; color: var(--ink); }
-.page-note { margin: -10px 0 16px; font-size: 12.5px; }
-.cnt { font-size: 13px; font-weight: 400; }
-
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 16px; }
-.card { cursor: pointer; border-radius: 10px; padding: 4px; transition: background .14s, transform .1s ease; }
-.card:hover { background: var(--row-hover); }
-.card:active { transform: scale(.97); }
-.card .art { aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: var(--ph); position: relative; }
-.card .art img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.card .name { font-size: 13px; margin-top: 7px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.card .sub { font-size: 11px; color: var(--ink2); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card.playing { outline: 2px solid var(--cvg-accent, var(--acc)); }
-
-.rows { display: flex; flex-direction: column; gap: 2px; padding-bottom: 8px; }
-.row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 8px; cursor: pointer; user-select: none; }
-.row:hover { background: var(--row-hover); }
-.row.sel { background: var(--row-hover); box-shadow: inset 2px 0 0 var(--cvg-accent, var(--acc)); } /* 单击选中（已预加载播放链接） */
-.row.playing { background: color-mix(in srgb, var(--cvg-glow, var(--tint-row)) 26%, var(--tint-row)); }
-.row .idx { width: 22px; text-align: right; color: var(--idx); font-size: 12px; flex: 0 0 auto; }
-.row .rthumb { width: 44px; height: 44px; border-radius: 6px; background: var(--ph); overflow: hidden; flex: 0 0 auto; }
-.row .rthumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.row .rmeta { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
-.row .rt { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row .ra, .row .ral { color: var(--ink2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row .ral { font-size: 11.5px; opacity: .85; }
-.row .meta-link { border-radius: 4px; padding: 0 2px; margin: 0 -2px; text-decoration: underline; text-decoration-color: #0000; text-underline-offset: 2px; }
-.row .meta-link:hover { color: var(--cvg-accent, var(--acc)); text-decoration-color: currentColor; background: color-mix(in srgb, var(--cvg-glow, var(--acc)) 8%, transparent); }
-.row .row-love { flex: 0 0 auto; border: 0; background: transparent; color: var(--idx); font-size: 15px; line-height: 1; cursor: pointer; padding: 4px 6px; border-radius: 6px; opacity: .45; transition: opacity .12s; }
-.row:hover .row-love, .row .row-love.on { opacity: 1; }
-.row .row-love:hover { background: var(--press); }
-.row .row-love.on { color: #e8465a; }
-/* 取消收藏后行淡出移除（我喜欢页：取消红心 = 取消单曲收藏 + 移出本页） */
-.row.leaving { opacity: 0; transform: translateX(-10px); transition: opacity .2s ease, transform .2s ease; pointer-events: none; }
-.row .dur { width: 40px; text-align: right; color: var(--idx); font-size: 12px; flex: 0 0 auto; }
-
-/* ===================== 底部播放条（.frame 流内固定行：任何窗口高度都必然可见，
-   不会随内容滚走、不会被浮层盖住，也不依赖 body 底部预留 padding——旧 absolute 悬浮方案
-   在矮窗口/半屏吸附时会被窗口下缘裁切，已废弃） ===================== */
-.player {
-  position: relative; z-index: 60; flex: 0 0 auto; margin: 0 10px 10px;
-  height: 64px; border-radius: 14px;
-  display: flex; align-items: center; gap: 14px; padding: 0 16px; color: var(--ink2);
-  background: var(--glass); border: 1px solid var(--glass-line);
-  box-shadow: 0 6px 28px rgba(15,20,30,.12);
-  backdrop-filter: blur(26px) saturate(1.5); -webkit-backdrop-filter: blur(26px) saturate(1.5);
-}
-/* 窄窗口防溢出：三列可收缩 + 中列按钮间隙收紧（播放/暂停永远留位） */
-@media (max-width: 1020px) {
-  .pb-left { width: auto; max-width: 250px; flex: 0 1 auto; }
-  .player { gap: 8px; padding: 0 10px; }
-  .pb-mid { margin: 0; }
-  .pb-right { margin-left: auto; }
-}
-@media (max-width: 860px) {
-  .pb-q, .pb-btn#pb-love { display: none; }
-  .now .s { display: none; }
-}
-/* 背景染色进度条：已播区 = 封面主色。贴紧 Bar 左右两端（border 内侧），
-   R 角与 .player(14px) 同心（13px），满进度时正好铺满内沿。
-   z-index:0 而非负值——.player 有 backdrop-filter（filter 系），
-   负 z-index 会连元素一起被压到 .player 自身背景之下而不可见。
-   块级背景天然在常规流文字/按钮之下，故 fill 置 0、控件置 1 即可。 */
-.pb-fill {
-  position: absolute; top: 1px; bottom: 1px; left: 1px; width: calc((100% - 2px) * var(--pf, 0)); z-index: 0;
-  border-radius: 13px;
-  background: var(--tint, rgba(25,194,216,.75));
-  transition: background-color .5s ease;
-  pointer-events: none;
-}
-.pb-left, .pb-mid, .pb-right { position: relative; z-index: 1; }
-/* 进度 = 封面染色本身（.pb-fill 即进度指示，整条 Bar 可拖拽 seek，无需额外细线） */
-/* 拖拽 seek 中：整条高亮 + 染色块描边反馈 */
-.player.scrubbing { outline: 2px solid color-mix(in srgb, var(--cvg-accent, var(--cyan)) 40%, transparent); outline-offset: 1px; cursor: ew-resize; }
-.player.scrubbing .pb-fill { box-shadow: 2px 0 0 0 var(--tint-line, var(--cyan)); }
-
-.pb-left { display: flex; align-items: center; gap: 10px; width: 250px; min-width: 0; height: 100%; }
-.pb-cover {
-  width: 46px; height: 46px; flex: 0 0 auto; border: 0; padding: 0; border-radius: 9px; overflow: hidden;
-  background: var(--ph2); cursor: pointer; display: grid; place-items: center; position: relative;
-}
-.pb-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.pb-cover::after { /* hover 提示可点 */
-  content: ""; position: absolute; inset: 0; background: #00000030; opacity: 0; transition: opacity .12s;
-  border-radius: inherit;
-}
-.pb-cover:hover::after { opacity: 1; }
-.now { min-width: 0; }
-.now .t { font-size: 13px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.now .s { font-size: 11px; color: var(--ink2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.pb-mid { display: flex; align-items: center; gap: 6px; margin: 0 auto; }
-/* 音质胶囊：挂在右侧按钮组（循环之后、红心之前），显示当前/生效短档名 */
-.pb-q {
-  border: 1px solid var(--glass-line); background: var(--ph2); color: var(--ink2);
-  height: 24px; min-width: 44px; padding: 0 8px; border-radius: 999px; cursor: pointer;
-  font-size: 11px; font-weight: 600; letter-spacing: .2px; margin: 0 4px;
-  white-space: nowrap; transition: color .12s, border-color .12s;
-}
-.pb-q:hover { color: var(--ink); border-color: var(--ink3); }
-.pb-q.active { color: var(--cvg-accent, var(--cyan)); border-color: color-mix(in srgb, var(--cvg-accent, var(--cyan)) 40%, transparent); }
-.pb-q:disabled { opacity: .5; cursor: default; }
-/* 音质浮窗：玻璃底小菜单，锚在音质按钮上方（右侧对齐，同音量浮窗） */
-.pb-qpop {
-  position: absolute; right: 68px; bottom: calc(100% + 10px); z-index: 70;
-  display: flex; flex-direction: column; gap: 2px; padding: 6px; min-width: 190px;
-  max-height: 320px; overflow-y: auto;
-  background: var(--volpop); border: 1px solid var(--glass-line); border-radius: 12px;
-  box-shadow: 0 10px 32px rgba(15,20,30,.18);
-  backdrop-filter: blur(24px) saturate(1.5); -webkit-backdrop-filter: blur(24px) saturate(1.5);
-  opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity .16s, transform .16s;
-}
-.player.q-open .pb-qpop { opacity: 1; pointer-events: auto; transform: none; }
-.qp-q {
-  display: flex; justify-content: space-between; align-items: center; gap: 10px;
-  border: 0; background: transparent; color: var(--ink2); font-size: 12.5px; text-align: left;
-  padding: 7px 10px; border-radius: 8px; cursor: pointer;
-}
-.qp-q:hover { background: var(--press); color: var(--ink); }
-.qp-q.sel { color: var(--cvg-accent, var(--cyan)); font-weight: 600; }
-.qp-q .muted { font-size: 11px; font-style: normal; opacity: .75; }
-/* 取链/缓冲中：spinner 旋转 + 播放键描边 */
-.player.loading .pb-play { animation: pb-pulse 1.6s ease-in-out infinite; }
-.player.loading .pb-play svg { animation: pb-spin .9s linear infinite; }
-.pb-play svg { transform-origin: center; }
-@keyframes pb-spin { to { transform: rotate(360deg); } }
-@keyframes pb-pulse { 0%,100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--cvg-accent, var(--cyan)) 33%, transparent); } 50% { box-shadow: 0 0 0 6px transparent; } }
-.pb-err { font-style: normal; color: #e8747a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
-.pb-btn {
-  border: 0; background: transparent; color: var(--ink3); width: 34px; height: 34px; border-radius: 50%;
-  display: grid; place-items: center; cursor: pointer; padding: 0;
-}
-.pb-btn:hover { background: var(--press); }
-.pb-play { width: 40px; height: 40px; background: var(--ink); color: var(--bg); }
-.pb-play:hover { opacity: .85; }
-.pb-right { display: flex; align-items: center; gap: 2px; }
-.pb-time { font-size: 11px; color: var(--ink2); margin-right: 6px; font-variant-numeric: tabular-nums; }
-.pb-ghost.on { color: var(--cvg-accent, var(--cyan)); }
-.pb-ghost#pb-love.on { color: #e8465a; }
-/* 音量浮窗：挂在 Bar 上方右侧，玻璃底；静音钮 + 滑杆 + 读数一体 */
-.pb-volpop {
-  position: absolute; right: 8px; bottom: calc(100% + 10px); z-index: 70;
-  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
-  background: var(--volpop); border: 1px solid var(--glass-line); border-radius: 12px;
-  box-shadow: 0 10px 32px rgba(15,20,30,.18);
-  backdrop-filter: blur(24px) saturate(1.5); -webkit-backdrop-filter: blur(24px) saturate(1.5);
-  opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity .16s, transform .16s;
-}
-.player.vol-open .pb-volpop { opacity: 1; pointer-events: auto; transform: none; }
-.pb-volnum { font-size: 11.5px; color: var(--ink2); min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
-/* 浮窗内滑杆：青色填充段 = --v（Chrome/FF 双写法） */
-.pb-vol {
-  -webkit-appearance: none; appearance: none;
-  width: 120px; height: 16px; background: transparent; cursor: pointer; margin: 0;
-}
-.pb-vol::-webkit-slider-runnable-track {
-  height: 4px; border-radius: 2px;
-  background: linear-gradient(90deg, var(--cvg-accent, var(--cyan)) var(--v, 80%), var(--track) var(--v, 80%));
-}
-.pb-vol::-webkit-slider-thumb {
-  -webkit-appearance: none; appearance: none;
-  width: 12px; height: 12px; border-radius: 50%; background: var(--cvg-accent, var(--cyan));
-  margin-top: -4px; box-shadow: 0 1px 3px #0004; border: 0;
-}
-.pb-vol::-moz-range-track { height: 4px; border-radius: 2px; background: var(--track); }
-.pb-vol::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--cvg-accent, var(--cyan)); }
-.pb-vol::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: var(--cvg-accent, var(--cyan)); box-shadow: 0 1px 3px #0004; }
-.pb-vol.off::-webkit-slider-runnable-track { background: var(--track); }
-.pb-vol.off::-webkit-slider-thumb { background: var(--idx); }
-.pb-vol.off::-moz-range-progress { background: var(--track); }
-.pb-vol.off::-moz-range-thumb { background: var(--idx); }
-
-/* ===================== 正在播放 / 歌词（全屏覆盖层） ===================== */
-/* 展开/收起 = 上下滑动面板（fixed 元素不产生滚动条，translateY 到屏外即可） */
-.np {
-  position: fixed; inset: 0; z-index: 50; overflow: hidden;
-  display: grid; place-items: center;
-  opacity: 0; pointer-events: none;
-  transform: translateY(100%);
-  transition: transform .34s cubic-bezier(.32,.72,.24,1), opacity .3s ease;
-}
-.np.open { opacity: 1; pointer-events: auto; transform: none; }
-.np-bg {
-  position: absolute; inset: -80px; background-size: cover; background-position: center;
-  filter: blur(60px) saturate(1.6) brightness(1.08); opacity: var(--np-vis, 0);
-  transform: scale(1.05);
-}
-/* 压暗但保留封面氛围色：底层已铺满模糊封面，这里只做轻度对比遮罩 */
-.np-scrim { position: absolute; inset: 0; background: linear-gradient(180deg, #0c0f1859, #0b0e1973 55%, #0b0e198c); }
-/* 翻译开关：从右上角移到右侧「歌名 / 歌手 - 专辑」下方，做成小胶囊（np-meta 右对齐列内第三个孩子） */
-.np-trans {
-  align-self: flex-end; margin-top: 10px; border: 0; border-radius: 999px;
-  padding: 4px 12px; background: #ffffff1f; color: #fffb; display: inline-flex; align-items: center; gap: 5px;
-  cursor: pointer; font-size: 12px; font-weight: 700; letter-spacing: .5px; transition: background .12s, color .3s ease;
-}
-.np-trans:hover { background: #ffffff2e; color: #fff; }
-/* 翻译开关激活态：封面染色，深底上保可读 → accent 混 18% 白提亮，背景 glow 半透明 */
-.np-trans.on {
-  color: color-mix(in srgb, var(--cvg-accent, var(--cyan)) 82%, #fff);
-  background: color-mix(in srgb, var(--cvg-glow, var(--cyan)) 22%, transparent);
-}
-.np-trans::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .9; }
-.np-inner {
-  position: relative; z-index: 1; width: min(1060px, 92%); height: min(560px, calc(100vh - 150px));
-  display: grid; grid-template-columns: 1.15fr 1fr; gap: 48px; align-items: center;
-  padding-bottom: 40px; /* 给播放条让位 */
-}
-/* 歌词 = 整首列表可滚轮翻阅；当前句清晰（颜色与进度条染色同源），其余模糊渐隐。
-   文本全部左对齐（原文/翻译同左）。逐字卡拉OK动画后续叠加在 .cur 上。 */
-.np-lyrics {
-  position: relative; height: 100%; overflow-y: auto; scrollbar-width: none;
-  mask-image: linear-gradient(180deg, transparent, #000 22%, #000 78%, transparent);
-  scroll-behavior: smooth;
-}
-.np-lyrics::-webkit-scrollbar { display: none; }
-.np-lyrics::before, .np-lyrics::after { content: ""; display: block; height: 38%; flex: none; }
-.np-ly-line {
-  padding: 9px 4px; text-align: left; cursor: pointer;
-  transition: opacity .3s ease, filter .3s ease, transform .3s ease, color .3s ease;
-  opacity: .34; filter: blur(1.6px); color: #fff; font-size: 17px; font-weight: 500;
-}
-.np-ly-line .l1 { display: block; }
-.np-ly-line .l2 { display: block; font-size: 12.5px; opacity: .8; margin-top: 2px; }
-.np.no-trans .np-ly-line .l2 { display: none; }
-/* 当前句：清晰、加大、染色 = 进度条同源 --np-hl（PlayerBar 取封面主色写入 root） */
-.np-ly-line.cur {
-/*  因为我觉得这样可读性有点差，遂改成白色  */
-/*   opacity: 1; filter: none; color: var(--np-hl, #fff); */
-  opacity: 1; filter: none; color: #fff;
-  font-size: 20px; font-weight: 800; transform: scale(1.015); text-shadow: 0 2px 14px #0004;
-}
-.np-ly-empty { text-align: center; color: #fff8; font-size: 14px; padding: 60px 0; }
-/* 封面在上，歌名/「歌手 - 专辑」在下——整块右缘与封面右缘齐平（设计稿） */
-.np-side { display: flex; flex-direction: column; align-items: flex-end; gap: 0; min-width: 0; width: min(360px, 100%); margin-left: auto; }
-.np-cover {
-  width: min(320px, 38vh); aspect-ratio: 1; border-radius: 18px; overflow: hidden; background: #ffffff14;
-  box-shadow: 0 20px 60px #0006; display: grid; place-items: center; color: #fff5;
-}
-.np-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.np-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 0; max-width: 100%; margin-top: 18px; text-align: right; }
-.np-title { font-size: 22px; font-weight: 800; color: #fff; }
-.np-artist { font-size: 13.5px; color: #fffb; }
-/* 歌名 / 歌手-专辑：一行放不下时在容器内自动滚动（marquee）。
-   实测 inline-block 在受限盒中溢出在右（Chrome 不对超宽行内容做右贴齐），
-   故行程为负向：起点 +10px（首字离开左缘渐隐带）→ 终点 -(over+10)px（尾字完整滚入右缘清晰区），
-   两端各补偿 10px 渐隐遮罩，保证每个字符都露得出。fill both 让延迟期停于起点。悬停暂停。 */
-.np-marquee { position: relative; overflow: hidden; max-width: 100%; }
-.np-marquee .mt { display: inline-block; white-space: nowrap; will-change: transform; }
-.np-marquee.over { mask-image: linear-gradient(90deg, transparent, #000 10px, #000 calc(100% - 10px), transparent); }
-.np-marquee.over .mt {
-  animation: np-marquee var(--md, 12s) ease-in-out var(--m-delay, 1.2s) infinite alternate both;
-}
-.np-marquee.over:hover .mt { animation-play-state: paused; }
-@keyframes np-marquee {
-  from { transform: translateX(10px); }
-  to { transform: translateX(var(--mx, -70px)); }
-}
-
-/* ===================== 队列面板（播放列表） =====================
-   双形态：
-   .float = 浮窗：宽度不够时挂 body，fixed 于窗口右下、悬在内容之上（z 在播放页之上）；
-   .dock  = 停靠：内容区宽度足够时挂进 .content-body 右缘（flex 行内 300px 定宽），
-            路由视图区自动让宽；关闭时 display:none，route 立刻铺满。 */
-.queue-panel {
-  display: flex; flex-direction: column; overflow: hidden;
-  background: var(--card); color: var(--ink);
-}
-.queue-panel.float {
-  position: fixed; right: 14px; bottom: 88px; z-index: 70; width: 320px; max-height: 52vh;
-  border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 16px 48px #00000026;
-  opacity: 0; pointer-events: none;
-  transform-origin: bottom right; /* 从播放条队列按钮方向缩放展开 */
-  transform: scale(.9) translateY(10px);
-  transition: opacity .2s ease, transform .2s cubic-bezier(.32,.72,.24,1);
-}
-.queue-panel.float.open { opacity: 1; pointer-events: auto; transform: none; }
-.queue-panel.dock {
-  flex: 0 0 300px; width: 300px; min-width: 0; min-height: 0;
-  border-left: 1px solid var(--line);
-  background: color-mix(in srgb, var(--ink) 4%, transparent);
-  overflow: hidden;
-  transition: flex-basis .28s cubic-bezier(.32,.72,.24,1), width .28s cubic-bezier(.32,.72,.24,1),
-    opacity .24s ease, transform .28s cubic-bezier(.32,.72,.24,1), border-color .24s;
-}
-/* dock 打开/关闭动画：不再用 display:none（那样无过渡）。关闭时缩到 0 宽 + 淡出 + 右移，
-   内部内容由 overflow:hidden 裁切（min-width:300px 保证 qp-head/qp-list 不被挤压重排），
-   视觉像从右缘卷起；打开时反向展开。pointer-events:none 关闭态不挡 route 交互。 */
-.queue-panel.dock:not(.open) {
-  flex-basis: 0; width: 0; opacity: 0; transform: translateX(20px); pointer-events: none;
-  border-left-color: transparent;
-}
-.queue-panel.dock .qp-head, .queue-panel.dock .qp-list { min-width: 300px; }
-.qp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 10px 12px 10px 14px; font-weight: 700; border-bottom: 1px solid var(--line); }
-.qp-title { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
-.qp-cnt { font-style: normal; font-weight: 400; font-size: 11.5px; color: var(--idx); }
-.qp-actions { display: flex; gap: 2px; }
-.qp-act { border: 0; background: transparent; color: var(--ink2); cursor: pointer;
-  width: 26px; height: 26px; display: grid; place-items: center; border-radius: 8px; padding: 0; }
-.qp-act:hover { background: var(--hover); color: var(--ink); }
-.qp-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; }
-.qp-item { display: flex; gap: 7px; align-items: center; padding: 6px 8px 6px 4px;
-  border-radius: 8px; cursor: pointer; font-size: 13px; transition: background .14s, transform .1s ease; }
-.qp-item:hover { background: var(--row-hover); }
-.qp-item:active { transform: scale(.98); }
-.qp-item.cur { background: color-mix(in srgb, var(--cvg-glow, var(--tint-row)) 26%, var(--tint-row)); color: var(--cvg-accent, var(--acc)); font-weight: 600; }
-/* 拖拽中的行：留在文档流（transform 只做视觉位移），浮起 + 投影盖过邻行 */
-.qp-item.dragging { position: relative; z-index: 2; background: var(--row-hover);
-  box-shadow: 0 8px 22px #00000038; opacity: .94; }
-.qi-grip { width: 14px; flex: 0 0 auto; display: grid; place-items: center;
-  color: var(--idx); opacity: 0; cursor: grab; touch-action: none; transition: opacity .12s; }
-.qp-item:hover .qi-grip { opacity: .8; }
-.qp-item.dragging .qi-grip { cursor: grabbing; opacity: .8; }
-.qi-thumb { width: 34px; height: 34px; flex: 0 0 auto; border-radius: 6px; overflow: hidden; background: var(--ph); }
-.qi-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.qi-i { width: 16px; text-align: right; color: var(--idx); font-size: 11px; flex: 0 0 auto; }
-.qp-item.cur .qi-i { color: var(--cvg-accent, var(--acc)); }
-.qi-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
-.qi-n, .qi-a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.qi-a { font-size: 11px; color: var(--ink2); font-weight: 400; }
-.qi-del { border: 0; background: transparent; color: var(--idx); cursor: pointer;
-  width: 22px; height: 22px; flex: 0 0 auto; display: grid; place-items: center;
-  border-radius: 6px; padding: 0; opacity: 0; transition: opacity .12s; }
-.qp-item:hover .qi-del { opacity: 1; }
-.qi-del:hover { background: var(--press); color: var(--ink); }
-.qp-empty { color: var(--idx); font-size: 12.5px; text-align: center; padding: 24px 18px;
-  display: flex; flex-direction: column; gap: 4px; }
-.qp-empty span { font-size: 11.5px; opacity: .8; }
+.muted { color: var(--ink-muted); }
 
 /* ===================== 登录页 ===================== */
-.login-wrap { max-width: 460px; margin: calc(4vh + 26px) auto 0; text-align: center; }
-.qr-box { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 18px; }
-.qr { width: 220px; height: 220px; border-radius: 12px; background: var(--ph); display: grid; place-items: center; overflow: hidden; }
+/* ===================== 登录页（中性：二维码 + 通道选择） ===================== */
+.login-wrap { max-width: 460px; margin: calc(4vh + 26px) auto 0; text-align: center; font-family: var(--font-sans); }
+.qr-box { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); margin-top: 18px; }
+.qr { width: 220px; height: 220px; border-radius: var(--radius-lg); background: var(--art-100); display: grid; place-items: center; overflow: hidden; color: var(--ink-faint); font-size: 12px; }
 .qr img { width: 100%; height: 100%; object-fit: contain; }
-.row-btn { display: flex; gap: 8px; }
-.row-btn select, .row-btn button { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); cursor: pointer; }
-.row-btn button:hover { background: var(--hover); }
+.qr-actions { display: flex; gap: var(--space-2); align-items: center; }
+.qr-actions select { height: var(--control-md); padding: 0 var(--space-3); border-radius: var(--main-radius); border: 1px solid var(--line-200); background: var(--surface-100); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
 
-/* ===================== 我的 ===================== */
-.me { text-align: center; padding-top: 4vh; display: flex; flex-direction: column; align-items: center; }
-.avatar-big { width: 96px; height: 96px; border-radius: 50%; background: var(--ph); overflow: hidden; }
+/* ===================== 我的（居中：头像 + 名称 + 徽章 + 退出） ===================== */
+.me { text-align: center; padding-top: 4vh; display: flex; flex-direction: column; align-items: center; font-family: var(--font-sans); }
+.avatar-big { width: 96px; height: 96px; border-radius: 50%; background: var(--art-100); overflow: hidden; }
 .avatar-big img { width: 100%; height: 100%; object-fit: cover; }
-.ghost-btn { padding: 8px 18px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); cursor: pointer; }
-.me .ghost-btn { margin-top: 22px; }
-html:not([data-theme="dark"]) .ghost-btn.danger:hover { background: #fdecec; border-color: #f3b4b4; color: #c62828; }
-.ghost-btn.danger:hover { border-color: #d33; color: #e66; }
-.ghost-btn:not(.danger):hover { border-color: var(--ink2); }
-.ghost-btn:disabled { opacity: .5; cursor: not-allowed; }
-.ghost-btn:disabled:hover { border-color: var(--line); }
+.me .v-btn { margin-top: 22px; }
 
 /* ===================== 设置视图（对齐设计稿：分区标题 + 选项卡组 + 单选 + 下拉） ===================== */
-.set-view { max-width: 640px; padding-bottom: 12px; }
+/* ===================== 设置视图（Verse 范式：分组标题 + 选项组 + 单选 + 下拉） ===================== */
+.set-view { max-width: 640px; padding-bottom: var(--space-3); font-family: var(--font-sans); }
 .set-sec { margin: 26px 0 30px; }
 .set-sec:first-child { margin-top: 0; }
-.set-sec > h2 { margin: 0 0 4px; font-size: 20px; font-weight: 800; }
-.set-note { margin: 0 0 14px; font-size: 12.5px; }
-.set-sub { margin: 18px 0 8px; font-size: 14px; font-weight: 700; }
+.set-sec > h2 { margin: 0 0 4px; font-size: 18px; line-height: 26px; font-weight: 600; color: var(--ink); }
+.set-note { margin: 0 0 14px; font-size: 12px; line-height: 16px; color: var(--ink-muted); }
+.set-sub { margin: 18px 0 8px; font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: 0.08em; color: var(--ink-faint); }
 .set-sub2 { margin-top: 14px; }
-.set-subnote { font-weight: 400; font-size: 12.5px; }
-.set-hint { margin: 6px 0 0; font-size: 11.5px; line-height: 1.5; }
+.set-subnote { font-weight: 400; font-size: 12px; letter-spacing: 0; color: var(--ink-muted); }
+.set-hint { margin: 6px 0 0; font-size: 12px; line-height: 16px; color: var(--ink-muted); }
 
-/* 选项卡按钮组（外观模式 / 窗口装饰 / 默认音质共用） */
+/* 选项卡按钮组（外观模式 / 窗口装饰 / 默认音质共用）：描边常态，选中走选中底 + accent */
 .opt-cards { display: flex; flex-wrap: wrap; gap: 10px; }
 .opt-card {
-  display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 12px;
-  border: 1px solid var(--line); background: var(--card); color: var(--ink); font-weight: 500;
-  cursor: pointer; transition: border-color .12s, box-shadow .12s, background .12s;
+  display: inline-flex; align-items: center; gap: 8px; min-height: var(--control-md); padding: 5px 16px;
+  border-radius: var(--main-radius); border: 1px solid var(--line-200);
+  background: var(--surface-100); color: var(--ink); font-size: 13px; font-weight: 500;
+  cursor: pointer;
 }
-.opt-card:hover:not(:disabled) { border-color: var(--ink2); }
-.opt-card.sel { border-color: var(--acc); box-shadow: inset 0 0 0 1.5px var(--acc); color: var(--acc); font-weight: 700; }
+.opt-card:hover:not(:disabled) { background: var(--surface-hover); }
+.opt-card.sel { border-color: var(--accent); background: var(--surface-selected); color: var(--accent); font-weight: 700; box-shadow: inset 0 0 0 1px var(--accent); }
 .opt-card:disabled { opacity: .45; cursor: not-allowed; }
 .opt-card .sw { width: 18px; height: 18px; border-radius: 5px; border: 1px solid #0002; flex: 0 0 auto; }
 .sw-system { background: linear-gradient(135deg, #cfd2d6 0 50%, #1f2329 50% 100%); }
 .sw-light { background: #fff; }
 .sw-dark { background: #16181c; }
-.opt-card.q { padding: 8px 14px; border-radius: 999px; font-size: 13px; }
-.opt-card.q .q-lock { font-size: 10px; color: #ff8a3c; font-style: normal; }
-#quality-grid { max-width: 452px; } /* 约束为 4+3 换行（对齐设计稿） */
+.opt-card.q { padding: 5px 14px; border-radius: 999px; }
+#quality-grid { max-width: 452px; }
 
 /* 字体/后端/配置文件路径等「标签 + 输入」行 */
 .set-field { display: flex; flex-direction: column; gap: 5px; margin: 10px 0; }
-.set-field > span { font-size: 13px; font-weight: 600; }
+.set-field > span { font-size: 13px; line-height: 18px; font-weight: 500; color: var(--ink); }
 .set-field select, .set-field input {
-  align-self: flex-start; min-width: 220px; padding: 7px 12px; border-radius: 9px;
-  border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; font: inherit;
+  align-self: flex-start; min-width: 220px; height: var(--control-md); padding: 0 12px;
+  border-radius: var(--main-radius); border: 1px solid var(--line-200);
+  background: var(--surface-100); color: var(--ink); cursor: pointer; font: inherit; font-size: 13px;
 }
 .set-field select:disabled, .set-field input:disabled { opacity: .55; cursor: not-allowed; }
-.set-field select:not(:disabled):hover, .set-field input:not(:disabled):hover { border-color: var(--ink2); }
+.set-field select:not(:disabled):hover, .set-field input:not(:disabled):hover { background: var(--surface-hover); }
 /* 只读路径框：等宽字体方便照着敲，宽度随内容伸缩 */
-.set-field input[readonly] { cursor: text; width: 100%; max-width: 640px; font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 12.5px; }
+.set-field input[readonly] { cursor: text; width: 100%; max-width: 640px; font-family: var(--font-mono); font-size: 12.5px; }
 /* 字体设置：预设下拉 + 可直接编辑的 font-family 输入框（同一行，窄窗自动换行） */
 .set-field .font-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; width: 100%; }
 .set-field .font-row select { min-width: 190px; }
-.set-field .font-row input { flex: 1; min-width: 240px; cursor: text; font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 12.5px; }
-.set-view code { padding: 1px 6px; border-radius: 6px; background: var(--ph); font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 12.5px; }
+.set-field .font-row input { flex: 1; min-width: 240px; cursor: text; font-family: var(--font-mono); font-size: 12.5px; }
+.set-view code { padding: 1px 6px; border-radius: var(--radius-sm); background: var(--surface-hover); font-family: var(--font-mono); font-size: 12.5px; }
 
 /* 解码后端单选 */
 .opt-radios { display: flex; gap: 18px; align-items: center; }
-.opt-radios label { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; cursor: pointer; }
-.opt-radios input { accent-color: var(--acc); width: 15px; height: 15px; cursor: pointer; }
+.opt-radios label { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; cursor: pointer; color: var(--ink); }
+.opt-radios input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
 .opt-radios label:has(input:disabled) { opacity: .5; cursor: not-allowed; }
-/* 设置页交互元素 Tint：hover/选中高亮跟随封面染色（--cvg-*，@property 过渡换曲平滑）。
-   未播放回落原 token：opt-card 灰边框 / acc 强调色，ghost-btn 灰，danger 红不染。
-   仅限定 .set-view —— ghost-btn 在他处（me 页）复用，不连带染色。 */
-.set-view .opt-card:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 55%, var(--line));
-  background: color-mix(in srgb, var(--cvg-glow, var(--acc)) 8%, var(--card));
-}
-.set-view .opt-card.sel {
-  border-color: var(--cvg-accent, var(--acc));
-  box-shadow: inset 0 0 0 1.5px var(--cvg-accent, var(--acc));
-  color: var(--cvg-accent, var(--acc));
-  background: color-mix(in srgb, var(--cvg-glow, var(--acc)) 10%, var(--card));
-}
-.set-view .ghost-btn:not(.danger):hover {
-  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 60%, var(--line));
-  color: var(--cvg-accent, var(--acc));
-}
-.set-view .opt-radios input { accent-color: var(--cvg-accent, var(--acc)); }
-.set-view .opt-radios label:hover { color: var(--cvg-accent, var(--acc)); }
-.soon { font-size: 11px; }
+.soon { font-size: 11px; color: var(--ink-faint); }
 
 /* 调试区 */
 .set-debug { display: flex; align-items: center; gap: 12px; }
-.set-debug .ghost-btn { margin: 0; }
-
-/* SSD 模式：系统标题栏接管窗口控制，隐藏自绘按钮簇与顶部隐形拖拽条 */
-body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 
 /* 歌词字体族（仅作用于正在播放页歌词，独立于界面字体） */
-.np-lyrics { font-family: var(--font-lyric, var(--font-default)); }
+.np-lyrics { font-family: var(--font-lyric, var(--font-sans)); }

@@ -1,7 +1,9 @@
 // Quaver — 路由视图表（仅内容区渲染；播放器/侧栏常驻）
 // 视图函数: async (root, query) => cleanup?
-import { api, upPic, getQuality, setQuality, setSessionQuality, getStreamTiers, identityBadges } from "./lib/api";
-import { renderSongRows, loadLiked, type RowHooks } from "./lib/songs";
+import { api, upPic, coverUrl, getQuality, setQuality, setSessionQuality, getStreamTiers, identityBadges } from "./lib/api";
+import { renderSongRows, loadLiked, tableHead, emptyState, type RowHooks } from "./lib/songs";
+import { icon } from "./verse/icons";
+import { formatTime } from "./verse/format";
 import { getMyMusicid, isFavSonglist, loadFavSonglists, onFavSonglistsChange, toggleFavSonglist } from "./lib/favs";
 import { pushHistory } from "./components/SearchBox";
 import { player } from "./player";
@@ -25,37 +27,35 @@ const h = (tag: string, cls: string, html = "") => {
 const escHtml = (s: string) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
-export const BACK_SVG = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6l-6 6 6 6"/></svg>`;
-
-// 信息头（歌单/专辑/歌手共用）：左图 右「名称/详情/简介」整体上对齐；
-// 简介默认两行截断，文本真溢出时出「展开」按钮（点一下显全文，再点收回）。
-// 返回按钮不在这里——统一挂在壳层顶带（搜索框旁，见 shell.ts）。
+// 信息头（Likes/Artist 范式：160px 方封面 / 128px 圆头像 + 标题 + 元信息 + 简介 + 行动区）。
+// 简介默认两行截断，真溢出时出 ghost「展开」按钮。
 function mountHead(root: HTMLElement, opts: {
   artHtml: string; artRound?: boolean; name: string; meta: string; desc: string;
-  /** 信息头行动区（如歌单页的收藏按钮），挂在简介下方 */
+  /** 信息头行动区，挂在简介下方 */
   actions?: HTMLElement | null;
 }) {
-  const head = h("div", "pl-head");
+  const head = h("div", "v-colhead");
   head.innerHTML = `
-    <div class="pl-art${opts.artRound ? " round" : ""}">${opts.artHtml}</div>
-    <div class="pl-info">
-      <h1 class="pl-name">${escHtml(opts.name)}</h1>
-      <div class="pl-meta">${escHtml(opts.meta)}</div>
-      <div class="pl-desc muted">${escHtml(opts.desc)}</div>
+    <div class="v-colhead__art${opts.artRound ? " v-colhead__art--round" : ""}">${opts.artHtml}</div>
+    <div class="v-colhead__main">
+      <div><h1 class="display-24">${escHtml(opts.name)}</h1>${opts.meta ? `<p class="v-colhead__count">${escHtml(opts.meta)}</p>` : ""}</div>
+      ${opts.desc ? `<p class="v-desc">${escHtml(opts.desc)}</p>` : ""}
     </div>`;
   if (opts.actions) {
-    const box = h("div", "pl-actions");
+    const box = h("div", "v-pagehead__actions");
     box.append(opts.actions);
-    head.querySelector<HTMLElement>(".pl-info")!.append(box);
+    head.querySelector<HTMLElement>(".v-colhead__main")!.append(box);
   }
   root.append(head);
-  const desc = head.querySelector<HTMLElement>(".pl-desc")!;
+  const desc = head.querySelector<HTMLElement>(".v-desc")!;
   if (opts.desc) {
     // 截断检测在下一帧做（-webkit-line-clamp 生效后 scrollHeight 才可比）
     requestAnimationFrame(() => {
       if (desc.scrollHeight - desc.clientHeight <= 2) return; // 两行内放得下：不需要按钮
-      const btn = h("button", "pl-expand", "展开") as HTMLButtonElement;
+      const btn = document.createElement("button");
       btn.type = "button";
+      btn.className = "v-btn v-btn--ghost v-btn--sm";
+      btn.textContent = "展开";
       btn.onclick = () => {
         const open = desc.classList.toggle("open");
         btn.textContent = open ? "收起" : "展开";
@@ -66,24 +66,71 @@ function mountHead(root: HTMLElement, opts: {
   return head;
 }
 
-// —— 首页：大标题 + 推荐歌单卡片网格（官方推荐 CGI，无需登录态） ——
+// —— 卡片播放（悬停浮出的圆形播放键）：取集合歌曲后直接开播，失败则落到详情页 ——
+async function cardPlay(kind: "playlist" | "album" | "singer", id: string, fallbackHash: string) {
+  try {
+    let songs: any[] = [];
+    if (kind === "playlist") {
+      const d: any = await api(`/songlist/${id}/detail?page=1&num=100`);
+      songs = d?.songs ?? [];
+    } else if (kind === "album") {
+      const d: any = await api(`/album/${encodeURIComponent(id)}/songs?num=100`);
+      songs = d?.song_list ?? [];
+    } else {
+      const d: any = await api(`/singer/${encodeURIComponent(id)}/songs?num=50&page=1&order=1`);
+      songs = d?.song_list ?? [];
+    }
+    if (!songs.length) throw new Error("empty");
+    player.playList(songs, 0);
+  } catch {
+    location.hash = fallbackHash;
+  }
+}
+
+// 卡片（v-card）：div[role=button] 导航；悬停播放键取歌开播（歌手卡无播放键——人不是可播集合）。
+function navCard(href: string, cover: string, title: string, sub: string, play?: () => void): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "v-card";
+  el.tabIndex = 0;
+  el.setAttribute("role", "button");
+  el.innerHTML = `<div class="v-card__art">${cover ? `<img src="${cover}" alt="" loading="lazy"/>` : ""}
+      ${play ? `<button type="button" class="v-iconbtn v-iconbtn--play v-card__play" aria-label="播放" title="播放">${icon("play")}</button>` : ""}</div>
+    <div class="v-card__title">${escHtml(title)}</div><div class="v-card__sub">${escHtml(sub)}</div>`;
+  el.addEventListener("click", (e) => {
+    if ((e.target as HTMLElement).closest(".v-card__play")) return;
+    location.hash = href;
+  });
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.target as HTMLElement) === el) { e.preventDefault(); location.hash = href; }
+  });
+  const pb = el.querySelector(".v-card__play");
+  if (pb && play) pb.addEventListener("click", (e) => { e.stopPropagation(); play(); });
+  return el;
+}
+
+// —— 首页：大标题 + 推荐歌单（单数据源，只撑起一个区块；双区块等上游再出推荐维度） ——
 async function homeView(root: HTMLElement) {
-  root.append(h("h1", "page-title", "首页"));
-  const grid = h("div", "grid playlist-grid");
-  grid.innerHTML = `<div class="muted">加载中…</div>`;
-  root.append(grid);
+  root.append(h("h1", "display-24", "首页"));
+  const sec = h("div", "v-section");
+  sec.innerHTML = `<div class="v-section__head"><h2 class="title-18">推荐歌单</h2><span class="caption-12">官方推荐</span></div>`;
+  const grid = h("div", "v-cards", `<div class="caption-12">加载中…</div>`);
+  sec.append(grid);
+  root.append(sec);
 
   const d: any = await api("/recommend/songlist?num=30");
   const list: any[] = d?.songlists ?? [];
   grid.innerHTML = "";
   for (const x of list) {
-    const a = h("a", "card") as HTMLAnchorElement;
-    a.href = `#/playlist?id=${encodeURIComponent(x.id ?? "")}&name=${encodeURIComponent(x.title ?? "")}`;
-    a.innerHTML = `<div class="art"><img src="${upPic(x.picurl)}" alt="" loading="lazy"/></div>
-      <div class="name">${x.title ?? "歌单"}</div><div class="sub">${x.creator_nick ? x.creator_nick + " 制作" : "推荐歌单"}</div>`;
-    grid.append(a);
+    const href = `#/playlist?id=${encodeURIComponent(x.id ?? "")}&name=${encodeURIComponent(x.title ?? "")}`;
+    grid.append(navCard(
+      href,
+      upPic(x.picurl),
+      x.title ?? "歌单",
+      x.creator_nick ? `歌单 · ${x.creator_nick}` : "歌单",
+      () => cardPlay("playlist", String(x.id ?? ""), href),
+    ));
   }
-  if (!list.length) grid.innerHTML = `<div class="muted">暂无推荐</div>`;
+  if (!list.length) grid.innerHTML = `<div class="caption-12">暂无推荐</div>`;
 }
 
 // —— 歌单页收藏按钮（在线收藏写接口：PlaylistFavWrite Fav/CancelFavPlaylist） ——
@@ -100,12 +147,13 @@ async function favSonglistButton(meta: {
 
   const btn = document.createElement("button");
   btn.type = "button";
-  btn.className = "fav-btn";
+  btn.className = "v-btn v-btn--ghost";
   btn.dataset.plid = meta.id;
   const paint = () => {
     const on = isFavSonglist(meta.id);
-    btn.classList.toggle("on", on);
-    btn.innerHTML = `<span class="fb-ic">${on ? "♥" : "♡"}</span><span>${on ? "已收藏" : "收藏"}</span>`;
+    // 已收藏 = accent 文字 + 实心爱心（换形 + 换色双信号）
+    btn.classList.toggle("is-loved", on);
+    btn.innerHTML = `${icon(on ? "heartOn" : "heart", 16)}<span>${on ? "已收藏" : "收藏歌单"}</span>`;
     btn.title = on ? "从我的收藏中移除" : "收藏这首歌单";
   };
   paint();
@@ -117,12 +165,10 @@ async function favSonglistButton(meta: {
     } catch (e: any) {
       console.warn("收藏歌单失败", e);
       btn.dataset.fail = "1";
-      btn.classList.add("failed");
       btn.setAttribute("title", String(e?.message ?? e));
-      btn.innerHTML = `<span class="fb-ic">!</span><span>收藏失败</span>`;
+      btn.innerHTML = `<span>收藏失败</span>`;
       window.setTimeout(() => {
         delete btn.dataset.fail;
-        btn.classList.remove("failed");
         paint();
       }, 2600);
     } finally {
@@ -138,9 +184,9 @@ async function favSonglistButton(meta: {
 async function playlistView(root: HTMLElement, q: URLSearchParams) {
   const name = q.get("name") || "歌单";
   const id = q.get("id") || "";
-  const box = h("div", "rows", `<div class="muted">加载中…</div>`);
+  const box = h("div", "v-rows", `<div class="caption-12">加载中…</div>`);
   root.append(box);
-  if (!/^\d+$/.test(id)) { box.innerHTML = `<div class="muted">歌单 id 无效</div>`; return; }
+  if (!/^\d+$/.test(id)) { box.innerHTML = ""; box.append(emptyState("歌单 id 无效", "检查链接后重试", { label: "回首页", href: "#/" })); return; }
 
   let info: any = null;
   const songs: any[] = [];
@@ -154,7 +200,8 @@ async function playlistView(root: HTMLElement, q: URLSearchParams) {
       if (!d?.hasmore || (d?.songs ?? []).length === 0) break;
     }
   } catch (e: any) {
-    box.innerHTML = `<div class="muted">加载失败：${e.message}</div>`;
+    box.innerHTML = "";
+    box.append(emptyState("歌单加载失败", String(e.message), { label: "回首页", href: "#/" }));
     return;
   }
   root.innerHTML = "";
@@ -162,40 +209,50 @@ async function playlistView(root: HTMLElement, q: URLSearchParams) {
   const logo = upPic(info?.picurl || "");
   const metaParts = [info?.creator?.nick ? `${info.creator.nick} 制作` : "", info?.songnum ? `${info.songnum} 首` : ""].filter(Boolean);
   await favsReady.catch(() => {});
+  const actions = h("div", "");
+  const playAll = playAllButton();
+  actions.append(playAll);
+  const fav = await favSonglistButton({
+    id,
+    title: info?.title ?? name,
+    picurl: logo,
+    songnum: info?.songnum,
+    creatorMusicid: info?.creator?.musicid,
+  }).catch(() => null);
+  if (fav) actions.append(fav);
   mountHead(root, {
     artHtml: logo ? `<img src="${logo}" alt=""/>` : "",
     name: info?.title ?? name,
     meta: metaParts.join(" · "),
     desc: info?.desc || "",
-    actions: await favSonglistButton({
-      id,
-      title: info?.title ?? name,
-      picurl: logo,
-      songnum: info?.songnum,
-      creatorMusicid: info?.creator?.musicid,
-    }).catch(() => null),
+    actions,
   });
 
-  const rows = h("div", "rows");
-  root.append(rows);
+  const table = h("div", "");
+  table.append(tableHead(true));
+  const rows = h("div", "v-rows");
+  table.append(rows);
+  root.append(table);
   if (!songs.length) {
-    rows.innerHTML = `<div class="muted">歌单为空或不可见</div>`;
+    rows.append(emptyState("这个歌单是空的", "换个歌单看看", { label: "回首页", href: "#/" }));
+    playAll.disabled = true;
     return;
   }
+  playAll.onclick = () => player.playList(songs, 0);
   const hooks: RowHooks = { showAlbum: true, onPlay: (s, i, all) => player.playList(all, i) };
   renderSongRows(rows, songs, hooks);
 }
 
 // 专辑卡网格（歌手页「专辑」标签 / 歌手全部专辑页共用同一套卡面）
-function albumCardsHtml(albums: any[]): string {
+function albumCards(albums: any[]): HTMLElement[] {
   return albums.map((x) => {
     const pm: string = x.pmid || x.mid || "";
     const cover = pm ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${pm.split("_")[0]}.jpg` : "";
     const sub = [x.album_type, x.time_public].filter(Boolean).join(" · ");
-    return `<a class="card" href="#/album?mid=${encodeURIComponent(x.mid ?? "")}&name=${encodeURIComponent(x.name || "专辑")}">
-      <div class="art">${cover ? `<img src="${cover}" alt="" loading="lazy"/>` : ""}</div>
-      <div class="name">${escHtml(x.name || "专辑")}</div><div class="sub">${escHtml(sub)}</div></a>`;
-  }).join("");
+    const href = `#/album?mid=${encodeURIComponent(x.mid ?? "")}&name=${encodeURIComponent(x.name || "专辑")}`;
+    return navCard(href, cover, x.name || "专辑", sub || "专辑",
+      () => cardPlay("album", String(x.mid ?? ""), href));
+  });
 }
 
 // —— 歌手页（点击行内歌手跳转的落点）：信息头 + 分类标签（热歌 / 新歌 / 专辑） ——
@@ -210,8 +267,8 @@ const SINGER_TABS = [
 async function singerView(root: HTMLElement, q: URLSearchParams) {
   const mid = q.get("mid") || "";
   const name = decodeURIComponent(q.get("name") || "歌手");
-  root.append(h("div", "rows", `<div class="muted">加载中…</div>`));
-  if (!mid) { (root.querySelector(".rows") as HTMLElement).innerHTML = `<div class="muted">缺少歌手 mid</div>`; return; }
+  root.append(h("div", "v-rows", `<div class="caption-12">加载中…</div>`));
+  if (!mid) { root.innerHTML = ""; root.append(emptyState("缺少歌手信息", "检查链接后重试", { label: "回首页", href: "#/" })); return; }
   // 五路并拉（热门/最新两种排序各拉一份）；简介/专辑失败不阻塞主内容（各 .catch 归 null）
   const [homeInfo, detail, songData, newSongData, albumData] = await Promise.all([
     api<any>(`/singer/${encodeURIComponent(mid)}/info`).catch(() => null),
@@ -232,7 +289,7 @@ async function singerView(root: HTMLElement, q: URLSearchParams) {
     songData?.total_num ? `歌曲 ${songData.total_num}` : "",
     albumData?.total ? `专辑 ${albumData.total}` : "",
   ].filter(Boolean).join(" · ");
-  mountHead(root, {
+  const head = mountHead(root, {
     artHtml: `<img src="${avatar}" alt=""/>`,
     artRound: true,
     name: displayName,
@@ -246,18 +303,28 @@ async function singerView(root: HTMLElement, q: URLSearchParams) {
   const newSongs: any[] = ((newSongData?.song_list ?? []) as any[]).filter((s) => !hotKeys.has(s.mid));
   const albums: any[] = albumData?.album_list ?? [];
 
+  // 播放热门（secondary；收藏歌手无上游接口，不画死按钮）
+  const playHot = playAllButton("播放热门");
+  playHot.disabled = !songs.length;
+  playHot.onclick = () => player.playList(songs, 0);
+  head.querySelector(".v-colhead__main")!.append(
+    (() => { const a = h("div", "v-pagehead__actions"); a.append(playHot); return a; })(),
+  );
+
   // 标签栏 + 面板组：三块常驻 DOM，select() 只切 hidden
-  const tabs = h("div", "tag-tabs");
+  const tabs = h("div", "v-tabs");
+  tabs.setAttribute("role", "tablist");
   tabs.innerHTML = SINGER_TABS.map(
-    (t) => `<button class="tag" type="button" data-tab="${t.key}">${t.label}</button>`,
+    (t) => `<button class="v-tabs__item" role="tab" type="button" data-tab="${t.key}" aria-selected="${t.key === "hot"}">${t.label}</button>`,
   ).join("");
-  const body = h("div", "tag-body");
+  const body = h("div", "");
   root.append(tabs, body);
 
   const songPanel = (list: any[], empty: string) => {
-    const p = h("div", "tag-panel");
-    if (!list.length) { p.innerHTML = `<div class="rows muted">${empty}</div>`; return p; }
-    const rows = h("div", "rows");
+    const p = h("div", "");
+    if (!list.length) { p.append(emptyState("这里没有歌曲", empty, { label: "回首页", href: "#/" })); return p; }
+    p.append(tableHead(true));
+    const rows = h("div", "v-rows");
     p.append(rows);
     renderSongRows(rows, list, { showAlbum: true, onPlay: (s, i, all) => player.playList(all, i) });
     return p;
@@ -265,26 +332,30 @@ async function singerView(root: HTMLElement, q: URLSearchParams) {
 
   const hotPanel = songPanel(songs, "没有取到热门歌曲");
   const newPanel = songPanel(newSongs, "暂无新歌");
-  const albumPanel = h("div", "tag-panel");
+  const albumPanel = h("div", "");
   if (albums.length) {
     const more = h("div", "sec-row");
     more.style.marginTop = "0";
-    more.innerHTML = `<span class="muted">共 ${albumData?.total ?? albums.length} 张</span>
+    more.innerHTML = `<span class="caption-12">共 ${albumData?.total ?? albums.length} 张</span>
       <a class="sec-more" href="#/singer-albums?mid=${encodeURIComponent(mid)}&name=${encodeURIComponent(displayName)}">查看全部 ›</a>`;
-    const grid = h("div", "grid");
-    grid.innerHTML = albumCardsHtml(albums);
+    const grid = h("div", "v-cards");
+    for (const c of albumCards(albums)) grid.append(c);
     albumPanel.append(more, grid);
   } else {
-    albumPanel.innerHTML = `<div class="rows muted">暂无专辑</div>`;
+    albumPanel.append(emptyState("暂无专辑", "这位歌手还没有专辑信息", { label: "回首页", href: "#/" }));
   }
   const panels = [hotPanel, newPanel, albumPanel];
   body.append(...panels);
 
   const select = (key: string) => {
     panels.forEach((p, i) => (p.hidden = SINGER_TABS[i].key !== key));
-    tabs.querySelectorAll<HTMLElement>(".tag").forEach((b) => b.classList.toggle("sel", b.dataset.tab === key));
+    tabs.querySelectorAll<HTMLElement>(".v-tabs__item").forEach((b) => {
+      const on = b.dataset.tab === key;
+      b.classList.toggle("v-tabs__item--active", on);
+      b.setAttribute("aria-selected", String(on));
+    });
   };
-  tabs.querySelectorAll<HTMLElement>(".tag").forEach((b) => (b.onclick = () => select(b.dataset.tab!)));
+  tabs.querySelectorAll<HTMLElement>(".v-tabs__item").forEach((b) => (b.onclick = () => select(b.dataset.tab!)));
   select("hot");
 }
 
@@ -292,8 +363,8 @@ async function singerView(root: HTMLElement, q: URLSearchParams) {
 async function singerAlbumsView(root: HTMLElement, q: URLSearchParams) {
   const mid = q.get("mid") || "";
   const name = decodeURIComponent(q.get("name") || "歌手");
-  root.append(h("div", "rows", `<div class="muted">加载中…</div>`));
-  if (!mid) { (root.querySelector(".rows") as HTMLElement).innerHTML = `<div class="muted">缺少歌手 mid</div>`; return; }
+  root.append(h("div", "v-rows", `<div class="caption-12">加载中…</div>`));
+  if (!mid) { root.innerHTML = ""; root.append(emptyState("缺少歌手信息", "检查链接后重试", { label: "回首页", href: "#/" })); return; }
   // 分页拉全：上游单页封顶 30（num 再大也只回 30），循环条件按 total + 空批兜底
   const albums: any[] = [];
   let total = 0;
@@ -306,7 +377,7 @@ async function singerAlbumsView(root: HTMLElement, q: URLSearchParams) {
       if (!batch.length || albums.length >= total) break;
     }
   } catch (e: any) {
-    if (!albums.length) { root.innerHTML = ""; root.append(h("div", "rows muted", `加载失败：${e.message}`)); return; }
+    if (!albums.length) { root.innerHTML = ""; root.append(emptyState("专辑加载失败", String(e.message), { label: "回首页", href: "#/" })); return; }
   }
   root.innerHTML = "";
   const avatar = `https://y.gtimg.cn/music/photo_new/T001R300x300M000${mid}.jpg`;
@@ -317,17 +388,17 @@ async function singerAlbumsView(root: HTMLElement, q: URLSearchParams) {
     meta: total ? `共 ${total} 张` : "",
     desc: "",
   });
-  if (!albums.length) { root.append(h("div", "rows muted", "暂无专辑")); return; }
-  const grid = h("div", "grid");
-  grid.innerHTML = albumCardsHtml(albums);
+  if (!albums.length) { root.append(emptyState("暂无专辑", "这位歌手还没有专辑信息", { label: "回首页", href: "#/" })); return; }
+  const grid = h("div", "v-cards");
+  for (const c of albumCards(albums)) grid.append(c);
   root.append(grid);
 }
 
 // —— 专辑页（点击行内专辑跳转的落点）：detail + songs 两个端点 ——
 async function albumView(root: HTMLElement, q: URLSearchParams) {
   const mid = q.get("mid") || "";
-  root.append(h("div", "rows", `<div class="muted">加载中…</div>`));
-  if (!mid) { (root.querySelector(".rows") as HTMLElement).innerHTML = `<div class="muted">缺少专辑 mid</div>`; return; }
+  root.append(h("div", "v-rows", `<div class="caption-12">加载中…</div>`));
+  if (!mid) { root.innerHTML = ""; root.append(emptyState("缺少专辑信息", "检查链接后重试", { label: "回首页", href: "#/" })); return; }
   try {
     const [detail, list] = await Promise.all([
       api<any>(`/album/${encodeURIComponent(mid)}/detail`).catch(() => null),
@@ -343,45 +414,77 @@ async function albumView(root: HTMLElement, q: URLSearchParams) {
       alb.time_public,
       list?.total_num ? `${list.total_num} 首` : "",
     ].filter(Boolean);
+    const actions = h("div", "");
+    const playAll = playAllButton();
+    playAll.disabled = !songs.length;
+    playAll.onclick = () => player.playList(songs, 0);
+    actions.append(playAll);
     mountHead(root, {
       artHtml: picMid ? `<img src="https://y.gtimg.cn/music/photo_new/T002R300x300M000${picMid.split("_")[0]}.jpg" alt=""/>` : "",
       name: alb.name ?? "专辑",
       meta: metaParts.join(" · "),
       desc: alb.desc || "",
+      actions,
     });
-    const box = h("div", "rows");
-    root.append(box);
-    if (!songs.length) { box.innerHTML = `<div class="muted">没有取到歌曲</div>`; return; }
+    const table = h("div", "");
+    table.append(tableHead(false));
+    const box = h("div", "v-rows");
+    table.append(box);
+    root.append(table);
+    if (!songs.length) { box.append(emptyState("这张专辑没有歌曲", "换张专辑看看", { label: "回首页", href: "#/" })); return; }
     renderSongRows(box, songs, { showArtist: true, showAlbum: false, onPlay: (s, i, all) => player.playList(all, i) });
   } catch (e: any) {
-    root.innerHTML = ""; root.append(h("div", "rows muted", `加载失败：${e.message}`));
+    root.innerHTML = ""; root.append(emptyState("专辑加载失败", String(e.message), { label: "回首页", href: "#/" }));
   }
 }
 
-// —— 列表页公共壳 ——
-function listPage(root: HTMLElement, title: string, note?: string) {
-  root.append(h("h1", "page-title", title));
-  if (note) root.append(h("p", "muted page-note", note));
-  const rows = h("div", "rows", `<div class="muted">加载中…</div>`);
-  rows.id = "rows";
-  root.append(rows);
+// —— 列表页公共壳（ForYou 范式：标题区 + 表头 + 行） ——
+// actions 里的页面级「播放全部」一律 secondary（描边），不许实心 primary。
+function playAllButton(label = "播放全部"): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "v-btn v-btn--secondary";
+  b.innerHTML = `${icon("play", 16)}${label}`;
+  return b;
+}
+
+function listPage(root: HTMLElement, title: string, note?: string, actions?: HTMLElement) {
+  const head = h("div", "v-pagehead");
+  head.innerHTML = `<div class="v-pagehead__main"><h1 class="display-24">${escHtml(title)}</h1>${note ? `<p class="body-14" style="margin: 0; color: var(--ink-muted)">${escHtml(note)}</p>` : ""}</div>`;
+  if (actions) {
+    const box = h("div", "v-pagehead__actions");
+    box.append(actions);
+    head.append(box);
+  }
+  const table = h("div", "");
+  table.append(tableHead(true));
+  const rows = h("div", "v-rows", `<div class="caption-12">加载中…</div>`);
+  table.append(rows);
+  root.append(head, table);
   return rows;
 }
 
 async function guessView(root: HTMLElement) {
-  const box = listPage(root, "猜你喜欢", "品味懂你意思");
+  const playAll = playAllButton();
+  const box = listPage(root, "猜你喜欢", "根据收藏与近期播放推荐", playAll);
   try {
     const d: any = await api("/recommend/guess");
     const songs: any[] = d?.songs ?? [];
-    if (!songs.length) { box.innerHTML = `<div class="muted">暂无推荐，登录后可得</div>`; return; }
-    renderSongRows(box, songs, { onPlay: (s, i, all) => player.playList(all, i) });
+    if (!songs.length) {
+      box.innerHTML = "";
+      box.append(emptyState("还没有猜你喜欢", "登录后多听歌，这里会按口味更新", { label: "去看看我喜欢", href: "#/liked" }));
+      playAll.disabled = true;
+      return;
+    }
+    playAll.onclick = () => player.playList(songs, 0);
+    renderSongRows(box, songs, { showAlbum: true, onPlay: (s, i, all) => player.playList(all, i) });
   } catch (e: any) {
-    box.innerHTML = `<div class="muted">${e.message}</div>`;
+    box.innerHTML = `<div class="caption-12">加载失败：${escHtml(e.message)} — 需要先登录</div>`;
+    playAll.disabled = true;
   }
 }
 
 async function dailyView(root: HTMLElement) {
-  const box = listPage(root, "每日 30 首", '官方"每日30首"接口未开放；本页以「我喜欢」为基础，按日期种子稳定随机取 30 首。');
   // 当日稳定种子：mulberry32(date) —— 同一天刷新顺序不变，隔天换一批
   let t = (Math.floor(Date.now() / 86400000) * 2654435761) >>> 0;
   const rnd = () => {
@@ -390,46 +493,82 @@ async function dailyView(root: HTMLElement) {
     r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
     return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
   };
+  // 先探池：无歌 = Daily 空状态屏（占位 + 陈述 + 后果 + 出口），不画列表壳
+  let pool: any[];
   try {
-    const pool = await loadLiked(box, {}, 500).catch(() => [] as any[]);
-    if (!pool.length) { box.innerHTML = `<div class="muted">需要先登录并收藏一些歌</div>`; return; }
-    const picked: any[] = [];
-    const idx = pool.map((_, i) => i);
-    while (picked.length < 30 && idx.length) {
-      const j = Math.floor(rnd() * idx.length);
-      picked.push(pool[idx.splice(j, 1)[0]]);
-    }
-    box.innerHTML = "";
-    renderSongRows(box, picked, { onPlay: (s, i, all) => player.playList(all, i) });
-  } catch (e: any) {
-    box.innerHTML = `<div class="muted">${e.message} — 需要先登录</div>`;
+    pool = await loadLiked(h("div", ""), {}, 500);
+  } catch {
+    pool = [];
   }
+  if (!pool.length) {
+    root.append(h("h1", "display-24", "每日 30 首"));
+    root.append(emptyState(
+      "今天还没有每日推荐",
+      "以我喜欢为基础，每天稳定随机取 30 首。先登录并收藏一些歌",
+      { label: "去登录", href: "#/login" },
+    ));
+    return;
+  }
+  const picked: any[] = [];
+  const idx = pool.map((_, i) => i);
+  while (picked.length < 30 && idx.length) {
+    const j = Math.floor(rnd() * idx.length);
+    picked.push(pool[idx.splice(j, 1)[0]]);
+  }
+  const playAll = playAllButton();
+  const box = listPage(root, "每日 30 首", "每天按日期稳定随机取 30 首", playAll);
+  playAll.onclick = () => player.playList(picked, 0);
+  renderSongRows(box, picked, { showAlbum: true, onPlay: (s, i, all) => player.playList(all, i) });
 }
 
 /** 两次预载列表是否同一批曲（同序同 mid）：一样就不重画，避免打断滚动 */
 const sameMids = (a: any[], b: any[]) => a.length === b.length && a.every((x, i) => x.mid === b[i]?.mid);
 
 async function likedView(root: HTMLElement) {
-  root.append(h("h1", "page-title", "我喜欢 "));
-  const cnt = h("span", "muted cnt");
-  root.querySelector("h1")!.append(cnt);
-  const box = h("div", "rows", `<div class="muted">加载中…</div>`);
-  root.append(box);
+  // Likes 头部：160px 封面占位 + 标题 + 等宽计数 + 播放全部（secondary）
+  const head = h("div", "v-colhead");
+  head.innerHTML = `<div class="v-colhead__art" id="liked-art"></div>
+    <div class="v-colhead__main">
+      <div><h1 class="display-24">我喜欢</h1><p class="v-colhead__count" id="liked-count"></p></div>
+      <p class="body-14" style="margin: 0; color: var(--ink-muted)">在任何列表里按下爱心，歌就会进这里</p>
+      <div class="v-pagehead__actions" id="liked-actions"></div>
+    </div>`;
+  const table = h("div", "");
+  table.append(tableHead(true));
+  const box = h("div", "v-rows", `<div class="caption-12">加载中…</div>`);
+  table.append(box);
+  root.append(head, table);
+  const art = head.querySelector<HTMLElement>("#liked-art")!;
+  const cnt = head.querySelector<HTMLElement>("#liked-count")!;
+  const playAll = playAllButton();
+  playAll.disabled = true;
+  head.querySelector("#liked-actions")!.append(playAll);
 
-  let shown = 0; // 标题计数（服务端 total 优先：超预载上限时也报真实总数）
-  const setCount = (n: number) => { shown = Math.max(0, n); cnt.textContent = shown ? `· ${shown} 首` : ""; };
+  let songs: any[] = [];
+  let shown = 0;
+  const paintHead = () => {
+    shown = Math.max(songs.length, player.likedTotal);
+    const total = songs.reduce((a, s) => a + (Number(s.interval) || 0), 0);
+    cnt.textContent = shown ? `${shown} 首${total ? ` · ${formatTime(total)}` : ""}` : "";
+    const pic = songs.length ? coverUrl(songs[0], 300) : "";
+    art.innerHTML = pic ? `<img src="${pic}" alt="" loading="lazy"/>` : "";
+  };
   // 取消收藏：行淡出后移出本页 + 计数 -1。只在写接口确认后调用——失败已在 player 侧回滚，不会触发
   const dropRow = (song: any) => {
     const key = String(song._key ?? song.mid ?? "");
-    const row = key ? box.querySelector<HTMLElement>(`.row[data-songkey="${CSS.escape(key)}"]`) : null;
+    const row = key ? box.querySelector<HTMLElement>(`.v-row[data-songkey="${CSS.escape(key)}"]`) : null;
     if (!row || row.classList.contains("leaving")) return;
     row.classList.add("leaving");
-    setCount(shown - 1);
-    setTimeout(() => row.remove(), 220);
+    songs = songs.filter((x) => x !== song);
+    setTimeout(() => { row.remove(); paintHead(); }, 220);
   };
-  const paint = (songs: any[]) => {
-    setCount(Math.max(songs.length, player.likedTotal));
+  const paint = (list: any[]) => {
+    songs = list;
+    paintHead();
+    playAll.disabled = !songs.length;
+    playAll.onclick = () => player.playList(songs, 0);
     renderSongRows(box, songs, {
+      showAlbum: true,
       onPlay: (s, i, all) => player.playList(all, i),
       onLove: (song, on) => { if (!on) dropRow(song); }, // 取消红心 = 取消单曲收藏 + 移出本页
     });
@@ -440,7 +579,10 @@ async function likedView(root: HTMLElement) {
   if (cached) paint(cached);
   const ok = await player.loadLoved();
   if (!ok) {
-    if (!cached) box.innerHTML = `<div class="muted">加载失败 — 需要先登录</div>`;
+    if (!cached) {
+      box.innerHTML = "";
+      box.append(emptyState("还没有收藏的歌曲", "在任何列表里按下爱心，歌就会进这里", { label: "去发现页看看", href: "#/" }));
+    }
     return;
   }
   const fresh: any[] = player.likedCache ?? [];
@@ -455,7 +597,7 @@ async function settingsView(root: HTMLElement) {
   const decodeRow = (name: string, label: string, disabled = false) =>
     `<label><input type="radio" name="decode" value="${name}"${disabled ? " disabled" : ""}/>${label}${disabled ? ` <span class="muted soon">敬请期待</span>` : ""}</label>`;
 
-  root.append(h("h1", "page-title", "设置"));
+  root.append(h("h1", "display-24", "设置"));
   const wrap = h("div", "set-view");
   wrap.innerHTML = `
     <section class="set-sec">
@@ -546,15 +688,15 @@ async function settingsView(root: HTMLElement) {
       <label class="set-field"><span>配置文件</span>
         <input id="conf-path" readonly /></label>
       <div class="set-debug">
-        <button class="ghost-btn" id="open-conf" type="button">在文件管理器中显示</button>
-        <button class="ghost-btn" id="reset-conf" type="button">恢复默认设置</button>
+        <button class="v-btn v-btn--ghost" id="open-conf" type="button">在文件管理器中显示</button>
+        <button class="v-btn v-btn--ghost" id="reset-conf" type="button">恢复默认设置</button>
       </div>
       <p class="muted set-hint" id="conf-hint"></p>
     </section>
 
     <section class="set-sec">
       <h2>调试</h2>
-      <div class="set-debug"><button class="ghost-btn" id="open-log" type="button">打开日志页面</button></div>
+      <div class="set-debug"><button class="v-btn v-btn--ghost" id="open-log" type="button">打开日志页面</button></div>
     </section>
     <section class="set-sec">
       <h2>关于</h2>
@@ -649,7 +791,7 @@ async function settingsView(root: HTMLElement) {
     confPath.value = conf.path;
     confHint.textContent = conf.writable
       ? "手改后重启应用生效（改坏的值会自动回落默认，不影响启动）。"
-      : "⚠️ 配置目录不可写，本次改动只在本进程内生效。";
+      : "注意：配置目录不可写，本次改动只在本进程内生效。";
   } else {
     confPath.value = "（浏览器模式：设置在 localStorage）";
     confHint.textContent = "当前跑在浏览器里，改动只存在本机浏览器存储；用 Electron 壳层启动才会落到 quaver.conf。";
@@ -737,8 +879,8 @@ async function settingsView(root: HTMLElement) {
       btn.className = "opt-card q";
       btn.dataset.q = tier.id;
       btn.type = "button";
-      btn.innerHTML = tier.label + (tier.hi_res ? ' <span class="muted soon">Hi-Res</span>' : "")
-        + (tier.locked ? ' <span class="q-lock">🔒会员</span>' : "");
+      btn.innerHTML = `<span>${tier.label}</span>` + (tier.hi_res ? ' <span class="v-tag">Hi-Res</span>' : "")
+        + (tier.locked ? ' <span class="v-tag v-tag--outline">会员</span>' : "");
       if (tier.locked) btn.disabled = true;
       qBox.append(btn);
     }
@@ -753,8 +895,8 @@ async function settingsView(root: HTMLElement) {
 async function logView(root: HTMLElement) {
   const bar = h("div", "log-bar");
   const pre = h("pre", "log-pre", `<span class="muted">加载中…</span>`);
-  const back = h("button", "ghost-btn", "返回设置");
-  const refresh = h("button", "ghost-btn", "刷新");
+  const back = h("button", "v-btn v-btn--ghost", "返回设置");
+  const refresh = h("button", "v-btn v-btn--ghost", "刷新");
   const meta = h("span", "muted");
   bar.append(back, refresh, meta);
   root.append(bar, pre);
@@ -789,10 +931,10 @@ async function userView(root: HTMLElement) {
     if (!base?.name) { location.hash = "#/login"; return; }
     wrap.innerHTML = `
       <div class="avatar-big">${base.avatar ? `<img src="${String(base.avatar).replace(/^http:/, "https:")}" alt=""/>` : ""}</div>
-      <h2 style="margin:12px 0 4px">${base.name}</h2>
+      <h2 class="display-24" style="margin:12px 0 4px">${base.name}</h2>
       <div class="badges" style="justify-content:center">${identityBadges(home, vip)}</div>
-      <p class="muted">UID: ${base.encrypted_uin ?? ""}</p>
-      <button id="logout" class="ghost-btn danger">退出登录</button>`;
+      <p class="v-colhead__count">UID: ${base.encrypted_uin ?? ""}</p>
+      <button id="logout" class="v-btn v-btn--danger">退出登录</button>`;
     wrap.querySelector<HTMLElement>("#logout")!.onclick = async () => {
       await api("/login/logout", { method: "POST" }).catch(() => {});
       location.href = "/login.html"; // 登录态变化走整页，重置侧栏
@@ -806,18 +948,18 @@ async function userView(root: HTMLElement) {
 async function loginView(root: HTMLElement) {
   root.innerHTML = `
     <div class="login-wrap">
-      <h2>扫码登录</h2>
-      <p class="muted">用手机 QQ 音乐 App 或微信扫码。凭证由本机 sidecar 保存于系统配置目录的 credential.json（0600，Linux 在 ~/.config/quaver-music），不进浏览器。</p>
+      <h2 class="display-24">扫码登录</h2>
+      <p class="caption-12">用手机 QQ 音乐 App 或微信扫码。凭证由本机 sidecar 保存于系统配置目录的 credential.json（0600，Linux 在 ~/.config/quaver-music），不进浏览器。</p>
       <div class="qr-box">
-        <div id="qr" class="qr"><div class="muted">正在生成二维码…</div></div>
-        <div id="lstate" class="muted"></div>
-        <div class="row-btn">
+        <div id="qr" class="qr"><div>正在生成二维码…</div></div>
+        <div id="lstate" class="caption-12"></div>
+        <div class="qr-actions">
           <select id="channel" aria-label="登录通道">
             <option value="mobile">QQ 音乐 App</option>
             <option value="qq">手机 QQ</option>
             <option value="wx">微信</option>
           </select>
-          <button id="refresh" type="button">重新生成</button>
+          <button id="refresh" class="v-btn v-btn--secondary" type="button">重新生成</button>
         </div>
       </div>
     </div>`;
@@ -852,7 +994,7 @@ async function loginView(root: HTMLElement) {
         if (c.event === 4) { lstate.textContent = "已拒绝登录"; window.clearInterval(timer); return; }
         if (c.event === 0 && c.done) {
           window.clearInterval(timer);
-          lstate.textContent = "✅ 登录成功，正在返回…";
+          lstate.textContent = "登录成功，正在返回…";
           setTimeout(() => (location.href = "/index.html"), 800);
         }
       } catch { /* 瞬时网络抖动，下一轮再试 */ }
@@ -877,14 +1019,17 @@ const SEARCH_TABS = [
 async function searchView(root: HTMLElement, q: URLSearchParams) {
   const kw = (q.get("keyword") || "").trim();
   const tab = SEARCH_TABS.find((t) => t.type === (q.get("type") ?? "0")) ?? SEARCH_TABS[0];
-  const head = h("div", "search-head");
-  head.innerHTML = `<h1 class="page-title" style="margin:6px 0 4px">${kw ? `“${kw.replace(/</g, "&lt;")}”的搜索结果` : "搜索"}</h1>
-    <div class="search-tabs">${SEARCH_TABS.map(
-      (t) => `<button class="stab${t.type === tab.type ? " sel" : ""}" data-type="${t.type}" type="button">${t.label}</button>`,
-    ).join("")}</div>`;
-  const box = h("div", "search-body", `<div class="muted">搜索中…</div>`);
-  root.append(head, box);
-  head.querySelectorAll<HTMLElement>(".stab").forEach((b) => {
+  const head = h("div", "v-pagehead");
+  head.innerHTML = `<div class="v-pagehead__main"><h1 class="display-24">${kw ? `“${kw.replace(/</g, "&lt;")}”的搜索结果` : "搜索"}</h1></div>`;
+  const tabs = h("div", "v-tabs");
+  tabs.setAttribute("role", "tablist");
+  tabs.style.marginBottom = "var(--space-4)";
+  tabs.innerHTML = SEARCH_TABS.map(
+    (t) => `<button class="v-tabs__item${t.type === tab.type ? " v-tabs__item--active" : ""}" role="tab" aria-selected="${t.type === tab.type}" data-type="${t.type}" type="button">${t.label}</button>`,
+  ).join("");
+  const box = h("div", "", `<div class="caption-12">搜索中…</div>`);
+  root.append(head, tabs, box);
+  tabs.querySelectorAll<HTMLElement>(".v-tabs__item").forEach((b) => {
     b.onclick = () => {
       if (b.dataset.type === tab.type) return;
       location.hash = `#/search?keyword=${encodeURIComponent(kw)}&type=${b.dataset.type}`;
@@ -896,17 +1041,22 @@ async function searchView(root: HTMLElement, q: URLSearchParams) {
     try {
       const d: any = await api("/search/hotkey");
       const keys: string[] = (d?.vec_hotkey ?? []).map((x: any) => x.title || x.query).filter(Boolean);
-      box.innerHTML = keys.length
-        ? `<div class="hot-chips">${keys.map((k) => `<button class="chip" type="button">${k.replace(/</g, "&lt;")}</button>`).join("")}</div>`
-        : `<div class="muted">输入关键词后回车即可搜索</div>`;
-      box.querySelectorAll<HTMLElement>(".chip").forEach((c) => {
+      if (!keys.length) { box.append(emptyState("输入关键词后回车即可搜索", "或在上方搜索框输入")); return; }
+      const chips = h("div", "v-chips");
+      for (const k of keys) {
+        const c = document.createElement("button");
+        c.type = "button";
+        c.className = "v-tag";
+        c.textContent = k;
         c.onclick = () => {
-          pushHistory(c.textContent || "");
-          location.hash = `#/search?keyword=${encodeURIComponent(c.textContent || "")}`;
+          pushHistory(k);
+          location.hash = `#/search?keyword=${encodeURIComponent(k)}`;
         };
-      });
+        chips.append(c);
+      }
+      box.append(chips);
     } catch (e: any) {
-      box.innerHTML = `<div class="muted">${e.message}</div>`;
+      box.innerHTML = `<div class="caption-12">${escHtml(e.message)}</div>`;
     }
     return;
   }
@@ -919,7 +1069,7 @@ async function searchView(root: HTMLElement, q: URLSearchParams) {
     box.innerHTML = "";
     // 注意：响应各分类字段恒在（其余类为空数组），必须按当前 tab 显式取，不能用 ?? 链
     const list: any[] = (tab.type === "0" ? d?.song : tab.type === "1" ? d?.singer : tab.type === "2" ? d?.album : d?.songlist) ?? [];
-    if (!list.length) { box.innerHTML = `<div class="muted">没有找到相关内容</div>`; return; }
+    if (!list.length) { box.append(emptyState("没有找到相关内容", "换个关键词试试")); return; }
     const noEm = (s: string) => String(s ?? "").replace(/<\/?em>/gi, "");
     if (tab.type === "0") {
       // 高亮标签兜底剥离：后端 highlight=true，name 里可能带 <em>
@@ -928,35 +1078,66 @@ async function searchView(root: HTMLElement, q: URLSearchParams) {
         for (const g of s.singer ?? []) g.name = noEm(g.name);
         if (s.album) s.album.name = noEm(s.album.name);
       }
-      renderSongRows(box, list, { showAlbum: true, onPlay: (s, i, all) => player.playList(all, i) });
+      const table = h("div", "");
+      table.append(tableHead(true));
+      const rows = h("div", "v-rows");
+      table.append(rows);
+      box.append(table);
+      renderSongRows(rows, list, { showAlbum: true, onPlay: (s, i, all) => player.playList(all, i) });
     } else if (tab.type === "1") {
-      box.classList.add("grid");
-      box.innerHTML = list.map((x) => `<a class="card" href="#/singer?mid=${encodeURIComponent(x.mid ?? "")}&name=${encodeURIComponent(noEm(x.name) || "歌手")}">
-          <div class="art round">${x.pic ? `<img src="${upPic(x.pic)}" alt="" loading="lazy"/>` : ""}</div>
-          <div class="name">${noEm(x.name) || "歌手"}</div><div class="sub">${x.song_num ? `${x.song_num} 首` : ""}</div></a>`).join("");
+      const grid = h("div", "v-cards");
+      for (const x of list) {
+        const nm = noEm(x.name) || "歌手";
+        // 歌手卡无播放键：人不是可播集合，点进主页再播热门
+        grid.append(navCard(
+          `#/singer?mid=${encodeURIComponent(x.mid ?? "")}&name=${encodeURIComponent(nm)}`,
+          x.pic ? upPic(x.pic) : "",
+          nm,
+          x.song_num ? `歌手 · ${x.song_num} 首` : "歌手",
+        ));
+      }
+      box.append(grid);
     } else if (tab.type === "2") {
-      box.classList.add("grid");
-      box.innerHTML = list.map((x) => `<a class="card" href="#/album?mid=${encodeURIComponent(x.mid ?? "")}">
-          <div class="art">${x.pic ? `<img src="${upPic(x.pic)}" alt="" loading="lazy"/>` : ""}</div>
-          <div class="name">${noEm(x.name) || "专辑"}</div>
-          <div class="sub">${noEm(x.singer)}${x.time_public ? ` · ${x.time_public}` : ""}</div></a>`).join("");
+      const grid = h("div", "v-cards");
+      for (const x of list) {
+        const href = `#/album?mid=${encodeURIComponent(x.mid ?? "")}`;
+        grid.append(navCard(
+          href,
+          x.pic ? upPic(x.pic) : "",
+          noEm(x.name) || "专辑",
+          [noEm(x.singer), x.time_public].filter(Boolean).join(" · ") || "专辑",
+          () => cardPlay("album", String(x.mid ?? ""), href),
+        ));
+      }
+      box.append(grid);
     } else {
-      box.className = "grid playlist-grid";
-      box.innerHTML = list.map((x) => `<a class="card" href="#/playlist?id=${encodeURIComponent(x.id ?? x.dirid ?? "")}&name=${encodeURIComponent(noEm(x.title) || "歌单")}">
-          <div class="art">${x.picurl ? `<img src="${upPic(x.picurl)}" alt="" loading="lazy"/>` : ""}</div>
-          <div class="name">${noEm(x.title) || "歌单"}</div>
-          <div class="sub">${x.nickname ? noEm(x.nickname) + " 创建" : ""}${x.songnum ? ` · ${x.songnum} 首` : ""}</div></a>`).join("");
+      const grid = h("div", "v-cards");
+      for (const x of list) {
+        const href = `#/playlist?id=${encodeURIComponent(x.id ?? x.dirid ?? "")}&name=${encodeURIComponent(noEm(x.title) || "歌单")}`;
+        const sub = [x.nickname ? `${noEm(x.nickname)} 创建` : "", x.songnum ? `${x.songnum} 首` : ""].filter(Boolean).join(" · ");
+        grid.append(navCard(
+          href,
+          x.picurl ? upPic(x.picurl) : "",
+          noEm(x.title) || "歌单",
+          `歌单${sub ? ` · ${sub}` : ""}`,
+          () => cardPlay("playlist", String(x.id ?? x.dirid ?? ""), href),
+        ));
+      }
+      box.append(grid);
     }
     const total: number = d?.total_num ?? 0;
     if (d?.nextpage && d.nextpage !== -1) {
-      const more = h("div", "more-bar");
-      const btn = h("button", "ghost-btn", `加载更多（共 ${total || "?"} 条）`);
+      const more = h("div", "v-more");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "v-btn v-btn--ghost";
+      btn.textContent = `加载更多（共 ${total || "?"} 条）`;
       btn.onclick = () => go(page + 1);
       more.append(btn);
       box.append(more);
     }
   } catch (e: any) {
-    box.innerHTML = `<div class="muted">搜索失败：${e.message}</div>`;
+    box.innerHTML = `<div class="caption-12">搜索失败：${escHtml(e.message)}</div>`;
   }
 }
 

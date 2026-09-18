@@ -1,25 +1,24 @@
 // 播放列表面板：点击切歌 / 拖拽排序 / 单曲移除 / 一键清空。
-// 双形态自适应（ResizeObserver 驱动）：
-//   内容区宽度足够 → 停靠（.dock）在 .content 右缘（.content-body flex 行内），
-//                    路由视图区（主页/搜索/歌手页…）自动让宽 = 整页缩放；
-//   宽度不够       → 浮窗（.float）固定于窗口右下、悬在内容之上（原行为）。
+// 三处挂载（按 player.expanded 与内容区宽度定）：
+//   播放页展开 → 静态填入 #np-queue（NowPlaying 右栏 320px）；
+//   内容区 ≥880px → 停靠 .q-content 右缘（route 自动让宽）；
+//   否则 → 浮窗（右下，播放条之上）。
+// 当前行 = 三信号（选中底 + accent 歌名 + 圆点）；拖拽中的行拿 shadow-main（GUIDELINES 允许）。
 import { player, type Song } from "../player";
-import { coverUrl } from "../lib/api";
-import { icons } from "../lib/icons";
-
-/** 内容区达到该宽度才停靠（再窄会把视图区挤得放不下卡片网格） */
-const DOCK_MIN_CONTENT = 880;
+import { icon } from "../verse/icons";
 
 export function QueuePanel(): HTMLElement {
   const el = document.createElement("div");
-  el.className = "queue-panel float";
+  el.className = "qp qp-float";
   el.id = "queue-panel";
+  el.setAttribute("role", "complementary");
+  el.setAttribute("aria-label", "播放列表");
   el.innerHTML = `
     <div class="qp-head">
       <span class="qp-title">播放列表<i class="qp-cnt" id="qp-cnt"></i></span>
       <span class="qp-actions">
-        <button class="qp-act" id="qp-clear" title="清空队列" aria-label="清空队列">${icons.trash}</button>
-        <button class="qp-act" id="qp-close" title="收起" aria-label="收起">${icons.chevronDown}</button>
+        <button type="button" class="v-iconbtn v-iconbtn--sm" id="qp-clear" title="清空播放列表" aria-label="清空播放列表">${icon("more", 16)}</button>
+        <button type="button" class="v-iconbtn v-iconbtn--sm" id="qp-close" title="收起" aria-label="收起">${icon("chevronDown", 16)}</button>
       </span>
     </div>
     <div class="qp-list" id="qp-list"></div>
@@ -29,38 +28,34 @@ export function QueuePanel(): HTMLElement {
   el.querySelector<HTMLElement>("#qp-close")!.onclick = () => { player.queueOpen = false; player.notifyPublic(); };
   el.querySelector<HTMLElement>("#qp-clear")!.onclick = () => player.clearQueue();
 
-  // —— 形态切换：停靠 / 浮窗 ——
-  const contentEl = () => document.querySelector<HTMLElement>(".content");
-  const contentBody = () => document.querySelector<HTMLElement>(".content-body");
-  const npEl = () => document.querySelector<HTMLElement>(".np");
-  const dockable = () => { const c = contentEl(); return !!c && c.clientWidth >= DOCK_MIN_CONTENT; };
+  // —— 形态切换 ——
+  const qContent = () => document.querySelector<HTMLElement>(".q-content");
+  const slot = () => document.getElementById("np-queue");
   function syncMount() {
     const open = player.queueOpen;
-    // —— 正在播放全屏页：一律浮窗（固定右侧的通栏 dock 会把歌词区挤失衡，实测弃用）。
-    // float 挂 body、z:70 浮在全屏层（z:50）之上，开关仍由播放条队列按钮驱动；
-    // 收回全屏页后走下方正常逻辑按宽度停靠/浮窗。
-    if (npEl() && player.expanded) {
-      el.classList.remove("dock");
-      el.classList.add("float");
-      if (el.parentElement !== document.body) document.body.append(el);
-      el.classList.toggle("open", open);
+    el.classList.toggle("open", open);
+    // 播放页展开：静态填入右栏（关闭时保持原位收起，避免瞬移）
+    if (player.expanded && slot()) {
+      el.classList.remove("qp-float", "qp-dock");
+      el.classList.add("qp-innp");
+      if (el.parentElement !== slot()) slot()!.append(el);
       return;
     }
-    el.classList.toggle("open", open);
-    // 关闭时保持原位收起（避免「停靠位 → 右下角」的收起动画瞬移）；打开时按宽度定形态
-    const dock = open ? dockable() : el.classList.contains("dock");
-    el.classList.toggle("dock", dock);
-    el.classList.toggle("float", !dock);
+    el.classList.remove("qp-innp");
+    const wide = (qContent()?.clientWidth ?? 0) >= 880;
+    const dock = open ? wide : el.classList.contains("qp-dock");
+    el.classList.toggle("qp-dock", dock);
+    el.classList.toggle("qp-float", !dock);
     if (dock) {
-      const body = contentBody();
-      if (body && el.parentElement !== body) body.append(el); // 停靠：route 自动让宽
+      const c = qContent();
+      if (c && el.parentElement !== c) c.append(el); // 停靠：route 自动让宽
     } else if (el.parentElement !== document.body) {
       document.body.append(el); // 浮窗：挂 body，fixed 定位
     }
   }
   const ro = new ResizeObserver(() => { if (player.queueOpen) syncMount(); });
-  const contentBox = contentEl();
-  if (contentBox) ro.observe(contentBox);
+  // shell 先挂载 QueuePanel（此时 .q-content 尚不存在）：defer 到下一帧再观察
+  requestAnimationFrame(() => { const c = qContent(); if (c) ro.observe(c); });
   syncMount();
 
   // —— 列表渲染（订阅式：队列/指针/播放态变化才重建） ——
@@ -79,29 +74,34 @@ export function QueuePanel(): HTMLElement {
       return;
     }
     player.queue.forEach((q, i) => list.append(rowOf(q, i)));
-    list.querySelector(".cur")?.scrollIntoView({ block: "nearest" });
+    list.querySelector(".qp-row--cur")?.scrollIntoView({ block: "nearest" });
   });
 
   function rowOf(q: Song, i: number): HTMLElement {
+    const cur = i === player.index;
     const row = document.createElement("div");
-    row.className = "qp-item" + (i === player.index ? " cur" : "");
-    const pic = coverUrl(q, 90); // QQ 音乐 CDN 只认 90/150/300/500 等标准尺寸，64 会 404
+    row.className = "qp-row" + (cur ? " qp-row--cur" : "");
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
+    row.title = q.name;
     row.innerHTML = `
-      <span class="qi-grip" title="拖动排序" aria-hidden="true">${icons.grip}</span>
-      <span class="qi-thumb">${pic ? `<img src="${pic}" alt="" loading="lazy"/>` : ""}</span>
-      <span class="qi-i">${i === player.index ? (player.loading ? "…" : player.playing ? "♪" : "❚❚") : i + 1}</span>
-      <span class="qi-main">
-        <span class="qi-n">${escapeHtml(q.name)}</span>
-        <span class="qi-a">${escapeHtml((q.singer ?? []).map((x) => x.name).join(" / "))}</span>
+      <span class="qp-grip" title="拖动排序">${icon("more", 16)}</span>
+      <span class="qp-idx">${cur ? icon("dot", 12) : i + 1}</span>
+      <span class="qp-main">
+        <span class="qp-t">${escapeHtml(q.name)}</span>
+        <span class="qp-a">${escapeHtml((q.singer ?? []).map((x) => x.name).join(" / "))}</span>
       </span>
-      <button class="qi-del" title="移出队列" aria-label="移出队列">${icons.close}</button>
+      <button type="button" class="v-iconbtn v-iconbtn--sm qp-del" title="移出队列" aria-label="移出队列">${icon("close", 14)}</button>
     `;
     row.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).closest(".qi-grip, .qi-del")) return; // 把手/删除钮不触发切歌
+      if ((e.target as HTMLElement).closest(".qp-grip, .qp-del")) return; // 把手/删除钮不触发切歌
       if (suppressClick) return;
       player.jump(i);
     });
-    row.querySelector<HTMLElement>(".qi-del")!.addEventListener("click", (e) => {
+    row.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.target as HTMLElement) === row) { e.preventDefault(); player.jump(i); }
+    });
+    row.querySelector<HTMLElement>(".qp-del")!.addEventListener("click", (e) => {
       e.stopPropagation();
       player.removeAt(i);
     });
@@ -113,7 +113,7 @@ export function QueuePanel(): HTMLElement {
   // 原理：行始终留在文档流里（transform 只做视觉位移），指针进入相邻行半格即交换 DOM 位置，
   // 换位后按「视觉顶边贴指针」重算 transform，肉眼无跳变。松手按最终 DOM 序提交 player.moveInQueue。
   function bindDrag(row: HTMLElement, fromIdx: number) {
-    const grip = row.querySelector<HTMLElement>(".qi-grip")!;
+    const grip = row.querySelector<HTMLElement>(".qp-grip")!;
     const swapUnder = (pointerY: number) => {
       for (const sib of [...list.children] as HTMLElement[]) {
         if (sib === row) continue;

@@ -1,66 +1,46 @@
-// 「正在播放 / 歌词」全屏覆盖页：点击播放条封面展开/收起（唯一入口；播放条不放开关按钮）。
-// 无标题栏 CSD：np 铺满整窗，右上角窗口按钮簇（z-index 更高）在其上。
-// 歌词 = 整首列表：当前句居中、清晰、染色与进度条同源（--np-hl，未来动态逐字同色）；
-// 其余行模糊渐隐。滚轮可自由翻阅全文（翻阅期间暂停自动跟随，播放进度追上行号后恢复跟随）。
-// 右侧 = 封面在上，歌名 / 「歌手 - 专辑」在下，文本右对齐且与封面右缘齐平。
-// 背景 = 当前封面高斯模糊放大铺满 + 深色渐变压暗；进度与控制由常驻播放条承担。
+// 「正在播放」页（NowPlaying 屏）：点击播放条封面/歌词按钮展开，顶栏「收起播放页」收起。
+// 全屏覆盖（常驻播放条仍可见可点）；内部分三栏：歌词 / 封面+曲名+音质 / 播放列表（QueuePanel 挂载位）。
+// 进度与传输控制由常驻播放条承担，本页不重复。
 import { player, type Song } from "../player";
-import { coverUrl } from "../lib/api";
-import { icons } from "../lib/icons";
+import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQuality, QUALITY_SHORT } from "../lib/api";
+import { icon } from "../verse/icons";
 
 export function NowPlaying(): HTMLElement {
   const el = document.createElement("div");
   el.className = "np";
   el.id = "now-playing";
   el.innerHTML = `
-    <div class="np-bg" id="np-bg"></div>
-    <div class="np-scrim"></div>
-    <div class="np-inner">
-      <div class="np-lyrics" id="np-lyrics"></div>
-      <div class="np-side">
+    <div class="np-top">
+      <button type="button" class="v-btn v-btn--ghost" id="np-collapse">${icon("chevronDown", 16)}收起播放页</button>
+    </div>
+    <div class="np-body">
+      <section class="np-lyrics-col">
+        <p class="overline-11">歌词</p>
+        <div class="np-lyrics lyric-font" id="np-lyrics"></div>
+      </section>
+      <section class="np-mid">
         <div class="np-cover" id="np-cover"></div>
-        <div class="np-meta">
-          <div class="np-title np-marquee" id="np-title"><span class="mt">未在播放</span></div>
-          <div class="np-artist np-marquee" id="np-artist"><span class="mt"></span></div>
-          <button class="np-trans" id="np-trans" type="button" aria-label="显示/隐藏翻译" title="翻译歌词">文/A</button>
+        <h1 class="display-24 ellipsis" id="np-title">未在播放</h1>
+        <p class="body-14 ellipsis" id="np-artist" style="margin: 0; color: var(--ink-muted)"></p>
+        <p class="caption-12 ellipsis" id="np-album" style="margin: 0"></p>
+        <div class="np-tags" id="np-tags"></div>
+        <div class="np-actions">
+          <button type="button" class="v-iconbtn" id="np-love" aria-label="收藏" title="收藏"></button>
+          <button type="button" class="v-btn v-btn--ghost v-btn--sm" id="np-trans" aria-pressed="true">译文</button>
         </div>
-      </div>
+      </section>
+      <aside class="np-queue" id="np-queue" aria-label="播放列表"></aside>
     </div>
   `;
 
   const $ = <T extends HTMLElement>(id: string) => el.querySelector<T>("#" + id)!;
-  const bg = $("np-bg"), lyrics = $("np-lyrics"), cover = $("np-cover");
+  const lyrics = $("np-lyrics"), cover = $("np-cover");
+  const title = $("np-title"), artist = $("np-artist"), album = $("np-album");
+  const tags = $("np-tags"), love = $("np-love"), trans = $("np-trans");
 
-  // 共享 marquee：容器宽 < 文本宽才启用滚动；--mx 行程在溢出量外再补偿两端渐隐遮罩 ±12px，
-  // 保证每一字符都能完整滚进清晰区（右对齐文本溢出在左，故正向平移）。
-  // 文本没变不动 class/变量（notify 每帧跑，防止动画被重启）；ResizeObserver 覆盖窗口缩放重测。
-  function marquee(boxId: string) {
-    const box = $(boxId);
-    const inner = box.querySelector<HTMLElement>(".mt")!;
-    let sig = "";
-    function measure() {
-      if (!sig) return;
-      const over = inner.scrollWidth - box.clientWidth;
-      box.classList.toggle("over", over > 1);
-      if (over > 1) {
-        // 溢出在右：终点 = -(over+10)，让尾字完整滚进右缘清晰区（起点的 +10 见 CSS）
-        box.style.setProperty("--mx", `${-(over + 10)}px`);
-        box.style.setProperty("--md", `${Math.max(5, Math.round((over + 20) / 32))}s`);
-      }
-    }
-    new ResizeObserver(measure).observe(box);
-    return (text: string) => {
-      if (text === sig) return;
-      sig = text;
-      inner.textContent = text;
-      box.classList.remove("over");
-      measure();
-    };
-  }
-  const setTitle = marquee("np-title");
-  const setArtist = marquee("np-artist");
-
-  $("np-trans").onclick = () => player.toggleTrans();
+  $("np-collapse").onclick = () => { player.expanded = false; player.notifyPublic(); };
+  trans.onclick = () => player.toggleTrans();
+  love.onclick = () => player.toggleLove(player.current);
 
   let lastMid = "";        // 歌词行 DOM 只在换曲/状态迁移时重建
   let lastLyricState = "";
@@ -97,11 +77,30 @@ export function NowPlaying(): HTMLElement {
     for (const line of player.lyrics) {
       const d = document.createElement("div");
       d.className = "np-ly-line";
+      d.tabIndex = 0;
+      d.setAttribute("role", "button");
+      d.title = "点击从这句播放";
       d.innerHTML = `<span class="l1">${escapeHtml(line.text)}</span>${line.trans ? `<span class="l2">${escapeHtml(line.trans)}</span>` : ""}`;
       d.onclick = () => { player.seek(line.t); browsing = false; }; // 点击跳回该行并恢复跟随
+      d.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); player.seek(line.t); browsing = false; } };
       lyrics.append(d);
     }
     lineEls = [...lyrics.querySelectorAll<HTMLElement>(".np-ly-line")];
+  }
+
+  // 音质标签：outline=当前档，默认色=最高可播（档位不同时才出现第二枚）
+  let maxLabel = "";
+  void getStreamTiers()
+    .then((t) => { const id = t?.max; maxLabel = id ? (QUALITY_SHORT[id] ?? id) : ""; })
+    .catch(() => {});
+  function paintTags() {
+    const ls = getLastStream();
+    const want = getSessionQuality();
+    const curLabel = player.current && ls
+      ? (QUALITY_SHORT[ls.tier] ?? ls.label)
+      : (QUALITY_SHORT[want ?? effectiveQuality()] ?? "");
+    tags.innerHTML = `${curLabel ? `<span class="v-tag v-tag--outline">${escapeHtml(curLabel)}</span>` : ""}
+      ${maxLabel && maxLabel !== curLabel ? `<span class="v-tag">${escapeHtml(maxLabel)} 可用</span>` : ""}`;
   }
 
   player.on(() => {
@@ -109,22 +108,30 @@ export function NowPlaying(): HTMLElement {
     const open = player.expanded;
     el.classList.toggle("open", open);
     el.classList.toggle("no-trans", !player.showTrans);
-    $("np-trans").classList.toggle("on", player.showTrans);
-    if (!open && !s) return;
-
-    // 背景：封面模糊放大
-    const pic = s ? coverUrl(s, 300) : "";
-    bg.style.backgroundImage = pic ? `url("${pic}")` : "";
-    el.style.setProperty("--np-vis", pic ? "1" : "0");
+    trans.classList.toggle("is-loved", player.showTrans);
+    trans.setAttribute("aria-pressed", String(player.showTrans));
+    if (!open) return;
 
     // 换曲 或 歌词状态迁移（loading→ok/none 时行 DOM 需要重建，否则占位/歌词丢失）
     const st: "idle" | "loading" | "ok" | "none" = player.lyrics.length ? "ok" : player.lyricState;
     if (s?.mid !== lastMid || st !== lastLyricState) buildLyricDom(s);
     lastLyricState = st;
-    setTitle(s?.name ?? "未在播放");
+    title.textContent = s?.name ?? "未在播放";
+    title.title = s?.name ?? "";
+    const singerLine = s ? (s.singer ?? []).map((x) => x.name).join(" / ") : "点一首歌试试";
+    artist.textContent = singerLine;
+    artist.title = singerLine;
     const albumName = (s as any)?.album?.name ?? "";
-    setArtist(s ? [(s.singer ?? []).map((x) => x.name).join(" / "), albumName].filter(Boolean).join(" - ") : "");
-    cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : `<div class="np-cover-ph">${icons.disc ?? ""}</div>`;
+    album.textContent = albumName;
+    album.title = albumName;
+    album.style.display = albumName ? "" : "none";
+    const pic = s ? coverUrl(s, 500) : "";
+    cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : "";
+    paintTags();
+    const loved = !!s && player.loved.has(s.mid);
+    love.innerHTML = icon(loved ? "heartOn" : "heart");
+    love.classList.toggle("v-iconbtn--on", loved);
+    love.setAttribute("aria-label", loved ? "取消收藏" : "收藏");
 
     // 高亮当前歌词行 + 滚动居中（翻阅模式暂停自动跟随；3s 静默或点击行号恢复）
     if (lineEls.length) {

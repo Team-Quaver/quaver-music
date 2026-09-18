@@ -189,14 +189,14 @@ export const SCHEMA = [
       },
       {
         key: "DefaultUIFonts",
-        def: "Source Han Sans,Microsoft Yahei UI",
-        doc: ["界面字体：CSS font-family 列表（逗号分隔）；留空则用内置默认栈；也可填预设名 system/sans/serif/mono"],
+        def: "",
+        doc: ["界面字体：CSS font-family 列表（逗号分隔）；留空则用内置默认栈（Mi Sans VF 优先）；也可填预设名 system/sans/serif/mono"],
         valid: isFontList,
       },
       {
         key: "DefaultLyricsFonts",
-        def: "Source Han Serif",
-        doc: ["歌词字体：同上"],
+        def: "",
+        doc: ["歌词字体：同上；留空则跟随界面字体"],
         valid: isFontList,
       },
       {
