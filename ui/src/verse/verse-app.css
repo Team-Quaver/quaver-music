@@ -137,6 +137,9 @@ body.ssd .v-titlebar__win { display: none; }
 /* 音质 tag 按钮：v-tag 外观 + 可点击 */
 button.v-tag { font-family: inherit; cursor: pointer; }
 button.v-tag:disabled { opacity: 0.45; cursor: default; }
+/* 右组宽度自适应：240px 固定宽放不下 tag + 3 图标 + 音量条时 tag 会被压缩换行（“自动”变两行） */
+.v-player__right { width: auto; flex: none; }
+#pb-quality { flex: none; white-space: nowrap; }
 /* 单曲循环角标：repeat 常开 + 右上 "1"（aria-label 区分，颜色不单独表意） */
 #pb-loop[data-mode="one"] { position: relative; }
 #pb-loop[data-mode="one"]::after {
