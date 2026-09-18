@@ -435,7 +435,7 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
   cursor: pointer;
 }
 .set-chip:hover:not(:disabled) { background: var(--surface-hover); }
-.set-chip.sel { border-color: var(--accent); background: var(--surface-selected); color: var(--accent); font-weight: 700; }
+.set-chip.sel { border-color: var(--accent); background: var(--surface-selected); color: var(--accent); font-weight: 500; }
 .set-chip:disabled { opacity: .45; cursor: not-allowed; }
 .set-chip .v-tag { pointer-events: none; }
 
