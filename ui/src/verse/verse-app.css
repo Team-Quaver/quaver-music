@@ -127,9 +127,8 @@ body.ssd .v-titlebar__win { display: none; }
 /* 搜索下拉：锚在搜索框下方 */
 .v-search { position: relative; }
 .v-search__drop { top: calc(100% + 6px); left: 0; right: 0; max-height: 320px; overflow-y: auto; }
-/* 音质菜单（Quality 屏：288px，Switch + 档位 + VIP 标签 + 回退说明） */
-#pb-qpop { right: var(--space-4); bottom: calc(100% + 10px); width: 288px; max-height: 360px; overflow-y: auto; }
-.v-menu__switch { display: flex; align-items: center; padding: 7px 10px; border-bottom: 1px solid var(--line-100); margin-bottom: 2px; }
+/* 音质菜单（装在共用右下浮窗 .v-float 里：档位 + VIP 标签 + 回退说明） */
+#pb-qpop .v-float__body { display: flex; flex-direction: column; gap: 2px; padding: 6px; }
 .v-menu__note { margin: 0; padding: 7px 10px 4px; font-size: 12px; line-height: 16px; color: var(--ink-faint); }
 .v-menu__check { flex: none; color: var(--accent); display: inline-flex; margin-left: auto; }
 
@@ -251,24 +250,27 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 .np-tags { display: flex; align-items: center; gap: var(--space-2); }
 .np-actions { display: flex; align-items: center; gap: var(--space-1); }
 
-/* —— 播放列表面板（两形态：内容区停靠 / 右下浮窗） —— */
-.qp { display: flex; flex-direction: column; overflow: hidden; background: var(--surface-100); color: var(--ink); font-family: var(--font-sans); }
-.qp-float {
+/* —— 右下浮窗（FloatWindow：播放列表 / 音质共用；主页与全屏播放页同一形态） —— */
+.v-float {
   position: fixed; right: 14px; bottom: calc(var(--player-h) + 12px); z-index: 70;
+  display: flex; flex-direction: column; overflow: hidden;
   width: 320px; max-height: 52vh;
-  background: var(--surface-200); border: 1px solid var(--line-100);
-  border-radius: var(--radius-lg); box-shadow: var(--shadow-menu);
-  opacity: 0; pointer-events: none; transform: translateY(10px) scale(0.98); transform-origin: bottom right;
-  transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.32, 0.72, 0.24, 1);
+  background: var(--surface-200); border: 1px solid var(--line-100); color: var(--ink);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-menu); font-family: var(--font-sans);
+  transform-origin: bottom right;
+  transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.32, 0.72, 0.24, 1), display 0.2s allow-discrete;
 }
-.qp-float.open { opacity: 1; pointer-events: auto; transform: none; }
-.qp-dock { flex: 0 0 300px; width: 300px; min-height: 0; border-left: 1px solid var(--line-100); }
-.qp-dock:not(.open) { display: none; }
-.qp-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4); border-bottom: 1px solid var(--line-100); }
-.qp-title { flex: 1; min-width: 0; font-size: 13px; line-height: 18px; font-weight: 500; }
-.qp-cnt { font-style: normal; font-family: var(--font-mono); font-size: 12px; line-height: 16px; color: var(--ink-faint); margin-left: var(--space-2); font-variant-numeric: tabular-nums; }
-.qp-actions { display: flex; gap: var(--space-1); }
-.qp-list { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-1); }
+.v-float[hidden] { display: none; opacity: 0; transform: translateY(10px) scale(0.98); }
+@starting-style { .v-float:not([hidden]) { opacity: 0; transform: translateY(10px) scale(0.98); } }
+.v-float__head { flex: none; display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4); border-bottom: 1px solid var(--line-100); }
+.v-float__title { flex: 1; min-width: 0; font-size: 13px; line-height: 18px; font-weight: 500; }
+.v-float__meta { font-style: normal; font-family: var(--font-mono); font-size: 12px; line-height: 16px; color: var(--ink-faint); margin-left: var(--space-2); font-variant-numeric: tabular-nums; }
+.v-float__meta:empty { display: none; }
+.v-float__actions { display: flex; gap: var(--space-1); }
+.v-float__body { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* —— 播放列表（装在 .v-float 里） —— */
+.qp-list { padding: var(--space-1); }
 .qp-row {
   display: flex; align-items: center; gap: var(--space-3);
   width: 100%; height: var(--row-h); padding: 0 var(--space-3);

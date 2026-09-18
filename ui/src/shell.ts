@@ -153,7 +153,7 @@ export function bootShell() {
   // 输入框/下拉/滑块获得焦点时让路（它们的按键语义优先）。
   document.addEventListener("keydown", (e) => {
     const t = e.target as HTMLElement;
-    if (t.closest("input, select, textarea, [role='slider'], [role='switch'], .v-menu")) return;
+    if (t.closest("input, select, textarea, [role='slider'], [role='switch'], .v-menu, [role='menu']")) return;
     if (e.key === " " && !t.closest("button, a, [role='button']")) {
       e.preventDefault();
       player.toggle();

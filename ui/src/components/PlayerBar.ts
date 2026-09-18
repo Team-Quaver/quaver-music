@@ -1,10 +1,11 @@
 // 底部播放条（常驻壳层）：Verse PlayerBar 结构（v-player），逻辑沿用 player。
 // 进度 = 上边框 rail（2px，悬停 4px + 拇指），条上无时间读数，进度只走 aria-valuetext。
-// 右组 = 音质扩展（outline tag 按钮 + v-menu 浮层）· 队列 · 音量（mute + 内联 volume slider）。
+// 右组 = 音质扩展（outline tag 按钮 + 共用右下浮窗 FloatWindow）· 队列 · 音量（mute + 内联 volume slider）。
 import { player } from "../player";
 import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQuality, QUALITY_SHORT, QUALITIES, type Quality } from "../lib/api";
 import { icon } from "../verse/icons";
 import { formatTime } from "../verse/format";
+import { FloatWindow } from "./FloatWindow";
 
 const TRANSPARENT = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 const clamp01 = (f: number) => Math.max(0, Math.min(1, f));
@@ -34,7 +35,7 @@ export function PlayerBar(): HTMLElement {
       <button type="button" class="v-iconbtn v-iconbtn--sm" id="pb-loop" aria-label="循环模式" title="循环模式"></button>
     </div></div>
     <div class="v-player__right">
-      <button type="button" class="v-tag v-tag--outline v-tagbtn" id="pb-quality" aria-haspopup="menu" aria-expanded="false" title="音质（本会话生效，不保存）">…</button>
+      <button type="button" class="v-tag v-tag--outline v-tagbtn" id="pb-quality" aria-haspopup="dialog" aria-expanded="false" title="音质（本会话生效，不保存）">…</button>
       <button type="button" class="v-iconbtn v-iconbtn--sm" id="pb-queue" aria-label="播放列表" aria-expanded="false" title="播放列表">${icon("list", 16)}</button>
       <button type="button" class="v-iconbtn v-iconbtn--sm" id="pb-mute" aria-label="音量 / 静音" title="音量 / 静音"></button>
       <div class="v-slider v-slider--volume" id="pb-volwrap">
@@ -46,7 +47,6 @@ export function PlayerBar(): HTMLElement {
         </div>
       </div>
     </div>
-    <div class="v-menu" id="pb-qpop" role="menu" aria-label="音质" hidden></div>
   `;
 
   const $ = <T extends HTMLElement>(id: string) => el.querySelector<T>("#" + id)!;
@@ -154,14 +154,21 @@ export function PlayerBar(): HTMLElement {
   }, { passive: false });
 
   // —— 音质：会话级档位（不持久化），永远带 Fallback 协商 ——
-  const qBtn = $<HTMLButtonElement>("pb-quality"), qPop = $("pb-qpop");
+  const qBtn = $<HTMLButtonElement>("pb-quality");
+  const qWin: FloatWindow = FloatWindow({
+    id: "pb-qpop",
+    title: "音质",
+    trigger: qBtn,
+    dismissOnOutside: [qBtn],
+    onRequestClose: () => qWin.setOpen(false),
+  });
+  const qPop = qWin.body;
+  qPop.setAttribute("role", "menu");
+  qPop.setAttribute("aria-label", "音质");
   let tierList: { id: string; label: string; locked?: number | boolean }[] = [];
   let qReady = false;
   const cur = () => effectiveQuality();
-  const closeQPop = () => {
-    qPop.hidden = true;
-    qBtn.setAttribute("aria-expanded", "false");
-  };
+  const closeQPop = () => qWin.setOpen(false);
   function paintQ() {
     if (!qReady) { qBtn.textContent = "…"; qBtn.disabled = true; return; }
     qBtn.disabled = false;
@@ -174,30 +181,11 @@ export function PlayerBar(): HTMLElement {
     qBtn.title = want
       ? `音质：${label}（本会话选择，不保存；关窗后回到设置页默认）`
       : "音质（点此切换，仅本会话生效不保存；高档不可及时自动回退到可播档）";
-    if (qPop.hidden) return;
+    if (!qWin.open) return;
     (qPop as any)._repaint?.();
   }
   function buildQPop() {
     qPop.innerHTML = "";
-    // 顶部 Switch：自动选择最高可播音质（开 = 会话档 auto；关 = 回到设置页默认档）
-    const swRow = document.createElement("div");
-    swRow.className = "v-menu__switch";
-    const sw = document.createElement("button");
-    sw.type = "button";
-    sw.setAttribute("role", "switch");
-    const paintSw = () => {
-      const on = cur() === "auto";
-      sw.className = "v-switch" + (on ? " v-switch--on" : "");
-      sw.setAttribute("aria-checked", String(on));
-    };
-    sw.innerHTML = `<span class="v-switch__track"><span class="v-switch__knob"></span></span><span>自动选择最高可播音质</span>`;
-    sw.onclick = () => {
-      player.switchQuality(cur() === "auto" ? effectiveQuality() : "auto");
-      paintSw();
-      paintQ();
-    };
-    swRow.append(sw);
-    qPop.append(swRow);
     const item = (id: string, label: string, note = "") => {
       const b = document.createElement("button");
       b.type = "button";
@@ -221,7 +209,6 @@ export function PlayerBar(): HTMLElement {
         x.querySelector(".v-menu__check")?.remove();
         if (on) x.insertAdjacentHTML("beforeend", icon("check", 14).replace('class="v-icon"', 'class="v-icon v-menu__check"'));
       });
-      paintSw();
     };
     item("auto", "自动", "最高可播");
     for (const t of tierList) item(t.id, t.label, t.locked ? "VIP" : "");
@@ -245,20 +232,9 @@ export function PlayerBar(): HTMLElement {
   }
   qBtn.onclick = () => {
     if (!qReady) return void initQuality();
-    const opening = qPop.hidden;
-    qPop.hidden = !opening;
-    qBtn.setAttribute("aria-expanded", String(opening));
-    if (!opening) return;
-    if (player.queueOpen) {
-      player.queueOpen = false;
-      player.notifyPublic();
-    }
+    qWin.setOpen(!qWin.open); // 打开时共用浮窗会请队列窗收起（互斥）
     paintQ();
   };
-  document.addEventListener("pointerdown", (e) => {
-    const t = e.target as HTMLElement;
-    if (!t.closest("#pb-quality, #pb-qpop")) closeQPop();
-  });
   void initQuality();
 
   // 订阅状态
