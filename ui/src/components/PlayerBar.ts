@@ -63,6 +63,29 @@ export function PlayerBar(): HTMLElement {
   const mute = $("pb-mute");
   const volRail = $("pb-volrail"), volFill = $("pb-volfill"), volThumb = $("pb-volthumb");
 
+  // 时间读数是绝对定位（.v-player__transport-side--before），窗口变窄时先压住爱心、再压住歌名/歌手。
+  // 压到爱心就 display:none 掉 meta（爱心左靠到封面旁，永远可点）。隐藏态下爱心仍可量，
+  // 用隐藏前爱心的右缘（zoneRight）继续判断；恢复显示要多留 8px 间隙（迟滞，防边界抖动）。
+  let zoneRight = 0;
+  let lastTitle = "", lastSub = "";
+  const updateOverlap = () => {
+    const t = time.getBoundingClientRect();
+    if (t.width <= 0) return;
+    if (el.classList.contains("is-meta-hidden")) {
+      if (zoneRight > 0 && t.left > zoneRight + 8) el.classList.remove("is-meta-hidden");
+      return;
+    }
+    const lr = love.getBoundingClientRect();
+    if (lr.width > 0) zoneRight = lr.right;
+    el.classList.toggle("is-meta-hidden", lr.width > 0 && t.left < lr.right && t.right > lr.left);
+  };
+  if (typeof ResizeObserver !== "undefined") {
+    const ro = new ResizeObserver(() => updateOverlap());
+    ro.observe(el);
+    ro.observe(love);
+    ro.observe(time);
+  }
+
   // 封面点击 = 展开/收起正在播放页（无歌时强制回退，防卡死）
   coverImg.style.cursor = "pointer";
   coverImg.onclick = () => {
@@ -97,6 +120,7 @@ export function PlayerBar(): HTMLElement {
     time.textContent = player.current
       ? `${formatTime(frac * d)} / ${formatTime(d)}`
       : "--:-- / --:--";
+    updateOverlap();
   };
   rail.addEventListener("pointerdown", (e) => {
     if (!player.duration) return;
@@ -258,6 +282,12 @@ export function PlayerBar(): HTMLElement {
       sub.textContent = s ? (s.singer ?? []).map((x) => x.name).join(" / ") : "点一首歌试试";
       sub.classList.remove("is-err");
     }
+    // 文案变了（切歌/报错/恢复）→ 先恢复显示，再用新几何重判，避免 ghost 几何过期把 meta 卡在隐藏态
+    if (title.textContent !== lastTitle || sub.textContent !== lastSub) {
+      lastTitle = title.textContent ?? "";
+      lastSub = sub.textContent ?? "";
+      el.classList.remove("is-meta-hidden");
+    }
     coverImg.src = s ? coverUrl(s, 150) : TRANSPARENT;
     // 中央播放键：取链/缓冲中 pulse；常规按播放态切实心图标
     play.classList.toggle("is-loading", player.loading);
@@ -283,6 +313,7 @@ export function PlayerBar(): HTMLElement {
     mute.innerHTML = icon(player.muted || v === 0 ? "mute" : "volume", 16);
     mute.classList.toggle("v-iconbtn--on", player.muted);
     queueBtn.setAttribute("aria-expanded", String(player.queueOpen));
+    updateOverlap();
     player.markActive();
   };
   player.on(paint);

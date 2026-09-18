@@ -195,6 +195,8 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 }
 /* 出错：标题/副行走 danger 文字（与文字同时出现，不只靠颜色） */
 #pb-title.is-err, #pb-sub.is-err { color: var(--danger); }
+/* 时间读数（绝对定位）压住歌名/歌手时去掉 meta（PlayerBar 切 is-meta-hidden 类；爱心随之左靠到封面旁） */
+.v-player.is-meta-hidden .v-player__meta { display: none; }
 
 /* —— 列表页（ForYou 范式：标题区 + 表头 + 行 + 脚注） —— */
 .v-pagehead { display: flex; align-items: flex-end; gap: var(--space-4); margin-bottom: var(--space-5); }
