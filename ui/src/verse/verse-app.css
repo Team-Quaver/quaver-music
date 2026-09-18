@@ -69,8 +69,14 @@
 }
 .q-side-resizer:hover, body.sidebar-resizing .q-side-resizer { background: var(--accent); opacity: 0.6; }
 body.sidebar-resizing { cursor: col-resize; user-select: none; }
-/* 窗口钮只有标题栏这一套：提到全屏播放页（.np，z-50）之上，全屏时仍是同一组按钮，位置严格一致 */
+/* 窗口钮只有标题栏这一套：提到全屏播放页（.np，z-50）之上，全屏时仍是同一组按钮，位置严格一致。
+   z-index 只管绘制与 DOM 命中；app-region 拖拽区不认层叠，按文档顺序后者覆盖前者 ——
+   .np 挂在标题栏之后，其 .np-top 的 drag 若延伸到钮簇上方会填掉 no-drag 洞，钮就点不到。
+   所以 .np-top 右侧让出钮簇宽度（= .v-titlebar__win：3 钮 + 2 gap + 右内边距）。 */
 .v-titlebar__win { position: relative; z-index: 60; }
+body:not(.mac):not(.ssd) .np-top {
+  margin-right: calc(3 * var(--control-sm) + 2 * var(--space-1) + var(--space-2));
+}
 /* macOS：隐藏自绘窗口钮，左侧留 80px 给系统红绿灯；SSD：系统标题栏接管窗口钮 */
 body.mac .v-titlebar__win { display: none; }
 body.mac .v-titlebar { padding-left: 80px; }
