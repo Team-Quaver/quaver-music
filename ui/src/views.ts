@@ -6,6 +6,7 @@ import { icon } from "./verse/icons";
 import { formatTime } from "./verse/format";
 import { getMyMusicid, isFavSonglist, loadFavSonglists, onFavSonglistsChange, toggleFavSonglist } from "./lib/favs";
 import { pushHistory } from "./components/SearchBox";
+import { SelectBox, type SelectBoxOption } from "./components/SelectBox";
 import { player } from "./player";
 import {
   getTheme, setTheme, getDecor, setDecor,
@@ -739,152 +740,181 @@ async function likedView(root: HTMLElement) {
 // —— 设置页（对齐设计稿：外观设置 / 播放设置 / 调试 三区；不触碰侧栏与播放条） ——
 async function settingsView(root: HTMLElement) {
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-  const fontOptions = Object.entries(FONT_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")
-    + `<option value="${FONT_CUSTOM}">自定义</option>`;
-  const decodeRow = (name: string, label: string, disabled = false) =>
-    `<label><input type="radio" name="decode" value="${name}"${disabled ? " disabled" : ""}/>${label}${disabled ? ` <span class="muted soon">敬请期待</span>` : ""}</label>`;
+  const fontOptions: SelectBoxOption[] = Object.entries(FONT_LABELS).map(([value, label]) => ({ value, label }));
+  fontOptions.push({ value: FONT_CUSTOM, label: "自定义" });
 
   root.append(h("h1", "display-24", "设置"));
+  const tabs = h("div", "v-tabs set-tabs", `
+    <button class="v-tabs__item v-tabs__item--active" data-tab="appearance" type="button">外观</button>
+    <button class="v-tabs__item" data-tab="playback" type="button">播放</button>
+    <button class="v-tabs__item" data-tab="general" type="button">通用</button>`);
+  root.append(tabs);
   const wrap = h("div", "set-view");
   wrap.innerHTML = `
-    <section class="set-sec">
-      <h2>外观设置</h2>
-      <p class="muted set-note">在这里，可以设置 Quaver 的客户端外观</p>
-
-      <div class="set-sub">外观模式</div>
-      <div class="opt-cards" id="theme-cards">
-        <button class="opt-card" data-opt="system" type="button"><span class="sw sw-system"></span>跟随系统</button>
-        <button class="opt-card" data-opt="light" type="button"><span class="sw sw-light"></span>明镜白</button>
-        <button class="opt-card" data-opt="dark" type="button"><span class="sw sw-dark"></span>玄幻黑</button>
-      </div>
-
-      <div class="set-sub">窗口装饰 <span class="muted set-subnote">- 仅桌面端生效，切换后自动重建窗口</span></div>
-      <div class="opt-cards" id="decor-cards">
-        <button class="opt-card" data-opt="csd" type="button">自绘标题栏（CSD）</button>
-        <button class="opt-card" data-opt="ssd" type="button">系统标题栏（SSD）</button>
-      </div>
-
-      <div class="set-sub">关闭按钮行为 <span class="muted set-subnote">- 点窗口右上角 ✕ 时（CSD/SSD 通用）</span></div>
-      <div class="opt-cards" id="close-cards">
-        <button class="opt-card" data-opt="tray" type="button">缩放到托盘</button>
-        <button class="opt-card" data-opt="quit" type="button">退出程序</button>
-      </div>
-      <p class="muted set-hint">缩放到托盘：窗口隐藏，播放与系统托盘图标继续，托盘菜单「退出」才结束程序。</p>
-
-      <div class="set-sub">字体设置</div>
-      <div class="set-field"><span>界面字体</span>
-        <div class="font-row">
-          <select id="font-ui" aria-label="界面字体预设">${fontOptions}</select>
-          <input id="font-ui-list" type="text" spellcheck="false" autocomplete="off"
-            aria-label="界面字体 font-family 列表"
-            placeholder="留空，如 Source Han Sans, system-ui, sans-serif" />
+    <section class="set-panel" data-panel="appearance">
+      <div class="set-group">
+        <div class="set-label">外观模式</div>
+        <div class="set-chips" id="theme-chips">
+          <button class="set-chip" data-opt="system" type="button"><span class="set-dot set-dot--system"></span>跟随系统</button>
+          <button class="set-chip" data-opt="light" type="button"><span class="set-dot set-dot--light"></span>明镜白</button>
+          <button class="set-chip" data-opt="dark" type="button"><span class="set-dot set-dot--dark"></span>玄幻黑</button>
         </div>
       </div>
-      <div class="set-field"><span>歌词字体</span>
-        <div class="font-row">
-          <select id="font-lyric" aria-label="歌词字体预设">${fontOptions}</select>
-          <input id="font-lyric-list" type="text" spellcheck="false" autocomplete="off"
-            aria-label="歌词字体 font-family 列表" placeholder="" />
+
+      <div class="set-group">
+        <div class="set-label">窗口装饰 <span class="set-note-inline">仅桌面端生效，切换后自动重建窗口</span></div>
+        <div class="set-chips" id="decor-chips">
+          <button class="set-chip" data-opt="csd" type="button">自绘标题栏（CSD）</button>
+          <button class="set-chip" data-opt="ssd" type="button">系统标题栏（SSD）</button>
         </div>
       </div>
-      <p class="muted set-hint">输入框里填的就是 CSS font-family 列表（逗号分隔、按优先级挑第一个装得上的），改完即时生效；留空表示不覆盖，走内置默认栈。</p>
+
+      <div class="set-group">
+        <div class="set-label">关闭按钮行为 <span class="set-note-inline">点窗口右上角 ✕ 时（CSD/SSD 通用）</span></div>
+        <div class="set-chips" id="close-chips">
+          <button class="set-chip" data-opt="tray" type="button">缩放到托盘</button>
+          <button class="set-chip" data-opt="quit" type="button">退出程序</button>
+        </div>
+        <p class="set-hint">缩放到托盘：窗口隐藏，播放与系统托盘图标继续，托盘菜单「退出」才结束程序。</p>
+      </div>
+
+      <div class="set-group">
+        <div class="set-label">字体设置</div>
+        <div class="set-row"><span class="set-row__label">界面字体</span>
+          <div class="set-row__ctrl font-row">
+            <span id="font-ui"></span>
+            <input id="font-ui-list" type="text" spellcheck="false" autocomplete="off"
+              aria-label="界面字体 font-family 列表"
+              placeholder="留空，如 Source Han Sans, system-ui, sans-serif" />
+          </div>
+        </div>
+        <div class="set-row"><span class="set-row__label">歌词字体</span>
+          <div class="set-row__ctrl font-row">
+            <span id="font-lyric"></span>
+            <input id="font-lyric-list" type="text" spellcheck="false" autocomplete="off"
+              aria-label="歌词字体 font-family 列表" placeholder="" />
+          </div>
+        </div>
+        <p class="set-hint">输入框里填的就是 CSS font-family 列表（逗号分隔、按优先级挑第一个装得上的），改完即时生效；留空表示不覆盖，走内置默认栈。</p>
+      </div>
     </section>
 
-    <section class="set-sec">
-      <h2>播放设置</h2>
-      <p class="muted set-note">在这里，可以设置 Quaver 的播放设置</p>
+    <section class="set-panel" data-panel="playback" hidden>
+      <div class="set-group" id="backend-device"${isMac ? " hidden" : ""}>
+        <div class="set-label">音频输出设备</div>
+        <div class="set-row"><span class="set-row__label">输出设备</span>
+          <div class="set-row__ctrl"><span id="audio-backend"></span></div>
+        </div>
+        <p class="set-hint" id="audio-device-hint">MPV 引擎下可直选输出设备（PipeWire/Pulse/ALSA…），切换即时生效；浏览器后端跟随系统。</p>
+      </div>
 
-      <div class="set-sub">后端模式</div>
-      <p class="muted set-note">如果播放音频出现问题可在这设置</p>
-      <div id="backend-device"${isMac ? " hidden" : ""}>
-        <label class="set-field"><span>音频输出设备</span>
-          <select id="audio-backend" disabled><option>系统默认</option></select></label>
-        <p class="muted set-hint" id="audio-device-hint">MPV 引擎下可直选输出设备（PipeWire/Pulse/ALSA…），切换即时生效；浏览器后端跟随系统。</p>
+      <div class="set-group">
+        <div class="set-label">播放引擎 <span class="set-note-inline" id="engine-note">- 默认 MPV，可选浏览器</span></div>
+        <div class="set-chips" id="decode-chips">
+          <button class="set-chip" data-opt="MPV" type="button">MPV（原生引擎）</button>
+          <button class="set-chip" data-opt="Blink" type="button">浏览器 &lt;audio&gt;</button>
+        </div>
+        <p class="set-hint" id="engine-hint">MPV：主进程原生播放，带内存滑动窗口缓存与设备直选，MPRIS/媒体键体验最完整；浏览器：渲染层 &lt;audio&gt; 兜底。切换即时生效，当前曲目换轨续播。</p>
       </div>
-      <div class="set-sub set-sub2">播放引擎 <span class="muted set-subnote" id="engine-note">- 默认 MPV，可选浏览器</span></div>
-      <div class="opt-radios" id="decode-radios">
-        ${decodeRow("MPV", "MPV（原生引擎）")}${decodeRow("Blink", "浏览器 &lt;audio&gt;")}
-      </div>
-      <p class="muted set-hint" id="engine-hint">MPV：主进程原生播放，带内存滑动窗口缓存与设备直选，MPRIS/媒体键体验最完整；浏览器：渲染层 &lt;audio&gt; 兜底。切换即时生效，当前曲目换轨续播。</p>
 
-      <div class="set-sub set-sub2">淡入淡出 <span class="muted set-subnote">- 仅 MPV 引擎生效</span></div>
-      <div class="opt-cards" id="fade-cards">
-        <button class="opt-card" data-opt="off" type="button">关闭</button>
-        <button class="opt-card" data-opt="short" type="button">短（0.15s）</button>
-        <button class="opt-card" data-opt="normal" type="button">标准（0.4s）</button>
-        <button class="opt-card" data-opt="long" type="button">长（0.8s）</button>
+      <div class="set-group">
+        <div class="set-label">淡入淡出 <span class="set-note-inline">仅 MPV 引擎生效</span></div>
+        <div class="set-chips" id="fade-chips">
+          <button class="set-chip" data-opt="off" type="button">关闭</button>
+          <button class="set-chip" data-opt="short" type="button">短（0.15s）</button>
+          <button class="set-chip" data-opt="normal" type="button">标准（0.4s）</button>
+          <button class="set-chip" data-opt="long" type="button">长（0.8s）</button>
+        </div>
+        <p class="set-hint">起播从静音升到当前音量；暂停 / 切歌 / 停止时先降下来再停（切歌时淡出与下一首的淡入自然衔接）。浏览器 &lt;audio&gt; 后端不生效。</p>
       </div>
-      <p class="muted set-hint">起播从静音升到当前音量；暂停 / 切歌 / 停止时先降下来再停（切歌时淡出与下一首的淡入自然衔接）。浏览器 &lt;audio&gt; 后端不生效。</p>
 
-      <div class="set-sub">默认音质 <span class="muted set-subnote" id="q-member-note"></span></div>
-      <div class="opt-cards" id="quality-grid">
-        <button class="opt-card q" data-q="auto" type="button">自动</button>
+      <div class="set-group">
+        <div class="set-label">默认音质 <span class="set-note-inline" id="q-member-note"></span></div>
+        <div class="set-chips" id="quality-chips">
+          <button class="set-chip" data-q="auto" type="button">自动</button>
+        </div>
       </div>
-      <div class="set-sub set-sub2">Fallback 排序 <span class="muted set-subnote">- 高档不可用时的降档顺序</span></div>
-      <div class="opt-cards" id="qfallback-cards">
-        <button class="opt-card" data-opt="no-atmos" type="button">不优先全景声</button>
-        <button class="opt-card" data-opt="rank" type="button">按标准排序</button>
+
+      <div class="set-group">
+        <div class="set-label">Fallback 排序 <span class="set-note-inline">高档不可用时的降档顺序</span></div>
+        <div class="set-chips" id="qfallback-chips">
+          <button class="set-chip" data-opt="no-atmos" type="button">不优先全景声</button>
+          <button class="set-chip" data-opt="rank" type="button">按标准排序</button>
+        </div>
+        <p class="set-hint">自动/降档时优先取到「臻品母带」，跳过「臻品全景声」（显式点选全景声不受影响）；「按标准排序」则回退链保持 rank 降序原样。</p>
+        <p class="set-hint">档位即时生效（下一首起按新音质协商取链）。臻品母带/全景声等高档位仅限会员；本后端只流播明文档，不提供加密档（QMC）解密。</p>
       </div>
-      <p class="muted set-hint">自动/降档时优先取到「臻品母带」，跳过「臻品全景声」（显式点选全景声不受影响）；「按标准排序」则回退链保持 rank 降序原样。</p>
-      <p class="muted set-hint">档位即时生效（下一首起按新音质协商取链）。臻品母带/全景声等高档位仅限会员；本后端只流播明文档，不提供加密档（QMC）解密。</p>
     </section>
 
-    <section class="set-sec">
-      <h2>配置文件</h2>
-      <p class="muted set-note">以下设置全部持久化在系统标准配置目录的 <code>quaver.conf</code>（INI）里，可以直接手改；登录凭证在同一目录，不进浏览器。</p>
-      <label class="set-field"><span>配置文件</span>
-        <input id="conf-path" readonly /></label>
-      <div class="set-debug">
-        <button class="v-btn v-btn--ghost" id="open-conf" type="button">在文件管理器中显示</button>
-        <button class="v-btn v-btn--ghost" id="reset-conf" type="button">恢复默认设置</button>
+    <section class="set-panel" data-panel="general" hidden>
+      <div class="set-group">
+        <div class="set-label">配置文件</div>
+        <p class="set-hint">以下设置全部持久化在系统标准配置目录的 <code>quaver.conf</code>（INI）里，可以直接手改；登录凭证在同一目录，不进浏览器。</p>
+        <div class="set-row"><span class="set-row__label">路径</span>
+          <div class="set-row__ctrl"><input id="conf-path" readonly /></div>
+        </div>
+        <div class="set-actions">
+          <button class="v-btn v-btn--secondary" id="open-conf" type="button">在文件管理器中显示</button>
+          <button class="v-btn v-btn--ghost" id="reset-conf" type="button">恢复默认设置</button>
+        </div>
+        <p class="set-hint" id="conf-hint"></p>
       </div>
-      <p class="muted set-hint" id="conf-hint"></p>
-    </section>
 
-    <section class="set-sec">
-      <h2>调试</h2>
-      <div class="set-debug"><button class="v-btn v-btn--ghost" id="open-log" type="button">打开日志页面</button></div>
-    </section>
-    <section class="set-sec">
-      <h2>关于</h2>
-      <div class="about-img"><img class="ic-dark" src="/quaver-icon-dark.svg" width=60 alt="Quaver Icon"><img class="ic-light" src="/quaver-icon.svg" width=60 alt="Quaver Icon">
-      <h3> Quaver Music </h3>
-      <h4> 又一个基于 Electron + Vite 前端 + TS/Py 混合后端的 QQ 音乐第三方客户端</h4>
-      <small> Version: ${__APP_VERSION__} </small>
-    </section>`
-    ;
+      <div class="set-group">
+        <div class="set-label">调试</div>
+        <div class="set-actions"><button class="v-btn v-btn--ghost" id="open-log" type="button">打开日志页面</button></div>
+      </div>
+
+      <div class="set-group set-about">
+        <div class="about-img">
+          <img class="ic-dark" src="/quaver-icon-dark.svg" width="60" alt="Quaver Icon">
+          <img class="ic-light" src="/quaver-icon.svg" width="60" alt="Quaver Icon">
+        </div>
+        <h2 class="title-18">Quaver Music</h2>
+        <p class="body-14 set-about-sub">又一个基于 Electron + Vite 前端 + TS/Py 混合后端的 QQ 音乐第三方客户端</p>
+        <p class="time-12">Version: ${__APP_VERSION__}</p>
+      </div>
+    </section>`;
 
   root.append(wrap);
+
+  // 分区 tabs：切换只显隐面板，不重渲染（各面板绑定一次，常驻有效）
+  tabs.querySelectorAll<HTMLButtonElement>(".v-tabs__item").forEach((t) => {
+    t.onclick = () => {
+      tabs.querySelectorAll(".v-tabs__item").forEach((x) => x.classList.toggle("v-tabs__item--active", x === t));
+      wrap.querySelectorAll<HTMLElement>(".set-panel").forEach((p) => { p.hidden = p.dataset.panel !== t.dataset.tab; });
+    };
+  });
 
   const syncSel = (box: HTMLElement, attr: "opt" | "q", active: string) =>
     box.querySelectorAll<HTMLElement>("[data-" + attr + "]").forEach((b) => b.classList.toggle("sel", b.dataset[attr] === active));
 
   // 外观模式：跟随系统 / 明镜白 / 玄幻黑（prefs 写 html[data-theme]，style.css 响应）
-  const themeBox = wrap.querySelector<HTMLElement>("#theme-cards")!;
+  const themeBox = wrap.querySelector<HTMLElement>("#theme-chips")!;
   const syncTheme = () => syncSel(themeBox, "opt", getTheme());
   themeBox.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => { b.onclick = () => { setTheme(b.dataset.opt as any); syncTheme(); }; });
   syncTheme();
 
   // 窗口装饰：CSD（右上角自绘按钮簇）/ SSD（系统标题栏）。Electron 桥重建窗口；浏览器仅隐藏按钮簇。
-  const decorBox = wrap.querySelector<HTMLElement>("#decor-cards")!;
+  const decorBox = wrap.querySelector<HTMLElement>("#decor-chips")!;
   const syncDecor = () => syncSel(decorBox, "opt", getDecor());
   decorBox.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => { b.onclick = () => { setDecor(b.dataset.opt as any); syncDecor(); }; });
   syncDecor();
 
   // 关闭按钮行为：缩放到托盘 / 退出程序（Electron 桥同步主进程；浏览器 dev 无效果）
-  const closeBox = wrap.querySelector<HTMLElement>("#close-cards")!;
+  const closeBox = wrap.querySelector<HTMLElement>("#close-chips")!;
   const syncClose = () => syncSel(closeBox, "opt", getCloseAction());
   closeBox.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => { b.onclick = () => { setCloseAction(b.dataset.opt as any); syncClose(); }; });
   syncClose();
 
   // Fallback 排序：默认「不优先全景声」（母带优先，atmos51 压链尾兜底）；改动自下一首协商起生效
-  const fbBox = wrap.querySelector<HTMLElement>("#qfallback-cards")!;
+  const fbBox = wrap.querySelector<HTMLElement>("#qfallback-chips")!;
   const syncFb = () => syncSel(fbBox, "opt", getFallbackSort());
   fbBox.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => { b.onclick = () => { setFallbackSort(b.dataset.opt as any); syncFb(); }; });
   syncFb();
 
   // 淡入淡出预设：持久化 + 立即下发时长（引擎侧做振幅包络；Blink 后端无此项）
-  const fadeBox = wrap.querySelector<HTMLElement>("#fade-cards")!;
+  const fadeBox = wrap.querySelector<HTMLElement>("#fade-chips")!;
   const syncFade = () => syncSel(fadeBox, "opt", getFade());
   fadeBox.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
     b.onclick = () => { void player.setFadePreset(b.dataset.opt as FadePreset); syncFade(); };
@@ -894,7 +924,7 @@ async function settingsView(root: HTMLElement) {
   // 字体：下拉给预设，右侧输入框可直接编辑 CSS font-family 列表（不必再去手改配置文件）。
   // 两边互相同步：选预设 → 填进输入框；输入框改成非预设值 → 下拉自动切到「自定义」。输入即时生效。
   const bindFont = (
-    sel: HTMLSelectElement,
+    sel: SelectBox,
     input: HTMLInputElement,
     applyList: (css: string) => void,
     pickPreset: (key: string) => void,
@@ -917,13 +947,18 @@ async function settingsView(root: HTMLElement) {
       sel.value = fontKeyOf(norm);
     };
   };
+  const mountSel = (mountId: string, ariaLabel: string, value: string) => {
+    const box = SelectBox({ ariaLabel, options: fontOptions, value });
+    wrap.querySelector<HTMLElement>(mountId)!.replaceWith(box.el);
+    return box;
+  };
   bindFont(
-    wrap.querySelector<HTMLSelectElement>("#font-ui")!,
+    mountSel("#font-ui", "界面字体预设", fontKeyOf(getUiFontList())),
     wrap.querySelector<HTMLInputElement>("#font-ui-list")!,
     setUiFontList, setUiFontPreset, getUiFontList(),
   );
   bindFont(
-    wrap.querySelector<HTMLSelectElement>("#font-lyric")!,
+    mountSel("#font-lyric", "歌词字体预设", fontKeyOf(getLyricFontList())),
     wrap.querySelector<HTMLInputElement>("#font-lyric-list")!,
     setLyricFontList, setLyricFontPreset, getLyricFontList(),
   );
@@ -953,8 +988,10 @@ async function settingsView(root: HTMLElement) {
   };
 
   // —— 播放引擎：MPV（默认，原生）/ Blink（浏览器 <audio>）。热切换当前曲目换轨续播。
-  const radios = wrap.querySelectorAll<HTMLInputElement>("#decode-radios input");
-  const devSel = wrap.querySelector<HTMLSelectElement>("#audio-backend")!;
+  const engineBox = wrap.querySelector<HTMLElement>("#decode-chips")!;
+  const engineChips = engineBox.querySelectorAll<HTMLButtonElement>("[data-opt]");
+  const devSel = SelectBox({ ariaLabel: "输出设备", options: [{ value: "auto", label: "系统默认" }], disabled: true });
+  wrap.querySelector<HTMLElement>("#audio-backend")!.replaceWith(devSel.el);
   const devHint = wrap.querySelector<HTMLElement>("#audio-device-hint")!;
   const engNote = wrap.querySelector<HTMLElement>("#engine-note")!;
 
@@ -963,11 +1000,11 @@ async function settingsView(root: HTMLElement) {
 
   async function paintBackend() {
     const st = await player.probeEngine();
-    radios.forEach((r) => {
-      r.disabled = r.value === "MPV" && !st.available;
-      r.checked = r.value === getDecode();
-      r.onchange = () => { if (r.checked) void player.setBackend(r.value as "MPV" | "Blink").then(paintAll); };
+    engineChips.forEach((b) => {
+      b.disabled = b.dataset.opt === "MPV" && !st.available;
+      b.onclick = () => { if (!b.disabled) void player.setBackend(b.dataset.opt as "MPV" | "Blink").then(paintAll); };
     });
+    syncSel(engineBox, "opt", getDecode());
     const src = MPV_SOURCE_LABEL[st.source] ?? "";
     engNote.textContent = player.backend === "mpv"
       ? `- MPV 运行中${src ? "（" + src + "）" : ""}`
@@ -979,14 +1016,15 @@ async function settingsView(root: HTMLElement) {
     devSel.onchange = null;
     const r = await player.listAudioDevices();
     if (!r) {
-      devSel.innerHTML = `<option>系统默认</option>`;
+      devSel.setOptions([{ value: "auto", label: "系统默认" }]);
       devHint.textContent = "浏览器 <audio> 后端：跟随系统输出设备；切换到 MPV 引擎后可在此直选设备。";
       return;
     }
-    devSel.innerHTML = `<option value="auto">系统默认</option>`
-      + r.devices.map((d) => `<option value="${escHtml(d.id)}">${escHtml(d.desc)}</option>`).join("");
     const cur = r.devices.some((d) => d.id === r.current) ? r.current : "auto";
-    devSel.value = cur;
+    devSel.setOptions(
+      [{ value: "auto", label: "系统默认" }, ...r.devices.map((d) => ({ value: d.id, label: d.desc }))],
+      cur,
+    );
     devSel.disabled = false;
     devHint.textContent = "切换即时生效，无需重启。";
     devSel.onchange = () => { void player.selectAudioDevice(devSel.value); };
@@ -1005,7 +1043,7 @@ async function settingsView(root: HTMLElement) {
   });
 
   // 默认音质：档位由后端按会员等级下发（/stream/tiers）；locked 档画锁标不可选。
-  const qBox = wrap.querySelector<HTMLElement>("#quality-grid")!;
+  const qBox = wrap.querySelector<HTMLElement>("#quality-chips")!;
   const qNote = wrap.querySelector<HTMLElement>("#q-member-note")!;
   const syncQ = () => syncSel(qBox, "q", getQuality());
   const bindQ = () => {
@@ -1023,7 +1061,7 @@ async function settingsView(root: HTMLElement) {
     qNote.textContent = `（当前：${t.membership_label}${t.membership ? "" : "，高档位需会员"}）`;
     for (const tier of t.all_tiers) {
       const btn = document.createElement("button");
-      btn.className = "opt-card q";
+      btn.className = "set-chip";
       btn.dataset.q = tier.id;
       btn.type = "button";
       btn.innerHTML = `<span>${tier.label}</span>` + (tier.hi_res ? ' <span class="v-tag">Hi-Res</span>' : "")
@@ -1101,18 +1139,22 @@ async function loginView(root: HTMLElement) {
         <div id="qr" class="qr"><div>正在生成二维码…</div></div>
         <div id="lstate" class="caption-12"></div>
         <div class="qr-actions">
-          <select id="channel" aria-label="登录通道">
-            <option value="mobile">QQ 音乐 App</option>
-            <option value="qq">手机 QQ</option>
-            <option value="wx">微信</option>
-          </select>
+          <span id="channel"></span>
           <button id="refresh" class="v-btn v-btn--secondary" type="button">重新生成</button>
         </div>
       </div>
     </div>`;
   const qr = root.querySelector<HTMLElement>("#qr")!;
   const lstate = root.querySelector<HTMLElement>("#lstate")!;
-  const channel = root.querySelector("#channel") as HTMLSelectElement;
+  const channel = SelectBox({
+    ariaLabel: "登录通道",
+    options: [
+      { value: "mobile", label: "QQ 音乐 App" },
+      { value: "qq", label: "手机 QQ" },
+      { value: "wx", label: "微信" },
+    ],
+  });
+  root.querySelector<HTMLElement>("#channel")!.replaceWith(channel.el);
   let timer: number | undefined;
   let stopped = false;
 

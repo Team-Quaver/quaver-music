@@ -117,20 +117,36 @@ body.ssd .v-titlebar__win { display: none; }
 .v-ctx { position: fixed; min-width: 180px; }
 /* 非 vendor 部件的焦点环（与 Verse 一致：2px 实线 + 2px 偏移） */
 .v-menu__item:focus-visible,
-.opt-card:focus-visible,
-.set-field select:focus-visible,
-.set-field input:focus-visible,
-.qr-actions select:focus-visible {
+.set-chip:focus-visible,
+.set-row__ctrl input:focus-visible,
+.v-sel__btn:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 /* 搜索下拉：锚在搜索框下方 */
 .v-search { position: relative; }
+/* 只保留内层 border 高亮，去掉 vendor 的外层 outline */
+.v-search:focus-within { outline: none; }
 .v-search__drop { top: calc(100% + 6px); left: 0; right: 0; max-height: 320px; overflow-y: auto; }
 /* 音质菜单（装在共用右下浮窗 .v-float 里：档位 + VIP 标签 + 回退说明） */
 #pb-qpop .v-float__body { display: flex; flex-direction: column; gap: 2px; padding: 6px; }
 .v-menu__note { margin: 0; padding: 7px 10px 4px; font-size: 12px; line-height: 16px; color: var(--ink-faint); }
 .v-menu__check { flex: none; color: var(--accent); display: inline-flex; margin-left: auto; }
+
+/* —— 自绘下拉（SelectBox：替代原生 <select>，弹层走上面的 v-menu） —— */
+.v-sel { position: relative; }
+.v-sel__btn {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  width: 100%; height: var(--control-md); padding: 0 var(--space-3);
+  border-radius: var(--main-radius); border: 1px solid var(--line-200);
+  background: var(--surface-100); color: var(--ink);
+  font: inherit; font-size: 13px; cursor: pointer;
+}
+.v-sel__btn:not(:disabled):hover { background: var(--surface-hover); }
+.v-sel__btn:disabled { opacity: .55; cursor: not-allowed; }
+.v-sel__btn .v-icon { flex: none; color: var(--ink-faint); }
+.v-sel__label { flex: 1; min-width: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.v-sel__drop { top: calc(100% + 6px); left: 0; min-width: 100%; max-height: 280px; overflow-y: auto; }
 
 /* —— 播放条扩展（Verse 范式内） —— */
 /* 音质 tag 按钮：v-tag 外观 + 可点击 */
@@ -247,6 +263,8 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 /* 已收藏按钮：accent 文字 + 实心爱心（GUIDELINES 允许的 accent 用途之一） */
 .v-btn.is-loved { color: var(--accent); }
 .v-btn.is-loved:hover { color: var(--accent-hover); }
+/* ghost 按钮：默认透明描边改为发丝线，避免无边框观感 */
+.v-btn--ghost { border-color: var(--line-100); }
 /* 加载更多行 */
 .v-more { display: flex; justify-content: center; margin: var(--space-4) 0 var(--space-1); }
 /* 分区标题行（标题 + 右侧查看全部，如歌手页专辑区） */
@@ -338,3 +356,58 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
   font-family: var(--font-mono); font-size: 12px; line-height: 18px; color: var(--ink-muted);
   white-space: pre-wrap; word-break: break-all;
 }
+
+/* —— 设置页（Verse 范式：v-tabs 分区 + 发丝线分组 + 胶囊选项组 + 标签行） —— */
+.set-tabs { margin-top: var(--space-3); }
+.set-view { max-width: 640px; font-family: var(--font-sans); }
+.set-panel { padding: var(--space-2) 0 var(--space-4); }
+/* 分组：组间发丝线分隔（不用块底色） */
+.set-group { padding: var(--space-4) 0; }
+.set-group + .set-group { border-top: 1px solid var(--line-100); }
+.set-label { margin-bottom: var(--space-2); font-size: 13px; line-height: 18px; font-weight: 600; color: var(--ink); }
+.set-note-inline { margin-left: var(--space-1); font-weight: 400; font-size: 12px; color: var(--ink-muted); }
+.set-hint { margin: var(--space-2) 0 0; font-size: 12px; line-height: 16px; color: var(--ink-muted); }
+.set-view code { padding: 1px 6px; border-radius: var(--radius-sm); background: var(--surface-hover); font-family: var(--font-mono); font-size: 12.5px; }
+
+/* 胶囊选项组（外观模式 / 窗口装饰 / 引擎 / 淡入淡出 / 音质 / Fallback 共用）
+   描边常态，选中走 accent 边 + 选中底；内部 v-tag 徽标不拦截点击 */
+.set-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+#quality-chips { max-width: 460px; }
+.set-chip {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  min-height: var(--control-md); padding: var(--space-1) var(--space-4);
+  border-radius: var(--radius-full); border: 1px solid var(--line-200);
+  background: var(--surface-100); color: var(--ink);
+  font-family: var(--font-sans); font-size: 13px; line-height: 18px; font-weight: 500;
+  cursor: pointer;
+}
+.set-chip:hover:not(:disabled) { background: var(--surface-hover); }
+.set-chip.sel { border-color: var(--accent); background: var(--surface-selected); color: var(--accent); font-weight: 700; }
+.set-chip:disabled { opacity: .45; cursor: not-allowed; }
+.set-chip .v-tag { pointer-events: none; }
+
+/* 主题色板小圆点：固定描绘两种系统主题本身，不随应用主题变色（同 about 双主题图标） */
+.set-dot { width: 16px; height: 16px; border-radius: var(--radius-full); border: 1px solid var(--line-200); flex: none; }
+.set-dot--system { background: linear-gradient(135deg, #cfd2d6 0 50%, #1f2329 50% 100%); }
+.set-dot--light { background: #fff; }
+.set-dot--dark { background: #16181c; }
+
+/* 「标签 + 控件」行（字体 / 输出设备 / 配置路径）：label 定宽，控件占满余宽，窄窗自动换行 */
+.set-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; }
+.set-row__label { flex: none; width: 84px; font-size: 13px; line-height: 18px; color: var(--ink); }
+.set-row__ctrl { flex: 1; min-width: 0; display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.set-row__ctrl input {
+  height: var(--control-md); padding: 0 var(--space-3); flex: 1; min-width: 240px;
+  border-radius: var(--main-radius); border: 1px solid var(--line-200);
+  background: var(--surface-100); color: var(--ink); font: inherit;
+  cursor: text; font-family: var(--font-mono); font-size: 12.5px;
+}
+.set-row__ctrl input[readonly] { cursor: text; font-family: var(--font-mono); font-size: 12.5px; }
+.set-row__ctrl input:disabled { opacity: .55; cursor: not-allowed; }
+.set-row__ctrl input:not(:disabled):hover { background: var(--surface-hover); }
+.set-row__ctrl.font-row .v-sel { min-width: 190px; }
+
+.set-actions { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-2); }
+.set-about { text-align: center; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); padding: var(--space-6) 0; }
+.set-about .title-18, .set-about .time-12 { margin: 0; }
+.set-about .set-about-sub { margin: 0; color: var(--ink-muted); }

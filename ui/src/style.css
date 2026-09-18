@@ -53,7 +53,6 @@ button { font: inherit; }
 .qr { width: 220px; height: 220px; border-radius: var(--radius-lg); background: var(--art-100); display: grid; place-items: center; overflow: hidden; color: var(--ink-faint); font-size: 12px; }
 .qr img { width: 100%; height: 100%; object-fit: contain; }
 .qr-actions { display: flex; gap: var(--space-2); align-items: center; }
-.qr-actions select { height: var(--control-md); padding: 0 var(--space-3); border-radius: var(--main-radius); border: 1px solid var(--line-200); background: var(--surface-100); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
 
 /* ===================== 我的（居中：头像 + 名称 + 徽章 + 退出） ===================== */
 .me { text-align: center; padding-top: 4vh; display: flex; flex-direction: column; align-items: center; font-family: var(--font-sans); }
@@ -61,63 +60,7 @@ button { font: inherit; }
 .avatar-big img { width: 100%; height: 100%; object-fit: cover; }
 .me .v-btn { margin-top: 22px; }
 
-/* ===================== 设置视图（对齐设计稿：分区标题 + 选项卡组 + 单选 + 下拉） ===================== */
-/* ===================== 设置视图（Verse 范式：分组标题 + 选项组 + 单选 + 下拉） ===================== */
-.set-view { max-width: 640px; padding-bottom: var(--space-3); font-family: var(--font-sans); }
-.set-sec { margin: 26px 0 30px; }
-.set-sec:first-child { margin-top: 0; }
-.set-sec > h2 { margin: 0 0 4px; font-size: 18px; line-height: 26px; font-weight: 600; color: var(--ink); }
-.set-note { margin: 0 0 14px; font-size: 12px; line-height: 16px; color: var(--ink-muted); }
-.set-sub { margin: 18px 0 8px; font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: 0.08em; color: var(--ink-faint); }
-.set-sub2 { margin-top: 14px; }
-.set-subnote { font-weight: 400; font-size: 12px; letter-spacing: 0; color: var(--ink-muted); }
-.set-hint { margin: 6px 0 0; font-size: 12px; line-height: 16px; color: var(--ink-muted); }
-
-/* 选项卡按钮组（外观模式 / 窗口装饰 / 默认音质共用）：描边常态，选中走选中底 + accent */
-.opt-cards { display: flex; flex-wrap: wrap; gap: 10px; }
-.opt-card {
-  display: inline-flex; align-items: center; gap: 8px; min-height: var(--control-md); padding: 5px 16px;
-  border-radius: var(--main-radius); border: 1px solid var(--line-200);
-  background: var(--surface-100); color: var(--ink); font-size: 13px; font-weight: 500;
-  cursor: pointer;
-}
-.opt-card:hover:not(:disabled) { background: var(--surface-hover); }
-.opt-card.sel { border-color: var(--accent); background: var(--surface-selected); color: var(--accent); font-weight: 700; box-shadow: inset 0 0 0 1px var(--accent); }
-.opt-card:disabled { opacity: .45; cursor: not-allowed; }
-.opt-card .sw { width: 18px; height: 18px; border-radius: 5px; border: 1px solid #0002; flex: 0 0 auto; }
-.sw-system { background: linear-gradient(135deg, #cfd2d6 0 50%, #1f2329 50% 100%); }
-.sw-light { background: #fff; }
-.sw-dark { background: #16181c; }
-.opt-card.q { padding: 5px 14px; border-radius: 999px; }
-#quality-grid { max-width: 452px; }
-
-/* 字体/后端/配置文件路径等「标签 + 输入」行 */
-.set-field { display: flex; flex-direction: column; gap: 5px; margin: 10px 0; }
-.set-field > span { font-size: 13px; line-height: 18px; font-weight: 500; color: var(--ink); }
-.set-field select, .set-field input {
-  align-self: flex-start; min-width: 220px; height: var(--control-md); padding: 0 12px;
-  border-radius: var(--main-radius); border: 1px solid var(--line-200);
-  background: var(--surface-100); color: var(--ink); cursor: pointer; font: inherit; font-size: 13px;
-}
-.set-field select:disabled, .set-field input:disabled { opacity: .55; cursor: not-allowed; }
-.set-field select:not(:disabled):hover, .set-field input:not(:disabled):hover { background: var(--surface-hover); }
-/* 只读路径框：等宽字体方便照着敲，宽度随内容伸缩 */
-.set-field input[readonly] { cursor: text; width: 100%; max-width: 640px; font-family: var(--font-mono); font-size: 12.5px; }
-/* 字体设置：预设下拉 + 可直接编辑的 font-family 输入框（同一行，窄窗自动换行） */
-.set-field .font-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; width: 100%; }
-.set-field .font-row select { min-width: 190px; }
-.set-field .font-row input { flex: 1; min-width: 240px; cursor: text; font-family: var(--font-mono); font-size: 12.5px; }
-.set-view code { padding: 1px 6px; border-radius: var(--radius-sm); background: var(--surface-hover); font-family: var(--font-mono); font-size: 12.5px; }
-
-/* 解码后端单选 */
-.opt-radios { display: flex; gap: 18px; align-items: center; }
-.opt-radios label { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; cursor: pointer; color: var(--ink); }
-.opt-radios input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
-.opt-radios label:has(input:disabled) { opacity: .5; cursor: not-allowed; }
-.soon { font-size: 11px; color: var(--ink-faint); }
-
-/* 调试区 */
-.set-debug { display: flex; align-items: center; gap: 12px; }
+/* ===================== 设置视图：样式已迁入 src/verse/verse-app.css ===================== */
 
 /* 歌词字体族（仅作用于正在播放页歌词，独立于界面字体） */
 .np-lyrics { font-family: var(--font-lyric, var(--font-sans)); }
