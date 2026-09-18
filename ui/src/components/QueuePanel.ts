@@ -1,8 +1,6 @@
 // 播放列表面板：点击切歌 / 拖拽排序 / 单曲移除 / 一键清空。
-// 三处挂载（按 player.expanded 与内容区宽度定）：
-//   播放页展开 → 静态填入 #np-queue（NowPlaying 右栏 320px）；
-//   内容区 ≥880px → 停靠 .q-content 右缘（route 自动让宽）；
-//   否则 → 浮窗（右下，播放条之上）。
+// 两种呈现复用同一个 DOM：普通宽屏停靠 .q-content 右缘；普通窄屏与全屏播放页
+// 都使用右下浮窗。进入/退出全屏只移动节点，不重建列表或交互状态。
 // 当前行 = 三信号（选中底 + accent 歌名 + 圆点）；拖拽中的行拿 shadow-main（GUIDELINES 允许）。
 import { player, type Song } from "../player";
 import { icon } from "../verse/icons";
@@ -30,20 +28,11 @@ export function QueuePanel(): HTMLElement {
 
   // —— 形态切换 ——
   const qContent = () => document.querySelector<HTMLElement>(".q-content");
-  const slot = () => document.getElementById("np-queue");
   function syncMount() {
     const open = player.queueOpen;
     el.classList.toggle("open", open);
-    // 播放页展开：静态填入右栏（关闭时保持原位收起，避免瞬移）
-    if (player.expanded && slot()) {
-      el.classList.remove("qp-float", "qp-dock");
-      el.classList.add("qp-innp");
-      if (el.parentElement !== slot()) slot()!.append(el);
-      return;
-    }
-    el.classList.remove("qp-innp");
     const wide = (qContent()?.clientWidth ?? 0) >= 880;
-    const dock = open ? wide : el.classList.contains("qp-dock");
+    const dock = open && !player.expanded && wide;
     el.classList.toggle("qp-dock", dock);
     el.classList.toggle("qp-float", !dock);
     if (dock) {

@@ -102,6 +102,7 @@ body.ssd .v-titlebar__win { display: none; }
   border-radius: var(--radius-lg); box-shadow: var(--shadow-menu);
   font-family: var(--font-sans);
 }
+.v-menu[hidden] { display: none; }
 .v-menu__item {
   display: flex; align-items: center; gap: var(--space-3);
   border: 0; background: transparent; color: var(--ink);
@@ -211,7 +212,7 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 .sec-more { font-size: 12.5px; color: var(--ink-faint); text-decoration: none; white-space: nowrap; }
 .sec-more:hover { color: var(--accent); }
 
-/* —— 正在播放页（NowPlaying 屏：左歌词 / 中封面 / 右播放列表） —— */
+/* —— 正在播放页（NowPlaying 屏：左歌词 / 右封面信息） —— */
 /* 全屏覆盖：常驻播放条保持可见可点（z 60 > 本页 50），标题栏被覆盖期间只留「收起播放页」出口 */
 .np {
   position: fixed; inset: 0; z-index: 50; overflow: hidden;
@@ -241,9 +242,8 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 .np-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .np-tags { display: flex; align-items: center; gap: var(--space-2); }
 .np-actions { display: flex; align-items: center; gap: var(--space-1); }
-.np-queue { width: 320px; flex: none; display: flex; min-height: 0; background: var(--surface-200); border: 1px solid var(--line-100); border-radius: var(--radius-lg); overflow: hidden; }
 
-/* —— 播放列表面板（三形态：播放页内嵌 / 内容区停靠 / 右下浮窗） —— */
+/* —— 播放列表面板（两形态：内容区停靠 / 右下浮窗） —— */
 .qp { display: flex; flex-direction: column; overflow: hidden; background: var(--surface-100); color: var(--ink); font-family: var(--font-sans); }
 .qp-float {
   position: fixed; right: 14px; bottom: calc(var(--player-h) + 12px); z-index: 70;
@@ -256,9 +256,6 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 .qp-float.open { opacity: 1; pointer-events: auto; transform: none; }
 .qp-dock { flex: 0 0 300px; width: 300px; min-height: 0; border-left: 1px solid var(--line-100); }
 .qp-dock:not(.open) { display: none; }
-/* 播放页内嵌：填满右栏，播放页打开即见（收起按钮在内嵌态隐藏，出口统一走「收起播放页」） */
-.qp-innp { flex: 1; min-height: 0; border: 0; background: transparent; }
-.qp-innp #qp-close { display: none; }
 .qp-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4); border-bottom: 1px solid var(--line-100); }
 .qp-title { flex: 1; min-width: 0; font-size: 13px; line-height: 18px; font-weight: 500; }
 .qp-cnt { font-style: normal; font-family: var(--font-mono); font-size: 12px; line-height: 16px; color: var(--ink-faint); margin-left: var(--space-2); font-variant-numeric: tabular-nums; }

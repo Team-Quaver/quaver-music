@@ -34,9 +34,9 @@ export function PlayerBar(): HTMLElement {
       <button type="button" class="v-iconbtn v-iconbtn--sm" id="pb-loop" aria-label="循环模式" title="循环模式"></button>
     </div></div>
     <div class="v-player__right">
-      <button type="button" class="v-tag v-tag--outline v-tagbtn" id="pb-quality" title="音质（本会话生效，不保存）">…</button>
+      <button type="button" class="v-tag v-tag--outline v-tagbtn" id="pb-quality" aria-haspopup="menu" aria-expanded="false" title="音质（本会话生效，不保存）">…</button>
       <button type="button" class="v-iconbtn v-iconbtn--sm" id="pb-lyrics" aria-label="歌词" title="歌词">${icon("lyrics", 16)}</button>
-      <button type="button" class="v-iconbtn v-iconbtn--sm" id="pb-queue" aria-label="播放列表" title="播放列表">${icon("list", 16)}</button>
+      <button type="button" class="v-iconbtn v-iconbtn--sm" id="pb-queue" aria-label="播放列表" aria-expanded="false" title="播放列表">${icon("list", 16)}</button>
       <button type="button" class="v-iconbtn v-iconbtn--sm" id="pb-mute" aria-label="音量 / 静音" title="音量 / 静音"></button>
       <div class="v-slider v-slider--volume" id="pb-volwrap">
         <div class="v-slider__rail" id="pb-volrail" role="slider" tabindex="0" aria-label="音量"
@@ -55,6 +55,7 @@ export function PlayerBar(): HTMLElement {
   const coverImg = el.querySelector<HTMLImageElement>("#pb-cover-img")!;
   const title = $("pb-title"), sub = $("pb-sub");
   const play = $("pb-play"), loop = $("pb-loop"), love = $("pb-love");
+  const queueBtn = $<HTMLButtonElement>("pb-queue");
   const mute = $("pb-mute");
   const volRail = $("pb-volrail"), volFill = $("pb-volfill"), volThumb = $("pb-volthumb");
 
@@ -71,7 +72,7 @@ export function PlayerBar(): HTMLElement {
   $("pb-next").onclick = () => player.next(false);
   loop.onclick = () => player.cycleMode();
   love.onclick = () => player.toggleLove(player.current);
-  $("pb-queue").onclick = () => { player.queueOpen = !player.queueOpen; player.notifyPublic(); };
+  queueBtn.onclick = () => { player.queueOpen = !player.queueOpen; player.notifyPublic(); };
   $("pb-lyrics").onclick = () => {
     if (!player.current) return;
     player.expanded = !player.expanded;
@@ -163,6 +164,10 @@ export function PlayerBar(): HTMLElement {
   let tierList: { id: string; label: string; locked?: number | boolean }[] = [];
   let qReady = false;
   const cur = () => effectiveQuality();
+  const closeQPop = () => {
+    qPop.hidden = true;
+    qBtn.setAttribute("aria-expanded", "false");
+  };
   function paintQ() {
     if (!qReady) { qBtn.textContent = "…"; qBtn.disabled = true; return; }
     qBtn.disabled = false;
@@ -209,7 +214,7 @@ export function PlayerBar(): HTMLElement {
       b.innerHTML = `<span>${label}</span>${note ? `<span class="v-tag v-tag--outline">${note}</span>` : ""}`;
       b.onclick = () => {
         player.switchQuality(id as Quality | "auto");
-        qPop.hidden = true;
+        closeQPop();
       };
       qPop.append(b);
       return b;
@@ -246,12 +251,19 @@ export function PlayerBar(): HTMLElement {
   }
   qBtn.onclick = () => {
     if (!qReady) return void initQuality();
-    qPop.hidden = !qPop.hidden;
-    if (!qPop.hidden) paintQ();
+    const opening = qPop.hidden;
+    qPop.hidden = !opening;
+    qBtn.setAttribute("aria-expanded", String(opening));
+    if (!opening) return;
+    if (player.queueOpen) {
+      player.queueOpen = false;
+      player.notifyPublic();
+    }
+    paintQ();
   };
   document.addEventListener("pointerdown", (e) => {
     const t = e.target as HTMLElement;
-    if (!t.closest("#pb-quality, #pb-qpop")) qPop.hidden = true;
+    if (!t.closest("#pb-quality, #pb-qpop")) closeQPop();
   });
   void initQuality();
 
@@ -291,6 +303,7 @@ export function PlayerBar(): HTMLElement {
     if (!volDrag) paintVolSlider(v);
     mute.innerHTML = icon(player.muted || v === 0 ? "mute" : "volume", 16);
     mute.classList.toggle("v-iconbtn--on", player.muted);
+    queueBtn.setAttribute("aria-expanded", String(player.queueOpen));
     player.markActive();
   });
   return el;

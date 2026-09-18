@@ -1,5 +1,5 @@
 // 「正在播放」页（NowPlaying 屏）：点击播放条封面/歌词按钮展开，顶栏「收起播放页」收起。
-// 全屏覆盖（常驻播放条仍可见可点）；内部分三栏：歌词 / 封面+曲名+音质 / 播放列表（QueuePanel 挂载位）。
+// 全屏覆盖（常驻播放条仍可见可点）；内部为歌词与封面信息两栏，播放列表复用全局右下浮窗。
 // 进度与传输控制由常驻播放条承担，本页不重复。
 import { player, type Song } from "../player";
 import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQuality, QUALITY_SHORT } from "../lib/api";
@@ -29,7 +29,6 @@ export function NowPlaying(): HTMLElement {
           <button type="button" class="v-btn v-btn--ghost v-btn--sm" id="np-trans" aria-pressed="true">译文</button>
         </div>
       </section>
-      <aside class="np-queue" id="np-queue" aria-label="播放列表"></aside>
     </div>
   `;
 
