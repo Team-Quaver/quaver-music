@@ -233,6 +233,8 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 .v-row.leaving { opacity: 0; transform: translateX(-10px); transition: opacity 0.2s ease, transform 0.2s ease; pointer-events: none; }
 /* 专辑卡网格（固定 160px） */
 .v-cards { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+/* 专辑卡外层圆角加大（10px → 16px，只用 var 派生，不动 vendor） */
+.v-card { border-radius: calc(var(--radius-lg) * 1.6); }
 /* 区块头（首页范式：title-18 + 一行 caption 说明） */
 .v-section { display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-6); }
 .v-section__head { display: flex; align-items: baseline; gap: var(--space-3); }
