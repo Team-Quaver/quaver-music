@@ -193,11 +193,15 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
   content: "1"; position: absolute; top: 2px; right: 4px;
   font-family: var(--font-mono); font-size: 10px; line-height: 1; color: var(--accent);
 }
-/* 取链/缓冲中：播放键 pulse（颜色即 accent，不引入 spinner 字形） */
-#pb-play.is-loading { animation: v-pulse 1.6s ease-in-out infinite; }
-@keyframes v-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 var(--accent-soft); }
-  50% { box-shadow: 0 0 0 6px transparent; }
+/* 取链/缓冲中：播放键内显示转圈（复用 .v-spinner；--on-accent 变体保证青绿底上可见） */
+#pb-play.is-loading { animation: none; }
+#pb-play .v-spinner--on-accent {
+  width: var(--icon-20); height: var(--icon-20);
+  border-color: var(--on-accent);
+  border-top-color: transparent;
+}
+@media (prefers-reduced-motion: reduce) {
+  #pb-play .v-spinner--on-accent { border-top-color: var(--on-accent); }
 }
 /* 出错：标题/副行走 danger 文字（与文字同时出现，不只靠颜色） */
 #pb-title.is-err, #pb-sub.is-err { color: var(--danger); }

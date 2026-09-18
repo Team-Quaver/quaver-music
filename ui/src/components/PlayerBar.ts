@@ -289,9 +289,13 @@ export function PlayerBar(): HTMLElement {
       el.classList.remove("is-meta-hidden");
     }
     coverImg.src = s ? coverUrl(s, 150) : TRANSPARENT;
-    // 中央播放键：取链/缓冲中 pulse；常规按播放态切实心图标
+    // 中央播放键：取链/缓冲中显示转圈（复用 .v-spinner）；常规按播放态切实心图标
     play.classList.toggle("is-loading", player.loading);
-    play.innerHTML = icon(player.loading || (!player.playing && !player.error) ? "play" : player.playing ? "pause" : "play", 24);
+    if (player.loading) {
+      play.innerHTML = `<span class="v-spinner v-spinner--on-accent" aria-hidden="true"></span>`;
+    } else {
+      play.innerHTML = icon(!player.playing && !player.error ? "play" : player.playing ? "pause" : "play", 24);
+    }
     play.setAttribute("aria-label", player.loading ? "加载中，点击取消" : player.error ? "加载失败，点击重试" : player.playing ? "暂停" : "播放");
     paintQ();
     // 循环三态：off=常态 repeat；all=持续开启；one=持续开启 + 角标 1（颜色 Founded 不单独表意，aria 区分）
