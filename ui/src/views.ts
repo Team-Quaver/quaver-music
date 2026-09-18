@@ -464,10 +464,9 @@ async function singerView(root: HTMLElement, q: URLSearchParams) {
 
   const hotPanel = songPanel(songs, "没有取到热门歌曲");
   const newPanel = songPanel(newSongs, "暂无新歌");
-  const albumPanel = h("div", "");
+  const albumPanel = h("div", "album-panel");
   if (albums.length) {
     const more = h("div", "sec-row");
-    more.style.marginTop = "0";
     more.innerHTML = `<span class="caption-12">共 ${albumData?.total ?? albums.length} 张</span>
       <a class="sec-more" href="#/singer-albums?mid=${encodeURIComponent(mid)}&name=${encodeURIComponent(displayName)}">查看全部 ›</a>`;
     const grid = h("div", "v-cards");

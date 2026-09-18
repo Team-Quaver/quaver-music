@@ -243,8 +243,12 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 .v-row__sub a:hover, .v-row__album a:hover { color: var(--accent); }
 /* 取消收藏后行淡出移除（我喜欢页） */
 .v-row.leaving { opacity: 0; transform: translateX(-10px); transition: opacity 0.2s ease, transform 0.2s ease; pointer-events: none; }
-/* 专辑卡网格（固定 160px） */
-.v-cards { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+/* 专辑卡网格（自适应：列数跟随内容区宽度，卡片拉伸占满） */
+.v-cards {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--cover-md)), 1fr));
+  gap: var(--space-4) var(--space-3); justify-content: start;
+}
+.v-cards .v-card { width: auto; min-width: 0; }
 /* 专辑卡外层圆角加大（10px → 16px，只用 var 派生，不动 vendor） */
 .v-card { border-radius: calc(var(--radius-lg) * 1.6); }
 /* 区块头（首页范式：title-18 + 一行 caption 说明） */
@@ -279,8 +283,8 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 .home-new-list .v-row { padding-right: var(--space-2); padding-left: var(--space-2); }
 .home-recommendations { padding-top: var(--space-5); border-top: 1px solid var(--line-100); }
 .home-cards {
-  display: grid; grid-template-columns: repeat(auto-fill, var(--cover-md));
-  gap: var(--space-4) var(--space-3); justify-content: space-between;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--cover-md)), 1fr));
+  gap: var(--space-4) var(--space-3); justify-content: start;
 }
 .home-status { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); padding: var(--space-5) 0; }
 .home-status p { margin: 0; }
@@ -313,7 +317,9 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 /* 加载更多行 */
 .v-more { display: flex; justify-content: center; margin: var(--space-4) 0 var(--space-1); }
 /* 分区标题行（标题 + 右侧查看全部，如歌手页专辑区） */
-.sec-row { display: flex; align-items: baseline; justify-content: space-between; margin: var(--space-5) 0 var(--space-3); }
+.sec-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin: var(--space-5) 0 var(--space-3); }
+/* 歌手页专辑面板首个区头贴着标签栏（替代原来的行内 marginTop=0） */
+.album-panel > .sec-row:first-child { margin-top: 0; }
 .sec-more { font-size: 12.5px; color: var(--ink-faint); text-decoration: none; white-space: nowrap; }
 .sec-more:hover { color: var(--accent); }
 
