@@ -416,3 +416,38 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 .set-about { text-align: center; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); padding: var(--space-6) 0; }
 .set-about .title-18, .set-about .time-12 { margin: 0; }
 .set-about .set-about-sub { margin: 0; color: var(--ink-muted); }
+
+/* —— 登录页（任务式双栏：左列步骤说明 / 右列二维码卡，发丝线分隔，不用色块） —— */
+.login {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-6);
+  max-width: 720px; min-height: 100%; margin: 0 auto; align-items: center; align-content: center;
+  font-family: var(--font-sans);
+}
+.login__main { min-width: 0; display: flex; flex-direction: column; }
+.login__lead { margin: var(--space-2) 0 0; color: var(--ink-muted); }
+/* 步骤是真实序列，允许编号；发丝线分隔 */
+.login__steps { list-style: none; counter-reset: step; margin: var(--space-4) 0 0; padding: 0; }
+.login__steps li { counter-increment: step; display: flex; gap: var(--space-3); padding: var(--space-2) 0; color: var(--ink-muted); }
+.login__steps li + li { border-top: 1px solid var(--line-100); }
+.login__steps li::before { content: counter(step); font-family: var(--font-mono); color: var(--ink-faint); flex: none; }
+/* 右列：二维码是唯一的记忆点（直角：二维码四角定位图案不套圆角） */
+.login__side { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-2); }
+.login__qr {
+  position: relative; width: 220px; height: 220px;
+  display: grid; place-items: center; overflow: hidden;
+  background: var(--surface-200); border: 1px solid var(--line-100);
+  color: var(--ink-faint);
+}
+.login__qr img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.login__qr.is-expired img { opacity: 0.25; }
+.login__qr-retry { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.login__state { margin: 0; min-height: var(--space-4); }
+.login__state.is-err { color: var(--danger); }
+.login__actions { display: flex; gap: var(--space-2); align-items: center; }
+.login__actions .v-sel { flex: 1; min-width: 0; }
+.login__qr-retry:focus-visible,
+.login__actions .v-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (max-width: 720px) {
+  .login { grid-template-columns: 1fr; }
+  .login__side { align-items: start; }
+}

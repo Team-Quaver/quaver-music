@@ -1137,13 +1137,20 @@ async function userView(root: HTMLElement) {
 // —— 登录页（扫码），内容区视图 ——
 async function loginView(root: HTMLElement) {
   root.innerHTML = `
-    <div class="login-wrap">
-      <h2 class="display-24">扫码登录</h2>
-      <p class="caption-12">用手机 QQ 音乐 App 或微信扫码。凭证由本机 sidecar 保存于系统配置目录的 credential.json（0600，Linux 在 ~/.config/quaver-music），不进浏览器。</p>
-      <div class="qr-box">
-        <div id="qr" class="qr"><div>正在生成二维码…</div></div>
-        <div id="lstate" class="caption-12"></div>
-        <div class="qr-actions">
+    <div class="login">
+      <div class="login__main">
+        <h2 class="display-24">扫码登录</h2>
+        <p class="body-14 login__lead">用手机 QQ 音乐 App、手机 QQ 或微信扫码，在手机上确认即可登录。</p>
+        <ol class="body-14 login__steps">
+          <li>选择登录通道</li>
+          <li>用手机扫右侧二维码</li>
+          <li>在手机上确认登录</li>
+        </ol>
+      </div>
+      <div class="login__side">
+        <div id="qr" class="login__qr"><div class="muted">正在生成二维码…</div></div>
+        <p id="lstate" class="caption-12 login__state" aria-live="polite"></p>
+        <div class="login__actions">
           <span id="channel"></span>
           <button id="refresh" class="v-btn v-btn--secondary" type="button">重新生成</button>
         </div>
@@ -1151,6 +1158,10 @@ async function loginView(root: HTMLElement) {
     </div>`;
   const qr = root.querySelector<HTMLElement>("#qr")!;
   const lstate = root.querySelector<HTMLElement>("#lstate")!;
+  const setState = (msg: string, isErr = false) => {
+    lstate.textContent = msg;
+    lstate.classList.toggle("is-err", isErr);
+  };
   const channel = SelectBox({
     ariaLabel: "登录通道",
     options: [
@@ -1165,30 +1176,46 @@ async function loginView(root: HTMLElement) {
 
   async function start() {
     window.clearInterval(timer);
+    qr.classList.remove("is-expired");
     qr.innerHTML = `<div class="muted">生成中…</div>`;
-    lstate.textContent = "";
+    setState("");
     let d: any;
     try {
       d = await api<any>(`/login/qrcode/${channel.value}`);
     } catch (e: any) {
-      qr.innerHTML = `<div class="muted">${/429|backoff|频繁/.test(e.message) ? "操作太快，等 60-90s 再重试" : e.message}</div>`;
+      const msg = /429|backoff|频繁/.test(e.message) ? "操作太快，等 60-90s 再重试" : e.message;
+      qr.innerHTML = `<div class="muted">生成失败</div>`;
+      setState(msg, true);
       return;
     }
     if (stopped) return;
     qr.innerHTML = `<img src="${d.img}" alt="登录二维码"/>`;
-    lstate.textContent = "等待扫码…";
+    setState("等待扫码…");
 
     timer = window.setInterval(async () => {
       if (stopped) { window.clearInterval(timer); return; }
       try {
         const c: any = await api(`/login/qrcode/${channel.value}/status?identifier=${encodeURIComponent(d.identifier)}`);
         if (c.event === 1) return; // SCAN
-        if (c.event === 2) { lstate.textContent = "已扫码，请在手机上确认"; return; }
-        if (c.event === 3) { lstate.textContent = "二维码已过期，点「重新生成」"; window.clearInterval(timer); return; }
-        if (c.event === 4) { lstate.textContent = "已拒绝登录"; window.clearInterval(timer); return; }
+        if (c.event === 2) { setState("已扫码，请在手机上确认"); return; }
+        if (c.event === 3) {
+          window.clearInterval(timer);
+          setState("二维码已过期，点「重新生成」", true);
+          qr.classList.add("is-expired");
+          if (!qr.querySelector(".login__qr-retry")) {
+            const retry = document.createElement("button");
+            retry.type = "button";
+            retry.className = "v-btn v-btn--primary login__qr-retry";
+            retry.textContent = "重新生成";
+            retry.onclick = start;
+            qr.append(retry);
+          }
+          return;
+        }
+        if (c.event === 4) { window.clearInterval(timer); setState("已拒绝登录", true); return; }
         if (c.event === 0 && c.done) {
           window.clearInterval(timer);
-          lstate.textContent = "登录成功，正在返回…";
+          setState("登录成功，正在返回…");
           setTimeout(() => (location.href = "/index.html"), 800);
         }
       } catch { /* 瞬时网络抖动，下一轮再试 */ }

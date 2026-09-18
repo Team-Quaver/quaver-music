@@ -46,13 +46,7 @@ button { font: inherit; }
 
 .muted { color: var(--ink-muted); }
 
-/* ===================== 登录页 ===================== */
-/* ===================== 登录页（中性：二维码 + 通道选择） ===================== */
-.login-wrap { max-width: 460px; margin: calc(4vh + 26px) auto 0; text-align: center; font-family: var(--font-sans); }
-.qr-box { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); margin-top: 18px; }
-.qr { width: 220px; height: 220px; border-radius: var(--radius-lg); background: var(--art-100); display: grid; place-items: center; overflow: hidden; color: var(--ink-faint); font-size: 12px; }
-.qr img { width: 100%; height: 100%; object-fit: contain; }
-.qr-actions { display: flex; gap: var(--space-2); align-items: center; }
+/* ===================== 登录页：样式已迁入 src/verse/verse-app.css（.login-*） ===================== */
 
 /* ===================== 我的（居中：头像 + 名称 + 徽章 + 退出） ===================== */
 .me { text-align: center; padding-top: 4vh; display: flex; flex-direction: column; align-items: center; font-family: var(--font-sans); }
