@@ -335,8 +335,8 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: 15px;
-  line-height: 22px;
+  font-size: 14px;
+  line-height: 18px;
   font-weight: 500;
   color: var(--ink);
   white-space: nowrap;
@@ -347,6 +347,7 @@
 .v-row__sub {
   font-size: 12px;
   line-height: 16px;
+  margin-top: 2px;
   color: var(--ink-muted);
   white-space: nowrap;
   overflow: hidden;

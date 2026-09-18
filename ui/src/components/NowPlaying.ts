@@ -14,8 +14,8 @@ export function NowPlaying(): HTMLElement {
     <div class="np-backdrop" aria-hidden="true">
       <img id="np-backdrop-img" alt="" hidden>
     </div>
-    <div class="np-top">
-      <button type="button" class="v-btn v-btn--ghost" id="np-collapse">${icon("chevronDown", 16)}收起播放页</button>
+    <div class="np-top v-drag">
+      <button type="button" class="v-btn v-btn--ghost v-nodrag" id="np-collapse">${icon("chevronDown", 16)}收起播放页</button>
     </div>
     <div class="np-body">
       <section class="np-lyrics-col">

@@ -50,11 +50,11 @@ const compactCount = (value: unknown) => {
   return Math.round(n).toLocaleString("zh-CN");
 };
 
-// 信息头（Likes/Artist 范式：160px 方封面 / 128px 圆头像 + 标题 + 元信息 + 简介 + 行动区）。
-// 简介默认两行截断，真溢出时出 ghost「展开」按钮。
+// 信息头（Likes/Artist 范式：左 160px 方封面 / 128px 圆头像 + 中标题/元信息/行动区 + 右简介滚动栏）。
+// 简介放右侧独立栏内纵向滚动（纯 CSS，内容不满时无滚动条）；无简介则退化为两栏。
 function mountHead(root: HTMLElement, opts: {
   artHtml: string; artRound?: boolean; name: string; meta: string; desc: string;
-  /** 信息头行动区，挂在简介下方 */
+  /** 信息头行动区，挂在元信息下方 */
   actions?: HTMLElement | null;
 }) {
   const head = h("div", "v-colhead");
@@ -62,30 +62,14 @@ function mountHead(root: HTMLElement, opts: {
     <div class="v-colhead__art${opts.artRound ? " v-colhead__art--round" : ""}">${opts.artHtml}</div>
     <div class="v-colhead__main">
       <div><h1 class="display-24">${escHtml(opts.name)}</h1>${opts.meta ? `<p class="v-colhead__count">${escHtml(opts.meta)}</p>` : ""}</div>
-      ${opts.desc ? `<p class="v-desc">${escHtml(opts.desc)}</p>` : ""}
-    </div>`;
+    </div>
+    ${opts.desc ? `<div class="v-colhead__desc"><p class="v-desc">${escHtml(opts.desc)}</p></div>` : ""}`;
   if (opts.actions) {
     const box = h("div", "v-pagehead__actions");
     box.append(opts.actions);
     head.querySelector<HTMLElement>(".v-colhead__main")!.append(box);
   }
   root.append(head);
-  const desc = head.querySelector<HTMLElement>(".v-desc")!;
-  if (opts.desc) {
-    // 截断检测在下一帧做（-webkit-line-clamp 生效后 scrollHeight 才可比）
-    requestAnimationFrame(() => {
-      if (desc.scrollHeight - desc.clientHeight <= 2) return; // 两行内放得下：不需要按钮
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "v-btn v-btn--ghost v-btn--sm";
-      btn.textContent = "展开";
-      btn.onclick = () => {
-        const open = desc.classList.toggle("open");
-        btn.textContent = open ? "收起" : "展开";
-      };
-      desc.after(btn);
-    });
-  }
   return head;
 }
 
@@ -472,7 +456,6 @@ async function singerView(root: HTMLElement, q: URLSearchParams) {
   const songPanel = (list: any[], empty: string) => {
     const p = h("div", "");
     if (!list.length) { p.append(emptyState("这里没有歌曲", empty, { label: "回首页", href: "#/" })); return p; }
-    p.append(tableHead(true));
     const rows = h("div", "v-rows");
     p.append(rows);
     renderSongRows(rows, list, { showAlbum: true, onPlay: (s, i, all) => player.playList(all, i) });

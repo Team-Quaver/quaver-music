@@ -66,9 +66,12 @@
 @media (max-width: 1000px) {
   .q-side { flex-basis: calc(var(--sidebar-w) - var(--space-7)); }
 }
+/* 窗口钮只有标题栏这一套：提到全屏播放页（.np，z-50）之上，全屏时仍是同一组按钮，位置严格一致 */
+.v-titlebar__win { position: relative; z-index: 60; }
 /* macOS：隐藏自绘窗口钮，左侧留 80px 给系统红绿灯；SSD：系统标题栏接管窗口钮 */
 body.mac .v-titlebar__win { display: none; }
 body.mac .v-titlebar { padding-left: 80px; }
+body.mac .np-top { padding-left: 80px; }
 body.ssd .v-titlebar__win { display: none; }
 
 /* —— 侧栏用户头（Verse 范式内：圆形头像 + label-13 昵称；徽章沿用数据驱动三色） —— */
@@ -117,10 +120,15 @@ body.ssd .v-titlebar__win { display: none; }
 /* 非 vendor 部件的焦点环（与 Verse 一致：2px 实线 + 2px 偏移） */
 .v-menu__item:focus-visible,
 .set-chip:focus-visible,
-.set-row__ctrl input:focus-visible,
 .v-sel__btn:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
+}
+/* 文本输入框与搜索框一致：选中只高亮内层 border，不要外层 outline */
+.set-row__ctrl input:focus,
+.set-row__ctrl input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
 }
 /* 搜索下拉：锚在搜索框下方 */
 .v-search { position: relative; border-color: var(--line-100); }
@@ -199,10 +207,10 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 .v-thead__index { width: 24px; flex: none; text-align: right; }
 .v-thead__title { flex: 1; min-width: 0; margin-left: 52px; } /* 封面 40 + 间隙 12 */
 .v-thead__album { width: 30%; flex: none; }
-.v-rows { display: flex; flex-direction: column; margin-top: var(--space-1); padding-bottom: var(--space-2); }
+.v-rows { display: flex; flex-direction: column; gap: 2px; margin-top: var(--space-1); padding-bottom: var(--space-2); }
 .v-note { margin: var(--space-4) 0 0; font-size: 12px; line-height: 16px; color: var(--ink-faint); }
 /* 集合头（Likes 范式：160px 封面占位 + 标题 + 等宽计数 + 按钮） */
-.v-colhead { display: flex; align-items: flex-start; gap: var(--space-5); margin-bottom: var(--space-5); }
+.v-colhead { display: flex; align-items: stretch; gap: var(--space-5); margin-bottom: var(--space-5); }
 .v-colhead__art { width: 160px; height: 160px; flex: none; border-radius: var(--radius-lg); background: var(--art-100); overflow: hidden; }
 .v-colhead__art img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .v-colhead__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); padding-top: var(--space-2); }
@@ -262,12 +270,22 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 .home-status .body-14 { color: var(--ink-muted); }
 /* 集合头圆形变体（歌手 128px 圆头像） */
 .v-colhead__art--round { width: 128px; height: 128px; border-radius: var(--radius-full); }
-/* 简介：两行截断，展开看全文（ghost 小按钮） */
-.v-desc {
-  margin: 0; max-width: 720px; font-size: 14px; line-height: 20px; color: var(--ink-muted);
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+/* 简介：右侧独立滚动栏，高度随头部拉伸；上下渐隐提示可滚，细滚动条 */
+.v-colhead__desc {
+  flex: none; width: 320px; min-height: 0; overflow-y: auto;
+  padding: var(--space-2) 0;
+  scrollbar-width: thin; scrollbar-color: var(--line-200) transparent;
+  mask-image: linear-gradient(180deg, transparent, #000 var(--space-3), #000 calc(100% - var(--space-3)), transparent);
 }
-.v-desc.open { display: block; -webkit-line-clamp: unset; overflow: visible; }
+.v-colhead__desc::-webkit-scrollbar { width: 6px; }
+.v-colhead__desc::-webkit-scrollbar-thumb { background: var(--line-200); border-radius: var(--radius-full); }
+.v-colhead__desc::-webkit-scrollbar-track { background: transparent; }
+.v-desc { margin: 0; font-size: 14px; line-height: 20px; color: var(--ink-muted); }
+/* 窄窗：简介栏落到头部下方，仍保持固定高滚动 */
+@media (max-width: 720px) {
+  .v-colhead { flex-wrap: wrap; }
+  .v-colhead__desc { flex-basis: 100%; width: auto; max-height: 120px; }
+}
 /* 热搜词（button 版 v-tag，胶囊组） */
 .v-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 /* 已收藏按钮：accent 文字 + 实心爱心（GUIDELINES 允许的 accent 用途之一） */
