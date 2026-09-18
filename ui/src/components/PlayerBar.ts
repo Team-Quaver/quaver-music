@@ -1,6 +1,6 @@
 // 底部播放条（常驻壳层）：Verse PlayerBar 结构（v-player），逻辑沿用 player。
 // 进度 = 上边框 rail（2px，悬停 4px + 拇指），条上无时间读数，进度只走 aria-valuetext。
-// 右组 = 音质扩展（outline tag 按钮 + v-menu 浮层）· 歌词 · 队列 · 音量（mute + 内联 volume slider）。
+// 右组 = 音质扩展（outline tag 按钮 + v-menu 浮层）· 队列 · 音量（mute + 内联 volume slider）。
 import { player } from "../player";
 import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQuality, QUALITY_SHORT, QUALITIES, type Quality } from "../lib/api";
 import { icon } from "../verse/icons";
@@ -35,7 +35,6 @@ export function PlayerBar(): HTMLElement {
     </div></div>
     <div class="v-player__right">
       <button type="button" class="v-tag v-tag--outline v-tagbtn" id="pb-quality" aria-haspopup="menu" aria-expanded="false" title="音质（本会话生效，不保存）">…</button>
-      <button type="button" class="v-iconbtn v-iconbtn--sm" id="pb-lyrics" aria-label="歌词" title="歌词">${icon("lyrics", 16)}</button>
       <button type="button" class="v-iconbtn v-iconbtn--sm" id="pb-queue" aria-label="播放列表" aria-expanded="false" title="播放列表">${icon("list", 16)}</button>
       <button type="button" class="v-iconbtn v-iconbtn--sm" id="pb-mute" aria-label="音量 / 静音" title="音量 / 静音"></button>
       <div class="v-slider v-slider--volume" id="pb-volwrap">
@@ -73,11 +72,6 @@ export function PlayerBar(): HTMLElement {
   loop.onclick = () => player.cycleMode();
   love.onclick = () => player.toggleLove(player.current);
   queueBtn.onclick = () => { player.queueOpen = !player.queueOpen; player.notifyPublic(); };
-  $("pb-lyrics").onclick = () => {
-    if (!player.current) return;
-    player.expanded = !player.expanded;
-    player.notifyPublic();
-  };
   mute.onclick = () => player.toggleMute();
 
   // —— 进度 rail：拖拽 seek（只做视觉预览，松手提交）；键盘 ←/→ 5 秒、Home/End ——
