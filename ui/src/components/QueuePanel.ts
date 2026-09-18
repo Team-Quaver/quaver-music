@@ -50,7 +50,7 @@ export function QueuePanel(): HTMLElement {
     row.setAttribute("role", "button");
     row.title = q.name;
     row.innerHTML = `
-      <span class="qp-grip" title="拖动排序">${icon("more", 16)}</span>
+      <span class="qp-grip" title="拖动排序">${icon("grip", 16)}</span>
       <span class="qp-idx">${cur ? icon("dot", 12) : i + 1}</span>
       <span class="qp-main">
         <span class="qp-t">${escapeHtml(q.name)}</span>

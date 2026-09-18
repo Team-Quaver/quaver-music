@@ -283,22 +283,34 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 .sec-more:hover { color: var(--accent); }
 
 /* —— 正在播放页（NowPlaying 屏：左歌词 / 右封面信息） —— */
-/* 全屏覆盖：常驻播放条保持可见可点（z 60 > 本页 50），标题栏被覆盖期间只留「收起播放页」出口 */
+/* 全屏：覆盖标题栏/侧栏/内容区，但底部止于播放条上方（bottom = 播放条高），由播放条把本页挤上去，不遮挡 */
 .np {
-  position: fixed; inset: 0; z-index: 50; overflow: hidden;
+  position: fixed; inset: 0 0 var(--player-h) 0; z-index: 50; overflow: hidden;
   display: flex; flex-direction: column; background: var(--surface-000);
   opacity: 0; pointer-events: none; transform: translateY(100%);
   transition: transform 0.34s cubic-bezier(0.32, 0.72, 0.24, 1), opacity 0.3s ease;
 }
 .np.open { opacity: 1; pointer-events: auto; transform: none; }
 .v-player { position: relative; z-index: 60; }
-.np-top { flex: none; display: flex; align-items: center; height: var(--titlebar-h); padding: 0 var(--space-3); border-bottom: 1px solid var(--line-100); }
+/* 封面是全屏页唯一的氛围层：放大后模糊，避免滤镜在边缘露出底色；蒙版随主题自动变为白/近黑。 */
+.np-backdrop { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.np-backdrop img { width: 100%; height: 100%; object-fit: cover; display: block; transform: scale(1.14); filter: blur(56px); }
+.np-backdrop img[hidden] { display: none; }
+.np-backdrop::after { content: ""; position: absolute; inset: 0; background: color-mix(in srgb, var(--surface-100) 82%, transparent); }
+.np-top, .np-body { position: relative; z-index: 1; }
+.np-top { flex: none; display: flex; align-items: center; height: var(--titlebar-h); padding: 0 var(--space-3); }
+/* 唯独收起播放页按钮：常态无边框，悬浮无背景高亮、仅文字变色（不改全局 ghost 样式） */
+#np-collapse { border-color: transparent; }
+#np-collapse:hover { background: transparent; border-color: transparent; color: var(--ink); }
 .np-body { flex: 1; min-height: 0; display: flex; gap: var(--space-6); padding: var(--space-6) 40px; overflow: hidden; }
 .np-lyrics-col { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 22px; padding-left: var(--space-4); }
 .np-lyrics {
-  overflow-y: auto; min-height: 0;
+  position: relative; overflow-y: auto; min-height: 0;
   mask-image: linear-gradient(180deg, transparent, #000 22%, #000 78%, transparent);
 }
+/* 首尾各留半屏滚动余量，使第一句/最后一句也能跟随到中央；空态不加余量。 */
+.np-lyrics:has(.np-ly-line)::before,
+.np-lyrics:has(.np-ly-line)::after { content: ""; display: block; height: 50%; }
 .np-ly-line { padding: 9px 4px; cursor: pointer; font-size: 16px; line-height: 24px; color: var(--ink-faint); }
 .np-ly-line .l1 { display: block; }
 .np-ly-line .l2 { display: block; font-size: 14px; line-height: 20px; color: var(--ink-muted); margin-top: 4px; }
@@ -344,8 +356,7 @@ button.v-tag:disabled { opacity: 0.45; cursor: default; }
 .qp-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .qp-row--cur { background: var(--surface-selected); }
 .qp-row--cur .qp-t { color: var(--accent); }
-.qp-grip { width: 16px; flex: none; display: grid; place-items: center; color: var(--ink-faint); opacity: 0; cursor: grab; touch-action: none; }
-.qp-row:hover .qp-grip, .qp-row:focus-within .qp-grip { opacity: 0.8; }
+.qp-grip { width: 16px; flex: none; display: grid; place-items: center; color: var(--ink-faint); opacity: 0.8; cursor: grab; touch-action: none; }
 .qp-idx { width: 14px; flex: none; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 13px; line-height: 18px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
 .qp-row--cur .qp-idx { color: var(--accent); }
 .qp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }

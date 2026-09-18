@@ -11,12 +11,14 @@ export function NowPlaying(): HTMLElement {
   el.className = "np";
   el.id = "now-playing";
   el.innerHTML = `
+    <div class="np-backdrop" aria-hidden="true">
+      <img id="np-backdrop-img" alt="" hidden>
+    </div>
     <div class="np-top">
       <button type="button" class="v-btn v-btn--ghost" id="np-collapse">${icon("chevronDown", 16)}收起播放页</button>
     </div>
     <div class="np-body">
       <section class="np-lyrics-col">
-        <p class="overline-11">歌词</p>
         <div class="np-lyrics lyric-font" id="np-lyrics"></div>
       </section>
       <section class="np-mid">
@@ -35,6 +37,7 @@ export function NowPlaying(): HTMLElement {
 
   const $ = <T extends HTMLElement>(id: string) => el.querySelector<T>("#" + id)!;
   const lyrics = $("np-lyrics"), cover = $("np-cover");
+  const backdrop = $<HTMLImageElement>("np-backdrop-img");
   const title = $("np-title"), artist = $("np-artist"), album = $("np-album");
   const tags = $("np-tags"), love = $("np-love"), trans = $("np-trans");
 
@@ -45,6 +48,7 @@ export function NowPlaying(): HTMLElement {
   let lastMid = "";        // 歌词行 DOM 只在换曲/状态迁移时重建
   let lastLyricState = "";
   let lastIdx = -1;        // 高亮行索引（避免每帧改 class）
+  let lastPic = "";       // 封面与背景只在换图时更新，避免 timeupdate 反复重建 DOM
   let lineEls: HTMLElement[] = [];
 
   // —— 滚轮翻阅：浏览模式暂停自动跟随；3s 无操作回到跟随，或点击任意行立刻跟随该句 ——
@@ -126,7 +130,17 @@ export function NowPlaying(): HTMLElement {
     album.title = albumName;
     album.style.display = albumName ? "" : "none";
     const pic = s ? coverUrl(s, 500) : "";
-    cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : "";
+    if (pic !== lastPic) {
+      lastPic = pic;
+      cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : "";
+      if (pic) {
+        backdrop.src = pic;
+        backdrop.hidden = false;
+      } else {
+        backdrop.removeAttribute("src");
+        backdrop.hidden = true;
+      }
+    }
     paintTags();
     const loved = !!s && player.loved.has(s.mid);
     love.innerHTML = icon(loved ? "heartOn" : "heart");

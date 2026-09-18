@@ -20,6 +20,7 @@
     "preview": "vite preview",
     "app": "npm run build && electron .",
     "verify:config": "node scripts/verify-config.mjs && node scripts/verify-prefs-map.mjs",
+    "verify:lyrics": "node scripts/verify-now-playing-lyrics.mjs",
     "verify:overlays": "node scripts/verify-player-overlays.mjs",
     "verify:selectbox": "node scripts/verify-selectbox.mjs",
     "mpris:build": "npm --prefix ../vendor/Typhoeus/mpris install && npm --prefix ../vendor/Typhoeus/mpris run build",
