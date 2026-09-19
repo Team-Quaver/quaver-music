@@ -1,0 +1,139 @@
+/* Verse — 完整 token 变量表（由 design system 的 tokens.json 生成）
+   浅色为第一主题；深色跟随系统，也可用 [data-theme="dark"] 手动锁定。
+   components/bundle.css 里的每一个 var() 都在这里有定义。 */
+
+:root,
+[data-theme="light"] {
+  /* 表面 */
+  --surface-000: #f4f4f2;   /* 窗口外壳：标题栏、侧边栏 */
+  --surface-100: #ffffff;   /* 主内容区 */
+  --surface-200: #fafaf9;   /* 抬起的一层：播放条、卡片、菜单、对话框 */
+  --surface-hover: #f0f0ed;
+  --surface-selected: #e9f2ee;
+
+  /* 线 */
+  --line-100: #e5e5e1;      /* 发丝线，装饰性 */
+  --line-200: #8a8a86;      /* 控件描边，对所有表面 ≥ 3:1 */
+
+  /* 文字 */
+  --ink: #1a1c1e;           /* ≥ 12:1 */
+  --ink-muted: #4a4e52;     /* ≥ 7:1 */
+  --ink-faint: #676c71;     /* ≥ 4.5:1，不要再往浅处走 */
+
+  /* 强调色：只标记「正在播放」与焦点 */
+  --accent: #087a52;
+  --accent-hover: #05633f;
+  --on-accent: #ffffff;
+  --accent-soft: #e2f1ea;
+  --focus: #087a52;
+
+  /* 其它 */
+  --art-100: #b3bab5;       /* 封面占位 */
+  --danger: #b3261e;
+  --track: #c9cbc8;         /* 未播放轨道，纯装饰 */
+  --knob: #ffffff;
+  --scrim: rgba(12, 14, 16, 0.5);
+  --brand-1: #918744;       /* 初稿保留的备用色，当前界面未使用 */
+
+  /* 阴影 */
+  --shadow-main: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-menu: 0 4px 16px rgba(16, 18, 20, 0.12);
+  --shadow-dialog: 0 16px 48px rgba(16, 18, 20, 0.18);
+
+  /* 字体 */
+  --font-sans: "Mi Sans VF", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, "Noto Sans Mono", monospace;
+
+  /* 间距 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* 圆角 */
+  --main-radius: 6px;
+  --radius-sm: 4px;
+  --radius-lg: 10px;
+  --radius-full: 999px;
+
+  /* 尺寸 */
+  --titlebar-h: 36px;
+  --sidebar-w: 220px;
+  --player-h: 76px;
+  --row-h: 44px;
+  --control-sm: 28px;
+  --control-md: 32px;
+  --control-lg: 40px;
+  --icon-16: 16px;
+  --icon-20: 20px;
+  --icon-24: 24px;
+  --cover-sm: 40px;
+  --cover-md: 160px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface-000: #0e1012;
+    --surface-100: #151719;
+    --surface-200: #1c1f22;
+    --surface-hover: #24282c;
+    --surface-selected: #1b2f28;
+    --line-100: #2b2f34;
+    --line-200: #66696e;
+    --ink: #ecedee;
+    --ink-muted: #b4bac0;
+    --ink-faint: #868d93;
+    --accent: #3ddc9a;
+    --accent-hover: #63e6b0;
+    --on-accent: #05261a;
+    --accent-soft: #16362d;
+    --focus: #3ddc9a;
+    --art-100: #474f4b;
+    --danger: #ff8a80;
+    --track: #3a3f45;
+    --knob: #ebedee;
+    --scrim: rgba(0, 0, 0, 0.6);
+    --shadow-main: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --shadow-menu: 0 4px 16px rgba(0, 0, 0, 0.5);
+    --shadow-dialog: 0 16px 48px rgba(0, 0, 0, 0.6);
+  }
+}
+
+[data-theme="dark"] {
+  --surface-000: #0e1012;
+  --surface-100: #151719;
+  --surface-200: #1c1f22;
+  --surface-hover: #24282c;
+  --surface-selected: #1b2f28;
+  --line-100: #2b2f34;
+  --line-200: #66696e;
+  --ink: #ecedee;
+  --ink-muted: #b4bac0;
+  --ink-faint: #868d93;
+  --accent: #3ddc9a;
+  --accent-hover: #63e6b0;
+  --on-accent: #05261a;
+  --accent-soft: #16362d;
+  --focus: #3ddc9a;
+  --art-100: #474f4b;
+  --danger: #ff8a80;
+  --track: #3a3f45;
+  --knob: #ebedee;
+  --scrim: rgba(0, 0, 0, 0.6);
+  --shadow-main: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-menu: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-dialog: 0 16px 48px rgba(0, 0, 0, 0.6);
+}
+
+/* 字体文件：Mi Sans VF（可变，100–900）随客户端打包，不要运行时联网下载。
+@font-face {
+  font-family: "Mi Sans VF";
+  src: url("./fonts/MiSansVF.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+*/

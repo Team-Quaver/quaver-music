@@ -90,7 +90,7 @@ eq("后端默认 MPV", P.getDecode(), "MPV");
 eq("音质 fallback 默认 no-atmos", P.getFallbackSort(), "no-atmos");
 eq("淡入淡出默认 normal", P.getFade(), "normal");
 eq("音频设备默认 auto", P.getAudioDevice(), "auto");
-eq("字体默认（族列表 ⇒ 认成系统默认）", [P.getUiFont(), P.getLyricFont()], ["custom", "custom"]);
+eq("字体默认（留空 ⇒ 认成系统默认，走 Mi Sans VF 内置栈）", [P.getUiFont(), P.getLyricFont()], ["system", "system"]);
 check("内置字体列表能被反查成预设", P.fontKeyOf('"Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", SimSun, serif') === "serif");
 check("空字体值 = 系统默认", P.fontKeyOf("") === "system");
 check("自定义字体族列表归为 custom", P.fontKeyOf('"LXGW WenKai", serif') === "custom");

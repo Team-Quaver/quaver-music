@@ -1,0 +1,555 @@
+/* Verse app 层：本项目按 Verse 范式新增的样式。
+   规则：只许用 var() 取值，不许出现字面色值 / 字号 / 间距。
+   vendor 的两份文件（verse-tokens.css / verse-components.css）不许手改；
+   换肤 = 替换 verse-tokens.css，组件与本文件原样复用。 */
+
+/* 字体文件：Mi Sans VF（可变，100–900）随包分发，不运行时联网下载。
+   400/500/600 都是真实字重，不用合成粗体。等宽数字走 --font-mono 系统栈。 */
+@font-face {
+  font-family: "Mi Sans VF";
+  src: url("./fonts/MiSansVF.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* 用户字体覆盖（设置页 → prefs.applyFonts 写 <html> 行内 --font-ui / --font-lyric）：
+   有覆盖则用户字体优先，否则走 Verse 默认栈（Mi Sans VF 首位，其后系统黑体）。
+   歌词字体只在歌词处消费 --font-lyric，无覆盖回落 --font-sans。 */
+:root {
+  --font-sans: var(--font-ui, "Mi Sans VF", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif);
+}
+
+/* —— 字阶（取值来自 design-system/tokens.json 的 type.groups，组件包里没有这些类） —— */
+.display-24 { font-family: var(--font-sans); font-size: 24px; line-height: 32px; font-weight: 600; color: var(--ink); margin: 0; }
+.title-18 { font-family: var(--font-sans); font-size: 18px; line-height: 26px; font-weight: 600; color: var(--ink); margin: 0; }
+.title-15 { font-family: var(--font-sans); font-size: 15px; line-height: 22px; font-weight: 500; color: var(--ink); margin: 0; }
+.body-14 { font-family: var(--font-sans); font-size: 14px; line-height: 20px; font-weight: 400; color: var(--ink); }
+.label-13 { font-family: var(--font-sans); font-size: 13px; line-height: 18px; font-weight: 500; color: var(--ink); }
+.caption-12 { font-family: var(--font-sans); font-size: 12px; line-height: 16px; font-weight: 400; color: var(--ink-muted); }
+.overline-11 { font-family: var(--font-sans); font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: 0.08em; color: var(--ink-faint); margin: 0; }
+.time-12 { font-family: var(--font-mono); font-size: 12px; line-height: 16px; font-weight: 400; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.index-13 { font-family: var(--font-mono); font-size: 13px; line-height: 18px; font-weight: 400; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+
+/* —— 通用 —— */
+/* 单行截断（歌名/歌单名一律单行省略，不做跑马灯） */
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 自绘标题栏拖拽：drag 只加标题栏本体，其中控件标 no-drag */
+.v-drag { -webkit-app-region: drag; user-select: none; }
+.v-nodrag { -webkit-app-region: no-drag; }
+
+/* 歌词行字体：用户歌词字体覆盖优先 */
+.lyric-font { font-family: var(--font-lyric, var(--font-sans)); }
+
+/* —— 应用骨架（Verse 桌面布局：标题栏 + 侧栏 + 内容区 + 播放条，只有内容区滚动） —— */
+.q-frame { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+.q-body { flex: 1; display: flex; min-height: 0; }
+.q-side {
+  flex: 0 0 var(--sidebar-w);
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--surface-000);
+  border-right: 1px solid var(--line-100);
+  padding-bottom: var(--space-2);
+}
+/* vendor .v-nav 定宽 --sidebar-w；侧栏变窄时须跟随父宽，否则溢出侧栏 */
+.q-side .v-nav { flex: none; width: auto; }
+/* 文字 span 是 flex 子项，默认 min-width:auto 不收缩 → 省略号失效、文字被裁掉 */
+.q-side .v-nav__item > span { min-width: 0; }
+/* 用户头与主导航之间的发丝分隔线（通栏） */
+.q-side-sep { flex: none; height: 1px; background: var(--line-100); }
+.q-playlists { flex: 1; overflow-y: auto; min-height: 0; padding-bottom: var(--space-2); }
+.q-side #nav-settings { margin: 0 var(--space-2); width: auto; }
+.q-content { flex: 1; min-width: 0; min-height: 0; display: flex; background: var(--surface-100); }
+.route { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: var(--space-4) var(--space-5) var(--space-5); }
+/* 侧栏拖拽条：独立 flex 项压在 .q-side 右缘，悬停/拖拽时高亮；双击恢复默认宽度 */
+.q-side-resizer {
+  flex: none; width: 5px; margin-left: -5px; z-index: 5;
+  cursor: col-resize; touch-action: none;
+}
+.q-side-resizer:hover, body.sidebar-resizing .q-side-resizer { background: var(--accent); opacity: 0.6; }
+body.sidebar-resizing { cursor: col-resize; user-select: none; }
+/* 窗口钮只有标题栏这一套：提到全屏播放页（.np，z-50）之上，全屏时仍是同一组按钮，位置严格一致。
+   z-index 只管绘制与 DOM 命中；app-region 拖拽区不认层叠，按文档顺序后者覆盖前者 ——
+   .np 挂在标题栏之后，其 .np-top 的 drag 若延伸到钮簇上方会填掉 no-drag 洞，钮就点不到。
+   所以 .np-top 右侧让出钮簇宽度（= .v-titlebar__win：3 钮 + 2 gap + 右内边距）。 */
+.v-titlebar__win { position: relative; z-index: 60; }
+body:not(.mac):not(.ssd) .np-top {
+  margin-right: calc(3 * var(--control-sm) + 2 * var(--space-1) + var(--space-2));
+}
+/* macOS：隐藏自绘窗口钮，左侧留 80px 给系统红绿灯；SSD：系统标题栏接管窗口钮 */
+body.mac .v-titlebar__win { display: none; }
+body.mac .v-titlebar { padding-left: 80px; }
+body.mac .np-top { padding-left: 80px; }
+body.ssd .v-titlebar__win { display: none; }
+
+/* —— 侧栏用户头（Verse 范式内：圆形头像 + label-13 昵称；徽章沿用数据驱动三色） —— */
+.q-user { display: flex; gap: var(--space-3); align-items: center; padding: var(--space-3); color: var(--ink); }
+.q-user:hover { background: var(--surface-hover); }
+.q-avatar {
+  width: 40px; height: 40px; flex: none; border-radius: var(--radius-full); overflow: hidden;
+  background: var(--art-100); color: var(--ink-muted); display: grid; place-items: center;
+}
+.q-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.q-user-meta { min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.q-nick { font-size: 13px; line-height: 18px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badges { display: flex; gap: var(--space-1); flex-wrap: wrap; }
+/* 例外：会员徽章三色是上游数据状态（超级会员/绿钻/音乐人），非 UI 主题色-scroll，不随换肤 */
+.badge { font-style: normal; font-size: 10px; line-height: 16px; padding: 0 5px; border-radius: var(--radius-sm); color: #fff; }
+.badge.blue { background: #3b7cff; } .badge.orange { background: #ff8a3c; } .badge.green { background: #22b06b; }
+
+/* —— 侧栏歌单条目（v-nav__item 范式 + 封面缩略图，设计之外的功能扩展） —— */
+.q-plthumb { width: 28px; height: 28px; flex: none; border-radius: var(--radius-sm); background: var(--art-100); overflow: hidden; }
+.q-plthumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.q-plmeta { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.q-pltitle { font-size: 13px; line-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-plsub { font-size: 11px; line-height: 14px; color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* —— 通用浮层菜单（音质菜单 / 搜索建议 / 右键菜单共用） —— */
+.v-menu {
+  position: absolute; z-index: 70;
+  display: flex; flex-direction: column; gap: 2px; padding: 6px;
+  background: var(--surface-200); border: 1px solid var(--line-100);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-menu);
+  font-family: var(--font-sans);
+}
+.v-menu[hidden] { display: none; }
+.v-menu__item {
+  display: flex; align-items: center; gap: var(--space-3);
+  border: 0; background: transparent; color: var(--ink);
+  font-size: 14px; line-height: 20px; text-align: left;
+  padding: 7px 10px; border-radius: var(--main-radius); cursor: pointer;
+}
+.v-menu__item:hover { background: var(--surface-hover); }
+.v-menu__item.sel { background: var(--surface-selected); color: var(--ink); font-weight: 600; }
+.v-menu__item.hi { background: var(--surface-hover); }
+.v-menu__icon { flex: none; color: var(--ink-faint); display: inline-flex; }
+/* 右键菜单：fixed 跟随指针 */
+.v-ctx { position: fixed; min-width: 180px; }
+/* 非 vendor 部件的焦点环（与 Verse 一致：2px 实线 + 2px 偏移） */
+.v-menu__item:focus-visible,
+.set-chip:focus-visible,
+.v-sel__btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+/* 文本输入框与搜索框一致：选中只高亮内层 border，不要外层 outline */
+.set-row__ctrl input:focus,
+.set-row__ctrl input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+/* 搜索下拉：锚在搜索框下方 */
+.v-search { position: relative; border-color: var(--line-100); }
+/* 只保留内层 border 高亮，去掉 vendor 的外层 outline */
+.v-search:focus-within { outline: none; border-color: var(--accent); }
+/* 清空按钮：未聚焦（未选中）时不显示，聚焦且有内容才出现 */
+.v-search__clear { display: none; }
+.v-search:focus-within .v-search__clear:not([hidden]) { display: inline-flex; }
+.v-search__drop { top: calc(100% + 6px); left: 0; right: 0; max-height: 320px; overflow-y: auto; }
+/* 音质菜单（装在共用右下浮窗 .v-float 里：档位 + VIP 标签 + 回退说明） */
+#pb-qpop .v-float__body { display: flex; flex-direction: column; gap: 2px; padding: 6px; }
+.v-menu__note { margin: 0; padding: 7px 10px 4px; font-size: 12px; line-height: 16px; color: var(--ink-faint); }
+.v-menu__check { flex: none; color: var(--accent); display: inline-flex; margin-left: auto; }
+
+/* —— 自绘下拉（SelectBox：替代原生 <select>，弹层走上面的 v-menu） —— */
+.v-sel { position: relative; }
+.v-sel__btn {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  width: 100%; height: var(--control-md); padding: 0 var(--space-3);
+  border-radius: var(--main-radius); border: 1px solid var(--line-200);
+  background: var(--surface-100); color: var(--ink);
+  font: inherit; font-size: 13px; cursor: pointer;
+}
+.v-sel__btn:not(:disabled):hover { background: var(--surface-hover); }
+.v-sel__btn:disabled { opacity: .55; cursor: not-allowed; }
+.v-sel__btn .v-icon { flex: none; color: var(--ink-faint); }
+.v-sel__label { flex: 1; min-width: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.v-sel__drop { top: calc(100% + 6px); left: 0; min-width: 100%; max-height: 280px; overflow-y: auto; }
+
+/* —— 播放条扩展（Verse 范式内） —— */
+/* 音质 tag 按钮：v-tag 外观 + 可点击 */
+button.v-tag { font-family: inherit; cursor: pointer; }
+button.v-tag:disabled { opacity: 0.45; cursor: default; }
+/* 右组宽度自适应：240px 固定宽放不下 tag + 3 图标 + 音量条时 tag 会被压缩换行（“自动”变两行） */
+.v-player__right { width: auto; flex: none; }
+/* 播放键真居中：三列等分 grid（1fr auto 1fr），两侧轨道等宽，中列恒居底栏正中，不随左右内容宽度漂移 */
+.v-player { display: grid; grid-template-columns: 1fr auto 1fr; }
+.v-player__now { width: auto; min-width: 0; justify-self: start; }
+.v-player__center { min-width: 0; justify-self: center; }
+.v-player__right { min-width: 0; justify-self: end; }
+/* 播放键是底栏的居中锚点；两侧控件脱离布局，时间读数变化不会推动播放键。 */
+.v-player__transport { position: relative; }
+.v-player__transport-side {
+  position: absolute; top: 0; bottom: 0;
+  display: flex; align-items: center; gap: var(--space-2); white-space: nowrap;
+}
+.v-player__transport-side--before { right: calc(100% + var(--space-2)); }
+.v-player__transport-side--after { left: calc(100% + var(--space-2)); }
+#pb-quality { flex: none; white-space: nowrap; }
+/* 单曲循环角标：repeat 常开 + 右上 "1"（aria-label 区分，颜色不单独表意） */
+#pb-loop[data-mode="one"] { position: relative; }
+#pb-loop[data-mode="one"]::after {
+  content: "1"; position: absolute; top: 2px; right: 4px;
+  font-family: var(--font-mono); font-size: 10px; line-height: 1; color: var(--accent);
+}
+/* 取链/缓冲中：播放键内显示转圈（复用 .v-spinner；--on-accent 变体保证青绿底上可见） */
+#pb-play.is-loading { animation: none; }
+#pb-play .v-spinner--on-accent {
+  width: var(--icon-20); height: var(--icon-20);
+  border-color: var(--on-accent);
+  border-top-color: transparent;
+}
+@media (prefers-reduced-motion: reduce) {
+  #pb-play .v-spinner--on-accent { border-top-color: var(--on-accent); }
+}
+/* 出错：标题/副行走 danger 文字（与文字同时出现，不只靠颜色） */
+#pb-title.is-err, #pb-sub.is-err { color: var(--danger); }
+/* 时间读数（绝对定位）压住歌名/歌手时去掉 meta（PlayerBar 切 is-meta-hidden 类；爱心随之左靠到封面旁） */
+.v-player.is-meta-hidden .v-player__meta { display: none; }
+
+/* —— 列表页（ForYou 范式：标题区 + 表头 + 行 + 脚注） —— */
+.v-pagehead { display: flex; align-items: flex-end; gap: var(--space-4); margin-bottom: var(--space-5); }
+.v-pagehead__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.v-pagehead__actions { display: flex; align-items: center; gap: var(--space-3); flex: none; }
+.v-pagehead__actions .v-btn { height: var(--control-md); } /* 同一行按钮必须同高 */
+.v-thead {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: 0 var(--space-4) var(--space-2);
+  border-bottom: 1px solid var(--line-100);
+  font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: 0.08em; color: var(--ink-faint);
+}
+.v-thead__index { width: 24px; flex: none; text-align: right; }
+.v-thead__title { flex: 1; min-width: 0; margin-left: 52px; } /* 封面 40 + 间隙 12 */
+.v-thead__album { width: 30%; flex: none; }
+.v-rows { display: flex; flex-direction: column; gap: 2px; margin-top: var(--space-1); padding-bottom: var(--space-2); }
+.v-note { margin: var(--space-4) 0 0; font-size: 12px; line-height: 16px; color: var(--ink-faint); }
+/* 集合头（Likes 范式：160px 封面占位 + 标题 + 等宽计数 + 按钮） */
+.v-colhead { display: flex; align-items: stretch; gap: var(--space-5); margin-bottom: var(--space-5); }
+.v-colhead__art { width: 160px; height: 160px; flex: none; border-radius: var(--radius-lg); background: var(--art-100); overflow: hidden; }
+.v-colhead__art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.v-colhead__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); padding-top: var(--space-2); }
+.v-colhead__count { font-family: var(--font-mono); font-size: 12px; line-height: 16px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+/* 空状态（Daily 范式：96px 中性占位 + 陈述 + 后果 + 出口） */
+.v-empty { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); padding: var(--space-6) 0; max-width: 420px; }
+.v-empty__art { width: 96px; height: 96px; border-radius: var(--radius-lg); background: var(--art-100); margin-bottom: var(--space-2); }
+.v-empty p { margin: 0; }
+.v-empty .v-btn { margin-top: var(--space-2); }
+/* 行扩展：单击选中（surface-hover，无 accent——accent 只标记正在播放）；键盘焦点展开操作钮 */
+.v-row--selected { background: var(--surface-hover); }
+.v-row__actions:focus-within { opacity: 1; }
+.v-row__title > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v-row__sub a, .v-row__album a { color: inherit; text-decoration: none; border-radius: var(--radius-sm); }
+.v-row__sub a:hover, .v-row__album a:hover { color: var(--accent); }
+/* 取消收藏后行淡出移除（我喜欢页） */
+.v-row.leaving { opacity: 0; transform: translateX(-10px); transition: opacity 0.2s ease, transform 0.2s ease; pointer-events: none; }
+/* 专辑卡网格（自适应：列数跟随内容区宽度，卡片拉伸占满） */
+.v-cards {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--cover-md)), 1fr));
+  gap: var(--space-4) var(--space-3); justify-content: start;
+}
+.v-cards .v-card { width: auto; min-width: 0; }
+/* 专辑卡外层圆角加大（10px → 16px，只用 var 派生，不动 vendor） */
+.v-card { border-radius: calc(var(--radius-lg) * 1.6); }
+/* 区块头（首页范式：title-18 + 一行 caption 说明） */
+.v-section { display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-6); }
+.v-section__head { display: flex; align-items: baseline; gap: var(--space-3); }
+
+/* —— 首页（开放表面：精选 / 新歌双栏，下方发丝线分隔推荐网格） —— */
+.home-pagehead { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-5); }
+.home-pagehead p { margin: 0; color: var(--ink-muted); }
+.home-lead {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--cover-md) * 3)), 1fr));
+  gap: var(--space-6); margin-bottom: var(--space-6);
+}
+.home-panel { min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.home-section-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.home-feature-host { min-width: 0; }
+.home-feature { display: grid; grid-template-columns: var(--cover-md) minmax(0, 1fr); gap: var(--space-5); min-width: 0; }
+.home-feature__art {
+  width: var(--cover-md); height: var(--cover-md); overflow: hidden;
+  border-radius: var(--radius-lg); background: var(--art-100);
+}
+.home-feature__art img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.home-feature__main { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); }
+.home-feature__title { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-feature__meta { margin: 0; }
+.home-feature__desc {
+  display: -webkit-box; overflow: hidden; margin: 0; color: var(--ink-muted);
+  -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+}
+.home-feature__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: auto; }
+.home-new-list { margin-top: 0; padding-bottom: 0; }
+.home-new-list .v-row { padding-right: var(--space-2); padding-left: var(--space-2); }
+.home-recommendations { padding-top: var(--space-5); border-top: 1px solid var(--line-100); }
+.home-cards {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--cover-md)), 1fr));
+  gap: var(--space-4) var(--space-3); justify-content: start;
+}
+.home-status { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); padding: var(--space-5) 0; }
+.home-status p { margin: 0; }
+.home-status .body-14 { color: var(--ink-muted); }
+/* 集合头圆形变体（歌手 128px 圆头像） */
+.v-colhead__art--round { width: 128px; height: 128px; border-radius: var(--radius-full); }
+/* 简介：右侧独立滚动栏，高度不超过左侧封面（超出在栏内滚）；上下渐隐提示可滚，细滚动条 */
+.v-colhead__desc {
+  flex: none; align-self: flex-start; width: 320px; min-height: 0; max-height: var(--cover-md); overflow-y: auto;
+  padding: var(--space-2) 0;
+  scrollbar-width: thin; scrollbar-color: var(--line-200) transparent;
+  mask-image: linear-gradient(180deg, transparent, #000 var(--space-3), #000 calc(100% - var(--space-3)), transparent);
+}
+.v-colhead__desc::-webkit-scrollbar { width: 6px; }
+.v-colhead__desc::-webkit-scrollbar-thumb { background: var(--line-200); border-radius: var(--radius-full); }
+.v-colhead__desc::-webkit-scrollbar-track { background: transparent; }
+.v-desc { margin: 0; font-size: 14px; line-height: 20px; color: var(--ink-muted); }
+.v-colhead:has(.v-colhead__art--round) .v-colhead__desc { max-height: 128px; }
+/* 窄窗（≤1050px）：右侧简介栏直接隐藏，避免三栏头部溢出内容区 */
+@media (max-width: 1050px) {
+  .v-colhead__desc { display: none; }
+}
+/* 热搜词（button 版 v-tag，胶囊组） */
+.v-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+/* 已收藏按钮：accent 文字 + 实心爱心（GUIDELINES 允许的 accent 用途之一） */
+.v-btn.is-loved { color: var(--accent); }
+.v-btn.is-loved:hover { color: var(--accent-hover); }
+/* ghost 按钮：默认透明描边改为发丝线，避免无边框观感 */
+.v-btn--ghost { border-color: var(--line-100); }
+/* 加载更多行 */
+.v-more { display: flex; justify-content: center; margin: var(--space-4) 0 var(--space-1); }
+/* 分区标题行（标题 + 右侧查看全部，如歌手页专辑区） */
+.sec-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin: var(--space-5) 0 var(--space-3); }
+/* 歌手页专辑面板首个区头贴着标签栏（替代原来的行内 marginTop=0） */
+.album-panel > .sec-row:first-child { margin-top: 0; }
+.sec-more { font-size: 12.5px; color: var(--ink-faint); text-decoration: none; white-space: nowrap; }
+.sec-more:hover { color: var(--accent); }
+
+/* —— 正在播放页（NowPlaying 屏：左歌词 / 右封面信息） —— */
+/* 全屏：覆盖标题栏/侧栏/内容区，但底部止于播放条上方（bottom = 播放条高），由播放条把本页挤上去，不遮挡 */
+.np {
+  position: fixed; inset: 0 0 var(--player-h) 0; z-index: 50; overflow: hidden;
+  display: flex; flex-direction: column; background: var(--surface-000);
+  opacity: 0; pointer-events: none; transform: translateY(100%);
+  transition: transform 0.34s cubic-bezier(0.32, 0.72, 0.24, 1), opacity 0.3s ease;
+}
+.np.open { opacity: 1; pointer-events: auto; transform: none; }
+.v-player { position: relative; z-index: 60; }
+/* 封面是全屏页唯一的氛围层：放大后模糊，避免滤镜在边缘露出底色；蒙版随主题自动变为白/近黑。 */
+.np-backdrop { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.np-backdrop img { width: 100%; height: 100%; object-fit: cover; display: block; transform: scale(1.14); filter: blur(56px); }
+.np-backdrop img[hidden] { display: none; }
+.np-backdrop::after { content: ""; position: absolute; inset: 0; background: color-mix(in srgb, var(--surface-100) 82%, transparent); }
+.np-top, .np-body { position: relative; z-index: 1; }
+.np-top { flex: none; display: flex; align-items: center; height: var(--titlebar-h); padding: 0 var(--space-3); }
+/* 唯独收起播放页按钮：常态无边框，悬浮无背景高亮、仅文字变色（不改全局 ghost 样式） */
+#np-collapse { border-color: transparent; }
+#np-collapse:hover { background: transparent; border-color: transparent; color: var(--ink); }
+.np-body { flex: 1; min-height: 0; display: flex; gap: var(--space-6); padding: var(--space-6) 40px; overflow: hidden; }
+.np-lyrics-col { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 22px; padding-left: var(--space-4); }
+.np-lyrics {
+  position: relative; overflow-y: auto; min-height: 0;
+  mask-image: linear-gradient(180deg, transparent, #000 22%, #000 78%, transparent);
+}
+/* 首尾各留半屏滚动余量，使第一句/最后一句也能跟随到中央；空态不加余量。 */
+.np-lyrics:has(.np-ly-line)::before,
+.np-lyrics:has(.np-ly-line)::after { content: ""; display: block; height: 50%; }
+.np-ly-line { padding: 9px 4px; cursor: pointer; font-size: 16px; line-height: 24px; color: var(--ink-faint); }
+.np-ly-line .l1 { display: block; }
+.np-ly-line .l2 { display: block; font-size: 14px; line-height: 20px; color: var(--ink-muted); margin-top: 4px; }
+.np.no-trans .np-ly-line .l2 { display: none; }
+.np-ly-line.cur { font-size: 22px; line-height: 32px; font-weight: 600; color: var(--ink); }
+.np-ly-line.cur .l2 { font-size: 14px; line-height: 20px; font-weight: 400; }
+.np-ly-line:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.np-ly-empty { color: var(--ink-faint); font-size: 14px; padding: 60px 0; }
+.np-mid { width: 320px; flex: none; align-self: center; display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.np-cover { width: 100%; aspect-ratio: 1; border-radius: var(--radius-lg); background: var(--art-100); overflow: hidden; }
+.np-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.np-tags { display: flex; align-items: center; gap: var(--space-2); }
+.np-actions { display: flex; align-items: center; gap: var(--space-1); }
+
+/* —— 右下浮窗（FloatWindow：播放列表 / 音质共用；主页与全屏播放页同一形态） —— */
+.v-float {
+  position: fixed; right: 14px; bottom: calc(var(--player-h) + 12px); z-index: 70;
+  display: flex; flex-direction: column; overflow: hidden;
+  width: 320px; max-height: 52vh;
+  background: var(--surface-200); border: 1px solid var(--line-100); color: var(--ink);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-menu); font-family: var(--font-sans);
+  transform-origin: bottom right;
+  transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.32, 0.72, 0.24, 1), display 0.2s allow-discrete;
+}
+.v-float[hidden] { display: none; opacity: 0; transform: translateY(10px) scale(0.98); }
+@starting-style { .v-float:not([hidden]) { opacity: 0; transform: translateY(10px) scale(0.98); } }
+.v-float__head { flex: none; display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4); border-bottom: 1px solid var(--line-100); }
+.v-float__title { flex: 1; min-width: 0; font-size: 13px; line-height: 18px; font-weight: 500; }
+.v-float__meta { font-style: normal; font-family: var(--font-mono); font-size: 12px; line-height: 16px; color: var(--ink-faint); margin-left: var(--space-2); font-variant-numeric: tabular-nums; }
+.v-float__meta:empty { display: none; }
+.v-float__actions { display: flex; gap: var(--space-1); }
+.v-float__body { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* —— 播放列表（装在 .v-float 里） —— */
+.qp-list { padding: var(--space-1); }
+.qp-row {
+  display: flex; align-items: center; gap: var(--space-3);
+  width: 100%; height: var(--row-h); padding: 0 var(--space-3);
+  border: 0; border-radius: var(--main-radius); background: transparent;
+  color: var(--ink); font-family: var(--font-sans); text-align: left; cursor: pointer;
+}
+.qp-row:hover { background: var(--surface-hover); }
+.qp-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.qp-row--cur { background: var(--surface-selected); }
+.qp-row--cur .qp-t { color: var(--accent); }
+.qp-grip { width: 16px; flex: none; display: grid; place-items: center; color: var(--ink-faint); opacity: 0.8; cursor: grab; touch-action: none; }
+.qp-idx { width: 14px; flex: none; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 13px; line-height: 18px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.qp-row--cur .qp-idx { color: var(--accent); }
+.qp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.qp-t { font-size: 13px; line-height: 18px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qp-a { font-size: 12px; line-height: 16px; color: var(--ink-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qp-row .qp-del { opacity: 0; }
+.qp-row:hover .qp-del, .qp-row:focus-within .qp-del { opacity: 1; }
+.qp-row.dragging { position: relative; z-index: 2; background: var(--surface-hover); box-shadow: var(--shadow-main); opacity: 0.94; }
+.qp-row.dragging .qp-grip { cursor: grabbing; opacity: 0.8; }
+.qp-empty { color: var(--ink-faint); font-size: 12.5px; text-align: center; padding: 24px 18px; display: flex; flex-direction: column; gap: 4px; }
+.qp-empty span { font-size: 11.5px; opacity: 0.8; }
+
+/* —— 日志页（等宽文本面板） —— */
+.log-bar { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); }
+.log-pre {
+  margin: 0; padding: var(--space-4); max-height: 60vh; overflow: auto;
+  background: var(--surface-200); border: 1px solid var(--line-100); border-radius: var(--radius-lg);
+  font-family: var(--font-mono); font-size: 12px; line-height: 18px; color: var(--ink-muted);
+  white-space: pre-wrap; word-break: break-all;
+}
+
+/* —— 设置页（Verse 范式：v-tabs 分区 + 发丝线分组 + 胶囊选项组 + 标签行） —— */
+.set-tabs { margin-top: var(--space-3); }
+.set-view { max-width: 640px; font-family: var(--font-sans); }
+.set-panel { padding: var(--space-2) 0 var(--space-4); }
+/* 分组：组间发丝线分隔（不用块底色） */
+.set-group { padding: var(--space-4) 0; }
+.set-group + .set-group { border-top: 1px solid var(--line-100); }
+.set-label { margin-bottom: var(--space-2); font-size: 13px; line-height: 18px; font-weight: 600; color: var(--ink); }
+.set-note-inline { margin-left: var(--space-1); font-weight: 400; font-size: 12px; color: var(--ink-muted); }
+.set-hint { margin: var(--space-2) 0 0; font-size: 12px; line-height: 16px; color: var(--ink-muted); }
+.set-view code { padding: 1px 6px; border-radius: var(--radius-sm); background: var(--surface-hover); font-family: var(--font-mono); font-size: 12.5px; }
+
+/* 胶囊选项组（外观模式 / 窗口装饰 / 引擎 / 淡入淡出 / 音质 / Fallback 共用）
+   描边常态，选中走 accent 边 + 选中底；内部 v-tag 徽标不拦截点击 */
+.set-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+#quality-chips { max-width: 460px; }
+.set-chip {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  min-height: var(--control-md); padding: var(--space-1) var(--space-4);
+  border-radius: var(--radius-full); border: 1px solid var(--line-200);
+  background: var(--surface-100); color: var(--ink);
+  font-family: var(--font-sans); font-size: 13px; line-height: 18px; font-weight: 500;
+  cursor: pointer;
+}
+.set-chip:hover:not(:disabled) { background: var(--surface-hover); }
+.set-chip.sel { border-color: var(--accent); background: var(--surface-selected); color: var(--accent); font-weight: 500; }
+.set-chip:disabled { opacity: .45; cursor: not-allowed; }
+.set-chip .v-tag { pointer-events: none; }
+
+/* 主题色板小圆点：固定描绘两种系统主题本身，不随应用主题变色（同 about 双主题图标） */
+.set-dot { width: 16px; height: 16px; border-radius: var(--radius-full); border: 1px solid var(--line-200); flex: none; }
+.set-dot--system { background: linear-gradient(135deg, #cfd2d6 0 50%, #1f2329 50% 100%); }
+.set-dot--light { background: #fff; }
+.set-dot--dark { background: #16181c; }
+
+/* 「标签 + 控件」行（字体 / 输出设备 / 配置路径）：label 定宽，控件占满余宽，窄窗自动换行 */
+.set-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; }
+.set-row__label { flex: none; width: 84px; font-size: 13px; line-height: 18px; color: var(--ink); }
+.set-row__ctrl { flex: 1; min-width: 0; display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.set-row__ctrl input {
+  height: var(--control-md); padding: 0 var(--space-3); flex: 1; min-width: 240px;
+  border-radius: var(--main-radius); border: 1px solid var(--line-200);
+  background: var(--surface-100); color: var(--ink); font: inherit;
+  cursor: text; font-family: var(--font-mono); font-size: 12.5px;
+}
+.set-row__ctrl input[readonly] { cursor: text; font-family: var(--font-mono); font-size: 12.5px; }
+.set-row__ctrl input:disabled { opacity: .55; cursor: not-allowed; }
+.set-row__ctrl input:not(:disabled):hover { background: var(--surface-hover); }
+.set-row__ctrl.font-row .v-sel { min-width: 190px; }
+
+.set-actions { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-2); }
+.set-about { text-align: center; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); padding: var(--space-6) 0; }
+.set-about .title-18, .set-about .time-12 { margin: 0; }
+.set-about .set-about-sub { margin: 0; color: var(--ink-muted); }
+
+/* —— 账号页（头像是唯一视觉焦点；其余信息用开放表面和发丝线组织） —— */
+.account-view { max-width: calc(var(--cover-md) * 4); font-family: var(--font-sans); }
+.account-profile {
+  display: flex; align-items: center; gap: var(--space-5);
+  padding: var(--space-5) 0 var(--space-6);
+}
+.account-avatar {
+  width: calc(var(--space-7) * 2); height: calc(var(--space-7) * 2); flex: none;
+  display: grid; place-items: center; overflow: hidden;
+  border-radius: var(--radius-full); background: var(--art-100); color: var(--ink-muted);
+}
+.account-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.account-profile__main { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.account-profile__main .display-24 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-profile__main .badges:empty { display: none; }
+.account-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-5);
+  padding: var(--space-5) 0; border-top: 1px solid var(--line-100);
+}
+.account-row__copy { min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.account-row__copy p { margin: 0; }
+.account-uid { min-width: 0; overflow-wrap: anywhere; }
+.account-row--danger .v-btn { flex: none; }
+@media (max-width: 720px) {
+  .account-profile { padding-bottom: var(--space-5); }
+  .account-row { align-items: flex-start; flex-direction: column; gap: var(--space-3); }
+}
+
+/* —— 登录页（任务式双栏：左列步骤说明 / 右列二维码卡，发丝线分隔，不用色块） —— */
+.login {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-6);
+  max-width: 720px; min-height: 100%; margin: 0 auto; align-items: center; align-content: center;
+  font-family: var(--font-sans);
+}
+.login__main { min-width: 0; display: flex; flex-direction: column; }
+.login__lead { margin: var(--space-2) 0 0; color: var(--ink-muted); }
+/* 步骤是真实序列，允许编号；发丝线分隔 */
+.login__steps { list-style: none; counter-reset: step; margin: var(--space-4) 0 0; padding: 0; }
+.login__steps li { counter-increment: step; display: flex; gap: var(--space-3); padding: var(--space-2) 0; color: var(--ink-muted); }
+.login__steps li + li { border-top: 1px solid var(--line-100); }
+.login__steps li::before { content: counter(step); font-family: var(--font-mono); color: var(--ink-faint); flex: none; }
+/* 右列：二维码是唯一的记忆点（直角：二维码四角定位图案不套圆角） */
+.login__side { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-2); }
+.login__qr {
+  position: relative; width: 220px; height: 220px;
+  display: grid; place-items: center; overflow: hidden;
+  background: var(--surface-200); border: 1px solid var(--line-100);
+  color: var(--ink-faint);
+}
+.login__qr img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.login__qr.is-expired img { opacity: 0.25; }
+.login__qr-retry { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.login__state { margin: 0; min-height: var(--space-4); }
+.login__state.is-err { color: var(--danger); }
+.login__actions { display: flex; gap: var(--space-2); align-items: center; }
+.login__actions .v-sel { flex: 1; min-width: 0; }
+.login__qr-retry:focus-visible,
+.login__actions .v-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (max-width: 720px) {
+  .login { grid-template-columns: 1fr; }
+  .login__side { align-items: start; }
+}
+
+/* —— 加载指示（转圈）：全站「加载中 / 搜索中 / 生成中 / 读取中…」文字占位的统一替换 ——
+   中性色（不用 accent：accent 只标记正在播放）；尺寸与圆角走 token。 */
+.v-loading { display: flex; align-items: center; justify-content: center; padding: var(--space-5) 0; }
+.v-spinner {
+  width: var(--icon-16); height: var(--icon-16); flex: none;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--line-200);
+  border-top-color: transparent;
+  animation: v-spin 0.8s linear infinite;
+}
+@keyframes v-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .v-spinner { animation: none; border-top-color: var(--line-200); }
+}
+/* 歌词区加载：文字已换成转圈，保持居中（复用 .np-ly-empty 的上下留白） */
+.np-ly-empty:has(> .v-spinner) { display: flex; justify-content: center; }

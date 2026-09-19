@@ -1,8 +1,11 @@
-// 歌单行渲染（跨视图复用；对齐设计稿：三行文字 + 单曲心形 + 双击播放 + 歌手/专辑跳转）
-// 右键 = 歌曲菜单（SongMenu：插队播放/加入歌单/从歌单删除/跳转至/更多操作）
-import { api, coverUrl, fmtTime, songSubtitle, songTitle } from "./api";
+// 歌曲行渲染（跨视图复用）：Verse TrackRow 结构（v-row）。
+// 三信号表正在播放（行底色 + accent 歌名 + 序号处圆点）；已收藏 = accent + 实心爱心。
+// 单击 = 选中 + 后台预加载；双击 = 立即播放；行内歌手/专辑链跳视图。
+import { api, coverUrl, songSubtitle, songTitle } from "./api";
 import { player } from "../player";
-import { bindSongMenu } from "../components/SongMenu";
+import { icon } from "../verse/icons";
+import { formatTime } from "../verse/format";
+import { loadingHtml } from "../verse/loading";
 
 export interface RowHooks {
   onPlay?: (song: any, index: number, all: any[]) => void;
@@ -18,20 +21,23 @@ export interface RowHooks {
   onRemoved?: (song: any) => void;
 }
 
+const TRANSPARENT = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 // —— 行内红心：与 player.loved（单一真相源）同步 ——
 function paintLove(btn: HTMLElement, on: boolean) {
-  btn.textContent = on ? "♥" : "♡";
-  btn.classList.toggle("on", on);
+  btn.innerHTML = icon(on ? "heartOn" : "heart", 16);
+  btn.classList.toggle("v-iconbtn--on", on);
   btn.setAttribute("aria-pressed", String(on));
+  btn.setAttribute("aria-label", on ? "取消收藏" : "收藏");
   btn.title = on ? "取消收藏" : "收藏";
 }
 
 /** 按当前收藏态原地重画已挂载的行内红心（开机预载落定 / 别处取消收藏后调用） */
 export function syncRowHearts(root: ParentNode = document) {
-  root.querySelectorAll<HTMLElement>(".row[data-songkey] > [data-love]").forEach((btn) => {
-    const row = btn.closest<HTMLElement>(".row[data-songkey]");
+  root.querySelectorAll<HTMLElement>(".v-row[data-songkey] > .v-row__actions [data-love]").forEach((btn) => {
+    const row = btn.closest<HTMLElement>(".v-row[data-songkey]");
     paintLove(btn, !!row && player.loved.has(row.dataset.songkey!));
   });
 }
@@ -39,15 +45,35 @@ export function syncRowHearts(root: ParentNode = document) {
 // 收藏态一变（预载灌满 / 播放条取消 / 别处点赞）→ 已渲染的行原地跟随，不必等切视图。
 // 按版本号去重：player.notify 每次 timeupdate 都会来，不能在这空刷几百行。
 let paintedLoveVersion = -1;
+let paintedTrackKey: unknown = Symbol("none");
 player.on(() => {
-  if (player.loveVersion === paintedLoveVersion) return;
-  paintedLoveVersion = player.loveVersion;
-  syncRowHearts();
+  if (player.loveVersion !== paintedLoveVersion) {
+    paintedLoveVersion = player.loveVersion;
+    syncRowHearts();
+  }
+  // 正在播放行三信号（只在曲目切换时 touching DOM）
+  const key = player.current ? (player.current._key ?? player.current.mid) : null;
+  if (key !== paintedTrackKey) {
+    paintedTrackKey = key;
+    syncPlayingRows();
+  }
 });
+
+/** 按 player.current 原地重画正在播放行（底色 + accent 歌名 + 序号圆点） */
+export function syncPlayingRows(root: ParentNode = document) {
+  const key = player.current ? String(player.current._key ?? player.current.mid ?? "") : "";
+  root.querySelectorAll<HTMLElement>(".v-row[data-songkey]").forEach((row) => {
+    const on = !!key && row.dataset.songkey === key;
+    if (row.classList.contains("v-row--playing") === on) return;
+    row.classList.toggle("v-row--playing", on);
+    const idx = row.querySelector<HTMLElement>(".v-row__index")!;
+    idx.innerHTML = on ? icon("dot", 14) : esc(idx.dataset.n ?? "");
+  });
+}
 
 function linkTo(kind: "singer" | "album", o: any, label: string): string {
   if (!o?.mid) return esc(label); // 无 mid（如部分合唱署名）：退化成纯文本，不给死链
-  return `<a class="meta-link" data-link="${kind}:${esc(o.mid)}:${esc(o.name ?? label)}" title="${esc(label)}">${esc(label)}</a>`;
+  return `<a data-link="${kind}:${esc(o.mid)}:${esc(o.name ?? label)}" title="${esc(label)}">${esc(label)}</a>`;
 }
 
 /** 行内歌手区：多歌手（合唱/合作）逐个成链，以 " / " 分隔——整条链只挂第一个歌手 mid 的话，
@@ -56,40 +82,169 @@ function artistLinks(singers: any[] | undefined): string {
   return (singers ?? []).map((a) => linkTo("singer", a, a?.name ?? "")).join(" / ");
 }
 
+/** 列表头（overline-11 + 发丝线）：列宽与 v-row 对齐（序号 24 / 封面 40 / 歌名自适应 / 专辑 30% / 时长） */
+export function tableHead(showAlbum: boolean): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "v-thead";
+  el.innerHTML = `<span class="v-thead__index">#</span><span class="v-thead__title">歌曲</span>${showAlbum ? `<span class="v-thead__album">专辑</span>` : ""}<span>时长</span>`;
+  return el;
+}
+
+/** 空状态（一句陈述 + 一句后果 + 一个出口按钮；不用感叹号与 emoji） */
+export function emptyState(title: string, note: string, action?: { label: string; href: string }): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "v-empty";
+  el.innerHTML = `<div class="v-empty__art"></div>
+    <p class="title-15">${esc(title)}</p>
+    <p class="body-14" style="color: var(--ink-muted)">${esc(note)}</p>
+    ${action ? `<a class="v-btn v-btn--secondary" href="${esc(action.href)}">${esc(action.label)}</a>` : ""}`;
+  return el;
+}
+
+// 每列表框一份多选集 + 锚点（存在 box 上；重渲染即清空）
+const selOf = (box: HTMLElement): Set<string> =>
+  ((box as any)._vsel ??= new Set<string>());
+const anchorOf = (box: HTMLElement): HTMLElement | null => (box as any)._vanchor ?? null;
+const setAnchor = (box: HTMLElement, r: HTMLElement | null) => { (box as any)._vanchor = r; };
+function paintSel(box: HTMLElement) {
+  const sel = selOf(box);
+  box.querySelectorAll<HTMLElement>(".v-row[data-songkey]").forEach((r) =>
+    r.classList.toggle("v-row--selected", sel.has(r.dataset.songkey!)));
+}
+
+/** 右键菜单（单例）：播放 / 播放选中 / 收藏 / 复制歌名 */
+let ctxMenu: HTMLElement | null = null;
+function closeMenu() { ctxMenu?.remove(); ctxMenu = null; }
+document.addEventListener("pointerdown", (e) => {
+  if (ctxMenu && !(e.target as HTMLElement).closest(".v-ctx")) closeMenu();
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
+
+function openRowMenu(x: number, y: number, box: HTMLElement, songs: any[], song: any, hooks: RowHooks) {
+  closeMenu();
+  const sel = selOf(box);
+  const key = String(song._key);
+  if (!sel.has(key)) { sel.clear(); sel.add(key); setAnchor(box, box.querySelector(`.v-row[data-songkey="${CSS.escape(key)}"]`)); paintSel(box); }
+  const loved = player.loved.has(song.mid);
+  const menu = document.createElement("div");
+  menu.className = "v-menu v-ctx";
+  menu.setAttribute("role", "menu");
+  const btn = (label: string, fn: () => void) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "v-menu__item";
+    b.setAttribute("role", "menuitem");
+    b.textContent = label;
+    b.onclick = () => { closeMenu(); fn(); };
+    menu.append(b);
+  };
+  const idx = songs.indexOf(song);
+  btn("播放", () => {
+    if (hooks.onPlay) hooks.onPlay(song, Math.max(0, idx), songs);
+    else player.playList([song], 0);
+  });
+  if (sel.size > 1) {
+    btn(`播放选中 ${sel.size} 首`, () => {
+      const picked = songs.filter((s) => sel.has(String(s._key)));
+      if (picked.length) player.playList(picked, 0);
+    });
+  }
+  btn(loved ? "取消收藏" : "收藏", async () => {
+    const done = player.toggleLove(song); // 乐观改态（行内红心经 syncRowHearts 跟随），再等写接口
+    const fin = await done;               // 终态：写失败已回滚
+    syncRowHearts(box);
+    hooks.onLove?.(song, fin ?? player.loved.has(song.mid));
+  });
+  btn("复制歌名", () => {
+    const t = String(song.name ?? "");
+    if (navigator.clipboard) void navigator.clipboard.writeText(t).catch(() => {});
+  });
+  document.body.append(menu);
+  ctxMenu = menu;
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.min(x, window.innerWidth - r.width - 8) + "px";
+  menu.style.top = Math.min(y, window.innerHeight - r.height - 8) + "px";
+  menu.querySelector<HTMLElement>(".v-menu__item")?.focus();
+}
+
 export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks = {}) {
   box.innerHTML = "";
+  (box as any)._vsel = new Set<string>();
+  (box as any)._vanchor = null;
   for (const [i, s] of songs.entries()) {
     s._key = s.mid ?? String(s.id ?? Math.random());
     const row = document.createElement("div");
-    row.className = "row";
+    row.className = "v-row";
     row.dataset.songkey = s._key;
+    row.tabIndex = 0;
+    row.setAttribute("role", "row");
     row.title = "双击播放 · 右键更多";
     const pic = coverUrl(s, 150);
     const artistLine = hooks.showArtist === false ? "" :
-      `<span class="ra">${(s.singer ?? []).length ? artistLinks(s.singer) : ""}</span>`;
-    const albumLine = hooks.showAlbum ? `<span class="ral">${s.album?.name ? linkTo("album", s.album, s.album.name) : ""}</span>` : "";
+      `<div class="v-row__sub">${(s.singer ?? []).length ? artistLinks(s.singer) : ""}</div>`;
+    const albumLine = hooks.showAlbum ? `<div class="v-row__album">${s.album?.name ? linkTo("album", s.album, s.album.name) : ""}</div>` : "";
+    const n = String(i + 1).padStart(2, "0");
     const loved = player.loved.has(s.mid);
-    // 标题 = title（主名 + 版本后缀）；subtitle 是独立的一句话说明，跟在标题后做次级文本
+    const playing = !!player.current && String(player.current._key ?? player.current.mid ?? "") === String(s._key);
+    if (playing) row.classList.add("v-row--playing");
+    // 标题 = songTitle（主名 + 版本后缀）；subtitle 是独立的一句话说明，跟在标题后做次级文本
     const sub = songSubtitle(s);
-    row.innerHTML = `<span class="idx">${i + 1}</span>
-      <span class="rthumb">${pic ? `<img src="${pic}" alt="" loading="lazy"/>` : ""}</span>
-      <span class="rmeta"><span class="rt" style="display:block">${esc(songTitle(s))}${sub ? `<span class="rt-sub">${esc(sub)}</span>` : ""}</span>${artistLine}${albumLine}</span>
-      <button class="row-love${loved ? " on" : ""}" data-love aria-label="收藏" aria-pressed="${loved}" title="${loved ? "取消收藏" : "收藏"}">${loved ? "♥" : "♡"}</button>
-      <span class="dur">${fmtTime(s.interval)}</span>`;
+    row.innerHTML = `<span class="v-row__index" data-n="${n}">${playing ? icon("dot", 14) : n}</span>
+      <img class="v-row__cover" src="${pic || TRANSPARENT}" alt="" loading="lazy"/>
+      <div class="v-row__main">
+        <div class="v-row__title"><span>${esc(songTitle(s))}</span>${sub ? `<span class="v-row__sub2">${esc(sub)}</span>` : ""}</div>
+        ${artistLine}
+      </div>
+      ${albumLine}
+      <div class="v-row__actions">
+        <button type="button" class="v-iconbtn v-iconbtn--sm${loved ? " v-iconbtn--on" : ""}" data-love
+          aria-label="${loved ? "取消收藏" : "收藏"}" aria-pressed="${loved}" title="${loved ? "取消收藏" : "收藏"}">${icon(loved ? "heartOn" : "heart", 16)}</button>
+      </div>
+      <span class="v-row__time">${formatTime(s.interval)}</span>`;
 
-    // 单击 = 选中 + 后台预加载播放链接（释放旧预载）；双击 = 打断切歌立即播放
+    // 单击 = 选中 + 后台预加载播放链接（释放旧预载）；Ctrl/Shift 多选；双击 / 回车 = 打断切歌立即播放
     row.addEventListener("click", (e) => {
       if ((e.target as HTMLElement).closest("[data-love],a")) return;
-      box.querySelectorAll(".row.sel").forEach((r) => r !== row && r.classList.remove("sel"));
-      row.classList.add("sel");
+      const me = e as MouseEvent;
+      const sel = selOf(box);
+      const key = String(s._key);
+      if (me.ctrlKey || me.metaKey) {
+        if (sel.has(key)) sel.delete(key); else sel.add(key);
+        setAnchor(box, row);
+        paintSel(box);
+        return; // 多选切换不预加载
+      }
+      if (me.shiftKey) {
+        const anchor = anchorOf(box);
+        const rows = [...box.querySelectorAll<HTMLElement>(".v-row[data-songkey]")];
+        const a = anchor ? rows.indexOf(anchor) : -1;
+        const b = rows.indexOf(row);
+        if (a >= 0 && b >= 0) {
+          const [lo, hi] = [Math.min(a, b), Math.max(a, b)];
+          rows.slice(lo, hi + 1).forEach((r) => sel.add(r.dataset.songkey!));
+          paintSel(box);
+          return;
+        }
+      }
+      sel.clear();
+      sel.add(key);
+      setAnchor(box, row);
+      paintSel(box);
       player.prefetchSong(s);
     });
-    row.addEventListener("dblclick", (e) => {
+    // 整行右键菜单：播放 / 播放选中 / 收藏 / 复制歌名
+    row.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      openRowMenu(e.clientX, e.clientY, box, songs, s, hooks);
+    });
+    const fire = (e: Event) => {
       if ((e.target as HTMLElement).closest("[data-love],a")) return;
       hooks.onPlay?.(s, i, songs);
+    };
+    row.addEventListener("dblclick", fire);
+    row.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.target as HTMLElement) === row) { e.preventDefault(); hooks.onPlay?.(s, i, songs); }
     });
-    // 触屏/快速点按场景兜底：单击封面 = 选中 + 预加载（不直接起播，防误触；双击起播）
-    row.querySelector(".rthumb")!.addEventListener("click", () => player.prefetchSong(s));
     row.querySelector("[data-love]")!.addEventListener("click", async (e) => {
       e.stopPropagation();
       const btn = e.currentTarget as HTMLElement;
@@ -109,26 +264,13 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
       const kind = v.slice(0, c1), mid = v.slice(c1 + 1, c2), name = v.slice(c2 + 1);
       location.hash = `#/${kind}?mid=${encodeURIComponent(mid)}&name=${encodeURIComponent(name ?? "")}`;
     });
-    // 右键菜单：上下文在打开时现取（列表可能已被重画，序号以当时的 DOM 为准）
-    bindSongMenu(row, () => ({
-      song: s,
-      list: songs,
-      index: [...box.children].indexOf(row),
-      playlist: hooks.playlist,
-      onRemoved: () => {
-        // 行淡出移除（与「我喜欢」取消收藏同一套动作），随后交给视图改计数
-        row.classList.add("leaving");
-        setTimeout(() => row.remove(), 220);
-        hooks.onRemoved?.(s);
-      },
-    }));
     box.append(row);
   }
 }
 
 // 分页加载我喜欢（30/页），返回歌曲数组（供视图计数/播放）
 export async function loadLiked(box: HTMLElement, hooks: RowHooks = {}, limit = 300): Promise<any[]> {
-  box.innerHTML = `<div class="muted">加载中…</div>`;
+  box.innerHTML = loadingHtml();
   const all: any[] = [];
   for (let page = 1; (page - 1) * 30 < limit; page++) {
     const r: any = await api(`/user/liked?page=${page}&num=30`);

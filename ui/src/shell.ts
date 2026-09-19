@@ -1,10 +1,12 @@
 // Quaver — SPA 壳层（入口 main.ts 调用 bootShell）
-// 顶栏/侧栏/播放条/正在播放页/队列面板 = 常驻不销毁；
-// .content 内 = 常驻搜索框（.content-top）+ 按路由切换的视图区（.route），
-// 切视图不打断音频、搜索框与输入状态不随视图重建。地址栏 hash 路由
-// （file:// 与壳层加载均兼容），旧的多页入口（daily.html 等）保留为薄跳转层。
+// 骨架 = Verse：v-titlebar(36) / [v-nav(220) + 内容区] / v-player(76)，三者常驻不销毁。
+// .route 按 hash 路由切换；切视图不打断音频、搜索框输入状态不随视图重建。
+// 旧的多页入口（daily.html 等）保留为薄跳转层。
+import "./verse/verse-tokens.css";
+import "./verse/verse-components.css";
+import "./verse/verse-app.css";
 import "./style.css";
-import { api, coverUrl, upPic, identityBadges } from "./lib/api";
+import { api, upPic, identityBadges } from "./lib/api";
 import { favSonglists, loadFavSonglists, onFavSonglistsChange } from "./lib/favs";
 import { getSidebarCollapsed, setSidebarCollapsed } from "./lib/prefs";
 import { player } from "./player";
@@ -12,35 +14,21 @@ import { PlayerBar } from "./components/PlayerBar";
 import { NowPlaying } from "./components/NowPlaying";
 import { QueuePanel } from "./components/QueuePanel";
 import { SearchBox } from "./components/SearchBox";
-import { views, BACK_SVG } from "./views";
-import { extractCoverColor, toUiColors, type RGB } from "./lib/color";
+import { views } from "./views";
+import { icon } from "./verse/icons";
+import { cfg, cfgSetSoon } from "./lib/config";
 
 export const nav = [
-  { path: "#/", label: "首页", icon: "home" },
-  { path: "#/guess", label: "猜你喜欢", icon: "sparkle" },
-  { path: "#/daily", label: "每日 30 首", icon: "disc" },
-  { path: "#/liked", label: "我喜欢", icon: "heart" },
-];
+  { id: "home", path: "#/", label: "首页", icon: "home" },
+  { id: "foryou", path: "#/guess", label: "猜你喜欢", icon: "discover" },
+  { id: "daily", path: "#/daily", label: "每日 30 首", icon: "repeat" },
+] as const;
 
-const icons: Record<string, string> = {
-  home: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/></svg>',
-  sparkle:
-    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4l1.7 4.3L18 10l-4.3 1.7L12 16l-1.7-4.3L6 10l4.3-1.7z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/></svg>',
-  disc: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/></svg>',
-  heart:
-    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20s-7-4.6-9-9c-1.3-3 .8-6.5 4-6.5 2 0 3.5 1.2 5 3 1.5-1.8 3-3 5-3 3.2 0 5.3 3.5 4 6.5-2 4.4-9 9-9 9z"/></svg>',
-  // 设置：齿轮（外圈齿形 + 中心孔）。与其它线性图标同一套 24 网格 / currentColor 描边。
-  settings:
-    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
-  // 侧栏缩回/展开：双 chevron。展开态指左（=往左收），缩态由 CSS 翻 180° 指右（=放出来）。
-  collapse:
-    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M13.5 6.5 8 12l5.5 5.5M18.5 6.5 13 12l5.5 5.5"/></svg>',
-  userPh:
-    '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 19c1.5-3 4-4.5 7-4.5s5.5 1.5 7 4.5"/></svg>',
-};
+export const navMine = [
+  { id: "like", path: "#/liked", label: "我喜欢", icon: "heart" },
+] as const;
 
-// content = .content 主内容区整体；route = 内容区里可被路由替换的部分。
-// 搜索框在 content 内、route 外——随壳层常驻，切视图/刷新视图不重建、输入不丢。
+// content = .q-content 主内容区整体；route = 内容区里可被路由替换的部分。
 export const state = { content: null as HTMLElement | null, route: null as HTMLElement | null };
 
 export function currentRoute() {
@@ -51,13 +39,12 @@ export function currentRoute() {
 
 let mountedCleanup: (() => void) | null = null;
 
-// —— 顶带返回按钮（搜索框旁）：自维护的路由栈判定「有没有可返回的上级」，
-// 不依赖浏览器 history.length（其它标签/窗口共享计数、file:// 下语义不一）。
-// hash 赋值（location.hash=… / <a href="#…">）走 hashchange = 新导航压栈；
-// 真·返回（我们按钮的 history.back() 或鼠标侧键）落在栈的相邻项上 → 移动指针。
+// —— 路由栈（标题栏后退/前进按钮）：自维护，不依赖 history.length ——
+// hash 赋值走 hashchange = 新导航压栈；按钮的 history.back()/forward() 落在相邻项 → 移动指针。
 const routeStack: string[] = [];
 let stackPos = -1;
 let backBtn: HTMLButtonElement | null = null;
+let fwdBtn: HTMLButtonElement | null = null;
 
 function syncRouteStack() {
   const cur = location.hash || "#/";
@@ -65,17 +52,24 @@ function syncRouteStack() {
   else if (stackPos > 0 && routeStack[stackPos - 1] === cur) stackPos--;      // 返回
   else if (stackPos < routeStack.length - 1 && routeStack[stackPos + 1] === cur) stackPos++; // 前进
   else { routeStack.splice(stackPos + 1); routeStack.push(cur); stackPos = routeStack.length - 1; }
-  if (backBtn) backBtn.hidden = stackPos <= 0;
+  if (backBtn) backBtn.disabled = stackPos <= 0;
+  if (fwdBtn) fwdBtn.disabled = stackPos < 0 || stackPos >= routeStack.length - 1;
 }
 
 export async function renderRoute() {
   if (!state.route) return;
   const { path, query } = currentRoute();
   syncRouteStack();
-  // 导航高亮
-  document.querySelectorAll<HTMLElement>(".nav a").forEach((a) => {
-    const p = a.dataset.route || "/";
-    a.classList.toggle("active", p === path);
+  // 导航高亮：主导航按路由；歌单项按 #/playlist?id= 精确匹配
+  const cur = location.hash || "#/";
+  document.querySelectorAll<HTMLElement>("#mainnav .v-nav__item").forEach((b) => {
+    const r = b.dataset.route || "";
+    const on = r.startsWith("#/playlist?id=")
+      ? cur === r
+      : (r === "#/" ? path === "/" : r === `#${path}` || cur.startsWith(r + "?") || cur.startsWith(r + "&"));
+    b.classList.toggle("v-nav__item--active", on);
+    if (on) b.setAttribute("aria-current", "page");
+    else b.removeAttribute("aria-current");
   });
   mountedCleanup?.();
   mountedCleanup = null;
@@ -83,131 +77,139 @@ export async function renderRoute() {
   const view = views[path] ?? views["/"];
   state.route.innerHTML = "";
   state.route.scrollTop = 0;
-  // 进入动画：entering class 在子元素挂载前就挂上 —— view 填充的新节点一进 DOM 即匹配
-  // .route.entering>* 选择器，从 from 态（opacity:0）开始播放，避免先 paint 出 1 再跳回 0 闪烁。
-  // class 常驻：下次切视图 innerHTML 清空 + 新子元素挂载，自动重新匹配播放，无需 reflow 重启。
-  state.route.classList.add("entering");
   try {
     const cleanup = await view(state.route, query);
     if (typeof cleanup === "function") mountedCleanup = cleanup;
   } catch (e) {
     console.error(e);
-    state.route.innerHTML = `<div class="muted">页面加载失败：${String((e as Error).message ?? e)}</div>`;
+    state.route.innerHTML = `<div class="body-14" style="color: var(--ink-muted)">页面加载失败：${String((e as Error).message ?? e)}</div>`;
   }
   player.markActive();
 }
 
-// UI 染色：把封面主色提升到 :root 的 --cvg-accent / --cvg-glow，供全局高亮/条目背景消费。
-// 与 ambient 环境层同源（同张封面），无色（未播放/中继不可用）则移除变量，CSS 回落默认强调色。
-// 与 PlayerBar 的 --tint/--tint-line 互不干扰：播放条进度条仍用自己的颜色对。
-function applyCoverTint(rgb: RGB | null) {
-  const root = document.documentElement;
-  const c = toUiColors(rgb);
-  if (!c) {
-    root.style.removeProperty("--cvg-accent");
-    root.style.removeProperty("--cvg-glow");
-    return;
-  }
-  root.style.setProperty("--cvg-accent", c.accent);
-  root.style.setProperty("--cvg-glow", c.glow);
-}
-
 export function bootShell() {
-  // 环境色层：当前封面高斯模糊铺满窗口，供侧栏/播放条等玻璃面板透出色彩
-  const ambient = document.createElement("div");
-  ambient.className = "ambient";
-  ambient.innerHTML = `<div class="ambient-art"></div>`;
-  document.body.prepend(ambient);
-  const ambArt = ambient.querySelector<HTMLElement>(".ambient-art")!;
-  let ambPic = "";
-  player.on(() => {
-    const pic = player.current ? coverUrl(player.current, 300) : "";
-    if (pic === ambPic) return;
-    ambPic = pic;
-    if (!pic) { ambArt.classList.remove("ready"); applyCoverTint(null); return; }
-    const img = new Image();
-    img.onload = () => {
-      if (ambPic !== pic) return; // 期间已换曲
-      ambArt.style.backgroundImage = `url("${pic}")`;
-      ambArt.classList.add("ready");
-    };
-    img.onerror = () => { if (ambPic === pic) ambArt.classList.remove("ready"); }; // 封面 404：保持中性底
-    img.src = pic;
-    // UI 高亮/条目背景染色：与 ambient 同源，提取主色写入 :root 供全局消费
-    // （extractCoverColor 有 url 缓存，与 PlayerBar 各取一份不重复请求网络）
-    void extractCoverColor(pic).then((rgb) => { if (ambPic === pic) applyCoverTint(rgb); });
-  });
+  if (/^mac/i.test(navigator.platform)) document.body.classList.add("mac"); // macOS：隐藏窗口钮，左侧留 80px 给红绿灯
 
   const frame = document.createElement("div");
-  frame.className = "frame";
+  frame.className = "q-frame";
   frame.innerHTML = `
-    <!-- CSD：无标题栏、无浮窗。三钮（min/max/close）+抓握点平铺窗口右上角，簇底即拖拽区；
-         搜索框所在整条顶带同样是拖拽把手，由顶带内的 .top-drag 层承担（右缘让开按钮簇——
-         drag 矩形会吞掉其下所有指针事件，按钮的 no-drag 只在同子树内豁免） -->
-    <div class="win-dragtop" aria-hidden="true"></div>
-    <div class="winbtns" data-csd-drag>
-      <span class="win-grip" aria-hidden="true"><svg viewBox="0 0 16 12" width="14" height="11"><g fill="currentColor"><circle cx="4" cy="3.5" r="1.1"/><circle cx="8" cy="3.5" r="1.1"/><circle cx="12" cy="3.5" r="1.1"/><circle cx="4" cy="8.5" r="1.1"/><circle cx="8" cy="8.5" r="1.1"/><circle cx="12" cy="8.5" r="1.1"/></g></svg></span>
-      <button aria-label="最小化" data-win="min"><svg viewBox="0 0 12 12" width="11" height="11"><path d="M2 6h8" stroke="currentColor" stroke-width="1.2"/></svg></button>
-      <button aria-label="最大化" data-win="max"><svg viewBox="0 0 12 12" width="11" height="11"><rect x="2.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></button>
-      <button aria-label="关闭" data-win="close"><svg viewBox="0 0 12 12" width="11" height="11"><path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" stroke-width="1.2"/></svg></button>
+    <div class="v-titlebar v-drag">
+      <span class="v-titlebar__brand">Quaver</span>
+      <div class="v-titlebar__nav v-nodrag">
+        <button type="button" class="v-iconbtn v-iconbtn--sm" id="nav-back" aria-label="后退" title="后退">${icon("chevronLeft", 16)}</button>
+        <button type="button" class="v-iconbtn v-iconbtn--sm" id="nav-fwd" aria-label="前进" title="前进" disabled>${icon("chevronRight", 16)}</button>
+      </div>
+      <div class="v-titlebar__nav v-nodrag" id="title-search"></div>
+      <div class="v-titlebar__spacer"></div>
+      <div class="v-titlebar__win v-nodrag" id="winbtns">
+        <button type="button" data-win="min" aria-label="最小化" title="最小化">${icon("minimize", 14)}</button>
+        <button type="button" data-win="max" aria-label="最大化" title="最大化">${icon("maximize", 13)}</button>
+        <button type="button" data-win="close" aria-label="关闭" title="关闭">${icon("close", 14)}</button>
+      </div>
     </div>
-    <div class="body">
-      <aside class="sidebar">
-        <a class="user" id="user-header" href="#/login" title="点击登录">
-          <span class="avatar" id="avatar">${icons.userPh}</span>
-          <span class="user-meta">
-            <span class="nick" id="nick">未登录</span>
+    <div class="q-body">
+      <aside class="q-side">
+        <a class="q-user" id="user-header" href="#/login" title="点击登录">
+          <span class="q-avatar" id="avatar">${icon("discover", 22)}</span>
+          <span class="q-user-meta">
+            <span class="q-nick" id="nick">未登录</span>
             <span class="badges" id="badges"></span>
           </span>
         </a>
-        <nav class="nav">
-          ${nav.map((n) => `<a href="${n.path}" data-route="${n.path.slice(1) || "/"}" title="${n.label}">${icons[n.icon]}<span>${n.label}</span></a>`).join("")}
-        </nav>
-        <hr class="sep" />
-        <div class="playlists" id="playlists"><div class="pl-empty">登录后可见歌单</div></div>
-        <!-- 侧栏底部：设置（齿轮）+ 缩回/展开。缩态下竖排居中，是缩态保留的两颗按钮之一。 -->
-        <div class="side-foot">
-          <a class="side-btn settings" href="#/settings" title="设置" aria-label="设置">${icons.settings}</a>
-          <button class="side-btn" id="side-collapse" type="button" title="缩回侧栏" aria-label="缩回侧栏">${icons.collapse}</button>
+        <div class="q-side-sep" aria-hidden="true"></div>
+        <nav class="v-nav" aria-label="主导航" id="mainnav"></nav>
+        <div class="q-playlists" id="playlists"><div class="caption-12" style="padding: 0 12px">登录后可见歌单</div></div>
+        <div class="q-side-foot">
+          <button type="button" class="v-nav__item" id="nav-settings">
+            ${icon("settings")} <span class="ellipsis">设置</span>
+          </button>
+          <button type="button" class="v-nav__item" id="side-collapse" title="缩回侧栏" aria-label="缩回侧栏" aria-expanded="true">
+            ${icon("chevronDown")} <span class="ellipsis">缩回侧栏</span>
+          </button>
         </div>
       </aside>
-      <main class="content">
-        <div class="content-top"></div>
-        <div class="content-body">
-          <div class="route" id="route"></div>
-          <!-- 队列面板停靠位：QueuePanel 宽度足够时挂到这里（.dock），route 自动让宽；
-               宽度不够时挂回 body 变浮窗（.float）。挂载由 QueuePanel 自身管理。 -->
-        </div>
+      <div class="q-side-resizer" role="separator" aria-orientation="vertical" title="拖拽调整侧栏宽度（双击恢复默认）"></div>
+      <main class="q-content">
+        <div class="route" id="route"></div>
       </main>
     </div>
   `;
   document.body.prepend(frame);
-  state.content = frame.querySelector<HTMLElement>(".content")!;
+  state.content = frame.querySelector<HTMLElement>(".q-content")!;
   state.route = frame.querySelector<HTMLElement>("#route")!;
-  // 搜索框常驻壳层顶带（.content-top，与 CSD 按钮簇同一水平带）：路由切换/视图刷新只重建 #route，
-  // 它不动；顶带把标题行整个让给页面内容，窄窗口下不再互相遮挡。
-  // 返回按钮 = 搜索框的兄弟节点（同一个居中组里），没有可返回的上级时隐藏（syncRouteStack）。
-  const top = state.content.querySelector<HTMLElement>(".content-top")!;
-  const topCenter = document.createElement("div");
-  topCenter.className = "top-center";
-  backBtn = document.createElement("button");
-  backBtn.className = "top-back";
-  backBtn.type = "button";
-  backBtn.setAttribute("aria-label", "返回上级");
-  backBtn.title = "返回上级";
-  backBtn.innerHTML = BACK_SVG;
-  backBtn.hidden = true;
-  backBtn.onclick = () => {
-    if (stackPos > 0) { stackPos--; history.back(); } // renderRoute/hashchange 不会再压栈（同址判定）
+
+  // —— 侧栏宽度：拖拽条调节（不随窗口宽度变化），持久化到 quaver.conf 的 Window.SidebarWidth ——
+  const SB_MIN = 180, SB_MAX = 400, SB_DEF = 220;
+  const clampW = (w: number) => Math.min(SB_MAX, Math.max(SB_MIN, Math.round(w)));
+  const setSidebarW = (w: number) => {
+    const px = clampW(w);
+    document.documentElement.style.setProperty("--sidebar-w", `${px}px`); // 行内覆盖 verse-tokens 的 :root 定义
+    cfgSetSoon({ "Window.SidebarWidth": String(px) }); // 拖拽高频：合并落盘
   };
-  topCenter.append(backBtn, SearchBox());
-  // CSD 拖拽把手层：顶带内的独立层（右缘让开窗口按钮簇，几何见 style.css .top-drag 注释）。
-  // 放在 .top-center 之前 → DOM 序在后者的下层，搜索组照样收得到指针事件。
-  const topDrag = document.createElement("div");
-  topDrag.className = "top-drag";
-  topDrag.setAttribute("aria-hidden", "true");
-  top.append(topDrag, topCenter);
-  // 播放条必须在 .frame 流内（占 flex 高度）；np/队列是 fixed 覆盖层，挂 body 即可
+  const savedW = Number(cfg("Window.SidebarWidth", String(SB_DEF)));
+  document.documentElement.style.setProperty("--sidebar-w", `${clampW(Number.isFinite(savedW) ? savedW : SB_DEF)}px`);
+
+  const resizer = frame.querySelector<HTMLElement>(".q-side-resizer")!;
+  const side = frame.querySelector<HTMLElement>(".q-side")!;
+  let drag: { x: number; w: number } | null = null;
+  resizer.addEventListener("pointerdown", (e) => {
+    drag = { x: e.clientX, w: side.getBoundingClientRect().width };
+    resizer.setPointerCapture(e.pointerId);
+    document.body.classList.add("sidebar-resizing");
+  });
+  resizer.addEventListener("pointermove", (e) => {
+    if (drag) setSidebarW(drag.w + e.clientX - drag.x);
+  });
+  const endDrag = () => { drag = null; document.body.classList.remove("sidebar-resizing"); };
+  resizer.addEventListener("pointerup", endDrag);
+  resizer.addEventListener("pointercancel", endDrag);
+  resizer.addEventListener("dblclick", () => setSidebarW(SB_DEF));
+
+  // 主导航按钮（bundle SidebarNav 同构：button + aria-current）
+  const mainnav = frame.querySelector<HTMLElement>("#mainnav")!;
+  const navBtn = (id: string, path: string, label: string, ic: string, count?: string) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "v-nav__item";
+    b.dataset.route = path;
+    b.dataset.nid = id;
+    b.innerHTML = `${icon(ic as any)}<span class="ellipsis">${label}</span>${count != null ? `<span class="v-nav__count">${count}</span>` : ""}`;
+    b.onclick = () => { location.hash = path; };
+    return b;
+  };
+  for (const n of nav) mainnav.append(navBtn(n.id, n.path, n.label, n.icon));
+  const mineGroup = document.createElement("div");
+  mineGroup.className = "v-nav__group";
+  mineGroup.textContent = "我的音乐";
+  mainnav.append(mineGroup);
+  for (const n of navMine) mainnav.append(navBtn(n.id, n.path, n.label, n.icon));
+  frame.querySelector("#nav-settings")!.addEventListener("click", () => { location.hash = "#/settings"; });
+
+  // 全局键鼠（Verse 桌面交互契约）：空格播放/暂停、M 静音、←/→ 快退快进 5 秒。
+  // 输入框/下拉/滑块获得焦点时让路（它们的按键语义优先）。
+  document.addEventListener("keydown", (e) => {
+    const t = e.target as HTMLElement;
+    if (t.closest("input, select, textarea, [role='slider'], [role='switch'], [role='option'], .v-menu, [role='menu'], .v-sel")) return;
+    if (e.key === " " && !t.closest("button, a, [role='button']")) {
+      e.preventDefault();
+      player.toggle();
+    } else if ((e.key === "m" || e.key === "M") && !e.ctrlKey && !e.metaKey && !t.closest("button, a")) {
+      player.toggleMute();
+    } else if (e.key === "ArrowLeft" && !t.closest(".v-row, .qp-row")) {
+      e.preventDefault();
+      if (player.duration) player.seek(player.time - 5);
+    } else if (e.key === "ArrowRight" && !t.closest(".v-row, .qp-row")) {
+      e.preventDefault();
+      if (player.duration) player.seek(player.time + 5);
+    }
+  });
+
+  frame.querySelector("#title-search")!.append(SearchBox());
+  backBtn = frame.querySelector("#nav-back")!;
+  fwdBtn = frame.querySelector("#nav-fwd")!;
+  backBtn.onclick = () => { if (stackPos > 0) { stackPos--; history.back(); } };
+  fwdBtn.onclick = () => { if (stackPos < routeStack.length - 1) { stackPos++; history.forward(); } };
+
   frame.append(PlayerBar());
   document.body.append(NowPlaying(), QueuePanel());
 
@@ -232,6 +234,8 @@ export function bootShell() {
     collapseBtn.title = label;
     collapseBtn.setAttribute("aria-label", label);
     collapseBtn.setAttribute("aria-expanded", String(!off));
+    const span = collapseBtn.querySelector("span");
+    if (span) span.textContent = label;
   };
   collapseBtn.addEventListener("click", () => {
     setSidebarCollapsed(!getSidebarCollapsed());
@@ -244,40 +248,39 @@ export function bootShell() {
 }
 
 // 侧栏状态（头像/昵称/会员徽章/歌单）
-// 歌单分两团：我创建的歌单（PlaylistBaseRead）+ 收藏的歌单（PlaylistFavRead，见 lib/favs）。
-// 后者独立拉取、失败只影响本团；收藏态变化（歌单页红心）经 favs 订阅即时回灌侧栏。
+// 歌单分两团：我创建的歌单 + 收藏的歌单（见 lib/favs），后者独立拉取、失败只影响本团。
 let sidebarCreated: any[] = [];
 let sidebarFavsReady = false;
 
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
-// 单个歌单条目：封面 + 标题（副行可选，收藏的歌单用来标创建者）
+// 单个歌单条目：v-nav__item 范式 + 封面缩略图
 // title 恒给：侧栏缩回后只剩封面图，鼠标悬停是唯一认得出来的途径。
 function plItem(x: any, sub = ""): HTMLElement {
-  const a = document.createElement("a");
-  a.className = "pl";
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "v-nav__item q-pl";
+  const href = `#/playlist?id=${encodeURIComponent(x.id ?? "")}&name=${encodeURIComponent(x.title ?? "歌单")}`;
+  b.dataset.route = href;
   const pic = upPic(x.picurl || x.bigpic_url);
   const title = String(x.title ?? "歌单");
-  a.title = sub ? `${title} · ${sub}` : title;
-  a.innerHTML = `<span class="thumb">${pic ? `<img src="${pic}" alt="" loading="lazy"/>` : ""}</span>
-    <span class="pname"><span class="ptitle">${esc(title)}</span>${sub ? `<span class="psub">${esc(sub)}</span>` : ""}</span>`;
-  a.href = `#/playlist?id=${encodeURIComponent(x.id ?? "")}&name=${encodeURIComponent(x.title ?? "歌单")}`;
-  return a;
+  b.innerHTML = `<span class="q-plthumb">${pic ? `<img src="${pic}" alt="" loading="lazy"/>` : ""}</span>
+    <span class="q-plmeta"><span class="q-pltitle">${esc(title)}</span>${sub ? `<span class="q-plsub">${esc(sub)}</span>` : ""}</span>`;
+  b.title = sub ? `${title} · ${sub}` : title;
+  b.onclick = () => { location.hash = href; };
+  return b;
 }
 
 function renderSidebarPlaylists(box: HTMLElement) {
   const favs = sidebarFavsReady ? favSonglists() : null; // null = 尚未拉回：不画空态，避免闪一下「暂无」
   box.innerHTML = "";
-  if (!sidebarCreated.length && !favs?.length) {
-    box.innerHTML = `<div class="pl-empty">暂无歌单</div>`;
-    return;
-  }
+  if (!sidebarCreated.length && !favs?.length) return; // 无歌单时留空，不写空态文案
   const group = (label: string, list: any[], sub: (x: any) => string) => {
     if (!list.length) return;
     const head = document.createElement("div");
-    head.className = "pl-group";
-    head.innerHTML = `<span>${label}</span><span class="pl-cnt">${list.length}</span>`;
+    head.className = "v-nav__group";
+    head.innerHTML = `${esc(label)}<span class="v-nav__count">${list.length}</span>`;
     box.append(head);
     for (const x of list) box.append(plItem(x, sub(x)));
   };
@@ -289,7 +292,7 @@ async function bootSidebar() {
   try {
     const st: any = await api("/login/status");
     if (!st?.logged_in) return; // 未登录：保持占位样式
-    // 「我喜欢」预载：全站红心态（行内红心/播放条）都读它，登录确认后立刻后台拉回，不阻塞首屏
+    // 「我喜欢」预载：全站红心态都读它，登录确认后立刻后台拉回，不阻塞首屏
     void player.loadLoved();
     const [me, vip] = await Promise.all([
       api<any>("/user/me").catch(() => null),
@@ -300,7 +303,7 @@ async function bootSidebar() {
     document.querySelector("#user-header")!.setAttribute("href", "#/user");
     document.querySelector<HTMLElement>("#avatar")!.innerHTML = base.avatar
       ? `<img src="${String(base.avatar).replace(/^http:/, "https:")}" alt=""/>`
-      : icons.userPh;
+      : icon("discover", 22);
     document.getElementById("nick")!.textContent = base.name;
     // 徽章数据驱动：会员最高档（橙=超级会员/绿=绿钻系）+ 音乐人（蓝）
     document.getElementById("badges")!.innerHTML = identityBadges(me, vip);

@@ -1,9 +1,8 @@
-// Quaver — 顶部搜索框（常驻壳层组件，不随视图切换重建）
-// 挂在内容区顶带 .content-top（独立一行，与 CSD 按钮簇同带、右缘由该带预留避让位）：renderRoute() 只重建
-// #route，本组件 DOM/输入状态/联想面板在整个会话内保持不变；顶带不与页面标题同带，窄窗口下互不遮挡。
+// 顶部搜索框（常驻标题栏，不随视图切换重建）。
+// Verse SearchInput 结构（v-search）+ 下拉建议（v-menu，由 verse-app.css 提供）。
 // 交互：输入即联想（/search/complete，debounce）；Enter 或点联想词 → #/search?keyword=…
-//       视图内点任意联想词 = 按歌名直搜（服务端结果词面一致，忽略客户端高亮标签）。
 import { api } from "../lib/api";
+import { icon, type IconName } from "../verse/icons";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const untag = (s: string) => s.replace(/<\/?em>/gi, "");
@@ -33,26 +32,28 @@ interface Suggest {
   keyword: string; // 点选后实际搜索词
 }
 
-const KIND_ICON: Record<Suggest["kind"], string> = {
-  song: "♪",
-  singer: "🎤",
-  songlist: "☰",
-  album: "◈",
-  custom: "🔍",
-  history: "↺",
-  hot: "🔥",
+// 联想类型 → Verse 图标（不用 emoji：列表密度下是噪声）
+const KIND_ICON: Record<Suggest["kind"], IconName> = {
+  song: "lyrics",
+  singer: "discover",
+  songlist: "list",
+  album: "library",
+  custom: "search",
+  history: "repeat",
+  hot: "heartOn",
 };
 
 export function SearchBox(): HTMLElement {
   const box = document.createElement("div");
-  box.className = "searchbar";
+  box.className = "v-search";
+  box.style.width = "320px";
   box.innerHTML = `
-    <span class="sb-field">
-      <span class="sb-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></span>
-      <input id="q" type="search" placeholder="搜索歌曲、歌手、歌单…" autocomplete="off" spellcheck="false" aria-label="搜索" />
-    </span>
-    <div id="drop" class="sb-drop" hidden></div>`;
+    ${icon("search", 16)}
+    <input id="q" type="text" placeholder="搜索歌曲、歌手、专辑" autocomplete="off" spellcheck="false" aria-label="搜索" />
+    <button type="button" class="v-iconbtn v-iconbtn--sm v-search__clear" id="q-clear" aria-label="清空" title="清空" hidden>${icon("close", 14)}</button>
+    <div id="drop" class="v-menu v-search__drop" hidden></div>`;
   const input = box.querySelector<HTMLInputElement>("#q")!;
+  const clear = box.querySelector<HTMLButtonElement>("#q-clear")!;
   const drop = box.querySelector<HTMLElement>("#drop")!;
 
   let seq = 0; // 联想请求竞态：只渲染最后一次
@@ -68,12 +69,12 @@ export function SearchBox(): HTMLElement {
   function renderDrop() {
     if (!items.length) return close();
     drop.innerHTML = items
-      .map((x, i) => `<button class="sb-item${i === hi ? " hi" : ""}" data-i="${i}" type="button">
-          <span class="sb-kind">${KIND_ICON[x.kind]}</span><span class="sb-label">${esc(x.label)}</span>
+      .map((x, i) => `<button class="v-menu__item${i === hi ? " hi" : ""}" data-i="${i}" type="button" role="option" aria-selected="${i === hi}">
+          <span class="v-menu__icon">${icon(KIND_ICON[x.kind], 16)}</span><span class="ellipsis">${esc(x.label)}</span>
         </button>`)
       .join("");
     drop.hidden = false;
-    drop.querySelectorAll<HTMLElement>(".sb-item").forEach((b) => {
+    drop.querySelectorAll<HTMLElement>(".v-menu__item").forEach((b) => {
       b.addEventListener("mousedown", (e) => {
         e.preventDefault(); // 别让 blur 先关掉面板
         const it = items[+b.dataset.i!];
@@ -117,14 +118,22 @@ export function SearchBox(): HTMLElement {
     if (!k) return;
     pushHistory(k);
     input.value = k;
+    clear.hidden = false;
     close();
     input.blur();
     location.hash = `#/search?keyword=${encodeURIComponent(k)}`;
   }
 
   input.addEventListener("input", () => {
+    clear.hidden = input.value === "";
     window.clearTimeout(debounce);
     debounce = window.setTimeout(suggest, 220);
+  });
+  clear.addEventListener("click", () => {
+    input.value = "";
+    clear.hidden = true;
+    close();
+    input.focus();
   });
   input.addEventListener("focus", suggest);
   input.addEventListener("blur", () => window.setTimeout(close, 120));
@@ -133,8 +142,9 @@ export function SearchBox(): HTMLElement {
       e.preventDefault();
       submit(hi >= 0 && items[hi] ? items[hi].keyword : input.value);
     } else if (e.key === "Escape") {
-      close();
-      input.blur();
+      // 有字 = 清空（SearchInput 契约）；无字 = 失焦
+      if (input.value) { input.value = ""; clear.hidden = true; close(); }
+      else { close(); input.blur(); }
     } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       if (drop.hidden) return;
       e.preventDefault();

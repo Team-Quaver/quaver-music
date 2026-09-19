@@ -16,12 +16,13 @@ const LS_KEY = "quaver.conf.v1";
 // 桌面端主进程 readValues() 已补齐全量，这里只是不让两种环境的行为分叉）。改一处要改两处。
 const FALLBACK: ConfigSnapshot = {
   "Style.Style": "dark",
-  "Style.DefaultUIFonts": "Source Han Sans,Microsoft Yahei UI",
-  "Style.DefaultLyricsFonts": "Source Han Serif",
+  "Style.DefaultUIFonts": "",
+  "Style.DefaultLyricsFonts": "",
   "Style.ShowTranslation": "True",
   "Window.Decor": "csd",
   "Window.CloseAction": "tray",
   "Window.SidebarCollapsed": "False",
+  "Window.SidebarWidth": "220",
   "Playing.Backend": "MPV",
   "Playing.AudioDevice": "auto",
   "Playing.Fade": "normal",

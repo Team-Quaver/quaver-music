@@ -189,14 +189,14 @@ export const SCHEMA = [
       },
       {
         key: "DefaultUIFonts",
-        def: "Source Han Sans,Microsoft Yahei UI",
-        doc: ["界面字体：CSS font-family 列表（逗号分隔）；留空则用内置默认栈；也可填预设名 system/sans/serif/mono"],
+        def: "",
+        doc: ["界面字体：CSS font-family 列表（逗号分隔）；留空则用内置默认栈（Mi Sans VF 优先）；也可填预设名 system/sans/serif/mono"],
         valid: isFontList,
       },
       {
         key: "DefaultLyricsFonts",
-        def: "Source Han Serif",
-        doc: ["歌词字体：同上"],
+        def: "",
+        doc: ["歌词字体：同上；留空则跟随界面字体"],
         valid: isFontList,
       },
       {
@@ -227,6 +227,12 @@ export const SCHEMA = [
         def: "False",
         doc: ["侧栏是否缩回：False=展开（默认，显示昵称/导航文字/歌单名）｜True=缩回（只留头像、导航图标、歌单封面与底部两颗按钮）"],
         valid: (v) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
+      },
+      {
+        key: "SidebarWidth",
+        def: "220",
+        doc: ["侧栏宽度（px）：主界面左侧栏拖拽分隔条调节，双击分隔条恢复默认；范围 180..400"],
+        valid: (v) => { const n = Number(v); return Number.isInteger(n) && n >= 180 && n <= 400; },
       },
     ],
   },
