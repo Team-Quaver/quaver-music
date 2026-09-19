@@ -12,6 +12,8 @@ import { fileURLToPath } from "node:url";
 import { audioEngine } from "./audio/engine.mjs";
 // 配置文件（quaver.conf）与跨平台目录规则：路径单一真相，渲染层与 sidecar 都对齐这一份
 import { configDir, configFile, ensureConfigDir, logFile, readValues, resetConfig, writeValues } from "./config.mjs";
+// 系统深浅色探测（Linux 桌面各自的真相来源，见模块头）：「跟随系统」要靠它才真的跟得上
+import { readSystemTheme, watchSystemTheme } from "./systheme.mjs";
 // 注意：vite 不能在顶层 import——实测其在 Electron 主进程有副作用，会让 app.whenReady() 永不兑现。
 // 只在 createWindow 里动态 import()。
 
@@ -51,8 +53,26 @@ try {
   log("[quaver] 配置读取失败，全部走默认值:", String(e));
 }
 const bootTheme = bootConf["Style.Style"] ?? "dark";
-// 窗口底色：按 quaver.conf 的主题预判，避免加载首帧白闪（dark/follow-system 解析到深色就用深底）
-const bootDark = bootTheme === "dark" || (bootTheme !== "light" && nativeTheme.shouldUseDarkColors);
+// 窗口底色：按 quaver.conf 的主题预判，避免加载首帧白闪（dark、或跟随系统且系统为深色 → 深底）。
+// 跟随系统的判据走我们自己的探测：nativeTheme 在 whenReady 之前不可靠，且 Linux 上它只认 GTK
+// 那份静态快照（见 systheme.mjs），拿它当兜底而不是主判据。
+const bootDark = bootTheme === "dark"
+  || (bootTheme !== "light" && (readSystemTheme() === "dark" || nativeTheme.shouldUseDarkColors));
+
+// 当前主题偏好："dark" / "light" / 其余（follow-system 及将来的自定义主题）= 跟随系统。
+// 渲染层每次改主题都会经 quaver:config set 落盘，主进程在这里同步这一份。
+let themePref = bootTheme;
+
+// —— 把「系统深浅色」翻译成 Chromium 听得懂的话 ——
+// nativeTheme.themeSource 只有 system / light / dark 三档，没有「用我自己探测到的系统色」这一档，
+// 所以跟随系统时我们自己探测（systheme.mjs），再写死成 dark/light ——
+// Electron 会把它同步给渲染进程的 prefers-color-scheme，渲染层原有的 mq 监听照旧生效。
+// 留 'system' 是不行的：Electron 在 Linux 上走 GTK 判断，而 KDE 下那份 GTK 设置是静态快照，
+// 与桌面配色脱钩 —— 那正是「跟随系统不生效」的根因。
+function applyThemeSource() {
+  if (themePref === "dark" || themePref === "light") { nativeTheme.themeSource = themePref; return; }
+  nativeTheme.themeSource = readSystemTheme() ?? "system";
+}
 
 // 打包态页面固定端口：origin 稳定，Chromium 侧的 localStorage/IndexedDB/Cache 才能跨启动延续。
 // 端口被占时 native-server 自动回落系统分配（设置本来就在 conf 里，不受影响）。
@@ -367,9 +387,21 @@ ipcMain.handle("quaver:config", (_e, msg) => {
     }
     if (op === "set") {
       const written = writeValues(msg?.patch ?? {});
+      // 主题偏好刚变：立刻重算 Chromium 的深浅色来源（跟随系统 ⇄ 明/暗 之间切时这条最关键，
+      // 否则要么系统变了不跟、要么切回固定档后还挂着探测值）
+      const pref = msg?.patch?.["Style.Style"];
+      if (pref !== undefined && written.includes("Style.Style")) {
+        themePref = pref;
+        applyThemeSource();
+      }
       return { ok: true, written };
     }
-    if (op === "reset") return { ok: true, values: resetConfig() };
+    if (op === "reset") {
+      const values = resetConfig();
+      themePref = values["Style.Style"] ?? "dark";
+      applyThemeSource();
+      return { ok: true, values };
+    }
     if (op === "reveal") {
       const p = configFile();
       if (existsSync(p)) shell.showItemInFolder(p); // 文件管理器里高亮选中
@@ -443,6 +475,18 @@ if (!app.requestSingleInstanceLock()) {
 // 勿用顶层 await：Electron 对 ESM 主进程中挂起在 await 的模块引导不完整（实测 whenReady 永不兑现）
 app.whenReady().then(() => {
   log("[quaver] app ready");
+  // 深浅色来源必须在建窗之前定好：窗口一创建，渲染进程就会带着当时的 color scheme 起来
+  try {
+    applyThemeSource();
+    // 系统配色变化：只在「跟随系统」时接管（明/暗固定档下系统怎么变都与本应用无关）。
+    // 不用 nativeTheme 的 updated 事件 —— 我们把 themeSource 写死成 dark/light 之后，
+    // Electron 就不再去问系统了，那个事件自然不会来；盯文件才是真来源。
+    watchSystemTheme(() => {
+      if (themePref !== "dark" && themePref !== "light") applyThemeSource();
+    });
+  } catch (e) {
+    log("[quaver] system theme watch failed:", String(e));
+  }
   createWindow().catch((e) => {
     log("[quaver] startup failed:", String(e && e.stack || e));
     app.quit();

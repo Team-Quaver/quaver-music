@@ -219,3 +219,18 @@ export function syncCloseAction() {
   const bridge = (window as any).quaverCSD;
   if (bridge?.setCloseAction) bridge.setCloseAction(getCloseAction());
 }
+
+// —— 侧栏展开/缩回：缩态只留头像、导航图标、歌单封面与底部按钮（昵称/文字全部收掉）。
+//    状态挂在 <body> 的 class 上（与 applyDecor 的 body.ssd 同一套路）：侧栏由 shell.ts
+//    在 bootShell 时才注入，CSS 只按 body 状态描述缩态，模块之间不必互相找节点。
+//    按钮自身的图标方向/文案由 shell.ts 随状态同步（这里只管 class 与落盘）。 ——
+export function getSidebarCollapsed(): boolean {
+  return /^(true|1|yes)$/i.test(cfg("Window.SidebarCollapsed", "False"));
+}
+export function applySidebar() {
+  document.body.classList.toggle("side-collapsed", getSidebarCollapsed());
+}
+export function setSidebarCollapsed(v: boolean) {
+  cfgSet({ "Window.SidebarCollapsed": v ? "True" : "False" });
+  applySidebar();
+}

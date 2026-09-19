@@ -1,7 +1,7 @@
 // 歌曲行渲染（跨视图复用）：Verse TrackRow 结构（v-row）。
 // 三信号表正在播放（行底色 + accent 歌名 + 序号处圆点）；已收藏 = accent + 实心爱心。
 // 单击 = 选中 + 后台预加载；双击 = 立即播放；行内歌手/专辑链跳视图。
-import { api, coverUrl } from "./api";
+import { api, coverUrl, songSubtitle, songTitle } from "./api";
 import { player } from "../player";
 import { icon } from "../verse/icons";
 import { formatTime } from "../verse/format";
@@ -15,6 +15,10 @@ export interface RowHooks {
   /** 红心切换落定后回调（loved = 写接口终态，失败已在 player 侧回滚）。
    *  「我喜欢」页据此把取消收藏的行移出列表。 */
   onLove?: (song: any, loved: boolean) => void;
+  /** 当前所在歌单：removable=true 时右键菜单才出现「从歌单删除」（写接口要 dirid + tid） */
+  playlist?: { dirid: number; tid: number; title: string; removable: boolean };
+  /** 从歌单删除成功后的回调（视图侧改计数等；行的移除由本模块负责） */
+  onRemoved?: (song: any) => void;
 }
 
 const TRANSPARENT = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
@@ -174,7 +178,7 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
     row.dataset.songkey = s._key;
     row.tabIndex = 0;
     row.setAttribute("role", "row");
-    row.title = "双击播放";
+    row.title = "双击播放 · 右键更多";
     const pic = coverUrl(s, 150);
     const artistLine = hooks.showArtist === false ? "" :
       `<div class="v-row__sub">${(s.singer ?? []).length ? artistLinks(s.singer) : ""}</div>`;
@@ -183,10 +187,12 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
     const loved = player.loved.has(s.mid);
     const playing = !!player.current && String(player.current._key ?? player.current.mid ?? "") === String(s._key);
     if (playing) row.classList.add("v-row--playing");
+    // 标题 = songTitle（主名 + 版本后缀）；subtitle 是独立的一句话说明，跟在标题后做次级文本
+    const sub = songSubtitle(s);
     row.innerHTML = `<span class="v-row__index" data-n="${n}">${playing ? icon("dot", 14) : n}</span>
       <img class="v-row__cover" src="${pic || TRANSPARENT}" alt="" loading="lazy"/>
       <div class="v-row__main">
-        <div class="v-row__title"><span>${esc(s.name ?? "")}</span></div>
+        <div class="v-row__title"><span>${esc(songTitle(s))}</span>${sub ? `<span class="v-row__sub2">${esc(sub)}</span>` : ""}</div>
         ${artistLine}
       </div>
       ${albumLine}

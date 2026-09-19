@@ -42,6 +42,29 @@ npm run dev -- --port 5173 --strictPort --host 127.0.0.1
 - 页内导航一律 hash 路由（`#/playlist?id=…`）；根目录 `.html` 薄跳转层只给旧外链保留。
 - dev 钩子：`import.meta.env.DEV` 下 `window.__player` 即播放器实例（生产构建不含）。
 
+## 「跟随系统」深浅色（Linux 特有的坑）
+
+渲染层只认 `matchMedia("(prefers-color-scheme: dark)")`（`src/lib/prefs.ts`），但**这个值由谁决定
+是平台相关的**：Linux 上 Chromium 只按 GTK 设置判（`gtk-theme-name` 含 dark /
+`gtk-application-prefer-dark-theme=true`），而 KDE 下那份 GTK 设置是 kde-gtk-config 写的
+**静态快照**，不跟 KDE 配色方案联动 —— 实测 `kdeglobals` 的配色在 `noctalia` ⇄ `BreezeLight`
+之间来回切，`~/.config/gtk-{3,4}.0/settings.ini` 里始终是 `adw-gtk3`（浅），于是「跟随系统」
+永远是浅色。
+
+所以这件事由**主进程**兜（`electron/systheme.mjs`）：
+
+- 探测真相：KDE 会话读 `kdeglobals` 的 `[Colors:Window] BackgroundNormal` 按亮度判（不猜方案名，
+  「BreezeLight」「noctalia」这类名字没法可靠分类）；其他桌面读 GTK settings.ini 兜底；
+  都拿不到返回 `null`，交回 Electron 自己判。
+- `nativeTheme.themeSource` 只有 system/light/dark 三档，跟随系统时写成**探测到的** dark/light ——
+  Electron 会把它同步给渲染进程的 `prefers-color-scheme`，**渲染层零改动**。
+- 变化监听用 `fs.watchFile`（stat 轮询，1.5s）而不是 `fs.watch`：KDE 走 KConfig 重写文件，
+  inode 会换，`fs.watch` 会跟丢。也别用 `nativeTheme` 的 `updated` 事件 —— themeSource 写死之后
+  它不会再来，盯文件才是真来源。
+- 主题偏好经 `quaver:config` 的 `set` 落盘时同步进主进程（`themePref`），`reset` 也要同步，
+  否则切回明/暗固定档后还挂着探测值。
+- 单测：`node scripts/verify-systheme.mjs`（INI 解析 / 亮度判据 / 来源优先级 / 变化监听，真文件真解析）。
+
 ## Documentation
 
 Vite guide: https://vite.dev/guide/

@@ -223,6 +223,12 @@ export const SCHEMA = [
         valid: (v) => ["tray", "quit"].includes(v),
       },
       {
+        key: "SidebarCollapsed",
+        def: "False",
+        doc: ["侧栏是否缩回：False=展开（默认，显示昵称/导航文字/歌单名）｜True=缩回（只留头像、导航图标、歌单封面与底部两颗按钮）"],
+        valid: (v) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
+      },
+      {
         key: "SidebarWidth",
         def: "220",
         doc: ["侧栏宽度（px）：主界面左侧栏拖拽分隔条调节，双击分隔条恢复默认；范围 180..400"],

@@ -21,6 +21,7 @@ const FALLBACK: ConfigSnapshot = {
   "Style.ShowTranslation": "True",
   "Window.Decor": "csd",
   "Window.CloseAction": "tray",
+  "Window.SidebarCollapsed": "False",
   "Window.SidebarWidth": "220",
   "Playing.Backend": "MPV",
   "Playing.AudioDevice": "auto",

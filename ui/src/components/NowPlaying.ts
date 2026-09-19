@@ -2,7 +2,7 @@
 // 全屏覆盖（常驻播放条仍可见可点）；内部为歌词与封面信息两栏，播放列表复用全局右下浮窗。
 // 进度与传输控制由常驻播放条承担，本页不重复。
 import { player, type Song } from "../player";
-import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQuality, QUALITY_SHORT } from "../lib/api";
+import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQuality, QUALITY_SHORT, songTitle } from "../lib/api";
 import { icon } from "../verse/icons";
 import { loadingInlineHtml } from "../verse/loading";
 
@@ -118,14 +118,17 @@ export function NowPlaying(): HTMLElement {
     el.classList.toggle("no-trans", !player.showTrans);
     trans.classList.toggle("is-loved", player.showTrans);
     trans.setAttribute("aria-pressed", String(player.showTrans));
+    // 开关两态差别不能只落在配色上：把当前态写进 title，鼠标悬停即可确认
+    trans.title = player.showTrans ? "翻译：显示中（点击隐藏）" : "翻译：已隐藏（点击显示）";
     if (!open) return;
 
     // 换曲 或 歌词状态迁移（loading→ok/none 时行 DOM 需要重建，否则占位/歌词丢失）
     const st: "idle" | "loading" | "ok" | "none" = player.lyrics.length ? "ok" : player.lyricState;
     if (s?.mid !== lastMid || st !== lastLyricState) buildLyricDom(s);
     lastLyricState = st;
-    title.textContent = s?.name ?? "未在播放";
-    title.title = s?.name ?? "";
+    const shownTitle = s ? songTitle(s) : "未在播放";
+    title.textContent = shownTitle;
+    title.title = shownTitle;
     const singerLine = s ? (s.singer ?? []).map((x) => x.name).join(" / ") : "点一首歌试试";
     artist.textContent = singerLine;
     artist.title = singerLine;

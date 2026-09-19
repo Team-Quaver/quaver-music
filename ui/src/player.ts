@@ -11,6 +11,7 @@ import {
   type DecodeBackend, type FadePreset,
 } from "./lib/prefs";
 import { WebTransport, EngineTransport, type Transport, type TransportEvent, type AudioDeviceInfo } from "./lib/transport";
+import { loadSession, saveSession } from "./lib/session";
 import { parseLrc, type LyricLine } from "./lyric";
 
 export type Song = {
@@ -18,8 +19,12 @@ export type Song = {
   id?: number;
   type?: number;
   name: string;
-  singer?: { name: string }[];
-  album?: { pmid?: string };
+  /** 完整展示名（= name + 版本后缀，如「半梦 (Studio Live)」）；展示一律走 lib/api:songTitle */
+  title?: string;
+  /** 歌曲说明（如「《小时代》电影主题曲」），可为空 */
+  subtitle?: string;
+  singer?: { name: string; mid?: string; pmid?: string }[];
+  album?: { mid?: string; pmid?: string; name?: string };
   interval?: number;
   _key?: string;
 };
@@ -40,6 +45,9 @@ const LS_KEY = "quaver.loved.v1";
 const LOVED_PAGE = 500;
 const LOVED_MAX = 1000;
 const LOVED_TTL = 60_000;
+
+// 会话存档（队列 + 指针 + 位置 + 循环模式）节流：notify 是 4Hz 的，不能跟着写盘。
+const SESSION_EVERY = 5000;
 
 class Player {
   private transport: Transport = new WebTransport();
@@ -76,6 +84,12 @@ class Player {
   private playSeq = 0;   // startCurrent 竞态令牌：换曲即作废上一轮
   private prefetch = new Map<string, Promise<StreamResult>>(); // mid+档 → 已协商流（单击预热，双击秒起播）
   private pendingSeek = 0; // 换音质续播：新流时长就绪后跳到旧进度
+  /** 启动还原的续播点：流还没就绪时保住它，别让存档被 0 覆盖 */
+  private savedPos = 0;
+  /** 存档闸门：启动还原完成前不写盘 —— 否则启动瞬间的空队列会覆盖上一轮的存档 */
+  private sessionReady = false;
+  private sessionAt = 0;
+  private sessionTimer: number | null = null;
   /** 后端选择完成（首播若发生在启动检查完成前，startCurrent 会等它） */
   private backendInit: Promise<void>;
 
@@ -87,6 +101,13 @@ class Player {
     this.applyVolume();
     // 默认 MPV：启动即探测可用性并热切换传输（浏览器 dev / mpv 缺失时留在 <audio>）
     this.backendInit = this.initBackend();
+    // 后端定稳后再还原上一次的队列/进度（挂流不自动播，见 restoreSession）
+    void this.backendInit.then(() => this.restoreSession());
+    // 关窗/切后台立刻落一次存档，别把最后一段进度丢在节流窗口里
+    window.addEventListener("pagehide", () => this.saveSessionNow());
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") this.saveSessionNow();
+    });
   }
 
   // —— 传输层接线 ——
@@ -151,6 +172,47 @@ class Player {
       this.backendNotice = "音频引擎桥接失败，已回退浏览器音频";
     }
     this.notify();
+  }
+
+  // —— 会话存档：退出前保留队列与进度，启动时还原 ——
+  // 还原分两段：(1) 同步/异步恢复队列与指针（列表、播放条立刻有内容），
+  // (2) 按存下的位置**挂流但不自动播** —— 进度条与歌词回到退出前那一刻，
+  // 按播放键从原处继续，不替用户决定「开机就出声」。
+  // 竞态：还原期间用户已经点了歌（队列非空）就放弃还原，用户意图优先。
+  private async restoreSession() {
+    const snap = loadSession();
+    if (!snap || this.queue.length || this.index >= 0) { this.sessionReady = true; return; }
+    this.queue = snap.queue;
+    this.index = snap.index;
+    this.mode = snap.mode;
+    this.savedPos = snap.position;
+    this.notify();
+    this.sessionReady = true;
+    if (this.current) await this.startCurrent(snap.position, false);
+    this.notify();
+  }
+
+  /** 当前应存的位置：流未就绪（还原后还没拿到真实位置）时保住还原点 */
+  private posForSave(): number {
+    const p = this.transport.position;
+    if (p > 1) { this.savedPos = 0; return p; }
+    return this.savedPos || p;
+  }
+
+  private saveSessionNow() {
+    if (!this.sessionReady) return;
+    if (this.sessionTimer !== null) { window.clearTimeout(this.sessionTimer); this.sessionTimer = null; }
+    this.sessionAt = Date.now();
+    saveSession({ queue: this.queue, index: this.index, position: this.posForSave(), mode: this.mode });
+  }
+
+  /** notify 每帧都会来（4Hz 位置广播），存档按 SESSION_EVERY 合并 */
+  private scheduleSessionSave() {
+    if (!this.sessionReady) return;
+    const elapsed = Date.now() - this.sessionAt;
+    if (elapsed >= SESSION_EVERY) { this.saveSessionNow(); return; }
+    if (this.sessionTimer !== null) return;
+    this.sessionTimer = window.setTimeout(() => { this.sessionTimer = null; this.saveSessionNow(); }, SESSION_EVERY - elapsed);
   }
 
   /** 换传输：停旧、绑新、复用音量。返回「续播闭包」（有歌在播/加载中时由调用方 await）；
@@ -243,7 +305,10 @@ class Player {
     this.listeners.add(fn);
     return () => { this.listeners.delete(fn); };
   }
-  private notify() { for (const fn of [...this.listeners]) { try { fn(); } catch (e) { console.warn(e); } } }
+  private notify() {
+    for (const fn of [...this.listeners]) { try { fn(); } catch (e) { console.warn(e); } }
+    this.scheduleSessionSave();
+  }
   /** UI 组件反向驱动状态（展开/收起等）后广播 */
   notifyPublic() { this.notify(); }
 
@@ -291,9 +356,13 @@ class Player {
     void this.startCurrent();
   }
 
+  /** 插队播放：把这首插到**当前曲之后**就完事 —— 当前曲继续放，下一首轮到它。
+   *  语义是「排进队列的下一位」，**不是**打断当前曲立刻切过去；搜索页双击、右键菜单
+   *  「插队播放」共用这一条（试听不打断自己正在放的整张列表）。
+   *  队列还空着（没播过任何东西）时没有「下一首」可言，退化成单曲起播。 */
   enqueueNext(song: Song) {
     if (!song?.mid) return;
-    if (this.index < 0) { this.playList([song], 0); return; }
+    if (this.index < 0 || !this.queue.length) { this.playList([song], 0); return; }
     this.queue.splice(this.index + 1, 0, song);
     this.notify();
   }

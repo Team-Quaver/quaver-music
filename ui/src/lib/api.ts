@@ -35,6 +35,52 @@ export const songArtists = (s: any) => (s.singer ?? []).map((x: any) => x.name).
  *  其它类型按同一偏移推断（上游没有公开映射表），下限 0。 */
 export const writeSongType = (type?: number) => Math.max(0, Number(type ?? 1) - 1);
 
+// —— 展示名/副标题 ——
+// 上游的 Song.name 只是**主名**，版本后缀（Studio Live / (Half-acoustic Ver.) / Live On MTV…）
+// 挂在 title 上（= name + 后缀，实测：name「半梦」/ title「半梦 (Studio Live)」）。列表只读 name 的话，
+// 同一首歌的不同版本在界面上长得一模一样 —— 故展示一律走 songTitle()。
+// subtitle 是另一回事：它是「《小时代》电影主题曲」这类一句话说明，与 title 上的括号后缀不重叠，
+// 展示时作为标题行的次级文本追加（见 songs.ts 的 .rt-sub）。
+/** 剥掉 search 接口 highlight=true 漏进任意字符串字段的 <em> 标签 */
+export const stripEm = (s: unknown) => String(s ?? "").replace(/<\/?em>/gi, "");
+
+/** 歌曲展示名：title 优先（= 主名 + 版本后缀），退化到 name */
+export function songTitle(s: any): string {
+  const name = stripEm(s?.name).trim();
+  const title = stripEm(s?.title).trim();
+  return title || name;
+}
+
+/** 歌曲副标题（歌曲说明，可为空） */
+export const songSubtitle = (s: any) => stripEm(s?.subtitle).trim();
+
+/** 歌曲分享链接（QQ 音乐网页版详情页，与官方「复制链接」同格式） */
+export const songShareUrl = (mid: string) =>
+  `https://y.qq.com/n/ryqq/songDetail/${encodeURIComponent(String(mid ?? ""))}`;
+
+/** 写剪贴板：优先异步 Clipboard API；非安全上下文/权限被拒时回落 execCommand。 */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* 继续走回落 */ }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.cssText = "position:fixed;top:-1000px;opacity:0";
+    document.body.append(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 export const coverUrl = (s: any, size = 300) => {
   const pmid: string = s.album?.pmid ?? "";
   const base = pmid ? pmid.split("_")[0] : (s.album?.mid ?? "");

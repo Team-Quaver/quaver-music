@@ -8,6 +8,7 @@ import "./verse/verse-app.css";
 import "./style.css";
 import { api, upPic, identityBadges } from "./lib/api";
 import { favSonglists, loadFavSonglists, onFavSonglistsChange } from "./lib/favs";
+import { getSidebarCollapsed, setSidebarCollapsed } from "./lib/prefs";
 import { player } from "./player";
 import { PlayerBar } from "./components/PlayerBar";
 import { NowPlaying } from "./components/NowPlaying";
@@ -118,9 +119,14 @@ export function bootShell() {
         <div class="q-side-sep" aria-hidden="true"></div>
         <nav class="v-nav" aria-label="主导航" id="mainnav"></nav>
         <div class="q-playlists" id="playlists"><div class="caption-12" style="padding: 0 12px">登录后可见歌单</div></div>
-        <button type="button" class="v-nav__item" id="nav-settings">
-          ${icon("settings")} <span class="ellipsis">设置</span>
-        </button>
+        <div class="q-side-foot">
+          <button type="button" class="v-nav__item" id="nav-settings">
+            ${icon("settings")} <span class="ellipsis">设置</span>
+          </button>
+          <button type="button" class="v-nav__item" id="side-collapse" title="缩回侧栏" aria-label="缩回侧栏" aria-expanded="true">
+            ${icon("chevronDown")} <span class="ellipsis">缩回侧栏</span>
+          </button>
+        </div>
       </aside>
       <div class="q-side-resizer" role="separator" aria-orientation="vertical" title="拖拽调整侧栏宽度（双击恢复默认）"></div>
       <main class="q-content">
@@ -218,6 +224,25 @@ export function bootShell() {
     }),
   );
 
+  // 侧栏缩回/展开：状态真相在 quaver.conf（Window.SidebarCollapsed），样式由 body.side-collapsed
+  // 驱动（启动时的初始 class 已在 main.ts 的 applySidebar() 里挂好，这里只接管交互后同步）。
+  // 图标方向靠 CSS 翻转，按钮文案/aria 得跟着状态走，否则缩态下读屏与悬停提示是反的。
+  const collapseBtn = frame.querySelector<HTMLButtonElement>("#side-collapse")!;
+  const syncCollapseBtn = () => {
+    const off = document.body.classList.contains("side-collapsed");
+    const label = off ? "展开侧栏" : "缩回侧栏";
+    collapseBtn.title = label;
+    collapseBtn.setAttribute("aria-label", label);
+    collapseBtn.setAttribute("aria-expanded", String(!off));
+    const span = collapseBtn.querySelector("span");
+    if (span) span.textContent = label;
+  };
+  collapseBtn.addEventListener("click", () => {
+    setSidebarCollapsed(!getSidebarCollapsed());
+    syncCollapseBtn();
+  });
+  syncCollapseBtn();
+
   bootSidebar();
   renderRoute();
 }
@@ -230,7 +255,8 @@ let sidebarFavsReady = false;
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
-// 单个歌单条目：v-nav__item 范式 + 封面缩略图（设计无此部件，为真实功能做的范式扩展）
+// 单个歌单条目：v-nav__item 范式 + 封面缩略图
+// title 恒给：侧栏缩回后只剩封面图，鼠标悬停是唯一认得出来的途径。
 function plItem(x: any, sub = ""): HTMLElement {
   const b = document.createElement("button");
   b.type = "button";
@@ -238,9 +264,10 @@ function plItem(x: any, sub = ""): HTMLElement {
   const href = `#/playlist?id=${encodeURIComponent(x.id ?? "")}&name=${encodeURIComponent(x.title ?? "歌单")}`;
   b.dataset.route = href;
   const pic = upPic(x.picurl || x.bigpic_url);
+  const title = String(x.title ?? "歌单");
   b.innerHTML = `<span class="q-plthumb">${pic ? `<img src="${pic}" alt="" loading="lazy"/>` : ""}</span>
-    <span class="q-plmeta"><span class="q-pltitle">${esc(x.title ?? "歌单")}</span>${sub ? `<span class="q-plsub">${esc(sub)}</span>` : ""}</span>`;
-  b.title = String(x.title ?? "歌单");
+    <span class="q-plmeta"><span class="q-pltitle">${esc(title)}</span>${sub ? `<span class="q-plsub">${esc(sub)}</span>` : ""}</span>`;
+  b.title = sub ? `${title} · ${sub}` : title;
   b.onclick = () => { location.hash = href; };
   return b;
 }

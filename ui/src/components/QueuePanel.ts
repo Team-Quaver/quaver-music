@@ -3,6 +3,7 @@
 // 开关只跟随 player.queueOpen，不重建列表或交互状态。
 // 当前行 = 三信号（选中底 + accent 歌名 + 圆点）；拖拽中的行拿 shadow-main（GUIDELINES 允许）。
 import { player, type Song } from "../player";
+import { songTitle } from "../lib/api";
 import { icon } from "../verse/icons";
 import { FloatWindow } from "./FloatWindow";
 
@@ -39,8 +40,18 @@ export function QueuePanel(): HTMLElement {
       return;
     }
     player.queue.forEach((q, i) => list.append(rowOf(q, i)));
-    list.querySelector(".qp-row--cur")?.scrollIntoView({ block: "nearest" });
+    revealCurrent();
   });
+
+  /** 把当前曲滚到列表可见处 —— **只动 .qp-list 自己的 scrollTop**，不动祖先滚动容器。 */
+  function revealCurrent() {
+    const row = list.querySelector<HTMLElement>(".qp-row--cur");
+    if (!row) return;
+    const lr = list.getBoundingClientRect();
+    const rr = row.getBoundingClientRect();
+    if (rr.top < lr.top) list.scrollTop -= lr.top - rr.top;
+    else if (rr.bottom > lr.bottom) list.scrollTop += rr.bottom - lr.bottom;
+  }
 
   function rowOf(q: Song, i: number): HTMLElement {
     const cur = i === player.index;
@@ -48,12 +59,12 @@ export function QueuePanel(): HTMLElement {
     row.className = "qp-row" + (cur ? " qp-row--cur" : "");
     row.tabIndex = 0;
     row.setAttribute("role", "button");
-    row.title = q.name;
+    row.title = songTitle(q);
     row.innerHTML = `
       <span class="qp-grip" title="拖动排序">${icon("grip", 16)}</span>
       <span class="qp-idx">${cur ? icon("dot", 12) : i + 1}</span>
       <span class="qp-main">
-        <span class="qp-t">${escapeHtml(q.name)}</span>
+        <span class="qp-t">${escapeHtml(songTitle(q))}</span>
         <span class="qp-a">${escapeHtml((q.singer ?? []).map((x) => x.name).join(" / "))}</span>
       </span>
       <button type="button" class="v-iconbtn v-iconbtn--sm qp-del" title="移出队列" aria-label="移出队列">${icon("close", 14)}</button>

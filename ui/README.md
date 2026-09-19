@@ -27,11 +27,17 @@ npm run preview    # 预览构建产物（同样挂 /api 中继）
     ├── lyric.ts        # LRC 解析（含翻译行）
     ├── relay.ts        # /api -> sidecar:3200 中继（透传 + 封面取色代理）
     ├── style.css       # 全局样式
-    ├── lib/{api,config,prefs,songs,icons,transport}.ts   # config=quaver.conf 门面，prefs=偏好映射，transport=播放传输抽象（见下）
+    ├── lib/{api,config,prefs,songs,session,playlists,icons,transport,vip}.ts
+    │                     # config=quaver.conf 门面，prefs=偏好映射，songs=歌曲行渲染（含右键菜单挂载），
+    │                     # session=会话存档（队列/进度），playlists=自建歌单读写，transport=播放传输抽象（见下），
+    │                     # vip=/user/vip 的展示口径（到期时间/档位明细，见 verify-user-vip）
     └── components/
         ├── PlayerBar.ts    # 底部播放条（进度线/控制/收藏/队列；封面点击展开 np）
         ├── NowPlaying.ts   # 正在播放全屏覆盖层（模糊封面背景+滚动歌词+大封面）
-        └── QueuePanel.ts   # 播放队列面板
+        ├── QueuePanel.ts   # 播放队列面板（停靠/浮窗双形态；形态与开合解耦，见 verify-queue-panel-anim）
+        ├── SongMenu.ts     # 歌曲行右键菜单（插队播放/加入歌单/从歌单删除/跳转至/更多操作）
+        ├── ListTools.ts    # 歌曲列表工具条（本地搜索 + 排序；歌单页/我喜欢共用）
+        └── SearchBox.ts    # 顶带常驻搜索框（联想 + 搜索历史）
 ```
 
 `electron/`（桌面壳，不属于 vite 构建）：`main.mjs` 主进程（窗口/托盘/MPRIS daemon 拉起/音频引擎接线/配置 IPC）、
@@ -54,7 +60,7 @@ npm run preview    # 预览构建产物（同样挂 /api 中继）
 
 ```ini
 [Style]    Style / DefaultUIFonts / DefaultLyricsFonts / ShowTranslation
-[Window]   Decor / CloseAction
+[Window]   Decor / CloseAction / SidebarCollapsed
 [Playing]  Backend / AudioDevice / Fade / Volume / Muted
 [Quality]  DefaultQuality / FallbackToQMAtmos
 ```
@@ -134,6 +140,43 @@ CI 两道断言：暂存后 `bins.mjs --check build-res/audio`；AppImage 产出
 - 列表交互（对齐设计稿）：歌曲行 = 序号+封面+歌名/歌手/专辑三行+♥+时长；双击行播放整队列
   （单击封面兜底播放）；歌手/专辑名为可点链接 → `#/singer?mid=` / `#/album?mid=` 视图
   （getSingerHotsong / getAlbumInfo，后者 list 项是 songmid/songname 异形需归一）。
+- **曲名展示一律走 `lib/api.ts:songTitle()`**：上游 `name` 只是主名，版本后缀（Studio Live /
+  (Half-acoustic Ver.) / Live On MTV…）挂在 `title` 上 —— 直接用 name，「半梦」与「半梦 (Studio Live)」
+  在界面上长得一模一样。`subtitle` 是另一回事（「《小时代》电影主题曲」这类一句话说明），
+  在行内作为 `.rt-sub` 次级文本追加。播放条/队列/正在播放页/MPRIS 同样走 songTitle。
+- **右键菜单（SongMenu）**：插队播放（= 排到下一首，见下）/ 加入歌单（我创建的歌单）/
+  从歌单删除（仅自有歌单页）/ 跳转至（歌手·专辑·同名搜索）/ 更多操作（复制歌曲链接·复制歌曲名称）。
+  面板是 body 下的 fixed 层
+  （`.ctx-layer` z-index 80：盖住队列浮窗 70 与正在播放页 50，但让开窗口按钮簇 90），
+  子菜单悬停展开、**同层换项先收深层再展开**（早期写法会锁死第二个子菜单）；
+  指针移进子菜单时不得作废在飞的异步子菜单（不然会永远停在「载入中…」）。
+- **列表工具条（本地搜索 + 排序，歌单页与「我喜欢」共用，都不回源）**：组件 = `components/ListTools.ts`
+  的 `songListTools({ source, paint, hint })`，控件**靠右**（命中计数在左，中间空档由 `.lt-count` 的
+  auto margin 吃掉）。搜索匹配曲名（含版本后缀）/主名/副标题/歌手/专辑，输入按 120ms 合并重画
+  （大列表上千行，逐字符重建会卡）；排序三键 = 默认 / 歌曲名 / 歌手，同一个键再点 = 正倒对调（箭头 ↑/↓）。
+  **服务端原序不许动**：歌单的 orderlist 就是「加入时间」、我喜欢的是收藏顺序，所以「默认」原样返回，
+  过滤/排序只作用在 `all.slice()/filter()` 的副本上（就地 sort 会把「加入时间」永久弄丢）。
+  中文用 `Intl.Collator("zh-Hans-CN")` 按拼音排。双击播的是**当前可见的那一列**（跟着眼睛走）；
+  删除一行时两页都会把它从原序里摘掉（否则重排/筛选会把它放回来）。
+  选中态是「软洗底 + accent 系前景 + accent 描边」，已在 `verify-highlight-contrast.mjs` 里登记
+  （新加 accent 掺色的高亮态都得跑它）。
+- **插队播放 = 排队，不是切歌**（`player.enqueueNext`）：把歌插到**当前曲之后**，当前曲继续放，
+  下一首轮到它 —— 不打断、不跳转；只有队列还空着（没播过）时才直接起播。
+  **搜索页双击就是这个语义**（不再整队列替换），其余列表双击仍是 `playList`（整队列替换）。
+  菜单项与搜索页双击共用 `SongMenu.ts:enqueueNextWithToast`（同一处语义 + 同一处 toast 回执）。
+- **会话存档**（`lib/session.ts` + `player.restoreSession`）：退出时把队列/指针/位置/循环模式写进
+  localStorage（`quaver.session.v1`，本地会话数据不是设置，与收藏同类），下次启动**挂流但不自动播**，
+  按播放键从原处继续。两条硬约束：还原完成前不写盘（闸门 `sessionReady`，否则启动瞬间的空队列
+  会覆盖存档）；用户先点了歌就放弃还原（用户意图优先）。
+- **歌单写入**（加入歌单 / 从歌单删除）走 vendored submodule `vendor/QQMusicApi` 的
+  `SonglistApi.add_songs` / `del_songs` —— **别拿 `SonglistApi.delete` 干这事**：那个删的是整个歌单
+  （dirid 传错会删错单），移出一首歌只能是 `del_songs`。三条实测/文档约定：
+  ①写接口要 **dirid**、读详情要 **disstid**（歌单详情里 `info.dirid` 与 `info.id` 各取所需）；
+  ②`song_type` 必须发**写侧**枚举（读侧 type - 1，见 `api.ts:writeSongType`），发原值时上游回 retCode=0
+  却什么都不发生；③`add_songs`/`del_songs` 返回的 True 很宽容（歌已存在、歌本就不在都算 True），
+  只有异常码 **80092** 压成 False = 确凿失败 → `lib/playlists.ts:assertAccepted` 必须把它抛出来，
+  否则「其实没写进去」会静默显示成「已加入」。
+  后端 = `quaver_server/app.py` 的 `POST/DELETE /songlist/{dirid}/songs`（body: song_id/song_type/tid）。
 - 播放条悬浮：`.player` 绝对定位悬浮窗底（高 64 + 底距 10）；`.body` 底部 padding 84px
   把侧栏/内容卡整体收缩到条上方（条不再遮挡任何容器，列表尾行滚到卡片底部即完整可见）。
   进度 = 整个 Bar 可拖拽（pointerdown 于任意非控件处起拖，拖中预览线/圆点/时间跟手，
@@ -146,7 +189,46 @@ CI 两道断言：暂存后 `bins.mjs --check build-res/audio`；AppImage 产出
   .player 有 backdrop-filter，负 z-index 会被整层压没——勿改回）。深色文字对比 ~4.5:1 达 AA-large。
 - 音量/静音/歌词翻译开关存 `quaver.conf`（`[Playing] Volume|Muted`、`[Style] ShowTranslation`）；
   静音保留原音量值，恢复即回。音量是拖拽高频项，落盘合并 250ms。
-- 玻璃效果：侧栏/标题栏/播放条 = 半透明底 + backdrop-filter；色彩来源 = `.ambient` 环境色层
+- **每日30首 = 系统虚拟歌单（dirid 202）**：与「我喜欢」（201）同一族的系统目录 —— 服务端**每天重生成**
+  30 首个性化歌单，disstid 每天都变（`created-songlists` 里也不列它，首页 feed 的卡片虽带 id/dirid，
+  但按 dirid 取才稳）。读法与普通歌单详情一致（`CgiGetDiss` 传 disstid = dirid = 202），
+  后端 = `quaver_server/app.py` 的 `GET /recommend/daily`（`DAILY_DIRID = 202`），返回结构与
+  `/songlist/{id}/detail` 相同。前端 `dailyView` 一把 `num=100` 拿全 30 首，说明文案直接用服务端那句
+  编辑语（`info.desc`）。**这页以前是假的**（拿「我喜欢」按日期种子随机凑 30 首），别再改回去。
+- **猜你喜欢（`/recommend/guess`）想多拿只能「多调几轮」**：上游 `get_radio_track` **一次只给 5 首** ——
+  `num` 加大被忽略（实测 5/10/20/50 都回 5 首）、回灌 `song_ids` 续拿直接 22006；好在**每轮内容随机**。
+  ⚠️ **必须串行**：并发同样的请求上游只放行一个，其余全回 700000（实测并发 2/3/4/6 轮只有 1 轮成功），
+  所以后端老实 `for i in range(rounds)`，别改成 `asyncio.gather`（会静默退化成 1 轮 5 首）。
+  单轮约 950ms，6 轮 ≈ 6s —— 前端 `guessView` 因此**分两段取**：先 `rounds=2`（10 首）立刻出画面，
+  再 `rounds=4` 去重补齐到 ~30 首后重画；第二批失败不算失败（保住首批）。**「换一批」走同一条 `load()`**：
+  上游池子很大（实测 6 轮 30 首零重复），两批基本撞不上，不必排除上一批（上游也不吃排除参数）；
+  取新批次**先攒在临时数组里、成了才整体换上** —— 换批失败时手上这批还在，不会一片空白。
+  按钮 `.guess-bar`（页头下方右对齐，`.ghost-btn--quiet`），取歌中禁用并改文案。断言见 `verify-guess.mjs`。
+- **登录页**：扫码通道用标签（`.tag-tabs` / `.tag`，与搜索页分类、歌手页标签同一组件）而不是下拉 ——
+  三档一眼看全，也与全站标签语言一致。`data-ch` 的取值必须落在 sidecar 的 `QR_TYPES`（qq/wx/mobile）里，
+  写错是 422 而不是静默失败（脚本交叉核对）。选中态**不复用** `.tag.sel` 的「白字 + 裸 accent 实心」：
+  登录页是关卡，浅色 accent（暗色主题的 `--acc` 就是浅绿）或亮色相封面染色下白字只有 ~1-2:1；
+  改用与 `.lt-sg.on` 同一套「软洗底 + accent 系前景（亮度锚 `--ink`）+ accent 描边」。
+- **动效与挂载顺序**：给一个元素「换父节点」和加动画类**不能同一帧做** —— 浏览器会把「插入新节点 +
+  类变更」合并成一次样式重算，`transition` 压根不启动，表现就是**「第一次没有动画，第二次正常」**
+  （第二次不再换父节点了）。队列面板因此把「形态（dock/float，只看内容区宽度，**关闭时也定好**）」与
+  「开合（`.open`）」解耦，并在构造后补一帧 `requestAnimationFrame(syncMount)`（壳层是构造完才把它
+  append 进 DOM 的）；万一仍然换了父节点，就把 `.open` 推到下一帧再补。断言见 `verify-queue-panel-anim.mjs`。
+- **程序化滚动只许动自己的滚动容器**：`scrollIntoView()` 会把**所有**可滚祖先的 scrollport 一起滚，
+  而 `overflow: hidden` 的盒子程序化照样能滚（`scrollLeft` 能设）—— `.content` 正是 `.route` 的祖先。
+  队列面板停靠后是「0 宽 + overflow:hidden 裁切 + translateX(20px)」，当前曲那行落在内容区右缘之外，
+  于是**切一次歌**就给 `.content` 设上 scrollLeft，整个路由视图横移（「切歌后 ContentView 错位」）。
+  改法：`.qp-list` 按 rect 差值自己设 `scrollTop`（见 `QueuePanel.revealCurrent`）；关闭态的面板再打
+  `inert`（面板必须常驻 DOM，不能 `display:none`，否则 Tab 能聚焦进隐藏面板、浏览器又把它滚进视野）。
+  脚本扫全 `src/` 禁止再出现 `scrollIntoView`。
+- **「滚动就收起」这类判据必须分辨是谁在滚**：右键菜单原本监听捕获阶段的 `scroll` 就一律收起，
+  结果**菜单刚开就闪没**。真因是 `.np`（正在播放）**不是 `display:none`** —— 它是
+  `opacity:0 + translateY(100%)` 常驻布局，歌词每换一行就 `lyrics.scrollTo({behavior:"smooth"})`，
+  smooth 滚动会连发几百毫秒 `scroll` 事件；队列面板切歌时 `revealCurrent()` 改 `.qp-list.scrollTop`、
+  关于页日志框自动滚到底，都是同源误伤。菜单是 fixed 定位、坐标来自打开时的指针，**只有两类滚动
+  会让它跟锚点脱节**：① 文档/窗口自己滚；② 锚点所在的可滚祖先滚（`.route`）。别的一概不收
+  （见 `SongMenu.onScroll`；锚点由 `bindSongMenu` 把行传进去）。
+- **玻璃效果**：侧栏/标题栏/播放条 = 半透明底 + backdrop-filter；色彩来源 = `.ambient` 环境色层
   （当前封面 blur 铺底，z-index:-1 画在 body 背景上、内容下，白卡不受污染）。无播放时退回纯色。
 - dev/自动化：`import.meta.env.DEV` 下 `window.__quaverPlayer` 暴露单例。
 - 新 hash 路由 = `views.ts` 注册 + `nav`（如需侧栏入口）+ 可选同名跳转层 html（记得进 `vite.config.ts` 的 `PAGES`）。

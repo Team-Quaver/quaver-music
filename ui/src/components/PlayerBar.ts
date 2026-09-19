@@ -2,7 +2,7 @@
 // 进度 = 上边框 rail（2px，悬停 4px + 拇指），控制组左侧显示当前时间 / 总时长。
 // 右组 = 音质扩展（outline tag 按钮 + 共用右下浮窗 FloatWindow）· 队列 · 音量（mute + 内联 volume slider）。
 import { player } from "../player";
-import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQuality, QUALITY_SHORT, QUALITIES, type Quality } from "../lib/api";
+import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQuality, QUALITY_SHORT, QUALITIES, songTitle, type Quality } from "../lib/api";
 import { icon } from "../verse/icons";
 import { formatTime } from "../verse/format";
 import { FloatWindow } from "./FloatWindow";
@@ -273,7 +273,7 @@ export function PlayerBar(): HTMLElement {
   // Player.on 只订阅未来变化，不会回放当前状态，因此组件必须主动绘制一次。
   const paint = () => {
     const s = player.current;
-    title.textContent = s?.name ?? "未在播放";
+    title.textContent = s ? songTitle(s) : "未在播放";
     title.classList.toggle("is-err", !!player.error && !player.loading);
     if (player.error && !player.loading) {
       sub.textContent = String(player.error);

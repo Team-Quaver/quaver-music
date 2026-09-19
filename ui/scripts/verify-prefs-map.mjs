@@ -171,6 +171,14 @@ await reload({ "Quality.FallbackToQMAtmos": "False" });
 eq("False → no-atmos", P.getFallbackSort(), "no-atmos");
 await reload({ "Playing.Fade": "nonsense" });
 eq("非法 fade 回落 normal", P.getFade(), "normal");
+await reload({ "Window.SidebarCollapsed": "True" });
+eq("True → 缩回", P.getSidebarCollapsed(), true);
+await reload({ "Window.SidebarCollapsed": "yes" });
+eq("yes 也认成缩回", P.getSidebarCollapsed(), true);
+await reload({ "Window.SidebarCollapsed": "" });
+eq("空值回落展开", P.getSidebarCollapsed(), false);
+await reload({ "Window.SidebarCollapsed": "False" });
+eq("False → 展开", P.getSidebarCollapsed(), false);
 await reload({ "Playing.AudioDevice": "" });
 eq("空设备名回落 auto", P.getAudioDevice(), "auto");
 await reload({ "Style.DefaultUIFonts": '"LXGW WenKai", serif' });
@@ -199,6 +207,13 @@ P.setDecor("ssd");
 check("body.ssd 跟随", bodyClasses.has("ssd"));
 P.setDecor("csd");
 check("切回 csd 去掉 class", !bodyClasses.has("ssd"));
+// 侧栏缩回：状态挂在 body 上（shell.ts 只管按钮文案与图标，样式全按 body class 走）
+P.setSidebarCollapsed(true);
+check("侧栏缩回 → body.side-collapsed", bodyClasses.has("side-collapsed"));
+eq("侧栏缩回写盘", conf()["Window.SidebarCollapsed"], "True");
+P.setSidebarCollapsed(false);
+check("展开 → 去掉 body.side-collapsed", !bodyClasses.has("side-collapsed"));
+eq("展开写盘", conf()["Window.SidebarCollapsed"], "False");
 
 // ——— 桌面端形态：preload 的同步快照（sendSync）优先于 localStorage ———
 section("桌面端启动快照（quaverConfig.boot）");

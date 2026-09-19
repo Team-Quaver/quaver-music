@@ -7,7 +7,7 @@
 // 所以渲染层只在「离散状态变化」（曲目/播放态/音量/循环/队列）时推送，外加 5s 一次的
 // 低频心跳纠偏。播放中无需逐秒 IPC。
 import { player } from "./player";
-import { coverUrl } from "./lib/api";
+import { coverUrl, songTitle } from "./lib/api";
 
 type MprisBridge = {
   send(state: unknown): void;
@@ -43,7 +43,7 @@ function snapshot(seeked = false) {
       ? {
           mid: c.mid,
           key: currentKey(),
-          name: c.name,
+          name: songTitle(c),
           artists: (c.singer ?? []).map((s) => s.name),
           album: (c.album as { name?: string } | undefined)?.name ?? "",
           artUrl: coverUrl(c, 300),
@@ -53,7 +53,7 @@ function snapshot(seeked = false) {
     queue: player.queue.slice(0, 200).map((s) => ({
       mid: s.mid,
       key: String(s._key ?? s.mid),
-      name: s.name,
+      name: songTitle(s),
       artists: (s.singer ?? []).map((x) => x.name),
       album: (s.album as { name?: string } | undefined)?.name ?? "",
       artUrl: coverUrl(s, 300),
