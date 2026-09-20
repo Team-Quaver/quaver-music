@@ -11,6 +11,8 @@ Quaver Music，是一款 QQ 音乐的第三方客户端，其目的是为了让 
 <p align="center">
   <img src="img/1-0sc.webp" width="480">
 </p>
+
+
 > [!CAUTION]
 > 真爱音乐，尊重正版，音乐平台不易，该应用**不提供盗版 QQ 音乐服务！**
 >
