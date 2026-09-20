@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  CONFIG_NAME, configDir, configFile, credentialFile, deviceFile,
+  CONFIG_NAME, configDir, configFile, credentialFile, credentialStoreFile, deviceFile,
   defaults, IniDoc, readValues, resetConfig, template, writeValues,
 } from "../electron/config.mjs";
 
@@ -27,6 +27,7 @@ section("路径规则");
 eq("QUAVER_CONFIG_DIR 覆盖生效", configDir(), dir);
 eq("配置文件落在目录内", FILE, join(dir, CONFIG_NAME));
 check("凭证同目录", credentialFile() === join(dir, "credential.json"));
+check("密钥环存档同目录", credentialStoreFile() === join(dir, "credential.enc"));
 check("设备指纹同目录", deviceFile() === join(dir, "device.json"));
 check("平台默认值不含 QUAVER_CONFIG_DIR 覆盖（Linux 走 XDG）",
   (() => { const bak = process.env.QUAVER_CONFIG_DIR; delete process.env.QUAVER_CONFIG_DIR;
@@ -76,10 +77,10 @@ eq("注释行不会被当成键", IniDoc.parse("[A]\n; c=1\n# d=2\nZ=3\n").value
 // ——— 首次运行 ———
 section("首次运行");
 check("模板随读取落地", (readValues(), existsSync(FILE)));
-check("模板含全部段", ["[Style]", "[Window]", "[Playing]", "[Quality]"].every((s) => template().includes(s)));
+check("模板含全部段", ["[Style]", "[Window]", "[Playing]", "[Quality]", "[Security]"].every((s) => template().includes(s)));
 check("模板注释来自 schema", template().includes("可选 dark,light,follow-system"));
 eq("默认值与模板占位一致", (() => { const v = readValues().values; return v["Style.Style"] === "dark" && v["Playing.Backend"] === "MPV" && v["Quality.DefaultQuality"] === "Auto" && v["Quality.FallbackToQMAtmos"] === "False"; })(), true);
-eq("schema 默认值表条数", Object.keys(defaults()).length, 14);
+eq("schema 默认值表条数", Object.keys(defaults()).length, 16);
 eq("音量默认 0.8", defaults()["Playing.Volume"], "0.8");
 eq("歌词翻译默认开", defaults()["Style.ShowTranslation"], "True");
 eq("侧栏默认展开", defaults()["Window.SidebarCollapsed"], "False");
@@ -112,9 +113,23 @@ eq("自加键不进运行时表", readValues().values["Style.CustomX"], undefine
 eq("写别的键不会抹掉自加键", (writeValues({ "Playing.Fade": "short" }), readFileSync(FILE, "utf8").includes("CustomX=y")), true);
 writeValues({ "Playing.Fade": "long" });
 eq("Backend 接受 Chromium", (writeValues({ "Playing.Backend": "Chromium" }), readValues().values["Playing.Backend"]), "Chromium");
-eq("空字体值合法（表示不覆盖）", (writeValues({ "Style.DefaultUIFonts": "" }), readValues().values["Style.DefaultUIFonts"]), "");
-eq("字体值拒绝 CSS 注入", writeValues({ "Style.DefaultUIFonts": "x; } body{display:none" }), []);
+eq("空字体值合法（表示不覆盖）", (writeValues({ "Style.DefaultUIFonts": "" }), readValues().values["Style.DefaultUIFonts"]), "");eq("字体值拒绝 CSS 注入", writeValues({ "Style.DefaultUIFonts": "x; } body{display:none" }), []);
 eq("字体值拒绝 url()", writeValues({ "Style.DefaultLyricsFonts": "url(http://evil)" }), []);
+
+// ——— [Security]：凭证存储口径（取值域写错了会静默退回默认，最难查）———
+section("[Security] 凭证存储");
+eq("默认 auto（能用密钥环就用）", defaults()["Security.CredentialStore"], "auto");
+eq("默认后端探测", defaults()["Security.KeyringBackend"], "auto");
+eq("**没有明文那一档**（账户安全不让步）", writeValues({ "Security.CredentialStore": "file" }), []);
+eq("接受 keyring", writeValues({ "Security.CredentialStore": "keyring" }), ["Security.CredentialStore"]);
+eq("接受 memory（只驻内存）", writeValues({ "Security.CredentialStore": "memory" }), ["Security.CredentialStore"]);
+eq("拒绝瞎写的存储模式", writeValues({ "Security.CredentialStore": "keychain" }), []);
+eq("接受显式后端 kwallet6", writeValues({ "Security.KeyringBackend": "kwallet6" }), ["Security.KeyringBackend"]);
+eq("拒绝瞎写的后端名", writeValues({ "Security.KeyringBackend": "gnome" }), []);
+eq("接受 gnome-libsecret", writeValues({ "Security.KeyringBackend": "gnome-libsecret" }), ["Security.KeyringBackend"]);
+eq("DevPlaintextFallback 已随明文一并删除", defaults()["Security.DevPlaintextFallback"], undefined);
+eq("取值都读得回来", (() => { const v = readValues().values; return [v["Security.CredentialStore"], v["Security.KeyringBackend"]]; })(), ["memory", "gnome-libsecret"]);
+eq("回到 auto（后续断言不受影响）", writeValues({ "Security.CredentialStore": "auto", "Security.KeyringBackend": "auto" }).length, 2);
 
 // ——— 手改文件后读回（模拟用户编辑）———
 section("用户手改文件");

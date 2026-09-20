@@ -18,7 +18,8 @@ import { homedir } from "node:os";
 export const APP_DIR_NAME = "Quaver Music"; // Windows / macOS 用
 export const APP_DIR_NAME_POSIX = "quaver-music"; // Linux（XDG 风格小写）
 export const CONFIG_NAME = "quaver.conf";
-export const CREDENTIAL_NAME = "credential.json";
+export const CREDENTIAL_NAME = "credential.json"; // 明文——只作为升级遗留的导入来源，导入后即删
+export const CREDENTIAL_STORE_NAME = "credential.enc"; // 密钥环模式：磁盘上只留密文，钥匙在系统密钥管理器里
 export const DEVICE_NAME = "device.json";
 
 // —— 路径 ——
@@ -40,6 +41,7 @@ export function configDir(env = process.env) {
 
 export const configFile = (env) => join(configDir(env), CONFIG_NAME);
 export const credentialFile = (env) => join(configDir(env), CREDENTIAL_NAME);
+export const credentialStoreFile = (env) => join(configDir(env), CREDENTIAL_STORE_NAME);
 export const deviceFile = (env) => join(configDir(env), DEVICE_NAME);
 export const logFile = (env) => join(configDir(env), "electron-dev.log");
 
@@ -283,6 +285,30 @@ export const SCHEMA = [
       },
     ],
   },
+  {
+    section: "Security",
+    keys: [
+      {
+        key: "CredentialStore",
+        def: "auto",
+        doc: [
+          "登录凭证存哪：auto=能用系统密钥管理器就用，拿不到就只驻内存｜keyring=只允许密钥管理器",
+          "（同上）｜memory=干脆不落盘。**没有明文这一档** —— 凭证任何时候都不会以明文落盘。",
+          "代价：退回内存模式时，关掉应用需重新扫码登录。改后需重启应用生效",
+        ],
+        valid: (v) => ["auto", "keyring", "memory"].includes(v),
+      },
+      {
+        key: "KeyringBackend",
+        def: "auto",
+        doc: [
+          "仅 Linux 有效：auto=按桌面/进程探测（Hyprland 等自建会话认不出时会显式钉一个真后端，",
+          "避免 Chromium 静默退成 basic_text 的假加密）｜亦可手填 gnome-libsecret｜kwallet6｜kwallet5｜kwallet｜basic",
+        ],
+        valid: (v) => ["auto", "gnome-libsecret", "kwallet6", "kwallet5", "kwallet", "basic"].includes(v),
+      },
+    ],
+  },
 ];
 
 /** 拍平为 { "Section.Key": { def, valid, doc } }。 */
@@ -309,7 +335,9 @@ export function template() {
     "#   Linux    ~/.config/quaver-music/quaver.conf",
     "#   Windows  %AppData%\\Quaver Music\\quaver.conf",
     "#   macOS    ~/Library/Application Support/Quaver Music/quaver.conf",
-    "# 登录凭证（credential.json / device.json）与日志也在同一目录，不写在本文档里。",
+    "# 登录凭证（credential.enc 密文 / device.json）与日志也在同一目录，不写在本文档里。",
+    "# 凭证一律交给系统密钥管理器（KWallet / GNOME Keyring / 钥匙串 / 凭据管理器）加密存放，",
+    "# 磁盘上不留明文；拿不到密钥管理器时只驻内存，见 [Security] 段。",
     "#",
   ];
   const body = [];

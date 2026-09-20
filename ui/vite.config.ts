@@ -1,7 +1,7 @@
 // Quaver UI — Vite 配置（MPA：多页 html 入口，壳层由 src/layout.ts 注入）
 // dev/preview：同源 /api 中继 -> sidecar(:3200)，见 src/relay.ts。
-// 为什么不用 server.proxy：中继除转发外还要做封面取色代理与流中断收敛；会话凭证只存在
-// 本机配置目录（Linux ~/.config/quaver-music/credential.json），浏览器侧全程拿不到。
+// 为什么不用 server.proxy：中继除转发外还要做封面取色代理与流中断收敛；会话凭证只被
+// Electron 主进程持有（系统密钥管理器加密，磁盘上只有密文），浏览器侧全程拿不到。
 // 桌面壳（Electron/QtWebEngine/Tauri）后续直接加载 dist/ 或 preview 服务即可。
 import { defineConfig, type Connect, type PreviewServer, type ViteDevServer } from "vite";
 import { execSync } from "node:child_process";

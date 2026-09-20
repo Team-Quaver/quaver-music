@@ -67,7 +67,12 @@ z：修补版本号
 
 设置与登录凭证都在系统标准配置目录（Linux `~/.config/quaver-music`，Windows `%AppData%\Quaver Music`，
 macOS `~/Library/Application Support/Quaver Music`）—— 换版本、重装都不丢。`quaver.conf` 是 INI，可直接手改
-（程序只改对应键那一行，注释保留）。细节见 [ui/README.md](ui/README.md)。
+（程序只改对应键那一行，注释保留）。
+
+登录凭证交给**系统密钥管理器**（KWallet / GNOME Keyring / 钥匙串 / 凭据管理器）：磁盘上只留密文
+`credential.enc`，钥匙在系统密钥环里。**凭证明文不落盘** —— 拿不到密钥环时本次登录只驻内存，
+关掉应用需重新扫码，没有「退回明文」这一档。
+细节见 [ui/README.md](ui/README.md)。
 
 # 构建与发布
 

@@ -55,14 +55,16 @@ npm run preview    # 预览构建产物（同样挂 /api 中继）
 | Windows | `%AppData%\Quaver Music` |
 | macOS | `~/Library/Application Support/Quaver Music` |
 
-同目录还有：`credential.json`（登录凭证，0600）、`device.json`（设备指纹）、`electron-dev.log`。
+同目录还有：`credential.enc`（登录凭证密文，0600）、`device.json`（设备指纹）、`electron-dev.log`。
+`credential.json` 只有一种来历：旧版本留下的明文，升级后读一次即导入密钥环并删除。
 `QUAVER_CONFIG_DIR` 可整体顶掉这个目录（主进程同时用它下发给 sidecar，两边规则必须一致）。
 
 ```ini
-[Style]    Style / DefaultUIFonts / DefaultLyricsFonts / ShowTranslation
-[Window]   Decor / CloseAction / SidebarCollapsed
-[Playing]  Backend / AudioDevice / Fade / Volume / Muted
-[Quality]  DefaultQuality / FallbackToQMAtmos
+[Style]     Style / DefaultUIFonts / DefaultLyricsFonts / ShowTranslation
+[Window]    Decor / CloseAction / SidebarCollapsed
+[Playing]   Backend / AudioDevice / Fade / Volume / Muted
+[Quality]   DefaultQuality / FallbackToQMAtmos
+[Security]  CredentialStore / KeyringBackend
 ```
 
 - 键名与可选值以 `electron/config.mjs` 的 `SCHEMA` 为唯一真相；改新项要同时改
@@ -79,6 +81,44 @@ npm run preview    # 预览构建产物（同样挂 /api 中继）
   才能跨启动延续；端口被占时 `native-server.mjs` 自动回落系统分配端口（设置本就在 conf 里，不受影响）。
 
 自检：`npm run verify:config`（INI 引擎 + 渲染层映射，纯 Node，不用起浏览器）。
+
+## 凭证存储（系统密钥管理器）
+
+**凭证明文一个字节都不落盘。** 磁盘上只有密文 `credential.enc`，解密的钥匙在 KWallet /
+GNOME Keyring（Linux）、钥匙串（macOS）、凭据管理器 / DPAPI（Windows）里 —— 换机器、换用户、
+重装系统都解不开，也不会被「顺手打包一下家目录」带走。实现见 `electron/keyring.mjs`。
+
+- **归属翻转**：凭证的真相从 Python sidecar 挪到 Electron 主进程。主进程先把已存凭证塞进
+  sidecar 的 stdin（`QCRED1 {json}` 一行），sidecar 之后每次登录/刷新/登出再从 stdout 交回来；
+  sidecar 侧由 `QUAVER_CREDENTIAL_MODE=external` 声明，**自己不读写任何凭证文件**。
+  **开发态也一样**（`npm run app` 会由主进程拉起 `vendor/Typhoeus/run.py`，优先用仓库里的
+  `.venv`，退回 `uv run`）—— 手工起 sidecar 拿不到那条管道，就只能只驻内存。
+- **`--password-store` 必须在 app ready 之前钉死**（ready 之后再 appendSwitch 是空操作），
+  且 ready 之后要用 `safeStorage.getSelectedStorageBackend()` 校验：落在 `basic_text`
+  （硬编码口令的假加密，而 `isEncryptionAvailable()` 照样返回 true）一律当不可用。
+  自定义合成器（Hyprland / sway）不在 Chromium 的桌面白名单里，**这一条不显式处理就等于没加密**。
+- **拿不到密钥环就只驻内存，不退明文**：登录照常可用，关掉应用需重新扫码。
+  `CredentialStore` 只有 `auto` / `keyring` / `memory` 三档，**没有明文这一档**；
+  源码里也不存在任何「写出 credential.json」的路径（`verify:keyring` 有专门的护栏断言）。
+- 升级遗留的 `credential.json` 会被**读一次**：加密存进密钥环 → 回读校验 → 删掉明文。
+  解不开的存档**不删**（可能只是这次没拿到钥匙）。
+- 确认当前走哪条路：`curl -s 127.0.0.1:3200/login/status | jq .data.credential_mode`
+  （`external` = 主进程接管 / `memory` = 只驻内存），或渲染层 `window.quaverSecurity.info()`。
+
+**跨平台**（同一套 `safeStorage`，各平台各自的原生机制）：
+
+| 平台 | 密钥在哪 | 备注 |
+| --- | --- | --- |
+| Linux | libsecret（GNOME Keyring）/ KWallet | 唯一需要显式钉 `--password-store` 的平台；**换后端会让已有存档解不开**（存档不删，重新登录即可）；无密钥环 / 落到 `basic_text` → 退 memory |
+| macOS | 钥匙串（Keychain） | `getSelectedStorageBackend()` 是 Linux 专有，这里只看 `isEncryptionAvailable()`；未签名构建每次重编可能弹钥匙串授权 |
+| Windows | DPAPI（用户绑定） | 不经「凭据管理器」条目，所以那条 2560 B 的 blob 限制与我们无关；换用户 / 换机器 / 漫游配置迁移后解不开 → 按未登录处理 |
+
+把配置目录整个拷到别的机器/别的用户：`credential.enc` 解不开，**按未登录处理且不删存档**（重新扫码即可）。
+构建与签名目前只做了 Linux AppImage（`electron-builder` 的 `linux.target` 与 CI 都只出 AppImage），
+代码路径与平台分支有单测覆盖，但 Windows/macOS 的打包还没接。
+
+自检：`npm run verify:keyring`（后端选择与校验矩阵、密文存档、明文导入、两侧交接契约、
+「无明文写出路径」的源码级护栏，纯 Node）。
 
 ## 播放管线（双后端）
 

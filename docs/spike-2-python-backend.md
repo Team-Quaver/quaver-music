@@ -25,6 +25,13 @@
 
 > 更新：这两个文件后来统一挪进了系统配置目录（Linux `~/.config/quaver-music/`，与 `quaver.conf` 同目录），
 > 旧的 `~/.config/quaver`、`~/.local/state/quaver` 在首次运行时自动搬迁。见 `ui/electron/config.mjs`。
+
+> 更新（2026-09-20，凭证归属）：**凭证明文不再落盘**。`session.py` 已不读写 `credential.json`，
+> 改由 Electron 主进程独占保存：磁盘上只有密文 `credential.enc`，钥匙在系统密钥管理器里
+> （KWallet / GNOME Keyring / 钥匙串 / DPAPI，见 `ui/electron/keyring.mjs`）。启动时主进程通过
+> stdin 注入一行 `QCRED1 {json}`，sidecar 登录/刷新/登出时从 stdout 交回；不设
+> `QUAVER_CREDENTIAL_MODE=external` 时（手工单跑）为 memory 模式 —— 只驻内存、关掉即需重登。
+> 上面的「QR DONE 时由 sidecar 写 credential.json」是当时的实况，保留作历史记录。
     （refresh_token 续期是 Python 库的硬优势）。
 - 响应信封 `{code:0,msg:"ok",data}`；UI `api()` 统一解包，错误抛 `ApiError(msg)`。
 

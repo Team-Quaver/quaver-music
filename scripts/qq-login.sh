@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Quaver — QQ 音乐扫码登录助手（终端版，适配 Python sidecar :3200）
 # 流程：GET /login/qrcode/<type> → zbarimg 解 URL → qrencode 终端渲染 →
-#       轮询 /login/qrcode/<type>/status；DONE 后 sidecar 自己把 Credential
-#       存进配置目录的 credential.json（0600，Linux ~/.config/quaver-music）——本脚本不落 token。
+#       轮询 /login/qrcode/<type>/status；DONE 后凭证由 sidecar 自行处理 —— 本脚本不落 token。
+#   由 Electron 主进程拉起时（QUAVER_CREDENTIAL_MODE=external）：交给主进程加密存进系统密钥管理器。
+#   手工单跑（本脚本的用法）：memory 模式 —— 凭证只驻内存，关掉 sidecar 即需重新登录。
+#   （凭证明文不再落盘，所以「手工跑一次就持久登录」这条路已经没有了，请用应用内登录页。）
+#   想知道这次是哪种：curl -s $BASE/login/status | jq .data.credential_mode
 #
 # 用法:  ./scripts/qq-login.sh [mobile|qq|wx]
 #   mobile = 手机 QQ 音乐 App 扫码（推荐，MQTT 推送）; qq = 手机 QQ; wx = 微信
@@ -36,8 +39,8 @@ echo "[2/3] 等待扫码 ..."
 for _ in $(seq 1 80); do
   EVENT=$(curl -s -m 15 "$BASE/login/qrcode/$CHANNEL/status?identifier=$IDENT" | jq -r '.data.event // -1')
   case "$EVENT" in
-    0) echo; echo "[3/3] ✅ 登录成功，凭证已由 sidecar 存至配置目录的 credential.json（Linux ~/.config/quaver-music）"
-       curl -s "$BASE/login/status" | jq '{logged_in: .data.logged_in, musicid: .data.credential.musicid}'
+    0) echo; echo "[3/3] ✅ 登录成功，凭证已由 sidecar 保存（credential_mode 见下）"
+       curl -s "$BASE/login/status" | jq '{logged_in: .data.logged_in, credential_mode: .data.credential_mode, musicid: .data.credential.musicid}'
        exit 0 ;;
     1|2) printf '.' ;;
     3) echo; echo "❌ 二维码过期/失效，重跑本脚本"; exit 1 ;;

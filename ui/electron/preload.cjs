@@ -34,6 +34,11 @@ contextBridge.exposeInMainWorld("quaverConfig", {
   reveal: () => ipcRenderer.invoke("quaver:config", { op: "reveal" }),
 });
 
+// 凭证存储状态（只读、不含凭证本体）：确认这次走的是系统密钥管理器还是 0600 明文。
+contextBridge.exposeInMainWorld("quaverSecurity", {
+  info: () => ipcRenderer.invoke("quaver:credential-info"),
+});
+
 // 音频引擎（mpv 后端）：invoke 走请求/应答（handle 返回值可序列化），事件为主进程主动推。
 // 渲染层 Transport 抽象（src/lib/transport.ts）据此实现 EngineTransport；
 // 浏览器 dev（无 preload）下 window.quaverAudio 不存在 → 自动落到 <audio> WebTransport。
