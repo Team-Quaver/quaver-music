@@ -1,7 +1,7 @@
 // Quaver — Electron 主进程（ESM）
 // 起一个进程内 vite preview（dist/ + /api 中继插件），窗口加载 http://127.0.0.1:<port>
 // frame:false：无原生标题栏——窗口右上角平铺三个窗口按钮（min/max/close）+抓握点，经 preload IPC 接管。
-import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, nativeTheme, safeStorage, shell } from "electron";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -14,6 +14,11 @@ import { audioEngine } from "./audio/engine.mjs";
 import { configDir, configFile, ensureConfigDir, logFile, readValues, resetConfig, writeValues } from "./config.mjs";
 // 系统深浅色探测（Linux 桌面各自的真相来源，见模块头）：「跟随系统」要靠它才真的跟得上
 import { readSystemTheme, watchSystemTheme } from "./systheme.mjs";
+// 凭证的密钥环存取（系统密钥管理器 + credential.enc 密文）与 sidecar 交接信封
+import {
+  CredentialStore, credentialSummary, decodeHandoff, drainLines, encodeHandoff,
+  evaluateKeyring, pickPasswordStore,
+} from "./keyring.mjs";
 // 注意：vite 不能在顶层 import——实测其在 Electron 主进程有副作用，会让 app.whenReady() 永不兑现。
 // 只在 createWindow 里动态 import()。
 
@@ -63,6 +68,19 @@ const bootDark = bootTheme === "dark"
 // 渲染层每次改主题都会经 quaver:config set 落盘，主进程在这里同步这一份。
 let themePref = bootTheme;
 
+// ——— 凭证存储：密钥管理器后端必须在 app ready 之前钉死 ———
+// Chromium 的 OSCrypt 只在初始化时读一次 --password-store，ready 之后再 appendSwitch 是空操作。
+// 不钉的代价在自建会话（Hyprland / sway…）上很实在：桌面认不出来 → 静默退到 basic_text，
+// 那是「硬编码口令」的对称加密，而 isEncryptionAvailable() 照样返回 true —— 看着加密了，其实等于明文。
+// 所以这里按 quaver.conf + 桌面/进程探测显式钉一个真后端；ready 之后再用
+// safeStorage.getSelectedStorageBackend() 校验（见 keyring.mjs:evaluateKeyring），假加密一律不启用。
+const securityConf = {
+  store: bootConf["Security.CredentialStore"] ?? "auto",
+  backend: bootConf["Security.KeyringBackend"] ?? "auto",
+};
+const keyringPick = pickPasswordStore({ platform: process.platform, env: process.env, backend: securityConf.backend });
+if (keyringPick.switchValue) app.commandLine.appendSwitch("password-store", keyringPick.switchValue);
+
 // —— 把「系统深浅色」翻译成 Chromium 听得懂的话 ——
 // nativeTheme.themeSource 只有 system / light / dark 三档，没有「用我自己探测到的系统色」这一档，
 // 所以跟随系统时我们自己探测（systheme.mjs），再写死成 dark/light ——
@@ -87,6 +105,7 @@ process.on("unhandledRejection", (r) => log("[quaver] unhandled rejection:", Str
 let win = null;
 let cachedUrl = null; // preview 服务器只起一次；CSD/SSD 重建窗口时复用
 let sidecar = null;   // 打包态自拉起的 Python sidecar 子进程
+let credentialStore = null; // 凭证存档（ready 之后才能建：safeStorage 要 ready 才可用）
 // 窗口装饰模式：csd=自绘（frame:false，右上角按钮簇）；ssd=系统标题栏。初值取 quaver.conf 的 [Window] Decor。
 let decorMode = bootConf["Window.Decor"] === "ssd" ? "ssd" : "csd";
 let rebuilding = false;
@@ -229,23 +248,94 @@ function createTray() {
   tray.on("click", () => toggleWindow()); // 左键 = 显示/隐藏（SNI Activate → click）
 }
 
-function spawnSidecar() {
-  // electron-builder 把 PyInstaller 产物放在 <resources>/bin/quaver-server
-  const bin = join(process.resourcesPath ?? "", "bin", "quaver-server");
-  if (!existsSync(bin)) {
-    log("[quaver] sidecar binary missing, /api 将回退到环境里的 QUAVER_API:", bin);
+/** sidecar 交回新凭证（登录 DONE / 令牌刷新）或登出（null）→ 加密落盘 / 清存档。 */
+function applySidecarCredential(cred) {
+  if (!credentialStore) return;
+  if (!cred) {
+    credentialStore.clear();
+    log("[quaver] sidecar 已登出，凭证存档已清除");
+    return;
+  }
+  if (credentialStore.write(cred)) log("[quaver] 登录凭证已存入密钥环:", credentialSummary(cred));
+  else log(`[quaver] 凭证未写入存档（persist=${credentialStore.status().persist}）—— 本次登录只在内存里:`, credentialSummary(cred));
+}
+
+/**
+ * 开发态 sidecar 的启动方式：优先仓库里已 sync 的 venv（快、不联网），没有就退回 uv run。
+ * 为什么开发态也要主进程来拉：凭证只走 stdin/stdout 交接，而手工起的 sidecar 拿不到那条管道
+ * —— 它只能去读写明文 credential.json，而明文已经不允许存在了。
+ */
+function devSidecarCommand() {
+  const dir = resolve(UI_ROOT, "..", "vendor", "Typhoeus");
+  if (!existsSync(join(dir, "run.py"))) return null;
+  const venvPython = process.platform === "win32"
+    ? join(dir, ".venv", "Scripts", "python.exe")
+    : join(dir, ".venv", "bin", "python");
+  if (existsSync(venvPython)) return { cmd: venvPython, args: ["run.py"], cwd: dir, label: venvPython };
+  return { cmd: "uv", args: ["run", "run.py"], cwd: dir, label: "uv run run.py" };
+}
+
+function sidecarCommand() {
+  if (app.isPackaged) {
+    // electron-builder 把 PyInstaller 产物放在 <resources>/bin/（Windows 上是 .exe）
+    const bin = join(process.resourcesPath ?? "", "bin", process.platform === "win32" ? "quaver-server.exe" : "quaver-server");
+    return existsSync(bin) ? { cmd: bin, args: [], cwd: undefined, label: bin } : null;
+  }
+  // 开发态：环境里已经给好 QUAVER_API（手工起的 sidecar / 联调）就不抢 —— 那种情况下
+  // sidecar 拿不到交接管道，登录只在内存里活着，日志会说明。
+  if (String(process.env.QUAVER_API ?? "").trim()) {
+    log("[quaver] QUAVER_API 已由环境给出，本进程不自拉 sidecar（凭证不落盘，只驻内存）:", process.env.QUAVER_API);
     return null;
   }
-  const port = 3200 + Math.floor(Math.random() * 200); // 随机端口，避开 dev 遗留的 :3200
-  process.env.QUAVER_API = `http://127.0.0.1:${port}`; // native-server.mjs 的中继目标
-  log("[quaver] spawning sidecar:", bin, "port", port);
-  const child = spawn(bin, [], {
-    // QUAVER_CONFIG_DIR 显式下发：让 sidecar 的凭证/设备指纹与 Electron 落在同一目录，
-    // 两边各有一套平台规则做兜底（dev 态手工跑 sidecar 时也能落对地方）。
-    env: { ...process.env, QUAVER_PORT: String(port), QUAVER_CONFIG_DIR: CONFIG_DIR },
-    stdio: ["ignore", "pipe", "pipe"],
+  return devSidecarCommand();
+}
+
+function spawnSidecar() {
+  const command = sidecarCommand();
+  if (!command) {
+    if (app.isPackaged) log("[quaver] sidecar binary missing, /api 将回退到环境里的 QUAVER_API");
+    else log("[quaver] 未找到 vendor/Typhoeus/run.py，开发态 sidecar 需自行提供（QUAVER_API）");
+    return null;
+  }
+  // 随机端口：从 3201 起 —— 3200 是「手工跑 sidecar」的默认端口，开发态很可能正被占着
+  const port = 3201 + Math.floor(Math.random() * 200);
+  process.env.QUAVER_API = `http://127.0.0.1:${port}`; // native-server.mjs / vite relay 的中继目标
+  // 凭证交接：sidecar 自己不落盘 —— 主进程把已存凭证写进它的 stdin，
+  // 之后每次登录/刷新/登出，它再从 stdout 交回来（前缀 QCRED1）。
+  // 顺序要紧：注入行必须在 spawn 之后立刻写 —— sidecar 在 import 阶段**阻塞**读这一行。
+  const handoff = credentialStore ? credentialStore.read() : null;
+  log("[quaver] spawning sidecar:", command.label, "port", port, `凭证=交接（${handoff ? credentialSummary(handoff) : "无已存凭证"}）`);
+  const child = spawn(command.cmd, command.args, {
+    cwd: command.cwd,
+    // QUAVER_CONFIG_DIR 显式下发：让 sidecar 的设备指纹与 Electron 落在同一目录，
+    // 两边各有一套平台规则做兜底。QUAVER_CREDENTIAL_MODE=external 声明「凭证不在你手上」。
+    env: {
+      ...process.env,
+      QUAVER_PORT: String(port),
+      QUAVER_CONFIG_DIR: CONFIG_DIR,
+      QUAVER_CREDENTIAL_MODE: "external",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
   });
-  child.stdout.on("data", (d) => log("[sidecar]", String(d).trimEnd()));
+  try {
+    child.stdin.on("error", (e) => log("[quaver] sidecar stdin 写入失败:", String(e))); // EPIPE：子进程已退出
+    child.stdin.write(encodeHandoff(handoff));
+  } catch (e) {
+    log("[quaver] sidecar 凭证注入失败:", String(e));
+  }
+  // stdout 必须**先分行再判前缀**：里面混着普通日志和凭证交接行，而交接行含有 musickey
+  // —— 这个日志文件是要给人看、也会贴进 issue 的，凭证一个字符都不许进去。
+  let outBuf = "";
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    const { lines, rest } = drainLines(outBuf, chunk);
+    outBuf = rest;
+    for (const line of lines) {
+      const msg = decodeHandoff(line);
+      if (msg) applySidecarCredential(msg.credential);
+      else log("[sidecar]", line);
+    }
+  });
   child.stderr.on("data", (d) => log("[sidecar]", String(d).trimEnd()));
   child.on("exit", (code) => log("[quaver] sidecar exited:", code));
   child.quaverPort = port;
@@ -303,6 +393,10 @@ async function createWindow() {
       log("[quaver] native server started:", s.url);
       url = s.url;
     } else {
+      // 开发态：也由本进程拉 sidecar（凭证只走 stdin/stdout 交接，明文已不允许落盘）。
+      // 顺序要紧：必须在 vite 加载前 spawn —— relay.ts 在模块加载时读一次 QUAVER_API。
+      sidecar = spawnSidecar();
+      if (sidecar) await waitSidecar(sidecar.quaverPort);
       // 开发态：vite preview（产物 + /api 中继 relay.ts 插件）同进程；动态 import 规避顶层导入副作用
       log("[quaver] starting vite preview…");
       const { preview } = await import("vite");
@@ -415,8 +509,14 @@ ipcMain.handle("quaver:config", (_e, msg) => {
   }
 });
 
-ipcMain.on("quaver:close-action", (_e, action) => {
-  closeAction = action === "quit" ? "quit" : "tray";
+// 凭证存储状态（**不含凭证本体**）：确认这次到底走的是密钥环还是 0600 明文，排查用。
+// 只读，不提供「读取凭证」的入口 —— 凭证永不进渲染层。
+ipcMain.handle("quaver:credential-info", () => {
+  const st = credentialStore?.status() ?? { persist: "memory", backend: "none", reason: "主进程尚未初始化" };
+  return { ok: true, ...st, dir: CONFIG_DIR, switch: keyringPick.switchValue ?? null, pickWhy: keyringPick.why };
+});
+
+ipcMain.on("quaver:close-action", (_e, action) => {  closeAction = action === "quit" ? "quit" : "tray";
   writeValues({ "Window.CloseAction": closeAction }); // 幂等兜底：渲染层已写过，值相同不产生抖动
   log("[quaver] close-action ->", closeAction);
 });
@@ -475,6 +575,25 @@ if (!app.requestSingleInstanceLock()) {
 // 勿用顶层 await：Electron 对 ESM 主进程中挂起在 await 的模块引导不完整（实测 whenReady 永不兑现）
 app.whenReady().then(() => {
   log("[quaver] app ready");
+  // ——— 凭证存储：ready 之后第一件事就是把「这次到底拿到了什么后端」问清楚 ———
+  // 探测（选开关）与校验（认不认）是两件事：这里只信 safeStorage 的自报，落在 basic_text 一律不用。
+  let plan;
+  try {
+    plan = evaluateKeyring({ platform: process.platform, safeStorage, requested: securityConf.backend, mode: securityConf.store });
+  } catch (e) {
+    plan = { persist: "memory", backend: "none", reason: `探测失败：${String(e)}` };
+  }
+  credentialStore = new CredentialStore({ dir: CONFIG_DIR, safeStorage, plan, log });
+  log(`[quaver] 凭证存储: ${plan.persist}（${plan.backend}）— ${plan.reason}`);
+  if (keyringPick.switchValue) log(`[quaver] --password-store=${keyringPick.switchValue}（${keyringPick.why}）`);
+  if (plan.persist === "keyring") {
+    // 升级遗留的明文 credential.json：读一次 → 加密存进密钥环 → 回读校验 → 删掉。之后磁盘上只有密文。
+    if (credentialStore.migrateLegacy() === "migrated") log("[quaver] 明文 credential.json 已迁入密钥环并删除");
+  } else {
+    log("[quaver] 警告：系统密钥管理器不可用，凭证只驻内存 —— 本次登录关掉应用就没了，需要重新扫码。",
+        "修法：起 KWallet / gnome-keyring，或在 quaver.conf 的 [Security] KeyringBackend 里显式指定后端。",
+        "（本应用不会把凭证以明文写到磁盘上，所以没有「退回明文」这一档。）");
+  }
   // 深浅色来源必须在建窗之前定好：窗口一创建，渲染进程就会带着当时的 color scheme 起来
   try {
     applyThemeSource();

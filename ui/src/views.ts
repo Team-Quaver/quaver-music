@@ -865,7 +865,7 @@ async function settingsView(root: HTMLElement) {
     <section class="set-panel" data-panel="general" hidden>
       <div class="set-group">
         <div class="set-label">配置文件</div>
-        <p class="muted set-hint">以下设置全部持久化在系统标准配置目录的 <code>quaver.conf</code>（INI）里，可以直接手改；登录凭证在同一目录，不进浏览器。</p>
+        <p class="muted set-hint">以下设置全部持久化在系统标准配置目录的 <code>quaver.conf</code>（INI）里，可以直接手改；登录凭证加密存在系统密钥管理器里，不在这个目录、也不进浏览器。</p>
         <div class="set-row"><span class="set-row__label">路径</span>
           <div class="set-row__ctrl"><input id="conf-path" readonly /></div>
         </div>
@@ -1179,7 +1179,7 @@ async function loginView(root: HTMLElement) {
   root.innerHTML = `
     <div class="login-wrap">
       <h2>扫码登录</h2>
-      <p class="muted">用手机 QQ 音乐 App 或微信扫码。凭证由本机 sidecar 保存于系统配置目录的 credential.json（0600，Linux 在 ~/.config/quaver-music），不进浏览器。</p>
+      <p class="muted">用手机 QQ 音乐 App 或微信扫码。凭证由本机加密保存（KWallet / 钥匙串 / 凭据管理器等系统密钥管理器），磁盘上不留明文，也不进浏览器。</p>
       <!-- 登录方式用标签区分（不是下拉）：复用搜索页/歌手页那套 .tag 组件，三档一眼看全，
            data-ch 的取值必须与 sidecar 的 QR_TYPES（qq/wx/mobile）对齐，写错是 422 不是静默失败 -->
       <div class="tag-tabs" id="channel" role="tablist" aria-label="登录方式">

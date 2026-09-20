@@ -29,6 +29,10 @@ const FALLBACK: ConfigSnapshot = {
   "Playing.Muted": "False",
   "Quality.DefaultQuality": "Auto",
   "Quality.FallbackToQMAtmos": "False",
+  // [Security] 只有主进程读（凭证存储走 electron/keyring.mjs），渲染层没有对应 getter ——
+  // 列在这里只是为了与 SCHEMA 的默认值保持一一对应，别让两种环境的取值表分叉。
+  "Security.CredentialStore": "auto",
+  "Security.KeyringBackend": "auto",
 };
 
 let values: ConfigSnapshot = { ...FALLBACK };
