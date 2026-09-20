@@ -214,6 +214,20 @@ CI 两道断言：暂存后 `bins.mjs --check build-res/audio`；AppImage 产出
   （第二次不再换父节点了）。队列面板因此把「形态（dock/float，只看内容区宽度，**关闭时也定好**）」与
   「开合（`.open`）」解耦，并在构造后补一帧 `requestAnimationFrame(syncMount)`（壳层是构造完才把它
   append 进 DOM 的）；万一仍然换了父节点，就把 `.open` 推到下一帧再补。断言见 `verify-queue-panel-anim.mjs`。
+- **拖拽排序（队列面板）的两条硬约束**：行的「视觉位移」用 `transform`、排序靠换 DOM 位置，
+  于是有两个反直觉的坑 —— ① 监听（pointermove/up/cancel）一律挂 `window`，**不挂把手**：换位要
+  `insertBefore`，元素被摘出来再插回去的那一瞬间浏览器会丢掉 `setPointerCapture` 的捕获，捕获一丢
+  把手就再也收不到事件（指针早不在把手上了）→ 拖到一半僵死；事件无论怎么重定向都会冒到 window。
+  ② 反推文档流位置前**先把 `transform` 清掉再量**：`.qp-item` 自带 `transform .1s` 过渡，
+  `getBoundingClientRect()` 读到的是动画中间值，拿它减 dy 反推会把上一帧的残差再算一遍，
+  行越拖越飘最后飞出指针（指针一落到邻行就彻底拖不动）；同理 `.qp-item.dragging` 的
+  `transition` 绝不能带 `transform`，清 transform 那一刻也别让 `:active` 的 `scale(.98)` 混进测量
+  （`.qp-item.dragging:active { transform: none }`）。换位时的「邻行被挤开」是 FLIP：换位前量一次、
+  换位后再量一次，用 WAAPI 从旧位置滑到新位置（量的是当前视觉位置，所以连续换位能平滑接上）；
+  松手后列表已重建，再把落在最终槽位的新行从松手位置滑回去（`settle`）。纯逻辑（落点槽位、
+  贴边滚动速度）抽在 `lib/reorder.ts`，断言与单测见 `verify-queue-drag.mjs`。
+  另：拖拽期间**不许重建列表**（4Hz 的 notify 随时可能踩进来，整表重画会把正在拖的行连监听一起换掉），
+  用 `dragRow` 闸门推迟到松手；若期间队列真的变过（`pendingRebuild`），DOM 下标已不对应 —— 本次排序作废。
 - **程序化滚动只许动自己的滚动容器**：`scrollIntoView()` 会把**所有**可滚祖先的 scrollport 一起滚，
   而 `overflow: hidden` 的盒子程序化照样能滚（`scrollLeft` 能设）—— `.content` 正是 `.route` 的祖先。
   队列面板停靠后是「0 宽 + overflow:hidden 裁切 + translateX(20px)」，当前曲那行落在内容区右缘之外，

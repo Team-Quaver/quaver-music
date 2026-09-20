@@ -35,7 +35,15 @@ html[data-theme="dark"] {
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.55 var(--font-ui, var(--font-default)); }
+/* 全站禁选中：这是桌面应用，指针手势是「点 / 拖 / 双击播放」，不是选词 —— 一选中，
+   拖进度条、拖音量、拖队列排序都会在指针后面糊出一片蓝，双击列表也常变成选中歌名。
+   例外只有两类真需要它的东西：① 输入类控件（搜索框、列表内筛选、设置项输入框 —— 输入
+   框里选不中自己的内容等于没法改）；② 调试日志页的 <pre>（那页存在的意义就是复制）。 */
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.55 var(--font-ui, var(--font-default));
+  -webkit-user-select: none; user-select: none; }
+input, textarea, [contenteditable="true"], [contenteditable=""], .log-pre {
+  -webkit-user-select: text; user-select: text;
+}
 a { color: inherit; text-decoration: none; }
 /* 关于页图标：浅色主题用深色图标，深色主题用浅色图标（互衬底色） */
 .about-img .ic-light { display: none; }
@@ -240,13 +248,13 @@ body.side-collapsed .side-btn svg { transform: rotate(180deg); }
      .winbtns right:12 / 宽 120（2+26+4+26+4+26+4+26+2）→ 簇左缘 132、抓握点 130~104、按钮区 100~14。
    故 top-drag 右缩 94px → drag 止于距窗口右 105px：抓握点整块在把手内，按钮区还留 5px 余量。
    若调整按钮尺寸/间距/簇右偏移，这个数字要跟着改。 */
-body:not(.ssd) .content-top { user-select: none; }
+/* 顶带（CSD）的选中/拖动：禁选中已由 body 统一兜住（上面「全站禁选中」），搜索框靠
+   input 的例外自动可选中 —— 这里只管 -webkit-app-region。 */
 body:not(.ssd) .content-top .top-drag {
   position: absolute; inset: 0 94px 0 0;
   -webkit-app-region: drag; cursor: grab;
 }
 body:not(.ssd) .content-top .top-center { -webkit-app-region: no-drag; cursor: default; }
-body:not(.ssd) .content-top .sb-field input { user-select: text; }
 .content-top::before, .content-top::after { content: ""; flex: 0 0 0; }
 body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-basis: 134px; } /* 左右对称：按钮簇宽120 + 间隙 */
 /* 路由视图区：renderRoute 只重建这里，搜索框（顶带流内）不受影响。
@@ -777,14 +785,25 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 .qp-act:hover { background: var(--hover); color: var(--ink); }
 .qp-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; }
 .qp-item { display: flex; gap: 7px; align-items: center; padding: 6px 8px 6px 4px;
-  border-radius: 8px; cursor: pointer; font-size: 13px; transition: background .14s, transform .1s ease; }
+  border-radius: 8px; cursor: pointer; font-size: 13px; user-select: none;
+  touch-action: pan-y; /* 触屏纵向手势归列表滚动，整行拖拽只给鼠标（把手 touch-action:none 不受限） */
+  transition: background .14s, transform .1s ease; }
 .qp-item:hover { background: var(--row-hover); }
 .qp-item:active { transform: scale(.98); }
 .qp-item.cur { background: color-mix(in srgb, var(--cvg-glow, var(--tint-row)) 26%, var(--tint-row)); color: var(--cvg-accent, var(--acc)); font-weight: 600; }
-/* 拖拽中的行：留在文档流（transform 只做视觉位移），浮起 + 投影盖过邻行 */
+/* 拖拽中的行：留在文档流（transform 只做视觉位移），浮起 + 投影盖过邻行。
+   ⚠️ 这条 transition **绝不能带 transform**：带了之后 getBoundingClientRect() 量到的是动画
+   中间值，「视觉顶边贴指针」的算式会把上一帧没走完的残差再算一遍 —— 行越拖越飘、最后飞出
+   指针，指针一落到邻行上拖拽就再也收不到事件（这就是「拖不动」的根因）。位移必须即时跟手，
+   松手收尾另有 WAAPI 动画（QueuePanel.ts:settle），不需要 CSS 过渡。 */
 .qp-item.dragging { position: relative; z-index: 2; background: var(--row-hover);
-  box-shadow: 0 8px 22px #00000038; opacity: .94; }
-.qi-grip { width: 14px; flex: 0 0 auto; display: grid; place-items: center;
+  box-shadow: 0 8px 22px #00000038; opacity: .94; transition: background .14s; }
+/* 量文档流位置时会先把内联 transform 清掉，此刻别让 :active 的 scale(.98) 混进测量结果 */
+.qp-item.dragging:active { transform: none; }
+/* 重排中：光标统一 grabbing；hover 高亮别跟着指针乱闪（被让位的行不该亮） */
+.qp-list.reordering, .qp-list.reordering .qp-item { cursor: grabbing; }
+.qp-list.reordering .qp-item:not(.dragging):not(.cur):hover { background: transparent; }
+.qi-grip { width: 14px; height: 24px; flex: 0 0 auto; display: grid; place-items: center;
   color: var(--idx); opacity: 0; cursor: grab; touch-action: none; transition: opacity .12s; }
 .qp-item:hover .qi-grip { opacity: .8; }
 .qp-item.dragging .qi-grip { cursor: grabbing; opacity: .8; }

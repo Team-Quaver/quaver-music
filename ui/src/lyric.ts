@@ -5,7 +5,7 @@ export interface LyricLine {
   trans?: string;
 }
 
-const TS = /\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
+const TS = /\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?]/g;
 
 function parseBlock(src: string): LyricLine[] {
   const out: LyricLine[] = [];
