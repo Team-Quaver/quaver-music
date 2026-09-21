@@ -4,6 +4,7 @@
     <mapping directory="" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../quaver-sparkle" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/vendor/QQMusicApi" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/vendor/Sparkle" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/vendor/Typhoeus" vcs="Git" />
   </component>
 </project>
