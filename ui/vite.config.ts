@@ -34,6 +34,20 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(appVersion()),
   },
+  resolve: {
+    alias: [
+      // Sparkle 插件系统 SDK（git submodule vendor/Sparkle，源码级打进 dist，见 quaver-sparkle/README）
+      // 顺序要紧：子路径的正则必须在前 —— 字符串 "@quaver/sparkle" 会前缀命中 "@quaver/sparkle/xxx"。
+      { find: /^@quaver\/sparkle\//, replacement: fileURLToPath(new URL("../vendor/Sparkle/", import.meta.url)) },
+      { find: "@quaver/sparkle", replacement: fileURLToPath(new URL("../vendor/Sparkle/sdk/index.ts", import.meta.url)) },
+    ],
+  },
+  server: {
+    fs: {
+      // dev 态放行 ui 之外的 submodule 源码（vendor/Sparkle）
+      allow: [fileURLToPath(new URL("..", import.meta.url))],
+    },
+  },
   build: {
     rollupOptions: {
       input: Object.fromEntries(

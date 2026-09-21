@@ -7,6 +7,39 @@ import { pipeline } from "node:stream/promises";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 
+const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+/** 已安装插件的静态文件（/api/sparkle/plugin/<id>/<file>）。与 src/relay.ts 的 serveSparkle 同构。 */
+function serveSparkle(sub, res, pluginsRoot) {
+  const m = /^\/sparkle\/plugin\/([a-z0-9][a-z0-9-]*)\/(.+)$/.exec(sub);
+  if (!m || !pluginsRoot) {
+    res.statusCode = 404;
+    return res.end(JSON.stringify({ code: -1, msg: "sparkle: bad path" }));
+  }
+  const [, id, file] = m;
+  if (!SPARKLE_ID_RE.test(id)) {
+    res.statusCode = 403;
+    return res.end(JSON.stringify({ code: -1, msg: "sparkle: bad id" }));
+  }
+  const dir = normalize(join(pluginsRoot, id));
+  const target = normalize(join(dir, file));
+  if (!target.startsWith(dir + "/") || file.includes("..")) {
+    res.statusCode = 403;
+    return res.end(JSON.stringify({ code: -1, msg: "sparkle: bad file" }));
+  }
+  if (!existsSync(target)) {
+    res.statusCode = 404;
+    return res.end(JSON.stringify({ code: -1, msg: "sparkle: not found" }));
+  }
+  const type = file.endsWith(".js") || file.endsWith(".mjs") ? "text/javascript"
+    : file.endsWith(".json") ? "application/json"
+    : file.endsWith(".css") ? "text/css" : "application/octet-stream";
+  res.statusCode = 200;
+  res.setHeader("content-type", type);
+  res.setHeader("cache-control", "no-store");
+  res.end(readFileSync(target));
+}
+
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript",
@@ -115,10 +148,10 @@ const MISSING_DIST_PAGE = `<!doctype html><meta charset="utf-8"><body style="fon
   <h2>dist/ 不存在</h2><p>先构建再启动应用：<code>cd ui &amp;&amp; npm run build &amp;&amp; npm run app</code></p></body>`;
 
 /**
- * @param {{dist: string, logFile?: string, host?: string, port?: number}} opts
+ * @param {{dist: string, logFile?: string, host?: string, port?: number, pluginsRoot?: string}} opts
  * @returns {Promise<{server: import("node:http").Server, url: string, close: () => void}>}
  */
-export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", port = 0 }) {
+export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", port = 0, pluginsRoot }) {
   const DIST = normalize(dist);
 
   const handler = async (req, res) => {
@@ -129,6 +162,8 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
       const sub = url.pathname.slice(4); // 剥掉 "/api"
       if (sub === "/img") return proxyImage(url.searchParams.get("u"), res);
       if (sub === "/log") return serveLog(res, logFile, parseInt(url.searchParams.get("tail") ?? "800", 10) || 800);
+      // Sparkle 已安装插件的文件服务（必须在 sidecar 转发之前截住）
+      if (sub.startsWith("/sparkle/")) return serveSparkle(sub, res, pluginsRoot);
 
       const target = new URL(SIDECAR);
       target.pathname = sub || "/";
@@ -231,7 +266,8 @@ function listen(server, port, host) {
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   const dist = new URL("../dist", import.meta.url).pathname;
   const p = parseInt(process.env.PORT ?? "4176", 10);
-  startQuaverServer({ dist, logFile: join(dist, "..", "electron-dev.log"), port: p }).then(({ url }) =>
+  const pluginsRoot = process.env.QUAVER_SPARKLE_DIR?.trim() || undefined;
+  startQuaverServer({ dist, logFile: join(dist, "..", "electron-dev.log"), port: p, pluginsRoot }).then(({ url }) =>
     console.log("quaver native server:", url),
   );
 }

@@ -3,9 +3,10 @@
 // frame:false：无原生标题栏——窗口右上角平铺三个窗口按钮（min/max/close）+抓握点，经 preload IPC 接管。
 import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, nativeTheme, safeStorage, shell } from "electron";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { extname, join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 // 音频引擎（mpv 后端）：窗口 URL 确定后 init（需要 baseUrl 绝对化 /api/stream 中继地址）
@@ -47,6 +48,11 @@ const LOG = app.isPackaged
   : join(UI_ROOT, "electron-dev.log");
 import { appendFileSync } from "node:fs";
 const log = (...a) => { const s = a.map((x) => (typeof x === "string" ? x : String(x))).join(" "); try { appendFileSync(LOG, s + "\n"); } catch {} console.log(s); };
+
+// Sparkle 插件目录（第三方插件安装根）：QUAVER_SPARKLE_DIR 优先（开发调试），
+// 否则配置目录下 plugins/。native-server（文件服务）与 quaver:sparkle IPC 共用这一份。
+const SPARKLE_PLUGINS_ROOT = String(process.env.QUAVER_SPARKLE_DIR ?? "").trim() || join(CONFIG_DIR, "plugins");
+const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 // 启动即按磁盘配置定初值：窗口装饰只在构造时能给定 frame，晚一步就得拆窗重建（用户会看到闪一下）。
 let bootConf = {};
@@ -389,7 +395,7 @@ async function createWindow() {
       sidecar = spawnSidecar();
       if (sidecar) await waitSidecar(sidecar.quaverPort);
       const { startQuaverServer } = await import("./native-server.mjs");
-      const s = await startQuaverServer({ dist: DIST, logFile: LOG, port: STABLE_PORT });
+      const s = await startQuaverServer({ dist: DIST, logFile: LOG, port: STABLE_PORT, pluginsRoot: SPARKLE_PLUGINS_ROOT });
       log("[quaver] native server started:", s.url);
       url = s.url;
     } else {
@@ -505,6 +511,79 @@ ipcMain.handle("quaver:config", (_e, msg) => {
     return { ok: false, error: `unknown op: ${op}` };
   } catch (e) {
     log("[quaver] config op failed:", String(op), String(e));
+    return { ok: false, error: String(e) };
+  }
+});
+
+// Sparkle 插件管理桥：list = 扫描已装插件；install = 主进程代下载（规避渲染层 CORS）+ 可选
+// sha256 校验 + 落盘；uninstall = 删目录；market = 主进程代取索引 JSON。
+// 安全边界：插件 id 一律过 ^[a-z0-9][a-z0-9-]*$（同时是目录名，防穿越）；
+// 安装 ≠ 启用 —— 渲染层默认不加载新装的插件，需用户手动开开关。
+ipcMain.handle("quaver:sparkle", async (_e, msg) => {
+  const op = msg?.op;
+  try {
+    if (op === "list") {
+      const out = [];
+      if (existsSync(SPARKLE_PLUGINS_ROOT)) {
+        for (const name of await readdir(SPARKLE_PLUGINS_ROOT, { withFileTypes: true })) {
+          if (!name.isDirectory() || !SPARKLE_ID_RE.test(name.name)) continue;
+          const dir = join(SPARKLE_PLUGINS_ROOT, name.name);
+          try {
+            const manifest = JSON.parse(await readFile(join(dir, "plugin.json"), "utf8"));
+            const st = await stat(join(dir, "plugin.json"));
+            out.push({ id: name.name, dir, manifest, installedAt: Math.floor(st.mtimeMs) });
+          } catch (err) {
+            log("[quaver] sparkle: 跳过坏插件目录", name.name, String(err));
+          }
+        }
+      }
+      return { ok: true, plugins: out };
+    }
+    if (op === "install") {
+      const url = String(msg?.url ?? "");
+      if (!/^https?:\/\//.test(url)) return { ok: false, error: "download URL 必须是 http(s)" };
+      const meta = msg?.meta ?? {};
+      const id = String(meta?.id ?? "").trim();
+      if (!SPARKLE_ID_RE.test(id)) return { ok: false, error: "插件 id 不合法" };
+      const buf = Buffer.from(await (await fetch(url, { signal: AbortSignal.timeout(30000) })).arrayBuffer());
+      if (msg?.sha256) {
+        const want = String(msg.sha256).toLowerCase();
+        const got = createHash("sha256").update(buf).digest("hex");
+        if (want && want !== got) return { ok: false, error: `sha256 校验失败（期望 ${want.slice(0, 12)}…，实际 ${got.slice(0, 12)}…）` };
+      }
+      const dir = join(SPARKLE_PLUGINS_ROOT, id);
+      await mkdir(dir, { recursive: true, mode: 0o700 });
+      await writeFile(join(dir, "main.js"), buf, { mode: 0o600 });
+      const manifest = {
+        id,
+        name: String(meta?.name ?? id),
+        version: String(meta?.version ?? "0.0.0"),
+        author: meta?.author ? String(meta.author) : undefined,
+        description: meta?.description ? String(meta.description) : undefined,
+        main: "main.js",
+      };
+      await writeFile(join(dir, "plugin.json"), JSON.stringify(manifest, null, 2), { mode: 0o600 });
+      log("[quaver] sparkle: installed", id, `(${buf.length} bytes)`);
+      return { ok: true, id };
+    }
+    if (op === "uninstall") {
+      const id = String(msg?.id ?? "");
+      if (!SPARKLE_ID_RE.test(id)) return { ok: false, error: "插件 id 不合法" };
+      const dir = join(SPARKLE_PLUGINS_ROOT, id);
+      if (existsSync(dir)) await rm(dir, { recursive: true, force: true });
+      log("[quaver] sparkle: uninstalled", id);
+      return { ok: true };
+    }
+    if (op === "market") {
+      const url = String(msg?.url ?? "");
+      if (!/^https?:\/\//.test(url)) return { ok: false, error: "索引 URL 必须是 http(s)" };
+      const r = await fetch(url, { signal: AbortSignal.timeout(15000), headers: { accept: "application/json" } });
+      if (!r.ok) return { ok: false, error: `HTTP ${r.status}` };
+      return { ok: true, index: await r.json() };
+    }
+    return { ok: false, error: `unknown op: ${op}` };
+  } catch (e) {
+    log("[quaver] sparkle op failed:", String(op), String(e));
     return { ok: false, error: String(e) };
   }
 });

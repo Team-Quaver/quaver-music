@@ -39,6 +39,15 @@ contextBridge.exposeInMainWorld("quaverSecurity", {
   info: () => ipcRenderer.invoke("quaver:credential-info"),
 });
 
+// Sparkle 插件系统（第三方插件管理）：list/install/uninstall/market 均由主进程执行，
+// 渲染层只拿结果。安装 ≠ 启用：装完默认不加载，需用户在设置页手动开启。
+contextBridge.exposeInMainWorld("quaverSparkle", {
+  list: () => ipcRenderer.invoke("quaver:sparkle", { op: "list" }),
+  install: (msg) => ipcRenderer.invoke("quaver:sparkle", { op: "install", ...msg }),
+  uninstall: (msg) => ipcRenderer.invoke("quaver:sparkle", { op: "uninstall", ...msg }),
+  market: (msg) => ipcRenderer.invoke("quaver:sparkle", { op: "market", ...msg }),
+});
+
 // 音频引擎（mpv 后端）：invoke 走请求/应答（handle 返回值可序列化），事件为主进程主动推。
 // 渲染层 Transport 抽象（src/lib/transport.ts）据此实现 EngineTransport；
 // 浏览器 dev（无 preload）下 window.quaverAudio 不存在 → 自动落到 <audio> WebTransport。

@@ -13,6 +13,7 @@ import {
 import { WebTransport, EngineTransport, type Transport, type TransportEvent, type AudioDeviceInfo } from "./lib/transport";
 import { loadSession, saveSession } from "./lib/session";
 import { parseLrc, type LyricLine } from "./lyric";
+import { sparkleStreamSources } from "./sparkle/registry";
 
 export type Song = {
   mid: string;
@@ -484,9 +485,22 @@ class Player {
     this.prefetch.clear(); // 清理旧预加载链接引用（token 由后端 TTL 回收；前端不再持有下载）
     this.prefetchedMid = song.mid;
     const key = q + "|" + song.mid;
-    const p = resolveStreamUrl(song, q as any);
+    const p = this.resolveWithSources(song, q);
     p.catch(() => { if (this.prefetch.get(key) === p) this.prefetch.delete(key); });
     this.prefetch.set(key, p);
+  }
+
+  /** 取流收口：先过 Sparkle 插件播放源链（注册序 FIFO，抛错/null 放行下一环），全落空走官方 resolve */
+  private async resolveWithSources(song: Song, q: string): Promise<StreamResult> {
+    for (const src of sparkleStreamSources()) {
+      try {
+        const r = await src.resolve(song, q);
+        if (r?.url) return { url: r.url, tier: r.tier ?? "plugin", label: r.label ?? src.id, degraded: false };
+      } catch (e) {
+        console.warn(`[sparkle] 播放源 ${src.id} 解析失败，放行下一环`, e);
+      }
+    }
+    return resolveStreamUrl(song, q as any);
   }
 
   /** getPlayUrl 语义的内部入口：预取命中用预取结果，否则现场协商 */
@@ -497,7 +511,7 @@ class Player {
     if (hit) {
       try { return await hit; } catch { /* 预取失败 → 现场重来 */ }
     }
-    return resolveStreamUrl(s, q as any);
+    return this.resolveWithSources(s, q);
   }
 
   error = "";

@@ -15,6 +15,7 @@ import {
   addSongToSonglist, isMySonglistsLoaded, loadMySonglists, mySonglists, removeSongFromSonglist,
   type MyPlaylist,
 } from "../lib/playlists";
+import { sparkleMenuItems } from "../sparkle/registry";
 
 export interface SongMenuContext {
   song: any;
@@ -381,6 +382,8 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
       ],
     },
   );
+  // Sparkle 插件追加项（SparkleMenuItem 与 MenuItem 同型；异常已在 registry 侧吞掉）
+  items.push(...sparkleMenuItems({ song, list: ctx.list, index: ctx.index }));
   return items;
 }
 

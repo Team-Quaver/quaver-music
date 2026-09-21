@@ -6,9 +6,46 @@
 import type { Connect } from "vite";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, normalize } from "node:path";
+import { configDir } from "../electron/config.mjs";
 
 const SIDECAR = process.env.QUAVER_API ?? "http://127.0.0.1:3200";
+
+/** Sparkle 第三方插件目录（与 electron/main.mjs 同规则：env 优先，否则配置目录下 plugins/） */
+const SPARKLE_PLUGINS_ROOT = process.env.QUAVER_SPARKLE_DIR?.trim() || join(configDir(), "plugins");
+const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+/** 已安装插件的静态文件（/api/sparkle/plugin/<id>/<file>）。与 native-server.mjs 的 serveSparkle 同构。 */
+export function serveSparkle(sub: string, res: ServerResponse) {
+  // sub 形如 /sparkle/plugin/<id>/<file...>；id 与 file 都过白名单（防目录穿越）
+  const m = /^\/sparkle\/plugin\/([a-z0-9][a-z0-9-]*)\/(.+)$/.exec(sub);
+  if (!m) {
+    res.statusCode = 404;
+    return res.end(JSON.stringify({ code: -1, msg: "sparkle: bad path" }));
+  }
+  const [, id, file] = m;
+  const dir = normalize(join(SPARKLE_PLUGINS_ROOT, id));
+  if (!dir.startsWith(normalize(SPARKLE_PLUGINS_ROOT))) {
+    res.statusCode = 403;
+    return res.end(JSON.stringify({ code: -1, msg: "sparkle: bad id" }));
+  }
+  const target = normalize(join(dir, file));
+  if (!target.startsWith(dir + "/") || /[\\/]$/.test(file) || file.includes("..")) {
+    res.statusCode = 403;
+    return res.end(JSON.stringify({ code: -1, msg: "sparkle: bad file" }));
+  }
+  if (!existsSync(target)) {
+    res.statusCode = 404;
+    return res.end(JSON.stringify({ code: -1, msg: "sparkle: not found" }));
+  }
+  const type = file.endsWith(".js") || file.endsWith(".mjs") ? "text/javascript"
+    : file.endsWith(".json") ? "application/json"
+    : file.endsWith(".css") ? "text/css" : "application/octet-stream";
+  res.statusCode = 200;
+  res.setHeader("content-type", type);
+  res.setHeader("cache-control", "no-store");
+  res.end(readFileSync(target));
+}
 
 const json = (obj: unknown, status = 200) =>
   new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json" } });
@@ -104,6 +141,8 @@ export function apiRelay(): Connect.NextHandleFunction {
 
     if (path === "img") return proxyImage(url.searchParams.get("u"), res);
     if (path === "log") return serveLog(res, parseInt(url.searchParams.get("tail") ?? "800", 10) || 800);
+    // Sparkle 已安装插件的文件服务（/api/sparkle/...，打包态在 native-server.mjs 有同构实现）
+    if (path.startsWith("sparkle/")) return serveSparkle("/" + path, res);
 
     const target = new URL(SIDECAR);
     target.pathname = "/" + path;

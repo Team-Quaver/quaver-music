@@ -37,6 +37,7 @@ import {
 } from "./lib/prefs";
 import {configInfo, resetConfig, revealConfig} from "./lib/config";
 import {vipCardHtml} from "./lib/vip";
+import {mountSparklePanel} from "./sparkle/settings";
 
 const h = (tag: string, cls: string, html = "") => {
   const el = document.createElement(tag);
@@ -826,7 +827,7 @@ async function settingsView(root: HTMLElement) {
     <button class="set-tab is-active" data-tab="appearance" type="button">外观</button>
     <button class="set-tab" data-tab="playback" type="button">播放</button>
     <button class="set-tab" data-tab="general" type="button">通用</button>
-    <button class="set-tab" data-tab="plugins" type="button">Sparkle（WIP）</button>`);
+    <button class="set-tab" data-tab="plugins" type="button">Sparkle</button>`);
   root.append(tabs);
   const wrap = h("div", "set-view");
   wrap.innerHTML = `
@@ -951,11 +952,8 @@ async function settingsView(root: HTMLElement) {
       </div>
     </section>
     
-    <section class="set-panel" data-panel="plugins" hidden>
-      <div class="set-group">
-        <div class="set-label">Sparkle &amp; Marketplace are working in progress</div>
-      </div>
-    </section>`;
+    <!-- Sparkle 面板：内容由 ui/src/sparkle/settings.ts 填充（插件列表/插件设置区/Marketplace） -->
+    <section class="set-panel" data-panel="plugins" hidden></section>`;
 
   root.append(wrap);
 
@@ -1139,6 +1137,10 @@ async function settingsView(root: HTMLElement) {
 
   // 调试：日志页面（壳层把 ui/electron-dev.log 经 /api/log 尾部暴露为纯文本，见 relay.ts）
   wrap.querySelector<HTMLElement>("#open-log")!.onclick = () => (location.hash = "#/log");
+
+  // Sparkle 面板：切路由时清理插件设置区的订阅与 render 清理函数
+  const sparklePanel = wrap.querySelector<HTMLElement>('[data-panel="plugins"]')!;
+  return mountSparklePanel(sparklePanel);
 }
 
 // —— 调试：日志页面（壳层 electron-dev.log 尾部；由 relay.ts /api/log 提供） ——
