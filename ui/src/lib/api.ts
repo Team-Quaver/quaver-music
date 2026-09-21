@@ -41,6 +41,10 @@ export const writeSongType = (type?: number) => Math.max(0, Number(type ?? 1) - 
 // 同一首歌的不同版本在界面上长得一模一样 —— 故展示一律走 songTitle()。
 // subtitle 是另一回事：它是「《小时代》电影主题曲」这类一句话说明，与 title 上的括号后缀不重叠，
 // 展示时作为标题行的次级文本追加（见 songs.ts 的 .rt-sub）。
+/** HTML 转义（文本节点与双引号属性值都安全）；入参宽容（unknown），null/undefined 归空串 */
+export const escHtml = (s: unknown) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
 /** 剥掉 search 接口 highlight=true 漏进任意字符串字段的 <em> 标签 */
 export const stripEm = (s: unknown) => String(s ?? "").replace(/<\/?em>/gi, "");
 

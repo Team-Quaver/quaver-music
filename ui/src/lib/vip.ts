@@ -14,8 +14,7 @@
 //
 // 2. **只看不买**：上游同时给了 identity.purchase_url / userinfo.buy_url / userinfo.my_vip_url，
 //    这里一律不渲染。续费/订阅只指路 QQ 音乐官方客户端（VIP_RENEW_HINT），本项目不做支付入口。
-const escHtml = (s: unknown) =>
-  String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+import { escHtml } from "./api";
 
 /** 上游墙钟时区（北京时间）与常用时长 */
 const SH_MS = 8 * 3600_000;
