@@ -265,17 +265,18 @@ body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-b
    面板不挂载（浮窗态/关闭）时 route 独占整行 —— 主页/搜索/歌手页随宽度整体缩放。 */
 .content-body { flex: 1; min-height: 0; display: flex; min-width: 0; }
 .route { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 6px 24px 20px; }
-/* ContentView 进入动画：只让 .route 的直接子元素淡入上移，容器本身保持稳定 ——
+/* ContentView 进入动画：只让视图容器的直接子元素淡入上移，容器本身保持稳定 ——
    滚动位置 / 容器背景不闪，避免「整个 ContentView 刷新」的观感。entering class 常驻
-   在 .route 上，renderRoute 重建子元素时新挂载的节点立即匹配此选择器、从 from 态开始播放
+   在本次导航的视图 host（.route > .entering，renderRoute 每次导航换新发放）上，
+   view 填充的节点一进 DOM 即匹配此选择器、从 from 态开始播放
    （无闪烁，不会先 paint 出 1 再跳回 0）。前 3 个直接子元素轻微 stagger（信息头/标题/列表容器），
    第 4 个起统一 delay，长列表不会拖太久。容器 .route 不参与动画 → 搜索栏/侧栏等常驻部分不动。 */
 /* .me（我的页）例外：它自带子元素分级入场（见文件下方「我的」段），不走这条整块动画 ——
    两层同时淡入会把观感拖糊，也让离场动画要跟这条规则抢 animation 权重。 */
-.route.entering > *:not(.me) { animation: route-in .26s cubic-bezier(.22,.61,.36,1) both; }
-.route.entering > *:nth-child(2) { animation-delay: .04s; }
-.route.entering > *:nth-child(3) { animation-delay: .08s; }
-.route.entering > *:nth-child(n+4) { animation-delay: .12s; }
+.route > .entering > *:not(.me) { animation: route-in .26s cubic-bezier(.22,.61,.36,1) both; }
+.route > .entering > *:nth-child(2) { animation-delay: .04s; }
+.route > .entering > *:nth-child(3) { animation-delay: .08s; }
+.route > .entering > *:nth-child(n+4) { animation-delay: .12s; }
 @keyframes route-in {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: none; }
@@ -849,7 +850,7 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 
 /* ===================== 我的 ===================== */
 .me { text-align: center; padding-top: 4vh; display: flex; flex-direction: column; align-items: center; }
-/* —— 进场：分级淡入（容器让位，不走 .route.entering 的整块动画）——
+/* —— 进场：分级淡入（容器让位，不走 .route>.entering 的整块动画）——
    头像 → 昵称 → 徽章 → UID → 会员权益卡 → 退出登录，一路 opacity + translateY 微位移，
    与全站同一套缓动（cubic-bezier(.22,.61,.36,1)）与短时长；头像多一点点 scale 收束
    （.94→1，与队列面板 scale(.9) 同一语言），是这一串里唯一带「弹」的节拍。

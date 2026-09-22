@@ -508,7 +508,7 @@ async function singerView(root: HTMLElement, q: URLSearchParams) {
     panels.forEach((p, i) => (p.hidden = SINGER_TABS[i].key !== key));
     tabs.querySelectorAll<HTMLElement>(".tag").forEach((b) => b.classList.toggle("sel", b.dataset.tab === key));
   };
-  // 切换动画门闩（.tab-anim 见 style.css）：首次点击才挂上，首屏入场交给 .route.entering；
+  // 切换动画门闩（.tab-anim 见 style.css）：首次点击才挂上，首屏入场交给 .route>.entering；
   // 重复点当前标签直接返回，否则会把已显示的面板重播一次、看着像闪了一下。
   tabs.querySelectorAll<HTMLElement>(".tag").forEach((b) => (b.onclick = () => {
     if (b.classList.contains("sel")) return;

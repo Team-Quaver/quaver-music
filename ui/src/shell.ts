@@ -50,6 +50,9 @@ export function currentRoute() {
 }
 
 let mountedCleanup: (() => void) | null = null;
+// 动作打断：每次导航自增。晚到的旧渲染（慢视图 await 恢复后）按代际号判定已被打断，
+// 丢弃结果并补跑 cleanup，绝不允许覆盖新导航的页面。
+let renderGen = 0;
 
 // —— 顶带返回按钮（搜索框旁）：自维护的路由栈判定「有没有可返回的上级」，
 // 不依赖浏览器 history.length（其它标签/窗口共享计数、file:// 下语义不一）。
@@ -80,19 +83,31 @@ export async function renderRoute() {
   mountedCleanup?.();
   mountedCleanup = null;
 
+  // —— 动作打断：每次导航发放一个全新的 host 容器 + 代际号 ——
+  // 慢视图（歌单/歌手页要分页拉全数据）await 期间用户改点别的入口（如设置）时：
+  // 新导航先 replaceChildren 换掉 .route 里的 host，旧视图随后从 await 恢复时
+  // 写的已是脱离 DOM 的死容器，画了也看不见；恢复后 gen 校验不过 → 结果整个丢弃，
+  // 只补跑它的 cleanup（收轮询定时器/订阅），错误也不许写进新页面。
+  // 进入动画：entering class 挂在 host 上、随 host 一起每轮换新 —— view 填充的节点
+  // 一进 DOM 即匹配 .route>.entering>* 选择器，从 from 态（opacity:0）开始播放，
+  // 避免先 paint 出 1 再跳回 0 闪烁；class 常驻该 host，视图中途 append 的节点同样匹配。
+  const gen = ++renderGen;
   const view = views[path] ?? views["/"];
-  state.route.innerHTML = "";
+  const host = document.createElement("div");
+  host.className = "entering";
+  state.route.replaceChildren(host);
   state.route.scrollTop = 0;
-  // 进入动画：entering class 在子元素挂载前就挂上 —— view 填充的新节点一进 DOM 即匹配
-  // .route.entering>* 选择器，从 from 态（opacity:0）开始播放，避免先 paint 出 1 再跳回 0 闪烁。
-  // class 常驻：下次切视图 innerHTML 清空 + 新子元素挂载，自动重新匹配播放，无需 reflow 重启。
-  state.route.classList.add("entering");
   try {
-    const cleanup = await view(state.route, query);
+    const cleanup = await view(host, query);
+    if (gen !== renderGen) {
+      if (typeof cleanup === "function") cleanup();
+      return;
+    }
     if (typeof cleanup === "function") mountedCleanup = cleanup;
   } catch (e) {
     console.error(e);
-    state.route.innerHTML = `<div class="muted">页面加载失败：${String((e as Error).message ?? e)}</div>`;
+    if (gen !== renderGen) return;
+    host.innerHTML = `<div class="muted">页面加载失败：${String((e as Error).message ?? e)}</div>`;
   }
   player.markActive();
 }
