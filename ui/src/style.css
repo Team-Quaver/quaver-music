@@ -44,7 +44,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.55 var(
 input, textarea, [contenteditable="true"], [contenteditable=""], .log-pre {
   -webkit-user-select: text; user-select: text;
 }
-a { color: inherit; text-decoration: none; }
+/* 桌面应用：链接/图片一律不许拖出（拖侧栏主菜单会拖出超链接幽灵）
+   -webkit-user-drag:none 对 a 生效需其内 img 同禁，否则拖封面图仍起拖拽 */
+a { color: inherit; text-decoration: none; -webkit-user-drag: none; }
+img { -webkit-user-drag: none; }
 /* 关于页图标：浅色主题用深色图标，深色主题用浅色图标（互衬底色） */
 .about-img .ic-light { display: none; }
 html[data-theme="dark"] .about-img .ic-light { display: inline-block; }
