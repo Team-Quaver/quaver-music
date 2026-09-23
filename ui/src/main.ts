@@ -4,6 +4,7 @@ import { applyTheme, applyFonts, applyDecor, applySidebar, syncCloseAction } fro
 import { player } from "./player";
 import { bootShell } from "./shell";
 import { startMprisBridge } from "./mpris";
+import { initSparkle } from "./sparkle/init";
 
 applyTheme();
 applyFonts();
@@ -14,6 +15,9 @@ syncCloseAction(); // 把「关闭按钮行为」偏好推给 Electron 主进程
 
 if (!location.hash) location.replace("#/");
 bootShell();
+// Sparkle 插件系统：必须在 bootShell 之后（要操作 nav DOM / np 插槽 / views 查表）；
+// void 不阻塞首帧 —— 插件视图/侧栏项在首帧后补挂，属渐进增强
+void initSparkle();
 startMprisBridge(); // Electron 壳层才有桥；浏览器 dev 下为 no-op
 
 // dev 钩子：e2e/调试可直接驱动播放器状态（生产构建不含）

@@ -1,6 +1,6 @@
 // 歌单行渲染（跨视图复用；对齐设计稿：三行文字 + 单曲心形 + 双击播放 + 歌手/专辑跳转）
 // 右键 = 歌曲菜单（SongMenu：插队播放/加入歌单/从歌单删除/跳转至/更多操作）
-import { api, coverUrl, fmtTime, songSubtitle, songTitle } from "./api";
+import { api, coverUrl, escHtml as esc, fmtTime, songSubtitle, songTitle } from "./api";
 import { player } from "../player";
 import { bindSongMenu } from "../components/SongMenu";
 
@@ -17,8 +17,6 @@ export interface RowHooks {
   /** 从歌单删除成功后的回调（视图侧改计数等；行的移除由本模块负责） */
   onRemoved?: (song: any) => void;
 }
-
-const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 // —— 行内红心：与 player.loved（单一真相源）同步 ——
 function paintLove(btn: HTMLElement, on: boolean) {

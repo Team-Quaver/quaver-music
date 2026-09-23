@@ -6,8 +6,7 @@
 import "./style.css";
 import { api, coverUrl, upPic, identityBadges } from "./lib/api";
 import { favSonglists, loadFavSonglists, onFavSonglistsChange } from "./lib/favs";
-import { getSidebarCollapsed, getSidebarWidth, setSidebarCollapsed, setSidebarWidth } from "./lib/prefs";
-import { bindHResizer } from "./lib/resizer";
+import { getSidebarCollapsed, setSidebarCollapsed } from "./lib/prefs";
 import { player } from "./player";
 import { PlayerBar } from "./components/PlayerBar";
 import { NowPlaying } from "./components/NowPlaying";
@@ -84,19 +83,8 @@ export async function renderRoute() {
   mountedCleanup?.();
   mountedCleanup = null;
 
-  // —— 动作打断：每次导航发放一个全新的 host 容器 + 代际号 ——
-  // 慢视图（歌单/歌手页要分页拉全数据）await 期间用户改点别的入口（如设置）时：
-  // 新导航先 replaceChildren 换掉 .route 里的 host，旧视图随后从 await 恢复时
-  // 写的已是脱离 DOM 的死容器，画了也看不见；恢复后 gen 校验不过 → 结果整个丢弃，
-  // 只补跑它的 cleanup（收轮询定时器/订阅），错误也不许写进新页面。
-  // 进入动画：entering class 挂在 host 上、随 host 一起每轮换新 —— view 填充的节点
-  // 一进 DOM 即匹配 .route>.entering>* 选择器，从 from 态（opacity:0）开始播放，
-  // 避免先 paint 出 1 再跳回 0 闪烁；class 常驻该 host，视图中途 append 的节点同样匹配。
-  const gen = ++renderGen;
-  const view = views[path] ?? views["/"];
-  const host = document.createElement("div");
-  host.className = "entering";
-  state.route.replaceChildren(host);
+  const view = views[path] ?? sparkleViewAt(path) ?? views["/"];
+  state.route.innerHTML = "";
   state.route.scrollTop = 0;
   try {
     const cleanup = await view(host, query);
@@ -128,8 +116,7 @@ function applyCoverTint(rgb: RGB | null) {
   root.style.setProperty("--cvg-glow", c.glow);
 }
 
-export function bootShell() {
-  // 环境色层：当前封面高斯模糊铺满窗口，供侧栏/播放条等玻璃面板透出色彩
+export function bootShell() {  // 环境色层：当前封面高斯模糊铺满窗口，供侧栏/播放条等玻璃面板透出色彩
   const ambient = document.createElement("div");
   ambient.className = "ambient";
   ambient.innerHTML = `<div class="ambient-art"></div>`;
@@ -296,11 +283,24 @@ export function bootShell() {
   renderRoute();
 }
 
+/** 插件侧栏导航项（Sparkle host 调用）：复用内置 nav 的 DOM 形态，追加在内置项之后。
+ *  返回锚点元素 —— 停用插件时由 host 移除。高亮逻辑复用 renderRoute 的 .nav a 扫描。 */
+export function addNavItem(item: SparkleNavItem): HTMLElement {
+  const a = document.createElement("a");
+  a.href = item.path;
+  a.dataset.route = item.path.replace(/^#\//, "");
+  a.title = item.label;
+  a.innerHTML = `${item.iconSvg ?? icons.sparkle}<span>${esc(item.label)}</span>`;
+  document.querySelector(".nav")!.append(a);
+  return a;
+}
+
 // 侧栏状态（头像/昵称/会员徽章/歌单）
 // 歌单分两团：我创建的歌单（PlaylistBaseRead）+ 收藏的歌单（PlaylistFavRead，见 lib/favs）。
 // 后者独立拉取、失败只影响本团；收藏态变化（歌单页红心）经 favs 订阅即时回灌侧栏。
 let sidebarCreated: any[] = [];
 let sidebarFavsReady = false;
+let sidebarPainted = false; // 首次 renderSidebarPlaylists 后才允许插件触发重画（登录前保持占位）
 
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
@@ -320,9 +320,11 @@ function plItem(x: any, sub = ""): HTMLElement {
 }
 
 function renderSidebarPlaylists(box: HTMLElement) {
+  sidebarPainted = true;
   const favs = sidebarFavsReady ? favSonglists() : null; // null = 尚未拉回：不画空态，避免闪一下「暂无」
+  const sparkGroups = sparkleSonglistGroups().map((g) => ({ label: g.label, items: g.items() }));
   box.innerHTML = "";
-  if (!sidebarCreated.length && !favs?.length) {
+  if (!sidebarCreated.length && !favs?.length && !sparkGroups.some((g) => g.items.length)) {
     box.innerHTML = `<div class="pl-empty">暂无歌单</div>`;
     return;
   }
@@ -336,6 +338,31 @@ function renderSidebarPlaylists(box: HTMLElement) {
   };
   group("我创建的歌单", sidebarCreated, () => "");
   group("收藏的歌单", favs ?? [], (x) => (x.nickname ? `${x.nickname} 创建` : ""));
+  // 插件自定义歌单组（Sparkle）：条目 href 由插件给定（通常是它自己注册的路由）
+  for (const g of sparkGroups) {
+    if (!g.items.length) continue;
+    const head = document.createElement("div");
+    head.className = "pl-group";
+    head.innerHTML = `<span>${esc(g.label)}</span><span class="pl-cnt">${g.items.length}</span>`;
+    box.append(head);
+    for (const item of g.items) {
+      const a = document.createElement("a");
+      a.className = "pl";
+      const pic = upPic(item.picurl ?? "");
+      a.title = item.title;
+      a.href = item.href;
+      a.innerHTML = `<span class="thumb">${pic ? `<img src="${pic}" alt="" loading="lazy"/>` : ""}</span>
+        <span class="pname"><span class="ptitle">${esc(item.title)}</span></span>`;
+      box.append(a);
+    }
+  }
+}
+
+/** 侧栏歌单区重画（Sparkle 注册/反注册歌单组时调用）。登录前不重画（保持占位样式） */
+export function repaintSidebarPlaylists() {
+  if (!sidebarPainted) return;
+  const box = document.getElementById("playlists");
+  if (box) renderSidebarPlaylists(box);
 }
 
 async function bootSidebar() {

@@ -54,7 +54,7 @@ export function ensureConfigDir(env = process.env) {
 
 // —— INI ——
 
-const SECTION_RE = /^\s*\[([^\]]+)\]\s*$/;
+const SECTION_RE = /^\s*\[([^\]]+)]\s*$/;
 // key 允许到 "=" 之前；# / ; 开头的整行是注释，不参与匹配
 const KV_RE = /^\s*([^#;=\s][^=]*?)\s*=\s*(.*?)\s*$/;
 // 行内注释（INI 惯例）：值后面跟「空白 + #/;」开始的部分。本项目的取值域里不含这两个字符，

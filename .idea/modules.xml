@@ -3,6 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/quaver.iml" filepath="$PROJECT_DIR$/.idea/quaver.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../quaver-sparkle/.idea/quaver-sparkle.iml" filepath="$PROJECT_DIR$/../quaver-sparkle/.idea/quaver-sparkle.iml" />
     </modules>
   </component>
 </project>

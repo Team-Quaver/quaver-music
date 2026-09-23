@@ -26,6 +26,8 @@ export function NowPlaying(): HTMLElement {
         </div>
       </div>
     </div>
+    <!-- Sparkle 插件小部件槽（左下角浮层；展开态才显示，不参与 np-inner 布局以免扰动歌词列） -->
+    <div class="np-widgets" id="np-plugin-widgets"></div>
   `;
 
   const $ = <T extends HTMLElement>(id: string) => el.querySelector<T>("#" + id)!;

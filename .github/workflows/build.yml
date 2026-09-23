@@ -142,8 +142,14 @@ jobs:
       # 否则 checkout 后 vendor/Typhoeus 空目录被 sidecar 填充，submodule update
       # 会拒绝 clone 进非空目录（"already exists and is not an empty directory"）。
       # MPRIS 守护进程源码也在该 submodule（mpris/），esbuild 产物供 extraResources。
-      - name: Init Typhoeus submodule
-        run: git submodule update --init --depth 1 vendor/Typhoeus
+      # Typhoeus：sidecar 产物来源 + MPRIS 守护进程源码（mpris/）
+      # Sparkle：插件 SDK，ui/tsconfig.json 的 paths 把 @quaver/sparkle 指到
+      #          ../vendor/Sparkle/sdk —— 不 init 的话 tsc 全量 TS2307，缺类型再连锁
+      #          TS7006/TS2339，构建直接挂
+      - name: Init submodules
+        run: |
+          git submodule update --init --depth 1 vendor/Typhoeus
+          git submodule update --init --depth 1 vendor/Sparkle
 
       # sidecar 产物落仓库根 dist-bin/（.gitignore 已覆盖），不再碰 submodule 路径
       - name: Fetch sidecar for this arch

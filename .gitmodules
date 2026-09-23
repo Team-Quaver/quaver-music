@@ -1,9 +1,15 @@
-[submodule "Team-Quaver/QQMusicApi"]
+[submodule "Ne0W0r1d/QQMusicApi"]
 	path = vendor/QQMusicApi
-	url = https://github.com/Team-Quaver/QQMusicApi
+	url = https://github.com/Ne0W0r1d/QQMusicApi
 	shallow = true
 
-[submodule "Team-Quaver/quaver-typhoeus"]
+[submodule "ne0w0r1d/quaver-typhoeus"]
 	path = vendor/Typhoeus
 	url = https://github.com/Team-Quaver/quaver-typhoeus
 	shallow = true
+
+[submodule "Team-Quaver/Sparkle"]
+	path = vendor/Sparkle
+	url = https://github.com/Team-Quaver/quaver-sparkle
+	shallow = true
+
