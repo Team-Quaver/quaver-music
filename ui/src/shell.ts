@@ -6,7 +6,10 @@
 import "./style.css";
 import { api, coverUrl, upPic, identityBadges } from "./lib/api";
 import { favSonglists, loadFavSonglists, onFavSonglistsChange } from "./lib/favs";
-import { getSidebarCollapsed, setSidebarCollapsed } from "./lib/prefs";
+import { getSidebarCollapsed, setSidebarCollapsed, getSidebarWidth, setSidebarWidth } from "./lib/prefs";
+import { bindHResizer } from "./lib/resizer";
+import { sparkleViewAt, sparkleSonglistGroups } from "./sparkle/registry";
+import type { SparkleNavItem } from "@quaver/sparkle";
 import { player } from "./player";
 import { PlayerBar } from "./components/PlayerBar";
 import { NowPlaying } from "./components/NowPlaying";
@@ -74,6 +77,7 @@ function syncRouteStack() {
 export async function renderRoute() {
   if (!state.route) return;
   const { path, query } = currentRoute();
+  const gen = ++renderGen;
   syncRouteStack();
   // 导航高亮
   document.querySelectorAll<HTMLElement>(".nav a").forEach((a) => {
@@ -87,7 +91,7 @@ export async function renderRoute() {
   state.route.innerHTML = "";
   state.route.scrollTop = 0;
   try {
-    const cleanup = await view(host, query);
+    const cleanup = await view(state.route, query);
     if (gen !== renderGen) {
       if (typeof cleanup === "function") cleanup();
       return;
@@ -96,7 +100,7 @@ export async function renderRoute() {
   } catch (e) {
     console.error(e);
     if (gen !== renderGen) return;
-    host.innerHTML = `<div class="muted">页面加载失败：${String((e as Error).message ?? e)}</div>`;
+    state.route.innerHTML = `<div class="muted">页面加载失败：${String((e as Error).message ?? e)}</div>`;
   }
   player.markActive();
 }

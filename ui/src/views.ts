@@ -1,22 +1,12 @@
 // Quaver — 路由视图表（仅内容区渲染；播放器/侧栏常驻）
 // 视图函数: async (root, query) => cleanup?
-<<<<<<< HEAD
-import { api, upPic, getQuality, setQuality, setSessionQuality, getStreamTiers, identityBadges } from "./lib/api";
+import { api, escHtml, getQuality, getStreamTiers, identityBadges, setQuality, setSessionQuality, stripEm, upPic, type Quality } from "./lib/api";
 import { renderSongRows, type RowHooks } from "./lib/songs";
 import { songListTools } from "./components/ListTools";
 import { getMyMusicid, isFavSonglist, loadFavSonglists, onFavSonglistsChange, toggleFavSonglist } from "./lib/favs";
 import { pushHistory } from "./components/SearchBox";
 import { playNowWithToast, toast } from "./components/SongMenu";
-import { player } from "./player";
-=======
-import {api, escHtml, getQuality, getStreamTiers, identityBadges, setQuality, setSessionQuality, stripEm, upPic, type Quality} from "./lib/api";
-import {renderSongRows, type RowHooks} from "./lib/songs";
-import {songListTools} from "./components/ListTools";
-import {getMyMusicid, isFavSonglist, loadFavSonglists, onFavSonglistsChange, toggleFavSonglist} from "./lib/favs";
-import {pushHistory} from "./components/SearchBox";
-import {enqueueNextWithToast, toast} from "./components/SongMenu";
-import {player, type Song} from "./player";
->>>>>>> feat/plugins
+import { player, type Song } from "./player";
 import {
   type CloseAction,
   type DecorMode,
@@ -1387,24 +1377,8 @@ async function searchView(root: HTMLElement, q: URLSearchParams) {
         for (const g of s.singer ?? []) g.name = stripEm(g.name);
         if (s.album) s.album.name = stripEm(s.album.name);
       }
-<<<<<<< HEAD
       // 双击 = 立即插队播放：马上切过去播这一首（只带这一首进队列，其余搜索结果不入列）
       renderSongRows(box, list, { showAlbum: true, onPlay: (s) => playNowWithToast(s) });
-    } else if (tab.type === "1") {
-      box.classList.add("grid");
-      box.innerHTML = list.map((x) => `<a class="card" href="#/singer?mid=${encodeURIComponent(x.mid ?? "")}&name=${encodeURIComponent(noEm(x.name) || "歌手")}">
-          <div class="art round">${x.pic ? `<img src="${upPic(x.pic)}" alt="" loading="lazy"/>` : ""}</div>
-          <div class="name">${noEm(x.name) || "歌手"}</div><div class="sub">${x.song_num ? `${x.song_num} 首` : ""}</div></a>`).join("");
-    } else if (tab.type === "2") {
-      box.classList.add("grid");
-      box.innerHTML = list.map((x) => `<a class="card" href="#/album?mid=${encodeURIComponent(x.mid ?? "")}">
-          <div class="art">${x.pic ? `<img src="${upPic(x.pic)}" alt="" loading="lazy"/>` : ""}</div>
-          <div class="name">${noEm(x.name) || "专辑"}</div>
-          <div class="sub">${noEm(x.singer)}${x.time_public ? ` · ${x.time_public}` : ""}</div></a>`).join("");
-=======
-      // 双击 = 插队播放：排到当前曲之后等着播（不清空、也不打断正在放的列表）
-      renderSongRows(box, list, { showAlbum: true, onPlay: (s) => enqueueNextWithToast(s) });
->>>>>>> feat/plugins
     } else {
       const list: SearchSinger[] | SearchAlbum[] | SearchSonglist[] =
         tab.type === "1" ? d.singer ?? [] : tab.type === "2" ? d.album ?? [] : d.songlist ?? [];
