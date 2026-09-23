@@ -17,7 +17,7 @@ export function PlayerBar(): HTMLElement {
   el.className = "player";
   el.id = "player-bar";
   el.innerHTML = `
-    <div class="pb-fill" id="pb-fill"></div>
+    <div class="pb-fill-clip"><div class="pb-fill" id="pb-fill"></div></div>
     <div class="pb-left">
       <button class="pb-cover" id="pb-cover" title="展开歌词 / 正在播放"></button>
       <div class="now">

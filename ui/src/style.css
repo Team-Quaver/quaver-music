@@ -513,17 +513,24 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
   .pb-q, .pb-btn#pb-love { display: none; }
   .now .s { display: none; }
 }
-/* 背景染色进度条：已播区 = 封面主色。贴紧 Bar 左右两端（border 内侧），
-   R 角与 .player(14px) 同心（13px），满进度时正好铺满内沿。
+/* 背景染色进度条：已播区 = 封面主色。fill 的母容器 .pb-fill-clip 负责裁切：
+   inset:1px 贴紧 border 内侧两端（R 角与 .player(14px) 同心 = 13px），
+   overflow:hidden 把已播区永远裁在内沿圆角矩形里 —— 之前 fill 自带 13px 圆角，
+   刚开播时宽度只有几像素，圆角被等比缩成 ~1px，尖角顶出 Bar 的圆角玻璃边
+   看起来像出界；交给母容器统一裁切后，任意进度（含 0 与满）都严格在形状内。
+   不能直接给 .player 加 overflow:hidden —— 音量/音质浮窗挂在 Bar 上方会被一起裁掉。
    z-index:0 而非负值——.player 有 backdrop-filter（filter 系），
    负 z-index 会连元素一起被压到 .player 自身背景之下而不可见。
-   块级背景天然在常规流文字/按钮之下，故 fill 置 0、控件置 1 即可。 */
+   块级背景天然在常规流文字/按钮之下，故裁切层置 0、控件置 1 即可。 */
+.pb-fill-clip {
+  position: absolute; inset: 1px; z-index: 0;
+  border-radius: 13px; overflow: hidden;
+  pointer-events: none;
+}
 .pb-fill {
-  position: absolute; top: 1px; bottom: 1px; left: 1px; width: calc((100% - 2px) * var(--pf, 0)); z-index: 0;
-  border-radius: 13px;
+  height: 100%; width: calc(100% * var(--pf, 0));
   background: var(--tint, rgba(25,194,216,.75));
   transition: background-color .5s ease;
-  pointer-events: none;
 }
 .pb-left, .pb-mid, .pb-right { position: relative; z-index: 1; }
 /* 进度 = 封面染色本身（.pb-fill 即进度指示，整条 Bar 可拖拽 seek，无需额外细线） */
