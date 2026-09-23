@@ -269,7 +269,7 @@ export function isSongMenuOpen() { return !!layer; }
 
 // —— 菜单内容 ——
 
-/** 插队播放（菜单项与搜索页双击共用一处语义 + 一处回执）：
+/** 插队播放（右键菜单项用）：
  *  把歌排到当前曲之后等着播 —— 不切歌、不打断；唯一可见反馈就是队列里多了一条，
  *  所以补一条 toast，否则「什么都没发生」。队列空着时会直接起播，那时文案也跟着变。 */
 export function enqueueNextWithToast(song: any) {
@@ -278,6 +278,15 @@ export function enqueueNextWithToast(song: any) {
   const label = songTitle(song) || "这首歌";
   player.enqueueNext(song);
   toast(playing ? `已插队：${label}（下一首播放）` : `开始播放：${label}`);
+}
+
+/** 立即插队播放（搜索页双击用）：马上切过去播这一首 —— 只带这一首进队列，
+ *  其余搜索结果不入列；队列原有内容不动。回执与 enqueueNextWithToast 同一套 toast。 */
+export function playNowWithToast(song: any) {
+  if (!song?.mid) return;
+  const label = songTitle(song) || "这首歌";
+  player.playNextNow(song);
+  toast(`正在播放：${label}`);
 }
 
 function artistItems(song: any): MenuItem[] {

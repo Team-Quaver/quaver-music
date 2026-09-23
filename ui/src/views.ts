@@ -5,7 +5,7 @@ import { renderSongRows, type RowHooks } from "./lib/songs";
 import { songListTools } from "./components/ListTools";
 import { getMyMusicid, isFavSonglist, loadFavSonglists, onFavSonglistsChange, toggleFavSonglist } from "./lib/favs";
 import { pushHistory } from "./components/SearchBox";
-import { enqueueNextWithToast, toast } from "./components/SongMenu";
+import { playNowWithToast, toast } from "./components/SongMenu";
 import { player } from "./player";
 import {
   getTheme, setTheme, getDecor, setDecor,
@@ -1316,8 +1316,8 @@ async function searchView(root: HTMLElement, q: URLSearchParams) {
         for (const g of s.singer ?? []) g.name = noEm(g.name);
         if (s.album) s.album.name = noEm(s.album.name);
       }
-      // 双击 = 插队播放：排到当前曲之后等着播（不清空、也不打断正在放的列表）
-      renderSongRows(box, list, { showAlbum: true, onPlay: (s) => enqueueNextWithToast(s) });
+      // 双击 = 立即插队播放：马上切过去播这一首（只带这一首进队列，其余搜索结果不入列）
+      renderSongRows(box, list, { showAlbum: true, onPlay: (s) => playNowWithToast(s) });
     } else if (tab.type === "1") {
       box.classList.add("grid");
       box.innerHTML = list.map((x) => `<a class="card" href="#/singer?mid=${encodeURIComponent(x.mid ?? "")}&name=${encodeURIComponent(noEm(x.name) || "歌手")}">

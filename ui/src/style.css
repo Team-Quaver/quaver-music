@@ -97,8 +97,10 @@ button { font: inherit; }
 
 /* .body 底部不再给播放条留 absolute 空间——播放条已改为 .frame 流内固定行（任何窗口高度都必然可见） */
 .body { flex: 1; display: flex; gap: 10px; padding: 10px; min-height: 0; }
+/* 侧栏宽度：默认 216px，可由 shell.ts 的分隔条拖拽写入的 --side-w 覆盖
+   （缩态 64px 由 body.side-collapsed 的高优先级规则接管，见文件下方） */
 .sidebar {
-  flex: 0 0 216px; border-radius: 14px; padding: 14px 10px;
+  flex: 0 0 var(--side-w, 216px); border-radius: 14px; padding: 14px 10px;
   display: flex; flex-direction: column; gap: 10px; overflow: hidden; min-height: 0;
   background: var(--glass); border: 1px solid var(--glass-line);
   box-shadow: 0 8px 32px rgba(15,20,30,.10);
@@ -216,6 +218,30 @@ body.side-collapsed .playlists::-webkit-scrollbar { width: 6px; }
 body.side-collapsed .playlists::-webkit-scrollbar-thumb { border-width: 2px; }
 body.side-collapsed .side-foot { flex-direction: column; justify-content: center; gap: 2px; }
 body.side-collapsed .side-btn svg { transform: rotate(180deg); }
+
+/* ===================== 可拖拽分隔条（侧栏右缘 / 停靠队列左缘，逻辑见 shell.ts / QueuePanel.ts） =====================
+   命中区 = flex 行内的 10px 竖条：负外边距把自身宽度抵平，悬在两面板接缝上、不改既有版式。
+   .body 有 10px gap → .side-resizer 两侧各 -10px 抵平（间距仍是 10px）；
+   .content-body 无 gap → .qp-resizer 只给 margin-right:-10px（面板起点不变，命中区叠在面板左缘之上，
+   靠 z-index 30 浮起收指针）。悬停/拖拽中点一条 accent 竖线作落点提示。 */
+.side-resizer, .qp-resizer {
+  flex: 0 0 10px; position: relative; z-index: 30;
+  cursor: ew-resize; border-radius: 999px;
+  transition: background .14s;
+}
+.side-resizer { margin: 0 -10px; }
+.qp-resizer { margin-right: -10px; }
+.side-resizer:hover, .qp-resizer:hover,
+body.col-resizing .side-resizer, body.col-resizing .qp-resizer {
+  background: color-mix(in srgb, var(--cvg-accent, var(--acc)) 40%, transparent);
+}
+/* 拖拽中：指针滑出命中区也保持统一光标，并压住文本选中 */
+body.col-resizing, body.col-resizing * { cursor: ew-resize !important; }
+/* 拖拽进行中停掉宽度过渡（.sidebar/.queue-panel.dock 的 flex-basis/width 有 .24s 过渡，不停会滞后于指针） */
+body.side-resizing .sidebar { transition: none; }
+.queue-panel.dock.resizing { transition: none; }
+/* 侧栏缩回时宽度由缩态样式接管，分隔条不给拖 */
+body.side-collapsed .side-resizer { display: none; }
 
 .content { flex: 1; border-radius: 14px; overflow: hidden; padding: 0; min-width: 0; min-height: 0; position: relative;
   display: flex; flex-direction: column;
@@ -771,7 +797,7 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 }
 .queue-panel.float.open { opacity: 1; pointer-events: auto; transform: none; }
 .queue-panel.dock {
-  flex: 0 0 300px; width: 300px; min-width: 0; min-height: 0;
+  flex: 0 0 var(--qp-w, 300px); width: var(--qp-w, 300px); min-width: 0; min-height: 0;
   border-left: 1px solid var(--line);
   background: color-mix(in srgb, var(--ink) 4%, transparent);
   overflow: hidden;
@@ -785,7 +811,7 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
   flex-basis: 0; width: 0; opacity: 0; transform: translateX(20px); pointer-events: none;
   border-left-color: transparent;
 }
-.queue-panel.dock .qp-head, .queue-panel.dock .qp-list { min-width: 300px; }
+.queue-panel.dock .qp-head, .queue-panel.dock .qp-list { min-width: var(--qp-w, 300px); }
 .qp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 10px 12px 10px 14px; font-weight: 700; border-bottom: 1px solid var(--line); }
 .qp-title { display: flex; align-items: baseline; gap: 7px; min-width: 0; }

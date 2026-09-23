@@ -97,22 +97,28 @@ ok("层级: 菜单 > 队列浮窗 > 正在播放页", zMenu > zQp && zQp > zNp, 
 ok("层级: 菜单不盖窗口按钮簇", zMenu < zWin, `menu=${zMenu} winbtns=${zWin}`);
 ok("css: 提示条 .toast / .toast.show 有样式", has(src.css, ".toast {") && has(src.css, ".toast.show"));
 
-// ============ 3. 搜索页双击 = 插队（不清空队列） ============
-// 插队 = 排到当前曲之后**等着播**（不打断、不跳转）。早期实现写成「插进去 + 立刻跳过去」，
-// 与用户要的语义不符 —— 这里把「不许动指针、不许切歌」写成断言。
+// ============ 3. 搜索页双击 = 立即插队播放（只带这一首，不清空队列） ============
+// 双击 = 插到当前曲之后并**马上切过去**（打断当前曲，playNextNow）；其余搜索结果不入列，
+// 队列原有内容不动。右键菜单「插队播放」仍是「排到下一首等着播」（enqueueNext）—— 两条语义分开。
 const enqueueBody = (src.player.match(/enqueueNext\(song: Song\) \{([\s\S]*?)\n  \}/) ?? [])[1] ?? "";
-ok("player: 插队插到当前曲之后（排在下一首）",
+ok("player: 菜单插队插到当前曲之后（排在下一首）",
   /this\.queue\.splice\(this\.index \+ 1, 0, song\);\s*this\.notify\(\);/.test(noComments(enqueueBody)));
-ok("player: 插队不动指针、不切歌（队列空时才退化成起播）",
+ok("player: 菜单插队不动指针、不切歌（队列空时才退化成起播）",
   !/this\.index \+=/.test(noComments(enqueueBody))
   && !/startCurrent/.test(noComments(enqueueBody))
   && /if \(this\.index < 0 \|\| !this\.queue\.length\) \{ this\.playList\(\[song\], 0\); return; \}/.test(noComments(enqueueBody)));
-ok("player: 已删掉「插队即跳转」的 playNext", !has(noComments(src.player), "playNext("));
-ok("views: 搜索页双击走插队（不是 playList，也不是已废的 playNext）",
-  /renderSongRows\(box, list, \{ showAlbum: true, onPlay: \(s\) => enqueueNextWithToast\(s\) \}\)/.test(src.views));
-ok("菜单: 插队播放与搜索页共用同一处语义 + 回执",
+const nowBody = (src.player.match(/playNextNow\(song: Song\) \{([\s\S]*?)\n  \}/) ?? [])[1] ?? "";
+ok("player: 立即插队插到当前曲之后并马上切歌（指针前移 + startCurrent）",
+  /this\.queue\.splice\(this\.index \+ 1, 0, song\);\s*this\.index\+\+;/.test(noComments(nowBody))
+  && /startCurrent/.test(noComments(nowBody)));
+ok("player: 立即插队队列空时退化成单曲起播",
+  /if \(this\.index < 0 \|\| !this\.queue\.length\) \{ this\.playList\(\[song\], 0\); return; \}/.test(noComments(nowBody)));
+ok("views: 搜索页双击走立即插队（不是 playList 整列灌队，也不是排到下一首）",
+  /renderSongRows\(box, list, \{ showAlbum: true, onPlay: \(s\) => playNowWithToast\(s\) \}\)/.test(src.views));
+ok("菜单: 排队插队与搜索页立即插队分开（各自入口 + 回执）",
   has(src.menu, "export function enqueueNextWithToast") && has(src.menu, "player.enqueueNext(song)")
-  && has(src.menu, "run: () => enqueueNextWithToast(song)"));
+  && has(src.menu, "run: () => enqueueNextWithToast(song)")
+  && has(src.menu, "export function playNowWithToast") && has(src.menu, "player.playNextNow(song)"));
 
 // ============ 4. 歌单写入（加入歌单 / 从歌单删除） ============
 ok("playlists: 自建歌单缓存 + 排除「我喜欢」(dirid=201)",

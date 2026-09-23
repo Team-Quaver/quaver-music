@@ -230,6 +230,18 @@ export const SCHEMA = [
         doc: ["侧栏是否缩回：False=展开（默认，显示昵称/导航文字/歌单名）｜True=缩回（只留头像、导航图标、歌单封面与底部两颗按钮）"],
         valid: (v) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
       },
+      {
+        key: "SidebarWidth",
+        def: "",
+        doc: ["侧栏宽度（px）：拖拽侧栏右缘分隔条写入；留空=用内置默认（216）"],
+        valid: (v) => v.trim() === "" || (Number.isFinite(Number(v)) && Number(v) >= 64 && Number(v) <= 2000),
+      },
+      {
+        key: "QueueWidth",
+        def: "",
+        doc: ["播放列表停靠宽度（px）：拖拽面板左缘分隔条写入；留空=用内置默认（300）"],
+        valid: (v) => v.trim() === "" || (Number.isFinite(Number(v)) && Number(v) >= 64 && Number(v) <= 2000),
+      },
     ],
   },
   {

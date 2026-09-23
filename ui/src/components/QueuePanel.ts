@@ -5,8 +5,10 @@
 //   宽度不够       → 浮窗（.float）固定于窗口右下、悬在内容之上（原行为）。
 import { player, type Song } from "../player";
 import { coverUrl, songTitle } from "../lib/api";
+import { getQueueWidth, setQueueWidth } from "../lib/prefs";
 import { icons } from "../lib/icons";
 import { dropSlot, edgeSpeed } from "../lib/reorder";
+import { bindHResizer } from "../lib/resizer";
 
 /** 内容区达到该宽度才停靠（再窄会把视图区挤得放不下卡片网格） */
 const DOCK_MIN_CONTENT = 880;
@@ -30,6 +32,40 @@ export function QueuePanel(): HTMLElement {
   el.querySelector<HTMLElement>("#qp-close")!.onclick = () => { player.queueOpen = false; player.notifyPublic(); };
   el.querySelector<HTMLElement>("#qp-clear")!.onclick = () => player.clearQueue();
 
+  // —— 停靠宽度可拖拽：分隔条挂在面板左缘（随 .dock 一起进 .content-body），宽度持久化在
+  //    Window.QueueWidth，经 --qp-w 变量驱动 .queue-panel.dock 的 flex-basis/width 与
+  //    qp-head/qp-list 的 min-width（关合动画的 0 宽由更高优先级规则接管，不受变量影响）。
+  //    双击恢复内置默认。 ——
+  const QP_DEFAULT_W = 300;
+  const QP_MIN_W = 260;
+  const QP_MAX_W = 560;
+  let qpW = getQueueWidth() ?? QP_DEFAULT_W;
+  el.style.setProperty("--qp-w", `${qpW}px`);
+  const qpResizer = document.createElement("div");
+  qpResizer.className = "qp-resizer";
+  qpResizer.title = "拖拽调整播放列表宽度；双击恢复默认";
+  qpResizer.hidden = true;
+  bindHResizer(qpResizer, {
+    invert: true, // 把手在面板左缘：往左（外）拖 = 变宽，边界跟着指针走
+    start: () => qpW,
+    move: (w) => {
+      // 上限让出路由区：内容区至少留 420px（低于停靠门槛 880 一半的可用宽度），极窄时收到下限
+      const max = Math.max(QP_MIN_W, Math.min(QP_MAX_W, (contentEl()?.clientWidth ?? 1000) - 420));
+      qpW = Math.round(Math.max(QP_MIN_W, Math.min(max, w)));
+      el.classList.add("resizing"); // 停掉 .dock 的宽度过渡，跟手
+      el.style.setProperty("--qp-w", `${qpW}px`);
+    },
+    end: () => {
+      el.classList.remove("resizing");
+      setQueueWidth(qpW);
+    },
+    dbl: () => {
+      qpW = QP_DEFAULT_W;
+      el.style.setProperty("--qp-w", `${QP_DEFAULT_W}px`);
+      setQueueWidth(QP_DEFAULT_W);
+    },
+  });
+
   // —— 形态切换：停靠 / 浮窗（**与开合解耦**，见 applyLayout 的注释）——
   const contentEl = () => document.querySelector<HTMLElement>(".content");
   const contentBody = () => document.querySelector<HTMLElement>(".content-body");
@@ -51,8 +87,19 @@ export function QueuePanel(): HTMLElement {
     el.classList.toggle("dock", dock);
     el.classList.toggle("float", !dock);
     const want = dock ? contentBody() : document.body;
-    if (!want || el.parentElement === want) return false;
-    want.append(el);
+    if (!want || el.parentElement === want) {
+      if (!dock) qpResizer.remove(); // 浮窗态分隔条不跟随（挪回 body 时摘掉）
+      return false;
+    }
+    if (dock) {
+      // 先 resizer 后面板：DOM 序 = route | resizer | panel，分隔条的 border box 恰好落在面板
+      // 左缘 10px 之上（margin-right:-10px 抵平自身占位），靠 z-index 浮起收指针 ——
+      // 反过来 append 的话分隔条会被挤到面板右缘外，左缘就没有把手了。
+      want.append(qpResizer, el);
+    } else {
+      want.append(el);
+      qpResizer.remove(); // 浮窗态分隔条不跟随
+    }
     return true;
   }
 
@@ -64,6 +111,8 @@ export function QueuePanel(): HTMLElement {
     // 而浏览器会把聚焦元素滚进视野 —— .content 一旦被程序化滚动，整个路由视图就横移
     // （与 scrollIntoView 那起事故同源；见 revealCurrent 的注释）。
     el.toggleAttribute("inert", !open);
+    // 分隔条只在「停靠且打开」时可用：面板 0 宽收起时拖着没有意义
+    qpResizer.hidden = !(open && el.classList.contains("dock"));
   }
 
   /** 开合 + 形态。刚换过父节点就把 .open 推到下一帧：新插入的节点必须有一帧「关闭态」垫底，

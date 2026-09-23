@@ -201,9 +201,10 @@ CI 两道断言：暂存后 `bins.mjs --check build-res/audio`；AppImage 产出
   选中态是「软洗底 + accent 系前景 + accent 描边」，已在 `verify-highlight-contrast.mjs` 里登记
   （新加 accent 掺色的高亮态都得跑它）。
 - **插队播放 = 排队，不是切歌**（`player.enqueueNext`）：把歌插到**当前曲之后**，当前曲继续放，
-  下一首轮到它 —— 不打断、不跳转；只有队列还空着（没播过）时才直接起播。
-  **搜索页双击就是这个语义**（不再整队列替换），其余列表双击仍是 `playList`（整队列替换）。
-  菜单项与搜索页双击共用 `SongMenu.ts:enqueueNextWithToast`（同一处语义 + 同一处 toast 回执）。
+  下一首轮到它 —— 不打断、不跳转；只有队列还空着（没播过）时才直接起播。右键菜单「插队播放」就是这个语义。
+  **搜索页双击是「立即插队播放」**（`player.playNextNow`）：插到当前曲之后并**马上切过去**，
+  且只带双击这一首进队列（其余搜索结果不入列，队列原有内容不动）。
+  两条语义分开：菜单走 `SongMenu.ts:enqueueNextWithToast`，搜索页双击走 `SongMenu.ts:playNowWithToast`。
 - **会话存档**（`lib/session.ts` + `player.restoreSession`）：退出时把队列/指针/位置/循环模式写进
   localStorage（`quaver.session.v1`，本地会话数据不是设置，与收藏同类），下次启动**挂流但不自动播**，
   按播放键从原处继续。两条硬约束：还原完成前不写盘（闸门 `sessionReady`，否则启动瞬间的空队列

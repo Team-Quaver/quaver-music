@@ -234,3 +234,29 @@ export function setSidebarCollapsed(v: boolean) {
   cfgSet({ "Window.SidebarCollapsed": v ? "True" : "False" });
   applySidebar();
 }
+
+// —— 面板宽度（侧栏 / 停靠队列）：拖拽分隔条写入。拖拽是高频项 → cfgSetSoon 合并落盘；
+//    空值 = 未自定义（CSS 变量不设，回落 style.css 的内置默认宽度）。 ——
+const readPx = (key: string): number | null => {
+  const v = cfg(key).trim();
+  const n = Number(v);
+  return v !== "" && Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+};
+const writePx = (key: string, px: number | null, min: number, max: number) => {
+  const v = px == null ? "" : String(Math.round(Math.max(min, Math.min(max, px))));
+  cfgSetSoon({ [key]: v });
+};
+
+export function getSidebarWidth(): number | null {
+  return readPx("Window.SidebarWidth");
+}
+export function setSidebarWidth(px: number | null) {
+  writePx("Window.SidebarWidth", px, 64, 2000);
+}
+
+export function getQueueWidth(): number | null {
+  return readPx("Window.QueueWidth");
+}
+export function setQueueWidth(px: number | null) {
+  writePx("Window.QueueWidth", px, 64, 2000);
+}

@@ -6,7 +6,8 @@
 import "./style.css";
 import { api, coverUrl, upPic, identityBadges } from "./lib/api";
 import { favSonglists, loadFavSonglists, onFavSonglistsChange } from "./lib/favs";
-import { getSidebarCollapsed, setSidebarCollapsed } from "./lib/prefs";
+import { getSidebarCollapsed, getSidebarWidth, setSidebarCollapsed, setSidebarWidth } from "./lib/prefs";
+import { bindHResizer } from "./lib/resizer";
 import { player } from "./player";
 import { PlayerBar } from "./components/PlayerBar";
 import { NowPlaying } from "./components/NowPlaying";
@@ -199,6 +200,43 @@ export function bootShell() {
   document.body.prepend(frame);
   state.content = frame.querySelector<HTMLElement>(".content")!;
   state.route = frame.querySelector<HTMLElement>("#route")!;
+
+  // —— 侧栏宽度：可拖拽（侧栏与内容区接缝处的分隔条），持久化在 Window.SidebarWidth。
+  //    宽度走 <body> 上的 --side-w 变量驱动 .sidebar 的 flex-basis（缩态 64px 由
+  //    body.side-collapsed 的高优先级规则接管，与变量互不干扰）；双击恢复内置默认。 ——
+  const SIDEBAR_DEFAULT_W = 216;
+  const SIDEBAR_MIN_W = 180;
+  const SIDEBAR_MAX_W = 440;
+  const applySideW = (px: number | null) => {
+    if (px == null) document.body.style.removeProperty("--side-w");
+    else document.body.style.setProperty("--side-w", `${px}px`);
+  };
+  let sideW = getSidebarWidth() ?? SIDEBAR_DEFAULT_W;
+  applySideW(getSidebarWidth());
+  // 上限再让一层给窗口：内容区至少留 320px 可用，极窄窗口时上限自动收
+  const clampSideW = (w: number) =>
+    Math.round(Math.max(SIDEBAR_MIN_W, Math.min(SIDEBAR_MAX_W, window.innerWidth - 320, w)));
+  const sideResizer = document.createElement("div");
+  sideResizer.className = "side-resizer";
+  sideResizer.title = "拖拽调整侧栏宽度；双击恢复默认";
+  state.content.before(sideResizer);
+  bindHResizer(sideResizer, {
+    start: () => sideW,
+    move: (w) => {
+      sideW = clampSideW(w);
+      document.body.classList.add("side-resizing"); // 停掉 .sidebar 的宽度过渡，跟手
+      applySideW(sideW);
+    },
+    end: () => {
+      document.body.classList.remove("side-resizing");
+      setSidebarWidth(sideW);
+    },
+    dbl: () => {
+      sideW = SIDEBAR_DEFAULT_W;
+      applySideW(null);
+      setSidebarWidth(null);
+    },
+  });
   // 搜索框常驻壳层顶带（.content-top，与 CSD 按钮簇同一水平带）：路由切换/视图刷新只重建 #route，
   // 它不动；顶带把标题行整个让给页面内容，窄窗口下不再互相遮挡。
   // 返回按钮 = 搜索框的兄弟节点（同一个居中组里），没有可返回的上级时隐藏（syncRouteStack）。

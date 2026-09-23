@@ -367,6 +367,18 @@ class Player {
     this.notify();
   }
 
+  /** 立即插队播放：插到**当前曲之后**并**马上切过去**（打断当前曲）。与 enqueueNext 只差时机 ——
+   *  不等当前曲放完。只带这一首进队列，队列原有内容不动（其余搜索结果不入列）。
+   *  搜索页双击用：即点即播，但不把搜索结果整列灌进队列。
+   *  队列还空着（没播过任何东西）时没有「插队」可言，退化成单曲起播。 */
+  playNextNow(song: Song) {
+    if (!song?.mid) return;
+    if (this.index < 0 || !this.queue.length) { this.playList([song], 0); return; }
+    this.queue.splice(this.index + 1, 0, song);
+    this.index++;
+    void this.startCurrent();
+  }
+
   /** 从队列移除第 i 首。删除的是当前曲：停流停在原地（指针落到同槽位的下一首），不自动续播；
    *  删当前曲之前的歌：指针前移；删之后的歌：指针不动。 */
   removeAt(i: number) {
