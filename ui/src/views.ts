@@ -51,6 +51,13 @@ const h = (tag: string, cls: string, html = "") => {
 /** catch (e: unknown) 统一取文案：ApiError/Error 取 message，其余原样转串 */
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** 模块级订阅槽：同一时刻只保留最新的一个 player 订阅（见 settingsView 的用法） */
+let backendWatchOff: (() => void) | null = null;
+function watchBackendChange(fn: () => void) {
+  backendWatchOff?.();
+  backendWatchOff = player.on(fn);
+}
+
 // —— 上游响应的最小类型（只声明视图里真正读的字段，上游字段缺失一律可选） ——
 /** 歌单详情页的 info（/songlist/:id/detail） */
 interface SonglistInfo {
@@ -1116,9 +1123,11 @@ async function settingsView(root: HTMLElement) {
 
   async function paintAll() { await paintBackend(); await paintDevices(); }
   void paintAll();
-  // 引擎传输热切换（启动探测/设置页切换）后刷新设备列表——只在后端真正变化时，别跟着 4Hz notify 空转
+  // 引擎传输热切换（启动探测/设置页切换）后刷新设备列表——只在后端真正变化时，别跟着 4Hz notify 空转。
+  // 订阅只留最新一份（watchBackendChange 会退订上一份）：设置页可反复进出，旧订阅若不退订，
+  // 会连着整棵已拆卸的设置页 DOM 一直滞留在内存里（每次访问泄漏一整页）。
   let lastBackend = player.backend;
-  player.on(() => {
+  watchBackendChange(() => {
     if (player.backend !== lastBackend) {
       lastBackend = player.backend;
       void paintBackend();

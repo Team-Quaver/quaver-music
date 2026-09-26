@@ -68,7 +68,7 @@ export class MpvIpc {
       // —— 缓存：有上限的滑动窗口，纯内存，绝不落盘（合规线：不做整曲持久化）——
       "--cache-on-disk=no",
       "--demuxer-max-bytes=32MiB",  // 前向窗口
-      "--demuxer-max-back-bytes=64MiB", // 回看窗口（seek 回退不必重新拉全流）
+      "--demuxer-max-back-bytes=24MiB", // 回看窗口（seek 回退不大动干戈重拉全流；再大只是白占内存，更早的回退交给 CDN 重取）
       // —— 断流韧性：上游 CDN 抖动时 ffmpeg http 层自动重连，别直接判死 ——
       "--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=2",
       "--network-timeout=15",
