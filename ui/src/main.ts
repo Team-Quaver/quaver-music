@@ -12,6 +12,14 @@ applyDecor();
 applySidebar();
 syncCloseAction(); // 把「关闭按钮行为」偏好推给 Electron 主进程（tray/quit）
 
+// 关闭「Tab 键遍历」（浏览器默认的焦点循环）：桌面音乐客户端用不上，
+// Tab/Shift+Tab 不再把焦点移到卡片/按钮/输入框之间（捕获阶段拦下，登录页等所有视图一并生效）
+window.addEventListener(
+  "keydown",
+  (e) => { if (e.key === "Tab") e.preventDefault(); },
+  { capture: true },
+);
+
 if (!location.hash) location.replace("#/");
 bootShell();
 startMprisBridge(); // Electron 壳层才有桥；浏览器 dev 下为 no-op
