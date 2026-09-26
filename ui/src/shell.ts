@@ -88,10 +88,18 @@ export async function renderRoute() {
   mountedCleanup = null;
 
   const view = views[path] ?? sparkleViewAt(path) ?? views["/"];
-  state.route.innerHTML = "";
+  // —— 每次导航发放一个全新的 host 容器（.route > .entering）——
+  // 进入动画：entering class 挂在 host 上、随 host 一起每轮换新 —— view 填充的节点
+  // 一进 DOM 即匹配 .route>.entering>* 选择器，从 from 态（opacity:0）开始播放，
+  // 避免先 paint 出 1 再跳回 0 闪烁；class 常驻该 host，视图中途 append 的节点同样匹配。
+  // （它也是竞态护栏的一半：晚到的旧渲染写的是已脱离 DOM 的死容器，gen 校验会整轮丢弃。）
+  // 注：这套机制曾在 feat/plugins 合并重写本函数时被误删，页面切换动画因此失效（2026-09-26 恢复）。
+  const host = document.createElement("div");
+  host.className = "entering";
+  state.route.replaceChildren(host);
   state.route.scrollTop = 0;
   try {
-    const cleanup = await view(state.route, query);
+    const cleanup = await view(host, query);
     if (gen !== renderGen) {
       if (typeof cleanup === "function") cleanup();
       return;
@@ -100,7 +108,7 @@ export async function renderRoute() {
   } catch (e) {
     console.error(e);
     if (gen !== renderGen) return;
-    state.route.innerHTML = `<div class="muted">页面加载失败：${String((e as Error).message ?? e)}</div>`;
+    host.innerHTML = `<div class="muted">页面加载失败：${String((e as Error).message ?? e)}</div>`;
   }
   player.markActive();
 }
