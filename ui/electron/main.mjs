@@ -648,6 +648,11 @@ ipcMain.on("quaver:decor", (_e, mode) => {
 if (!process.env.QUAVER_KEEP_MEDIATOR) {
   app.commandLine.appendSwitch("disable-features", "MediaSessionService,HardwareMediaKeyHandling");
 }
+// 渲染进程 V8 老生代上限：本应用的数据面很小（千首级歌单/队列也就几 MB 的 JS 对象），V8 默认
+// 无上限会按堆增长启发式惰性扩堆，渲染进程 RSS 轻松上 400MB。钉一个 256MB 顶部逼 V8 提前回收，
+// 行为零变化（正常使用远碰不到这个顶）。js-flags 只作用于 Chromium 子进程（渲染层/工具进程），
+// 主进程的 Node V8 不受影响。
+app.commandLine.appendSwitch("js-flags", "--max-old-space-size=256");
 log("[quaver] main.mjs entered, app name:", app.name || "(unset)");
 // 先抓一份 Electron 默认菜单（SSD 模式用），随后按 decorMode 应用。
 let defaultMenu = Menu.getApplicationMenu();
