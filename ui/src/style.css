@@ -54,6 +54,20 @@ html[data-theme="dark"] .about-img .ic-light { display: inline-block; }
 html[data-theme="dark"] .about-img .ic-dark { display: none; }
 button { font: inherit; }
 
+/* ===================== 焦点指示 =====================
+   Tab 遍历已在 main.ts 全局拦下：焦点只会由鼠标点击产生。此后一旦按下任意键，
+   Chromium 会把输入模态切回「键盘」，此刻持有焦点的控件就会命中 :focus-visible、
+   亮起 UA 默认的 outline:auto（系统深色描边）——在玻璃拟态 UI 上非常突兀，且并非
+   键盘导航的结果（Tab 已禁），纯属视觉残留。这里统一收掉 outline，聚焦反馈交给
+   各控件自己的语言：文本输入类走边框提色（与 .sb-field:focus-within 的 accent
+   光环同一口径），按钮/链接不画 —— hover/active 已是充分的指针反馈。 */
+:focus { outline: none; }
+input:focus, textarea:focus, select:focus {
+  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 55%, var(--line));
+}
+/* 搜索胶囊内的 input 无边框：聚焦态光环由 .sb-field:focus-within 统一画，本体不叠加 */
+.sb-field input:focus { border-color: transparent; }
+
 /* 环境色层：当前封面模糊铺底（玻璃面板的色彩来源）。
    z-index:-1：画在 body 画布背景之上、所有常规流内容之下——
    透明缝隙与 backdrop-filter 面板都能透出它，且不污染白色内容卡。 */
