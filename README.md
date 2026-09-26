@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="img/quaver-icon-dark.svg" width="96">
+  <img src="img/quaver-icon.svg" width="96">
 </p>
 
 # Quaver Music- 又一个第三方 QQ 音乐客户端
