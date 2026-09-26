@@ -105,16 +105,11 @@ const pct = (b, what) => {
 const ghost = blockOf(".pb-ghost.on");
 const love = blockOf(".pb-ghost#pb-love.on");
 const pill = blockOf(".pb-q.active");
-const npOn = blockOf(".np-trans.on");
 
 console.log("=== style.css 实际取值 ===");
 const F_GHOST = pct(ghost, ".pb-ghost.on 前景");
 const F_PILL = pct(pill, ".pb-q.active 前景");
-const W_NP = pct(npOn, ".np-trans.on 洗底");
-const veilM = npOn.match(/#ffffff([0-9a-f]{2})/i);
-if (!veilM) bad(".np-trans.on 白纱锚点取不到");
-const A_NP = veilM ? parseInt(veilM[1], 16) / 255 : NaN;
-console.log(`  ghost 前景 accent ${F_GHOST}　胶囊 前景 accent ${F_PILL}　np 白纱 accent ${W_NP} + #ffffff${veilM ? veilM[1] : "??"}`);
+console.log(`  ghost 前景 accent ${F_GHOST}　胶囊 前景 accent ${F_PILL}`);
 
 // —— 结构断言 ——
 if (/background\s*:/.test(ghost)) bad(".pb-ghost.on 带了 background —— 控制条是裸图标排，次级按钮不许加底");
@@ -124,9 +119,6 @@ if (/background\s*:/.test(pill)) bad(".pb-q.active 改了 background —— 胶�
 if (!pill.includes("var(--ink)")) bad(".pb-q.active 前景没锚到 --ink");
 if (!/border-color:\s*var\(--cvg-accent/.test(pill)) bad(".pb-q.active 描边不是实心 accent");
 if (love.replace(/\s/g, "") !== "color:#e8465a;") bad(`.pb-ghost#pb-love.on 应保持原样 color:#e8465a（固定色本就够对比），现为：${love.trim()}`);
-if (!npOn.includes("color: #0b0e19")) bad(".np-trans.on 前景没锚到遮罩底色（本页恒深，不能用 --ink）");
-// np 胶囊不加描边：实测那圈对轮廓的贡献还不如洗底自己，属于多余元件
-if (/box-shadow\s*:/.test(npOn)) bad(".np-trans.on 又加描边了 —— 实测它不贡献轮廓（单看最坏 ΔE 11.6 vs 洗底 18.9），别加");
 if (fails) { console.log("\n结构不对，先修 CSS 再跑对比度"); process.exit(1); }
 
 // ================= 控制条 =================
@@ -169,26 +161,47 @@ for (const [tn, T] of Object.entries(TOK)) {
 }
 
 // ================= 正在播放页（底色恒深；二维扫描 封面亮度 × 遮罩透明度）=================
-console.log("\n=== 正在播放页 · 翻译胶囊（底色恒深，与明暗主题无关）===");
+console.log("\n=== 正在播放页 · 翻译开关（底色恒深，与明暗主题无关）===");
 const SURFACES = [];
 for (let g = 0; g <= 255; g += 15) for (const a of [0.35, 0.45, 0.55]) SURFACES.push(over([g, g, g], a, SCRIM));
-const onFill = (p, s) => flatten(cmix(solid(p.accent), W_NP, { c: [255, 255, 255], a: A_NP }), s);
-const offFill = (s) => over([255, 255, 255], 0.12, s);
+// 开态轨道 = accent 掺**深遮罩**（55% + #0b0e19）：白滑块压在任意色相的轨道上都得 ≥3:1。
+// 掺白提亮走不通 —— 亮色相封面（黄）掺白后轨道亮度逼近滑块，白滑块隐形（最坏 ~1.06:1）。
+const swBlock = (() => {
+  const m = css.match(/\.np-menu-switch input:checked \+ \.np-sw\s*\{([^}]*)\}/);
+  if (!m) { bad("找不到规则 .np-menu-switch input:checked + .np-sw"); return ""; }
+  return m[1];
+})();
+if (!/var\(--cvg-accent/.test(swBlock)) bad(".np-sw 开态轨道没用封面染色（应与进度条/歌词高亮同源，换曲平滑跟随）");
+if (!swBlock.includes("#0b0e19")) bad(".np-sw 开态轨道没掺深遮罩 —— 掺白的话亮色相封面下白滑块会隐形");
+const W_NP = (() => {
+  const m = swBlock.match(/color-mix\(in srgb,[\s\S]*?(\d+)%/);
+  if (!m) { bad(".np-sw 开态轨道：取不到 color-mix 比例"); return NaN; }
+  return parseFloat(m[1]) / 100;
+})();
+const onFill = (p, s) => flatten(cmix(solid(p.accent), W_NP, { c: SCRIM, a: 1 }), s);
+// 开关住在「更多选项」菜单里：实际背板是菜单的深色玻璃（#10131c @ 85%），不是裸页面 ——
+// 白滑块/轨道对比都要压在菜单底上算，直接用页面底会把最坏情形估错方向。
+const menuOf = (s) => over([16, 19, 28], 0.85, s);
+const offFill = (s) => over([255, 255, 255], 0.18, menuOf(s));
 
-check("近黑字 vs 洗底（12px 粗体）", COVERS.flatMap((p) => SURFACES.map((s) => ratio(SCRIM, onFill(p, s)))), 4.5, "小字 4.5");
-checkE("开态底 vs 关态底", COVERS.flatMap((p) => SURFACES.map((s) => dE(onFill(p, s), offFill(s)))), 10);
-// 边界判「亮洗底 vs 页面底」：洗底是浅纱，压在亮封面上时亮度天然趋同，
-// 但它是 80% 白锚的纱，比关态的 12% 白纱强得多，轮廓由它自己划出来（无描边）。
-checkE("开态轮廓 · 亮洗底 vs 页面底（按轮廓门槛 15：形状边界，不是要读的字）",
-  COVERS.flatMap((p) => SURFACES.map((s) => dE(onFill(p, s), s))), 15);
+console.log(`  取值：开态轨道 accent ${W_NP} + 深遮罩 #0b0e19　关态轨道 白 18%（压在菜单深玻璃上）`);
+// 状态信号分主次：**滑块位移是主信号**（图形通道永远在），轨道变色只是辅通道 ——
+// 所以轨道开/关、轨道 vs 菜单底都取「可察觉」2.3（同 .lt-sg 洗底 vs 页面底的口径），
+// 而滑块可见性（白 vs 轨道）才是硬门槛 3.0。
+checkE("开关 · 辅通道：开态轨道 vs 关态轨道（主信号是滑块位移）", COVERS.flatMap((p) => SURFACES.map((s) => dE(onFill(p, s), offFill(s)))), 2.3);
+check("开关 · 白滑块 vs 开态轨道（图形 3.0）", COVERS.flatMap((p) => SURFACES.map((s) => ratio([255, 255, 255], onFill(p, s)))), 3.0, "图形 3.0");
+check("开关 · 白滑块 vs 关态轨道（图形 3.0，滑块自带投影兜底轮廓）", SURFACES.map((s) => ratio([255, 255, 255], offFill(s))), 3.0, "图形 3.0");
+checkE("开关 · 开态轨道 vs 菜单底（可察觉即可：开关轮廓本就克制的玻璃件）",
+  COVERS.flatMap((p) => SURFACES.map((s) => dE(onFill(p, s), menuOf(s)))), 2.3);
 {
+  // 安全上限：轨道里的 accent 占比再往上加，最坏色相下白滑块对比会跌破 3:1
   let capW = 0;
   for (let W = 0.05; W <= 1.0001; W += 0.01) {
-    if (COVERS.every((p) => SURFACES.every((s) => ratio(SCRIM, flatten(cmix(solid(p.accent), Math.round(W * 100) / 100, { c: [255, 255, 255], a: A_NP }), s)) >= 4.5))) capW = W;
+    if (COVERS.every((p) => SURFACES.every((s) => ratio([255, 255, 255], flatten(cmix(solid(p.accent), Math.round(W * 100) / 100, { c: SCRIM, a: 1 }), s)) >= 3.0))) capW = W;
   }
   capW = Math.round(capW * 100) / 100;
-  note(`安全上限：白纱 accent 占比 ≤ ${capW}（现 ${W_NP}）　白纱不透明度 ${Math.round(A_NP * 100)}%`);
-  if (W_NP > capW + 0.011) bad(`.np-trans.on 的 accent 占比 ${W_NP} 越界，应 ≤ ${capW}`);
+  note(`安全上限：轨道 accent 占比 ≤ ${capW}（现 ${W_NP}）`);
+  if (W_NP > capW + 0.011) bad(`.np-sw 开态轨道的 accent 占比 ${W_NP} 越界，应 ≤ ${capW}`);
 }
 note(`扫描面：封面灰度 0-255 × 遮罩 0.35/0.45/0.55 = ${SURFACES.length} 种底色 × ${COVERS.length} 色相`);
 

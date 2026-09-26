@@ -694,34 +694,64 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 }
 /* 压暗但保留封面氛围色：底层已铺满模糊封面，这里只做轻度对比遮罩 */
 .np-scrim { position: absolute; inset: 0; background: linear-gradient(180deg, #0c0f1859, #0b0e1973 55%, #0b0e198c); }
-/* 翻译开关：从右上角移到右侧「歌名 / 歌手 - 专辑」下方，做成小胶囊（np-meta 右对齐列内第三个孩子）。
-   开/关必须一眼分得开，但本页底色是「模糊封面 + 深色遮罩」——底色随曲目变，状态就绝不能只靠换色：
-   --cvg-accent 与封面同源，撞色时高亮等于隐形。故改走「形状 + 实心度」双信号：
-   关＝12% 白纱底 + 空心圈 + 浅字；开＝亮实心底 + 实心点 + 深字（底色与字色一起翻转）。 */
-.np-trans {
-  align-self: flex-end; margin-top: 10px; border: 0; border-radius: 999px;
-  padding: 4px 12px; background: #ffffff1f; color: #fffb; display: inline-flex; align-items: center; gap: 5px;
-  cursor: pointer; font-size: 12px; font-weight: 700; letter-spacing: .5px; transition: background .12s, color .3s ease;
+/* 更多选项（⋮）：右侧信息列（封面/歌名/歌手-专辑）下缘的竖三点按钮，点开向上弹出小菜单。
+   菜单项 = 同名搜索 / 跳转歌手 / 跳转专辑 / 翻译（Switch 开关）。
+   本页底色恒为「模糊封面 + 深色遮罩」，菜单直接锚固定深色玻璃（同 .np-kara-host 的口径），
+   不随明暗主题翻面 —— 封面底色任意，深玻璃 + 白字永远压得住。 */
+.np-morewrap { position: relative; align-self: flex-end; margin-top: 10px; flex: none; }
+.np-more {
+  width: 30px; height: 30px;
+  border: 0; border-radius: 50%; background: transparent; color: #fffb;
+  display: grid; place-items: center; cursor: pointer; padding: 0;
+  transition: background .12s, color .12s;
 }
-.np-trans:hover { background: #ffffff2e; color: #fff; }
-/* 激活态：底是「accent 掺白纱」，与关态 #ffffff1f 同一语言（半透明纱），只是更强更带封面色。
-   这里必须偏离 --ink 锚定 —— 本页底色恒为深色遮罩（与明暗主题无关），
-   浅色主题下 --ink 是深色，字会跟底一起沉下去。改为锚固定亮底：
-   洗底掺白纱（#ffffffcc）保证底色永远被提亮，字取遮罩底色 #0b0e19 永远近黑压得住。
-   关/开两态的差别有三重：纱底强度与色调、字色由浅翻深、状态点由空心变实心。
-   不加描边 —— 实测那圈 1.5px accent 描边对轮廓的贡献还不如洗底自己（单看最坏 ΔE 11.6 vs 18.9），
-   属于多出来的元件，删掉。 */
-.np-trans.on {
-  color: #0b0e19;
-  background: color-mix(in srgb, var(--cvg-accent, var(--cyan)) 30%, #ffffffcc);
+.np-more:hover { background: #ffffff1f; color: #fff; }
+.np-menu {
+  position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 5;
+  min-width: 180px; padding: 6px; border-radius: 12px;
+  background: #10131cd9; border: 1px solid #ffffff1f;
+  box-shadow: 0 12px 36px #0006;
+  backdrop-filter: blur(24px) saturate(1.5); -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  display: flex; flex-direction: column; gap: 2px;
+  /* 开合动画：transform 锚在 ⋮ 按钮圆心上（按钮 30px 宽右对齐 → 圆心在菜单右缘内 15px、
+     下缘外 8px），scale 从按钮的位置长出来/缩回去；曲线用本仓库弹簧曲线（非线性）。 */
+  transform-origin: calc(100% - 15px) calc(100% + 8px);
+  opacity: 0; transform: scale(.8);
+  pointer-events: none;
+  transition: transform .16s cubic-bezier(.32,.72,.24,1), opacity .12s ease;
 }
-.np-trans.on:hover { background: color-mix(in srgb, var(--cvg-accent, var(--cyan)) 38%, #ffffffcc); }
-/* 状态点：空心＝关、实心＝开。形状本身就是信号，不依赖颜色对比 */
-.np-trans::before {
-  content: ""; width: 7px; height: 7px; border-radius: 50%; flex: none;
-  border: 1.5px solid currentColor; background: transparent;
+.np-menu.open { opacity: 1; transform: scale(1); pointer-events: auto; }
+/* 收拢略快于展开：跳转类动作是「缩回去 → 落页」，收拢拖沓会显得粘 */
+.np-menu:not(.open) { transition-duration: .13s, .1s; }
+.np-menu-item {
+  border: 0; background: transparent; color: #fffb; font: inherit; font-size: 13px; text-align: left;
+  padding: 7px 10px; border-radius: 8px; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.np-trans.on::before { background: currentColor; }
+.np-menu-item:hover:not(:disabled) { background: #ffffff14; color: #fff; }
+.np-menu-item:disabled { opacity: .45; cursor: default; }
+.np-menu-empty { padding: 8px 10px; font-size: 12px; color: #fff8; }
+/* 翻译行：Switch 开关。checkbox 隐身只留语义/焦点，滑块视觉由 .np-sw 承担；
+   开态轨道 = 封面染色掺**深遮罩**压暗（白滑块压在任意色相的轨道上都 ≥3:1 ——
+   掺白提亮的话亮色相封面下白滑块会隐形），与封面同源故换曲染色平滑跟随。 */
+.np-menu-switch {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 7px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; color: #fffb;
+}
+.np-menu-switch:hover { background: #ffffff14; color: #fff; }
+.np-menu-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.np-sw {
+  width: 30px; height: 17px; border-radius: 999px; flex: none; position: relative;
+  background: #ffffff2e; transition: background .14s;
+}
+.np-sw::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px #0004;
+  transition: transform .14s cubic-bezier(.32,.72,.24,1);
+}
+.np-menu-switch input:checked + .np-sw { background: color-mix(in srgb, var(--cvg-accent, var(--cyan)) 55%, #0b0e19); }
+.np-menu-switch input:checked + .np-sw::after { transform: translateX(13px); }
+.np-menu-switch input:focus-visible + .np-sw { outline: 2px solid #fff8; outline-offset: 1px; }
 .np-inner {
   position: relative; z-index: 1; width: min(1060px, 92%); height: min(560px, calc(100vh - 150px));
   display: grid; grid-template-columns: 1.15fr 1fr; gap: 48px; align-items: center;
@@ -764,7 +794,7 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
   font-family: var(--font-lyric, var(--font-default));
   font-size: 20px; font-weight: 700; color: #fff;
   text-shadow: 0 2px 14px #0004;
-  /* lyric-dom 主题变量：本页底色恒为深色遮罩，锚固定亮色而非 --ink（同 .np-trans.on 的口径） */
+  /* lyric-dom 主题变量：本页底色恒为深色遮罩，锚固定亮色而非 --ink（同 .np-menu 的口径） */
   --lp-color: color-mix(in srgb, var(--cvg-accent, var(--cyan)) 55%, #fff);
   --lp-padding-x: 4px;
   --lp-sub-font-size: 13px;
@@ -791,7 +821,8 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
   box-shadow: 0 20px 60px #0006; display: grid; place-items: center; color: #fff5;
 }
 .np-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.np-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 0; max-width: 100%; margin-top: 18px; text-align: right; }
+/* position:relative = .np-menu 的定位锚（菜单弹出在整块信息列上方、右缘齐平） */
+.np-meta { position: relative; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 0; max-width: 100%; margin-top: 18px; text-align: right; }
 .np-title { font-size: 22px; font-weight: 800; color: #fff; }
 .np-artist { font-size: 13.5px; color: #fffb; }
 /* 歌名 / 歌手-专辑：一行放不下时在容器内自动滚动（marquee）。

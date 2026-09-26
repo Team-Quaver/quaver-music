@@ -5,10 +5,11 @@
 // 逐字歌词（歌曲带 QRC 且开关开启）：交由 lyric-dom 渲染器接管同一列位（.np-kara-host），
 // 卡拉OK扫色 = 封面 Tint 掺白提亮（可读性优先），rAF 直读 transport 外推时钟平滑驱动；
 // 开关在 设置-外观（Style.WordByWord）；无逐字数据 / 开关关闭时维持原有行级高亮，行为不变。
-// 右侧 = 封面在上，歌名 / 「歌手 - 专辑」在下，文本右对齐且与封面右缘齐平。
+// 右侧 = 封面在上，歌名 / 「歌手 - 专辑」在下，文本右对齐且与封面右缘齐平；
+// 信息列下缘挂 ⋮ 更多选项（同名搜索 / 跳转歌手 / 跳转专辑 / 翻译 Switch 开关）。
 // 背景 = 当前封面高斯模糊放大铺满 + 深色渐变压暗；进度与控制由常驻播放条承担。
 import { player, type Song } from "../player";
-import { coverUrl, songTitle } from "../lib/api";
+import { coverUrl, songTitle, stripEm } from "../lib/api";
 import { icons } from "../lib/icons";
 import { LyricRenderer, applyScrollPreroll } from "lyric-dom";
 import "lyric-dom/renderer.css";
@@ -28,7 +29,10 @@ export function NowPlaying(): HTMLElement {
         <div class="np-meta">
           <div class="np-title np-marquee" id="np-title"><span class="mt">未在播放</span></div>
           <div class="np-artist np-marquee" id="np-artist"><span class="mt"></span></div>
-          <button class="np-trans" id="np-trans" type="button" aria-label="显示/隐藏翻译" title="翻译歌词">文/A</button>
+          <div class="np-morewrap">
+            <button class="np-more" id="np-more" type="button" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false" title="更多操作">${icons.more}</button>
+            <div class="np-menu" id="np-menu"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -69,7 +73,97 @@ export function NowPlaying(): HTMLElement {
   const setTitle = marquee("np-title");
   const setArtist = marquee("np-artist");
 
-  $("np-trans").onclick = () => player.toggleTrans();
+  // —— 更多选项（⋮）：同名搜索 / 跳转歌手 / 跳转专辑 / 翻译开关 ——
+  // 每次打开按当前歌曲现算（曲目可能缺歌手/专辑信息，逐项禁用；多歌手逐项列出，
+  // 口径同 SongMenu 的 artistItems/albumItems）。翻译行是 Switch 开关，直接驱动 player.toggleTrans。
+  // 开合是 class 驱动的缩放动画（.np-menu，锚在按钮圆心上）；跳转类动作先播收拢动画再走 hash。
+  const moreBtn = $("np-more");
+  const moreMenu = $("np-menu");
+  let transSw: HTMLInputElement | null = null;
+  const menuOpen = () => moreMenu.classList.contains("open");
+  // 与 CSS 收拢过渡时长（.13s）对齐：跳转前留出动画时间，视觉上是「缩回去 → 落到目标页」
+  const MENU_CLOSE_MS = 140;
+
+  function onDocDownMore(e: PointerEvent) {
+    const t = e.target as Node;
+    if (!moreMenu.contains(t) && !moreBtn.contains(t)) closeMoreMenu();
+  }
+  function onEscMore(e: KeyboardEvent) {
+    if (e.key === "Escape") { e.stopPropagation(); closeMoreMenu(); }
+  }
+  function closeMoreMenu() {
+    if (!menuOpen()) return;
+    moreMenu.classList.remove("open");
+    moreBtn.setAttribute("aria-expanded", "false");
+    document.removeEventListener("pointerdown", onDocDownMore, true);
+    document.removeEventListener("keydown", onEscMore, true);
+  }
+  /** 跳转类菜单项：先收拢（带动画）再跳目标页 —— 菜单原地消失/瞬间跳页都显得突兀。
+   *  关键：正在播放页是铺满全窗的常驻悬浮层（player.expanded 驱动），只在底下换路由
+   *  它仍盖在最上面 —— 必须把页面一起收起（同播放条收起钮的 expanded=false + notify）。 */
+  function collapseThenRun(run: () => void) {
+    closeMoreMenu();
+    window.setTimeout(() => {
+      player.expanded = false;
+      player.notifyPublic();
+      run();
+    }, MENU_CLOSE_MS);
+  }
+  function menuRow(label: string, disabled: boolean, run?: () => void) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "np-menu-item";
+    b.textContent = label;
+    b.disabled = disabled;
+    if (run) b.onclick = () => collapseThenRun(run);
+    return b;
+  }
+  function openMoreMenu() {
+    const s = player.current;
+    moreMenu.innerHTML = "";
+    if (s) {
+      const name = songTitle(s) || "这首歌";
+      // 同名搜索
+      moreMenu.append(menuRow("同名搜索", false, () => {
+        location.hash = `#/search?keyword=${encodeURIComponent(stripEm(s.name) || name)}`;
+      }));
+      // 跳转歌手：多歌手逐项列出
+      const singers = (s.singer ?? []).filter((a) => !!a?.mid);
+      if (!singers.length) moreMenu.append(menuRow("跳转歌手", true));
+      for (const a of singers) {
+        moreMenu.append(menuRow(singers.length > 1 ? `跳转歌手：${stripEm(a.name) || "未知歌手"}` : "跳转歌手", false, () => {
+          location.hash = `#/singer?mid=${encodeURIComponent(a.mid!)}&name=${encodeURIComponent(stripEm(a.name) || "歌手")}`;
+        }));
+      }
+      // 跳转专辑
+      const alb = s.album;
+      const hasAlb = !!(alb?.mid || alb?.pmid);
+      moreMenu.append(menuRow("跳转专辑", !hasAlb, () => {
+        const base = String(alb!.pmid || alb!.mid).split("_")[0];
+        location.hash = `#/album?mid=${encodeURIComponent(alb!.mid ?? base)}&name=${encodeURIComponent(stripEm(alb!.name) || "专辑")}`;
+      }));
+    } else {
+      const empty = document.createElement("div");
+      empty.className = "np-menu-empty";
+      empty.textContent = "未在播放";
+      moreMenu.append(empty);
+    }
+    // 翻译：Switch 开关（checkbox 只做语义与焦点，视觉由 .np-sw 承担）
+    const row = document.createElement("label");
+    row.className = "np-menu-switch";
+    row.innerHTML = `<span>翻译</span><input type="checkbox"><span class="np-sw" aria-hidden="true"></span>`;
+    transSw = row.querySelector<HTMLInputElement>("input")!;
+    transSw.checked = player.showTrans;
+    transSw.addEventListener("change", () => {
+      if (transSw && transSw.checked !== player.showTrans) player.toggleTrans();
+    });
+    moreMenu.append(row);
+    moreMenu.classList.add("open");
+    moreBtn.setAttribute("aria-expanded", "true");
+    document.addEventListener("pointerdown", onDocDownMore, true);
+    document.addEventListener("keydown", onEscMore, true);
+  }
+  moreBtn.addEventListener("click", () => (menuOpen() ? closeMoreMenu() : openMoreMenu()));
 
   let lastMid = "";        // 歌词行 DOM 只在换曲/状态迁移时重建
   let lastLyricState = "";
@@ -166,11 +260,8 @@ export function NowPlaying(): HTMLElement {
     const open = player.expanded;
     el.classList.toggle("open", open);
     el.classList.toggle("no-trans", !player.showTrans);
-    const transBtn = $("np-trans");
-    transBtn.classList.toggle("on", player.showTrans);
-    transBtn.setAttribute("aria-pressed", String(!!player.showTrans));
-    // 开关两态差别不能只落在配色上：把当前态写进 title，鼠标悬停即可确认，不必靠眼睛分辨底色
-    transBtn.title = player.showTrans ? "翻译：显示中（点击隐藏）" : "翻译：已隐藏（点击显示）";
+    // 菜单开着时同步翻译开关的选中态（toggleTrans 之外的改法 — 如设置页 — 也能跟上）
+    if (transSw && menuOpen()) transSw.checked = player.showTrans;
     if (!open && !s) return;
 
     // 背景：封面模糊放大
