@@ -538,17 +538,27 @@ ipcMain.on("quaver:decor", (_e, mode) => {
   const maximized = win?.isMaximized();
   decorMode = next;
   log("[quaver] decor ->", next);
-  // 拆窗前暂停音频：渲染层会被销毁，而 mpv 活在渲染层之外 —— 不暂停就成了没有 UI 的孤儿播放，
-  // 重建后的新页面还是空队列，用户既看不见也停不掉。
-  void audioEngine.pauseForRebuild();
+  // 拆窗**不暂停**：mpv 引擎活在渲染层之外，播放跨重建自然延续（声音不断）。
+  // 重建后的新页面启动时经 quaver:audio snapshot 问引擎要真实播放态（位置/时长/暂停），
+  // 直接接管引擎里正在放的那条流 —— 引擎随后照常向新窗口广播 state 进度。
+  // 拆窗前让渲染层立刻落一次会话存档：接管后 UI 显示的队列/指针要与 mpv 正在放的
+  // 对齐（平时存档走 5s 节流 + pagehide，而 destroy() 不保证触发 pagehide）。
   rebuilding = true;
-  if (!defaultMenu) defaultMenu = Menu.getApplicationMenu(); // 兜底：切走前若默认菜单已被摘，无从还原
-  win?.destroy();
-  createWindow().then(() => {
-    if (win && bounds) win.setBounds(bounds);
-    if (win && maximized) win.maximize();
-    applyMenu();
-  }).finally(() => (rebuilding = false));
+  const wc = win?.webContents;
+  const rebuild = () => {
+    if (!defaultMenu) defaultMenu = Menu.getApplicationMenu(); // 兜底：切走前若默认菜单已被摘，无从还原
+    win?.destroy();
+    createWindow().then(() => {
+      if (win && bounds) win.setBounds(bounds);
+      if (win && maximized) win.maximize();
+      applyMenu();
+    }).finally(() => (rebuilding = false));
+  };
+  // 页面若已挂死别卡住重建：flush 最多等 1s
+  const flush = wc && !wc.isDestroyed()
+    ? wc.executeJavaScript("window.dispatchEvent(new Event('quaver:flush-session'))").catch(() => {})
+    : Promise.resolve();
+  Promise.race([flush, new Promise((r) => setTimeout(r, 1000))]).then(rebuild);
 });
 
 // Wayland：本机 Electron 44 默认 ozone 平台即可，不加任何 ozone 相关开关。
@@ -614,6 +624,19 @@ app.whenReady().then(() => {
   try { startMpris(); } catch (e) { log("[quaver] mpris init failed:", String(e)); }
 });
 app.on("window-all-closed", () => { if (!rebuilding) app.quit(); });
+// 注销/登出：会话管理器对本进程发 SIGTERM（超时后 SIGKILL）。不接住的话默认行为是立刻死，
+// will-quit 等收尾不会跑 —— sidecar/mpris/mpv 全成孤儿，mpv 继续放歌。这里先清子进程再退；
+// 期间被 SIGKILL 的极端场景由 mpv 看门狗兜底（父死 → 管道断 → mpv 必死，见 engine.mjs）。
+for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
+  process.on(sig, () => {
+    log("[quaver] signal:", sig, "— 清理子进程后退出");
+    try { audioEngine.shutdown(); } catch {}
+    try { sidecar?.kill(); } catch {}
+    try { mprisDaemon?.kill(); } catch {}
+    // app.exit 不触发 will-quit（上面已手动清理）；显式接信号后也不再用默认终止
+    app.exit(0);
+  });
+}
 app.on("will-quit", () => {
   try { sidecar?.kill(); } catch {}
   try { mprisDaemon?.kill(); } catch {}

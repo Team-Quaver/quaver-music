@@ -2,7 +2,7 @@
 // 订阅式：任何状态变化 notify 所有 UI（播放条 / 正在播放页 / 队列面板）。
 // 音频走 Transport 抽象（src/lib/transport.ts）：默认 mpv 原生引擎（Electron 壳层），
 // 可选浏览器 <audio> 兜底；曲目/队列/循环/歌词归本层，位置/时长/播放态真相在传输层。
-import { api, postJson, coverUrl, resolveStreamUrl, effectiveQuality, getSessionQuality, setSessionQuality, setLastStream, writeSongType, type StreamResult } from "./lib/api";
+import { api, postJson, coverUrl, resolveStreamUrl, effectiveQuality, getSessionQuality, setSessionQuality, getLastStream, setLastStream, writeSongType, type StreamResult } from "./lib/api";
 import {
   getDecode, setDecode, getAudioDevice, setAudioDevice, setFade, FADE_PRESETS,
   getVolume as getVolumeConf, setVolume as setVolumeConf,
@@ -108,6 +108,9 @@ class Player {
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") this.saveSessionNow();
     });
+    // 主进程拆窗重建（CSD/SSD 切换）前派发：立刻落一次存档 —— destroy() 不保证触发
+    // pagehide，而重建后的新页面要靠这份存档对齐队列/指针去接管 mpv 正在放的歌
+    window.addEventListener("quaver:flush-session", () => this.saveSessionNow());
   }
 
   // —— 传输层接线 ——
@@ -188,6 +191,26 @@ class Player {
     this.savedPos = snap.position;
     this.notify();
     this.sessionReady = true;
+    // 引擎正在播（CSD/SSD 重建窗口：mpv 跨重建没停）→ 直接接管，**绝不重新挂流** ——
+    // startCurrent 的 load 是 loadfile replace，会把正在放的歌掐掉。位置/时长/播放态
+    // 由引擎 snapshot 如实汇报（比 ≤5s 节流的存档位置准），进度条/歌词/MPRIS 随即对齐。
+    if (this.transport.kind === "engine") {
+      const t = this.transport as EngineTransport;
+      const es = await t.snapshot();
+      if (es && this.current) {
+        t.adopt(es.url, es);
+        // 会话音质覆盖与实际流档位一并接管：播放条音质胶囊显示正在放的档，
+        // 而不是跳回「自动」（这两个是渲染层内存态，靠拆窗前的存档带过来）
+        setSessionQuality((snap.quality ?? null) as Parameters<typeof setSessionQuality>[0]);
+        setLastStream(snap.lastStream ?? null);
+        this.loading = false;
+        this.error = "";
+        this.savedPos = 0;
+        void this.fetchLyric(this.current);
+        this.notify();
+        return;
+      }
+    }
     if (this.current) await this.startCurrent(snap.position, false);
     this.notify();
   }
@@ -203,7 +226,12 @@ class Player {
     if (!this.sessionReady) return;
     if (this.sessionTimer !== null) { window.clearTimeout(this.sessionTimer); this.sessionTimer = null; }
     this.sessionAt = Date.now();
-    saveSession({ queue: this.queue, index: this.index, position: this.posForSave(), mode: this.mode });
+    // 音质两项随档走：播放条会话覆盖 + 已应用流档位 —— 窗口重建接管时恢复，
+    // 否则新页面的音质胶囊会跳回「自动」（这两个是内存态，只有这里能跨重建）
+    saveSession({
+      queue: this.queue, index: this.index, position: this.posForSave(), mode: this.mode,
+      quality: getSessionQuality(), lastStream: getLastStream(),
+    });
   }
 
   /** notify 每帧都会来（4Hz 位置广播），存档按 SESSION_EVERY 合并 */

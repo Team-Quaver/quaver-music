@@ -217,6 +217,37 @@ export class EngineTransport implements Transport {
     return this.st.dur > 0 ? Math.min(p, this.st.dur) : p;
   }
 
+  /** 引擎播放快照（引擎侧 snapshot 命令）：CSD/SSD 重建窗口后的新页面据此接管。
+   *  running=false / 引擎不在 = 问卷失败均返回 null，调用方走常规还原。 */
+  async snapshot(): Promise<{ running: boolean; url: string; pos: number; dur: number; paused: boolean; buffering: boolean; idle: boolean } | null> {
+    try {
+      const r = await this.invoke({ cmd: "snapshot" });
+      if (!r?.ok || !r.running || !r.url || r.idle) return null;
+      return {
+        running: true,
+        url: String(r.url),
+        pos: Number(r.pos) || 0,
+        dur: Number(r.dur) || 0,
+        paused: !!r.paused,
+        buffering: !!r.buffering,
+        idle: !!r.idle,
+      };
+    } catch { return null; }
+  }
+
+  /** 接管引擎里正在进行的播放（窗口重建后的新页面）：不重新取链挂流（load 会 replace
+   *  掉正在放的歌），只把引擎的真实状态灌进本地外推时钟，src 记为引擎现挂的流。
+   *  此后引擎的 4Hz state 广播照常驱动进度/歌词。 */
+  adopt(url: string, s: { pos: number; dur: number; paused: boolean; buffering: boolean; idle: boolean }) {
+    this.loadedUrl = url;
+    this.st = { pos: s.pos, dur: s.dur, paused: s.paused, buffering: s.buffering, idle: s.idle };
+    this.posAt = performance.now();
+    this.frozen = 0;
+    this.emit({ type: "duration" });
+    this.emit(this.st.paused ? { type: "pause" } : { type: "play" });
+    this.emit({ type: "time" });
+  }
+
   private invoke(cmd: Record<string, unknown>): Promise<any> {
     return this.bridge.invoke(cmd);
   }
