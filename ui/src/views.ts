@@ -21,6 +21,7 @@ import {
   getDecor,
   getFade,
   getFallbackSort,
+  getShowKaraoke,
   getLyricFontList,
   getTheme,
   getUiFontList,
@@ -30,6 +31,7 @@ import {
   setFallbackSort,
   setLyricFontList,
   setLyricFontPreset,
+  setShowKaraoke,
   setTheme,
   setUiFontList,
   setUiFontPreset,
@@ -877,6 +879,15 @@ async function settingsView(root: HTMLElement) {
         </div>
         <p class="muted set-hint">按优先级排序，使用半角逗号排序</p>
       </div>
+
+      <div class="set-group">
+        <div class="set-label">逐字歌词 <span class="set-note-inline">仅对带逐字时间轴（QRC）的歌曲生效，其余歌曲不受影响</span></div>
+        <div class="opt-cards" id="kara-cards">
+          <button class="opt-card" data-opt="on" type="button">开启</button>
+          <button class="opt-card" data-opt="off" type="button">关闭</button>
+        </div>
+        <p class="muted set-hint">开启后正在播放页以卡拉OK扫色逐字点亮歌词，高亮色跟随封面染色（掺白提亮保证可读）。</p>
+      </div>
     </section>
 
     <section class="set-panel" data-panel="playback" hidden>
@@ -988,6 +999,16 @@ async function settingsView(root: HTMLElement) {
   bindOptCards<CloseAction>(wrap.querySelector<HTMLElement>("#close-cards")!, getCloseAction, setCloseAction);
   // Fallback 排序：默认「不优先全景声」（母带优先，atmos51 压链尾兜底）；改动自下一首协商起生效
   bindOptCards<FallbackSort>(wrap.querySelector<HTMLElement>("#atmos-fallback-cards")!, getFallbackSort, setFallbackSort);
+  // 逐字歌词开关：持久化 Style.WordByWord + 同步进 player（正在播放页据此切换渲染模式，即时生效）
+  bindOptCards<"on" | "off">(
+    wrap.querySelector<HTMLElement>("#kara-cards")!,
+    () => (getShowKaraoke() ? "on" : "off"),
+    (v) => {
+      setShowKaraoke(v === "on");
+      player.showKaraoke = v === "on";
+      player.notifyPublic();
+    },
+  );
   // 淡入淡出预设：持久化 + 立即下发时长（引擎侧做振幅包络；Blink 后端无此项）
   bindOptCards<FadePreset>(
     wrap.querySelector<HTMLElement>("#fade-cards")!,

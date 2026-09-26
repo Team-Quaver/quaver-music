@@ -7,12 +7,13 @@ import {
   getDecode, setDecode, getAudioDevice, setAudioDevice, setFade, FADE_PRESETS,
   getVolume as getVolumeConf, setVolume as setVolumeConf,
   getMuted as getMutedConf, setMuted as setMutedConf,
-  getShowTrans, setShowTrans,
+  getShowTrans, setShowTrans, getShowKaraoke, setShowKaraoke,
   type DecodeBackend, type FadePreset,
 } from "./lib/prefs";
 import { WebTransport, EngineTransport, type Transport, type TransportEvent, type AudioDeviceInfo } from "./lib/transport";
 import { loadSession, saveSession } from "./lib/session";
 import { parseLrc, type LyricLine } from "./lyric";
+import { detectFormat, parseLyric, type LyricLine as KitLyricLine } from "lyric-kit";
 import { sparkleStreamSources } from "./sparkle/registry";
 
 export type Song = {
@@ -68,6 +69,8 @@ class Player {
   private likedFlight: Promise<boolean> | null = null; // 飞行中的预载（并发共享）
   lyrics: LyricLine[] = [];
   lyricState: "idle" | "loading" | "ok" | "none" = "idle";
+  /** 逐字歌词（lyric-kit 解析的 QRC/KRC/YRC/TTML 行，毫秒时间轴）；无逐字数据时为空 */
+  karaoke: KitLyricLine[] = [];
   loading = false; // 正在取链/缓冲（UI 画加载指示）
   expanded = false; // 正在播放页是否展开
   queueOpen = false;
@@ -378,6 +381,10 @@ class Player {
     this.notify();
   }
 
+  /** 逐字歌词显示开关（quaver.conf [Style] WordByWord，默认开）。
+   *  真相在 quaver.conf，设置页（外观）经 prefs 读写后回填这里并 notifyPublic()。 */
+  showKaraoke = getShowKaraoke();
+
   /** 用新列表替换队列并从 i 播放（整队列替换：视图语义一致）。不 await：双击即刻打断切歌。 */
   playList(songs: Song[], i = 0) {
     this.queue = songs.filter((s) => s?.mid);
@@ -477,6 +484,7 @@ class Player {
     const s = this.current;
     this.interrupt();
     this.lyrics = [];
+    this.karaoke = [];
     this.lyricState = "idle";
     if (!s) { this.notify(); return; }
     this.loading = true;
@@ -556,20 +564,36 @@ class Player {
 
   error = "";
 
-  /** 拉取并解析当前歌曲歌词（startCurrent 内部调用；也供外部预热/测试） */
+  /** 拉取并解析当前歌曲歌词（startCurrent 内部调用；也供外部预热/测试）。
+   *  一次请求顺带要逐字（qrc=1）：上游有 QRC 时 lyric 字段就是逐字内容，用 lyric-kit
+   *  解析成 karaoke 行 + 派生行级列表；没有逐字（或请求结果为空）时回退普通 LRC，行为不变。 */
   async fetchLyric(s: Song) {
     const seq = ++this.lyricSeq;
     this.lyricState = "loading";
     this.notify();
     try {
-      const d: any = await api(`/song/${encodeURIComponent(s.mid)}/lyric?trans=1`);
+      const mid = encodeURIComponent(s.mid);
+      let d: any = await api(`/song/${mid}/lyric?trans=1&qrc=1`);
       if (seq !== this.lyricSeq) return;
-      const lines = parseLrc(d?.lyric ?? "", d?.trans ?? "");
+      if (!String(d?.lyric ?? "").trim()) {
+        // qrc=1 下无逐字内容的歌曲可能整包为空 → 退回普通歌词请求再试一次
+        d = await api(`/song/${mid}/lyric?trans=1`);
+        if (seq !== this.lyricSeq) return;
+      }
+      const raw = String(d?.lyric ?? "");
+      const trans = String(d?.trans ?? "");
+      const kit = tryParseKaraoke(raw, trans);
+      if (kit) {
+        this.karaoke = kit;
+        this.lyrics = kitToLines(kit);
+      } else {
+        this.karaoke = [];
+        this.lyrics = parseLrc(raw, trans);
+      }
       // 纯音乐占位行（"[00:00.00]此歌曲为没有填词…"）也照常显示
-      this.lyrics = lines;
-      this.lyricState = lines.length ? "ok" : "none";
+      this.lyricState = this.lyrics.length ? "ok" : "none";
     } catch {
-      if (seq === this.lyricSeq) this.lyricState = "none";
+      if (seq === this.lyricSeq) { this.karaoke = []; this.lyricState = "none"; }
     }
     this.notify();
   }
@@ -730,6 +754,37 @@ class Player {
 
 export const player = new Player();
 export { coverUrl };
+
+// —— 逐字歌词解析辅助（模块级纯函数，便于复用与测试） ——
+
+/** 视为逐字格式的类型（LRC/SRT/ASS 等行级格式不进卡拉OK路径） */
+const WORD_TIMED_FORMATS = new Set(["qrc", "krc", "yrc", "ttml"]);
+
+/** 尝试按逐字歌词解析；不是逐字格式或解析失败返回 null（调用方回退 parseLrc）。 */
+function tryParseKaraoke(content: string, trans: string): KitLyricLine[] | null {
+  if (!content.trim()) return null;
+  try {
+    if (!WORD_TIMED_FORMATS.has(detectFormat(content))) return null;
+    const r = parseLyric({ content, translation: trans });
+    const lines = r?.lines ?? [];
+    // 必须真有逐字时间轴：行内至少一个词带非零时长（纯行级时间轴的假 QRC 不算）
+    if (!lines.some((l) => l.words.some((w) => w.endTime > w.startTime))) return null;
+    return lines;
+  } catch {
+    return null;
+  }
+}
+
+/** 逐字行 → 行级展示列表（逐字开关关闭/不支持卡拉OK渲染时的行级视图，与 LRC 行为一致） */
+function kitToLines(lines: KitLyricLine[]): LyricLine[] {
+  const out: LyricLine[] = [];
+  for (const l of lines) {
+    const text = l.words.map((w) => w.word).join("").trim();
+    if (!text) continue;
+    out.push({ t: l.startTime / 1000, text, trans: l.translatedLyric?.trim() || undefined });
+  }
+  return out;
+}
 
 // 开发/自动化测试钩子：shell 挂载时暴露单例（生产构建里 vite define 会剔除）
 declare global { interface Window { __quaverPlayer?: Player } }

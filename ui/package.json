@@ -40,7 +40,9 @@
   "build": {
     "appId": "red.0w0.quaver",
     "productName": "Quaver Music",
-    "directories": { "output": "release" },
+    "directories": {
+      "output": "release"
+    },
     "executableName": "quaver",
     "artifactName": "Quaver-${version}-${arch}.${ext}",
     "asar": true,
@@ -69,11 +71,17 @@
       {
         "from": "build-res/audio",
         "to": "audio",
-        "filter": ["**/*", "!**/*.AppImage", "!**/.work/**"]
+        "filter": [
+          "**/*",
+          "!**/*.AppImage",
+          "!**/.work/**"
+        ]
       }
     ],
     "linux": {
-      "target": ["AppImage"],
+      "target": [
+        "AppImage"
+      ],
       "category": "Audio",
       "icon": "build-res/icon.png",
       "maintainer": "ne0w0r1d <ne0w0r1d@users.noreply.github.com>"
@@ -89,5 +97,9 @@
   },
   "allowScripts": {
     "esbuild": true
+  },
+  "dependencies": {
+    "lyric-dom": "^0.2.0",
+    "lyric-kit": "^0.6.0"
   }
 }

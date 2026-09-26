@@ -752,6 +752,38 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
   font-size: 20px; font-weight: 800; transform: scale(1.015); text-shadow: 0 2px 14px #0004;
 }
 .np-ly-empty { text-align: center; color: #fff8; font-size: 14px; padding: 60px 0; }
+
+/* —— 逐字歌词（lyric-dom 渲染器接管 .np-kara-host；行级列表隐藏；开关在 设置-外观） ——
+   扫色 = 文字色 + alpha 掩码（--ba 未唱 → --da 已唱），所以「高亮为 Tint」直接落在 --lp-color 上：
+   封面主色（--cvg-accent）固定 L=0.5，亮色相下与深色遮罩对比尚可、暗色相下会沉底 ——
+   统一掺白提亮（55% accent + 45% 白），保留色相的同时最坏情况也可读；
+   --cvg-accent 注册过 @property 且 :root 上有 transition，换曲染色时扫色平滑跟随。
+   Shadow 与行级当前句同款（text-shadow 可继承，主行/翻译/音译一起吃到），压住深色遮罩上的发虚。 */
+.np-kara-host {
+  display: none; position: relative; height: 100%;
+  font-family: var(--font-lyric, var(--font-default));
+  font-size: 20px; font-weight: 700; color: #fff;
+  text-shadow: 0 2px 14px #0004;
+  /* lyric-dom 主题变量：本页底色恒为深色遮罩，锚固定亮色而非 --ink（同 .np-trans.on 的口径） */
+  --lp-color: color-mix(in srgb, var(--cvg-accent, var(--cyan)) 55%, #fff);
+  --lp-padding-x: 4px;
+  --lp-sub-font-size: 13px;
+  --lp-sub-color: #fff;
+  --lp-sub-opacity: .8;
+  --lp-hover-bg: #ffffff1f;
+}
+.np.kara .np-lyrics { display: none; }
+.np.kara .np-kara-host { display: block; }
+/* 逐字模式下加深歌词列背光：Tint 文字与模糊封面**同源同相**（都是封面主色），
+   亮暖封面（米黄/棕调）下掺白 Tint 的亮度会落进背景的同一区间 —— 文字色单方面怎么调
+   都躲不开同源撞色（实测暖灰底 144 压橄榄字 120，约 1.1:1）。对比度只能从背景侧兜：
+   左缘（歌词列）局部再压一层深色，向右 60% 处渐隐收干净，右侧封面/歌名的观感不动。
+   叠加原遮罩后歌词列有效亮度 ≤0.1，掺白 Tint（L≈0.7）最坏也有 ~5:1。 */
+.np.kara .np-scrim {
+  background:
+    linear-gradient(90deg, #0b0e19d0, #0b0e1900 60%),
+    linear-gradient(180deg, #0c0f1859, #0b0e1973 55%, #0b0e198c);
+}
 /* 封面在上，歌名/「歌手 - 专辑」在下——整块右缘与封面右缘齐平（设计稿） */
 .np-side { display: flex; flex-direction: column; align-items: flex-end; gap: 0; min-width: 0; width: min(360px, 100%); margin-left: auto; }
 .np-cover {

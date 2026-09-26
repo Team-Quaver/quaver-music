@@ -207,6 +207,12 @@ export const SCHEMA = [
         doc: ["歌词是否显示翻译行：True（默认）｜False"],
         valid: (v) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
       },
+      {
+        key: "WordByWord",
+        def: "True",
+        doc: ["逐字歌词（卡拉OK扫色）：True（默认，歌曲有逐字数据时启用）｜False。无逐字数据的歌曲不受影响"],
+        valid: (v) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
+      },
     ],
   },
   {

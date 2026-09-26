@@ -193,6 +193,14 @@ export function setShowTrans(v: boolean) {
   cfgSet({ "Style.ShowTranslation": v ? "True" : "False" });
 }
 
+// —— 逐字歌词开关（默认开）：歌曲有逐字数据时用卡拉OK扫色渲染；无逐字数据不受影响 ——
+export function getShowKaraoke(): boolean {
+  return !/^(false|0|no)$/i.test(cfg("Style.WordByWord", "True"));
+}
+export function setShowKaraoke(v: boolean) {
+  cfgSet({ "Style.WordByWord": v ? "True" : "False" });
+}
+
 // —— 音质 Fallback 排序：False=自动/回退时不优先落到臻品全景声（默认，母带优先），
 //    True=按标准 rank 降序回退（全景声在其 rank 位置自然参与） ——
 export type FallbackSort = "no-atmos" | "rank";

@@ -9,18 +9,23 @@ Quaver Music，是一款 QQ 音乐的第三方客户端，其目的是为了让 
 名字取自于八分音符，对应了音乐，“QQ” 的 Q 字母。
 
 <p align="center">
-  <img src="img/1-0sc.webp" width="480">
+  <img src="img/1-1sc.webp" width="480">
 </p>
+<center><small>主页</small></center>
 
+<p align="center">
+  <img src="img/1-1player.webp" width="480">
+</p>
+<center><small>播放页</small></center>
 
 > [!CAUTION]
-> 真爱音乐，尊重正版，音乐平台不易，该应用**不提供盗版 QQ 音乐服务！**
->
-> 与此同时，这个软件目前全权是拷打 QWen 3.8 Flash 诞生的，按原样提供，use own ur risk！
+> 真爱音乐，尊重正版，音乐平台不易，该应用**不提供盗版 QQ 音乐曲目服务！**
+> 
+> 本软件系 Vibe Coding 的产物，虽然我会尽力尝试个人维护，但不提供可用性保证
 
 # 契机
 
-我一直是 QQ 音乐的用户，也用过 NCM 的第三方客户端，Spotify，Apple Music。
+我一直是 QQ 音乐的用户，也用过 NCM 的第三方客户端（如 SPlayer），Spotify，Apple Music。
 
 然而 QQ 音乐一直没有什么好用的第三方客户端，而同 TME 系的有 [MoeKoe](https://music.moekoe.cn/) ，而转机是在 [Lyrune](https://github.com/amtoaer/lyrune)，一个挺好用的 Rust Q 音第三方客户端，但可惜 Rust 太重了，而且我 Rust 是真的菜。
 
@@ -59,7 +64,7 @@ z：修补版本号
 - [x] 代号为 `Typhoeus` 的统一后端（集合现在的 Quaver SAL，抽象部分 API 能力 + 自实现播放后端，使用 AGPLv3 协议开源，在考虑因此学习 Zig 还是重新开始 Rust 还是复习 C++ ）
 - [x] MPRIS 支持（使用 `Typhoeus` 后端实现）
 - [x] 使用 PythonAPI 完善后端功能（使用 `Typhoeus` 后端抽象实现）
-- [ ] 清理 Bugs
+- [x] 清理 Bugs
 
 并在未来的 FEP 版本中，加入呼声较高的功能，或未完成实现的功能。
 
