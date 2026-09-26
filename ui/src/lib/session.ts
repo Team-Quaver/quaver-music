@@ -22,6 +22,11 @@ export interface SessionSnapshot {
   /** 当前曲目位置（秒） */
   position: number;
   mode: Mode;
+  /** 播放条会话音质覆盖（Quality | "auto" | 未覆盖=null）。
+   *  只在窗口重建接管时恢复 —— 冷启动仍回设置页默认（会话级语义不变） */
+  quality?: string | null;
+  /** 最近一次「已应用」的流档位（播放条音质胶囊数据源），与 quality 同步存取 */
+  lastStream?: { tier: string; label: string; degraded: boolean } | null;
   /** 存档时刻（仅排障用） */
   at: number;
 }
@@ -50,7 +55,11 @@ function slim(s: Song): Song | null {
   } as Song;
 }
 
-export function saveSession(snap: { queue: Song[]; index: number; position: number; mode: Mode }): void {
+export function saveSession(snap: {
+  queue: Song[]; index: number; position: number; mode: Mode;
+  quality?: string | null;
+  lastStream?: { tier: string; label: string; degraded: boolean } | null;
+}): void {
   try {
     const queue = snap.queue.map(slim).filter((s): s is Song => !!s);
     // 队列过长：保住指针所在的窗口，其余丢弃（指针同步平移）
@@ -67,6 +76,8 @@ export function saveSession(snap: { queue: Song[]; index: number; position: numb
       index: Math.max(0, Math.min(index, kept.length - 1)),
       position: Number.isFinite(snap.position) && snap.position > 0 ? snap.position : 0,
       mode: snap.mode,
+      quality: snap.quality ?? null,
+      lastStream: snap.lastStream ?? null,
       at: Date.now(),
     };
     localStorage.setItem(KEY, JSON.stringify(payload));
@@ -82,11 +93,14 @@ export function loadSession(): SessionSnapshot | null {
     const queue = d.queue.filter((s) => s && typeof s.mid === "string" && s.mid);
     if (!queue.length) return null;
     const mode: Mode = d.mode === "one" || d.mode === "off" ? d.mode : "all";
+    const ls = d.lastStream;
     return {
       queue,
       index: Number.isFinite(d.index) ? Math.max(0, Math.min(d.index, queue.length - 1)) : 0,
       position: Number.isFinite(d.position) ? Math.max(0, d.position) : 0,
       mode,
+      quality: typeof d.quality === "string" ? d.quality : null,
+      lastStream: ls && typeof ls === "object" && typeof ls.tier === "string" ? ls : null,
       at: Number(d.at) || 0,
     };
   } catch {

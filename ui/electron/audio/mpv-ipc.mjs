@@ -178,11 +178,13 @@ export class MpvIpc {
   getProp(prop) { return this.command(["get_property", prop]); }
   setProp(prop, value) { return this.command(["set_property", prop, value]); }
 
-  /** 温和退出：裸写 quit（不走 command()——dead 标志会挡），2s 后仍在就 SIGKILL。 */
+  /** 温和退出：裸写 quit（不走 command()——dead 标志会挡）+ SIGTERM 直杀（不依赖 socket
+   *  flush：主进程可能在 quit 字节刷出前就退出，信号是内核直接递的不怕），2s 后仍在就 SIGKILL。 */
   kill() {
     const c = this.child;
     if (!c) return;
     try { this.sock?.write(JSON.stringify({ command: ["quit"] }) + "\n"); } catch {}
+    try { c.kill("SIGTERM"); } catch {}
     setTimeout(() => { try { c.kill("SIGKILL"); } catch {} }, 2000).unref?.();
   }
 

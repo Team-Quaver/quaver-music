@@ -6,12 +6,15 @@
 // 生命周期：mpv 惰性拉起（boot/load/device 等需要它的命令触发），idle 常驻换曲不重启；
 // 崩溃后引擎标记 dead 并复位，下一次命令自动重拉（重试语义交给播放器的错误态，不无限自愈）。
 import { app, ipcMain } from "electron";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { resolveMpv } from "./bins.mjs";
 import { MpvIpc } from "./mpv-ipc.mjs";
 
 const POS_BROADCAST_MS = 250; // 位置广播节流：4Hz 足够渲染层外推出平滑进度/歌词
+// 看门狗脚本：父进程（本进程）无论怎么死，mpv 都会被它杀掉（注销/崩溃时 will-quit 跑不到）
+const WATCHDOG_SCRIPT = fileURLToPath(new URL("./mpv-watchdog.mjs", import.meta.url));
 
 /** 随包音频运行时根目录：打包态 = extraResources 的 <resources>/audio；开发态 = ui/build-res/audio
  *  （CI 在打包前用 ui/scripts/stage-mpv.sh 解 mpv AppImage 到这里；本地留空则回落系统 mpv）。
@@ -32,6 +35,7 @@ export class AudioEngine {
     this.log = () => {};
     this.mpv = null;                   // MpvIpc 实例（null = 未拉起/已死）
     this.starting = null;              // 拉起中的 promise（并发去重）
+    this.watchdog = null;              // mpv 看门狗子进程（父进程死亡时由它送 mpv 陪葬）
     this.bin = undefined;              // undefined = 未探测；null = 找不到；{path,source} = 命中
     /** @type {EngineState} */
     this.st = { pos: 0, dur: 0, paused: true, buffering: false, idle: true, volume: 0.8, muted: false };
@@ -136,6 +140,35 @@ export class AudioEngine {
     return this.bin;
   }
 
+  /** 给 mpv 配看门狗：spawn 一个 ELECTRON_RUN_AS_NODE 的小进程，stdin 管道写端握在
+   *  本进程手里 —— 父进程无论以何种方式死亡（正常退出/崩溃/SIGKILL/注销），管道断 →
+   *  看门狗 SIGKILL mpv。兜 will-quit 跑不到的场景（注销时 mpv 成孤儿继续放歌）。 */
+  armWatchdog(mpv) {
+    this.stopWatchdog();
+    const pid = mpv.child?.pid ?? 0;
+    if (!pid) return;
+    try {
+      const wd = spawn(process.execPath, [WATCHDOG_SCRIPT, String(pid)], {
+        stdio: ["pipe", "ignore", "ignore"],
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      });
+      wd.unref();          // 不挡主进程退出
+      wd.stdin?.unref?.(); // 管道写端同理（unref 只摘事件循环引用，fd 仍握着不断开）
+      this.watchdog = wd;
+      this.log("[audio] watchdog armed, mpv pid", pid);
+    } catch (e) {
+      this.log("[audio] watchdog arm failed:", String(e));
+    }
+  }
+
+  stopWatchdog() {
+    const wd = this.watchdog;
+    this.watchdog = null;
+    if (!wd) return;
+    try { wd.stdin?.end(); } catch {}
+    try { wd.kill(); } catch {}
+  }
+
   /** 拉起（或复用）mpv。返回 MpvIpc。失败抛错。 */
   async ensureStarted() {
     if (this.mpv && !this.mpv.dead) return this.mpv;
@@ -164,6 +197,8 @@ export class AudioEngine {
       const seed = await this.readState(mpv);
       this.st = { ...this.st, ...seed };
       mpv.eventCb = (ev) => this.onMpvEvent(ev);
+      mpv.exitCb = () => this.stopWatchdog(); // mpv 没了看门狗也就没用了，别留驻
+      this.armWatchdog(mpv);
       this.mpv = mpv;
       this.log("[audio] mpv ready:", mpv.mpvVersion);
       return mpv;
@@ -281,6 +316,18 @@ export class AudioEngine {
       case "boot":
         await this.ensureStarted();
         return { ok: true, version: this.mpv.mpvVersion };
+      case "snapshot": {
+        // 渲染层接管用（CSD/SSD 重建窗口后的新页面）：引擎的真实播放态 + 现挂的流 URL。
+        // 引擎活在渲染层之外，窗口拆掉它还在放 —— 新页面问一次就知道「正在放哪条流、放到哪」，
+        // 直接接管而不是重新挂流（重新挂会 replace 掉正在放的歌）。
+        const running = !!this.mpv && !this.mpv.dead;
+        return {
+          ok: true, backend: "mpv", running,
+          pos: this.st.pos, dur: this.st.dur,
+          paused: this.st.paused, buffering: this.st.buffering, idle: this.st.idle,
+          url: running ? this.lastUrl : "",
+        };
+      }
       case "load": {
         const mpv = await this.ensureStarted();
         const url = this.absolutize(String(cmd.url ?? ""));
@@ -383,15 +430,10 @@ export class AudioEngine {
     }
   }
 
-  /** 窗口重建（CSD/SSD 切换会拆掉渲染层）前调用：先暂停播放。
-   *  引擎活在渲染层之外，拆窗后 mpv 会继续放 —— 那是「没有 UI 的孤儿播放」，
-   *  重建后的新页面又是空队列，用户既看不到也控不了。故拆窗前一律暂停（带淡出）。
-   *  幂等、不拉起 mpv（没在跑就直接返回）。 */
-  async pauseForRebuild() {
-    this.doPause();
-  }
-
+  /** 收尾：杀 mpv、拆看门狗。will-quit 与信号路径（注销时 will-quit 跑不到，见
+   *  main.mjs 的 SIGTERM 接管）都会走这里；幂等。 */
   shutdown() {
+    this.stopWatchdog();
     try { this.mpv?.kill(); } catch {}
     this.mpv = null;
   }
