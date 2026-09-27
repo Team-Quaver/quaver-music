@@ -99,7 +99,7 @@
     "esbuild": true
   },
   "dependencies": {
-    "lyric-dom": "^0.2.0",
-    "lyric-kit": "^0.6.0"
+    "@applemusic-like-lyrics/core": "^0.6.0",
+    "@applemusic-like-lyrics/lyric": "^1.1.0"
   }
 }

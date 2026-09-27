@@ -35,6 +35,8 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(appVersion()),
   },
   resolve: {
+    // AMLL（vendor/Sparkle 内的官方插件引用，依赖由宿主 ui 提供）强制从项目根解析
+    dedupe: ["@applemusic-like-lyrics/core", "@applemusic-like-lyrics/lyric"],
     alias: [
       // Sparkle 插件系统 SDK（git submodule vendor/Sparkle，源码级打进 dist，见 quaver-sparkle/README）
       // 顺序要紧：子路径的正则必须在前 —— 字符串 "@quaver/sparkle" 会前缀命中 "@quaver/sparkle/xxx"。

@@ -7,14 +7,14 @@ import {
   getDecode, setDecode, getAudioDevice, setAudioDevice, setFade, FADE_PRESETS,
   getVolume as getVolumeConf, setVolume as setVolumeConf,
   getMuted as getMutedConf, setMuted as setMutedConf,
-  getShowTrans, setShowTrans, getShowKaraoke, setShowKaraoke,
+  getShowTrans, setShowTrans,
   type DecodeBackend, type FadePreset,
 } from "./lib/prefs";
 import { WebTransport, EngineTransport, type Transport, type TransportEvent, type AudioDeviceInfo } from "./lib/transport";
 import { loadSession, saveSession } from "./lib/session";
 import { parseLrc, type LyricLine } from "./lyric";
-import { detectFormat, parseLyric, type LyricLine as KitLyricLine } from "lyric-kit";
-import { sparkleStreamSources } from "./sparkle/registry";
+import type {SparkleKaraokeLine, SparkleKaraokeProvider} from "@quaver/sparkle";
+import { onSparkleChange, sparkleKaraokeProvider, sparkleStreamSources } from "./sparkle/registry";
 
 export type Song = {
   mid: string;
@@ -69,8 +69,8 @@ class Player {
   private likedFlight: Promise<boolean> | null = null; // 飞行中的预载（并发共享）
   lyrics: LyricLine[] = [];
   lyricState: "idle" | "loading" | "ok" | "none" = "idle";
-  /** 逐字歌词（lyric-kit 解析的 QRC/KRC/YRC/TTML 行，毫秒时间轴）；无逐字数据时为空 */
-  karaoke: KitLyricLine[] = [];
+  /** 逐字歌词（Sparkle 逐字提供器解析的词级时间轴行，毫秒）；无逐字数据时为空 */
+  karaoke: SparkleKaraokeLine[] = [];
   loading = false; // 正在取链/缓冲（UI 画加载指示）
   expanded = false; // 正在播放页是否展开
   queueOpen = false;
@@ -115,6 +115,15 @@ class Player {
     // 主进程拆窗重建（CSD/SSD 切换）前派发：立刻落一次存档 —— destroy() 不保证触发
     // pagehide，而重建后的新页面要靠这份存档对齐队列/指针去接管 mpv 正在放的歌
     window.addEventListener("quaver:flush-session", () => this.saveSessionNow());
+    // Sparkle 逐字提供器是异步注册的（initSparkle 晚于首帧）：首曲歌词可能在 provider
+    // 到位前就按纯 LRC 拉完了 → provider 出现时对当前曲补拉一次（fetchLyric 自带竞态守卫）
+    let lastKaraProvider: SparkleKaraokeProvider | null = null;
+    onSparkleChange(() => {
+      const p = sparkleKaraokeProvider();
+      if (p === lastKaraProvider) return;
+      lastKaraProvider = p;
+      if (p && this.current) void this.fetchLyric(this.current);
+    });
   }
 
   // —— 传输层接线 ——
@@ -381,10 +390,6 @@ class Player {
     this.notify();
   }
 
-  /** 逐字歌词显示开关（quaver.conf [Style] WordByWord，默认开）。
-   *  真相在 quaver.conf，设置页（外观）经 prefs 读写后回填这里并 notifyPublic()。 */
-  showKaraoke = getShowKaraoke();
-
   /** 用新列表替换队列并从 i 播放（整队列替换：视图语义一致）。不 await：双击即刻打断切歌。 */
   playList(songs: Song[], i = 0) {
     this.queue = songs.filter((s) => s?.mid);
@@ -565,8 +570,9 @@ class Player {
   error = "";
 
   /** 拉取并解析当前歌曲歌词（startCurrent 内部调用；也供外部预热/测试）。
-   *  一次请求顺带要逐字（qrc=1）：上游有 QRC 时 lyric 字段就是逐字内容，用 lyric-kit
-   *  解析成 karaoke 行 + 派生行级列表；没有逐字（或请求结果为空）时回退普通 LRC，行为不变。 */
+   *  一次请求顺带要逐字（qrc=1）：上游有 QRC 时 lyric 字段就是逐字内容，交给 Sparkle
+   *  逐字提供器（如 amll 插件）解析成 karaoke 行 + 派生行级列表；没有提供器、逐字
+   *  解析失败或请求结果为空时回退普通 LRC 行级，行为不变。 */
   async fetchLyric(s: Song) {
     const seq = ++this.lyricSeq;
     this.lyricState = "loading";
@@ -580,12 +586,22 @@ class Player {
         d = await api(`/song/${mid}/lyric?trans=1`);
         if (seq !== this.lyricSeq) return;
       }
-      const raw = String(d?.lyric ?? "");
-      const trans = String(d?.trans ?? "");
-      const kit = tryParseKaraoke(raw, trans);
-      if (kit) {
-        this.karaoke = kit;
-        this.lyrics = kitToLines(kit);
+      let raw = String(d?.lyric ?? "");
+      let trans = String(d?.trans ?? "");
+      const provider = sparkleKaraokeProvider();
+      let kara = provider ? provider.parse(raw, trans) : null;
+      if (!kara && !/^\[\d{1,2}:/.test(raw)) {
+        // 逐字解析失败（或无提供器）且内容不是行级 LRC（QRC XML / 纯文本 QRC / TTML
+        // 都是 parseLrc 读不了的格式）→ 退回普通歌词请求，「停用逐字」时行级歌词仍有内容
+        d = await api(`/song/${mid}/lyric?trans=1`);
+        if (seq !== this.lyricSeq) return;
+        raw = String(d?.lyric ?? "");
+        trans = String(d?.trans ?? "");
+        kara = provider ? provider.parse(raw, trans) : null;
+      }
+      if (kara?.length) {
+        this.karaoke = kara;
+        this.lyrics = karaokeToLines(kara);
       } else {
         this.karaoke = [];
         this.lyrics = parseLrc(raw, trans);
@@ -755,28 +771,10 @@ class Player {
 export const player = new Player();
 export { coverUrl };
 
-// —— 逐字歌词解析辅助（模块级纯函数，便于复用与测试） ——
+// —— 逐字歌词辅助（模块级纯函数，便于复用与测试） ——
 
-/** 视为逐字格式的类型（LRC/SRT/ASS 等行级格式不进卡拉OK路径） */
-const WORD_TIMED_FORMATS = new Set(["qrc", "krc", "yrc", "ttml"]);
-
-/** 尝试按逐字歌词解析；不是逐字格式或解析失败返回 null（调用方回退 parseLrc）。 */
-function tryParseKaraoke(content: string, trans: string): KitLyricLine[] | null {
-  if (!content.trim()) return null;
-  try {
-    if (!WORD_TIMED_FORMATS.has(detectFormat(content))) return null;
-    const r = parseLyric({ content, translation: trans });
-    const lines = r?.lines ?? [];
-    // 必须真有逐字时间轴：行内至少一个词带非零时长（纯行级时间轴的假 QRC 不算）
-    if (!lines.some((l) => l.words.some((w) => w.endTime > w.startTime))) return null;
-    return lines;
-  } catch {
-    return null;
-  }
-}
-
-/** 逐字行 → 行级展示列表（逐字开关关闭/不支持卡拉OK渲染时的行级视图，与 LRC 行为一致） */
-function kitToLines(lines: KitLyricLine[]): LyricLine[] {
+/** 逐字行 → 行级展示列表（逐字提供器缺位/解析失败回退时的行级视图，与 LRC 行为一致） */
+function karaokeToLines(lines: SparkleKaraokeLine[]): LyricLine[] {
   const out: LyricLine[] = [];
   for (const l of lines) {
     const text = l.words.map((w) => w.word).join("").trim();

@@ -5,13 +5,15 @@
 // 侧栏重画（shell.repaintSidebarPlaylists）、主题 CSS 注入（document.head）。
 import type { SparkleContext, SparkleNpWidget, SparklePlugin, SparklePlayerFacade, SparkleTheme } from "@quaver/sparkle";
 import { toast } from "../components/SongMenu";
+import { OFFICIAL_META } from "./loader";
 import { player } from "../player";
 import { addNavItem, repaintSidebarPlaylists } from "../shell";
 import {
   sparkRecordDrop, sparkRecordInit, sparkRecordOf,
-  sparkRegisterNav, sparkRegisterNpWidget, sparkRegisterSettingsSection,
-  sparkRegisterSongMenuItem, sparkRegisterSonglistGroup, sparkRegisterStreamSource,
-  sparkRegisterTheme, sparkRegisterView, sparklePluginRoutes, sparkleThemes,
+  sparkRegisterKaraokeProvider, sparkRegisterNav, sparkRegisterNpWidget,
+  sparkRegisterSettingsSection, sparkRegisterSongMenuItem, sparkRegisterSonglistGroup,
+  sparkRegisterStreamSource, sparkRegisterTheme, sparkRegisterView,
+  sparklePluginRoutes, sparkleThemes,
   type SparklePluginRecord,
 } from "./registry";
 
@@ -19,6 +21,11 @@ import {
 
 const ENABLED_KEY = "quaver.sparkle.enabled.v1";
 const THEME_KEY = "quaver.sparkle.theme.v1";
+/** 官方插件被用户显式停用的标记（string[]；新官方插件默认启用时跳过这些 id） */
+const OFFICIAL_OFF_KEY = "quaver.sparkle.official-off.v1";
+
+/** 被用户显式停用过的官方插件 id（init 播种「新官方插件默认启用」时跳过） */
+export const sparkOfficialOffIds = (): string[] => readList(OFFICIAL_OFF_KEY);
 
 const readList = (key: string): string[] => {
   try {
@@ -125,6 +132,7 @@ function makeContext(pluginId: string): SparkleContext {
     },
     registerSongMenuItem: (item) => sparkRegisterSongMenuItem(pluginId, item),
     registerStreamSource: (source) => sparkRegisterStreamSource(pluginId, source),
+    registerKaraokeProvider: (provider) => sparkRegisterKaraokeProvider(pluginId, provider),
     storage: {
       get: (k) => localStorage.getItem(pfx + k),
       set: (k, v) => localStorage.setItem(pfx + k, v),
@@ -163,6 +171,9 @@ export async function enableSparklePlugin(plugin: SparklePlugin): Promise<boolea
     const dispose = plugin.setup(makeContext(id));
     if (typeof dispose === "function") record.dispose = dispose;
     sparkSetEnabledIds([...sparkEnabledIds(), id]);
+    if (OFFICIAL_META.some((m) => m.id === id)) {
+      localStorage.setItem(OFFICIAL_OFF_KEY, JSON.stringify(sparkOfficialOffIds().filter((x) => x !== id)));
+    }
     return true;
   } catch (e) {
     // 回滚已注册的半截资源，标记 broken；宿主各接入点自动回到无插件形态
@@ -187,6 +198,9 @@ export function disableSparklePlugin(id: string) {
   try { record.dispose?.(); } catch (e) { console.warn(`[sparkle:${id}] dispose`, e); }
   sparkRecordDrop(id);
   sparkSetEnabledIds(sparkEnabledIds().filter((x) => x !== id));
+  if (OFFICIAL_META.some((m) => m.id === id)) {
+    localStorage.setItem(OFFICIAL_OFF_KEY, JSON.stringify([...new Set([...sparkOfficialOffIds(), id])]));
+  }
   if (routes.includes(cur)) location.hash = "#/";
   applySparkleTheme(); // 激活主题若属于该插件，teardown 已清掉 style；这里兜底回落默认
 }

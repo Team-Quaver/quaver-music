@@ -2,17 +2,18 @@
 // 无标题栏 CSD：np 铺满整窗，右上角窗口按钮簇（z-index 更高）在其上。
 // 歌词 = 整首列表：当前句居中、清晰、白色（染色版可读性差，已弃）；其余行模糊渐隐。
 // 滚轮可自由翻阅全文（翻阅期间暂停自动跟随，播放进度追上行号后恢复跟随）。
-// 逐字歌词（歌曲带 QRC 且开关开启）：交由 lyric-dom 渲染器接管同一列位（.np-kara-host），
-// 卡拉OK扫色 = 封面 Tint 掺白提亮（可读性优先），rAF 直读 transport 外推时钟平滑驱动；
-// 开关在 设置-外观（Style.WordByWord）；无逐字数据 / 开关关闭时维持原有行级高亮，行为不变。
+// 逐字歌词（歌曲带 QRC 且开关开启）：Sparkle 逐字提供器（官方 amll 插件 = AMLL 渲染）
+// 接管同一列位（.np-kara-host），宿主只管容器与重建时机；停用插件即自动回退行级歌词。
+// 开关在插件的设置区（Sparkle tab → Apple Music-like Lyrics）；无逐字数据 / 无提供器 /
+// 开关关闭时维持原有行级高亮。
 // 右侧 = 封面在上，歌名 / 「歌手 - 专辑」在下，文本右对齐且与封面右缘齐平；
 // 信息列下缘挂 ⋮ 更多选项（同名搜索 / 跳转歌手 / 跳转专辑 / 翻译 Switch 开关）。
 // 背景 = 当前封面高斯模糊放大铺满 + 深色渐变压暗；进度与控制由常驻播放条承担。
 import { player, type Song } from "../player";
 import { coverUrl, songTitle, stripEm } from "../lib/api";
 import { icons } from "../lib/icons";
-import { LyricRenderer, applyScrollPreroll } from "lyric-dom";
-import "lyric-dom/renderer.css";
+import type { SparkleKaraokeProvider } from "@quaver/sparkle";
+import { sparkleKaraokeProvider } from "../sparkle/registry";
 
 export function NowPlaying(): HTMLElement {
   const el = document.createElement("div");
@@ -170,52 +171,33 @@ export function NowPlaying(): HTMLElement {
   let lastIdx = -1;        // 高亮行索引（避免每帧改 class）
   let lineEls: HTMLElement[] = [];
 
-  // —— 逐字歌词（lyric-dom 渲染器）——
-  // notify 只有 4Hz，逐字扫色要逐帧时间：自驱 rAF 直读 transport.position（web = currentTime，
-  // mpv = 外推时钟），暂停/收起时停表并 freeze 渲染器省掉空转。
-  let renderer: LyricRenderer | null = null;
+  // —— 逐字歌词（Sparkle 逐字提供器接管 .np-kara-host）——
+  // notify 只有 4Hz，逐字扫色要逐帧时间：逐帧时钟/播放态/翻译显隐/收起冻结全部由
+  // provider 的 render 自理（经 render ctx 闭包读到的永远是当前态）；宿主只管在
+  // 换曲/歌词状态/逐字开关/提供器身份变化时清容器重挂。
   let lastKaraMode = false;
-  let karaRaf = 0;
-  let karaPlaying: boolean | null = null;
-  let karaTransShown: boolean | null = null;
-  let karaFrozen = false;
+  let karaProvider: SparkleKaraokeProvider | null = null;
+  let karaCleanup: (() => void) | null = null;
 
-  function karaTick() {
-    karaRaf = 0;
-    if (!renderer) return;
-    renderer.setCurrentTime((player.time + 0.2) * 1000); // +0.2s 与行级高亮同一处时间补偿
-    karaRaf = window.requestAnimationFrame(karaTick);
-  }
-  function startKaraTick() { if (!karaRaf && renderer) karaRaf = window.requestAnimationFrame(karaTick); }
-  function stopKaraTick() { if (karaRaf) { window.cancelAnimationFrame(karaRaf); karaRaf = 0; } }
-  function freezeKara() {
-    stopKaraTick();
-    if (renderer && !karaFrozen) { renderer.freeze(); karaFrozen = true; }
-  }
-  function thawKara() {
-    if (!renderer) return;
-    if (karaFrozen) { renderer.resume(); karaFrozen = false; }
-    startKaraTick();
-  }
   function disposeKara() {
-    stopKaraTick();
-    renderer?.dispose();
-    renderer = null;
+    if (karaCleanup) { try { karaCleanup(); } catch (e) { console.warn("[np] 逐字渲染清理失败", e); } }
+    karaCleanup = null;
+    karaProvider = null;
+    karaHost.innerHTML = ""; // 容器内容整个交给 provider，清理时兜底清空
   }
   function buildKara() {
     disposeKara();
-    renderer = new LyricRenderer(karaHost, {
-      playing: player.playing,
-      enableBlur: true, // 非当前行距离模糊，对齐行级视图的模糊语言
-      showTranslation: player.showTrans,
-      onLineClick: (ms) => { player.seek(ms / 1000); browsing = false; },
-    });
-    renderer.setLyrics(applyScrollPreroll(player.karaoke));
-    renderer.setCurrentTime((player.time + 0.2) * 1000);
-    karaPlaying = player.playing;
-    karaTransShown = player.showTrans;
-    karaFrozen = false;
-    if (player.expanded) startKaraTick(); else freezeKara();
+    const provider = sparkleKaraokeProvider();
+    if (!provider) return;
+    karaProvider = provider;
+    karaCleanup = provider.render(karaHost, player.karaoke, {
+      time: () => (player.time + 0.2) * 1000, // +0.2s 与行级高亮同一处时间补偿
+      paused: () => player.paused,
+      expanded: () => player.expanded,
+      showTrans: () => player.showTrans,
+      seek: (ms) => { player.seek(ms / 1000); browsing = false; },
+      onNotify: (cb) => player.on(cb),
+    }) ?? null;
   }
 
   // —— 滚轮翻阅：浏览模式暂停自动跟随；3s 无操作回到跟随，或点击任意行立刻跟随该句 ——
@@ -271,9 +253,10 @@ export function NowPlaying(): HTMLElement {
 
     // 换曲 / 歌词状态迁移 / 逐字模式切换（loading→ok/none 时行 DOM 需要重建，否则占位/歌词丢失）
     const st: "idle" | "loading" | "ok" | "none" = player.lyrics.length ? "ok" : player.lyricState;
-    const karaMode = player.showKaraoke && player.karaoke.length > 0;
+    const provider = sparkleKaraokeProvider();
+    const karaMode = player.karaoke.length > 0 && !!provider && (provider.enabled?.() ?? true);
     el.classList.toggle("kara", karaMode);
-    if (s?.mid !== lastMid || st !== lastLyricState || karaMode !== lastKaraMode) {
+    if (s?.mid !== lastMid || st !== lastLyricState || karaMode !== lastKaraMode || (karaMode && provider !== karaProvider)) {
       lastKaraMode = karaMode;
       if (karaMode) { lastMid = s?.mid ?? ""; lastIdx = -1; buildKara(); }
       else { disposeKara(); buildLyricDom(s); }
@@ -283,14 +266,6 @@ export function NowPlaying(): HTMLElement {
     const albumName = (s as any)?.album?.name ?? "";
     setArtist(s ? [(s.singer ?? []).map((x) => x.name).join(" / "), albumName].filter(Boolean).join(" - ") : "");
     cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : `<div class="np-cover-ph">${icons.disc ?? ""}</div>`;
-
-    if (renderer) {
-      // 播放态 / 翻译显隐变化只 push 差异（渲染器内部会重排动画）
-      if (player.playing !== karaPlaying) { renderer.setPlaying(player.playing); karaPlaying = player.playing; }
-      if (player.showTrans !== karaTransShown) { renderer.setConfig({ showTranslation: player.showTrans }); karaTransShown = player.showTrans; }
-      // 页面收起 → 冻结渲染循环；展开 → 恢复并重启 rAF 时钟
-      if (open) thawKara(); else freezeKara();
-    }
 
     // 高亮当前歌词行 + 滚动居中（翻阅模式暂停自动跟随；3s 静默或点击行号恢复；逐字模式由渲染器接管）
     if (lineEls.length) {

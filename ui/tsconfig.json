@@ -13,7 +13,8 @@
     "verbatimModuleSyntax": true,
     "paths": {
       "@quaver/sparkle": ["../vendor/Sparkle/sdk/index.ts"],
-      "@quaver/sparkle/*": ["../vendor/Sparkle/*"]
+      "@quaver/sparkle/*": ["../vendor/Sparkle/*"],
+      "@applemusic-like-lyrics/*": ["./node_modules/@applemusic-like-lyrics/*"]
     }
   },
   "include": ["src", "vite.config.ts", "../vendor/Sparkle/sdk/**/*.ts", "../vendor/Sparkle/plugins/**/*.ts", "../vendor/Sparkle/market/**/*.ts"],

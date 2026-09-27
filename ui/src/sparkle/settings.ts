@@ -81,7 +81,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
       <input type="text" spellcheck="false" autocomplete="off" aria-label="索引源 URL" placeholder="索引源 URL（JSON）"/>
       <button class="ghost-btn ghost-btn--quiet sparkle-market-refresh" type="button">刷新</button>
     </div>
-    <p class="muted sparkle-warn">安装 ≠ 启用：装完默认关闭，请到「已装插件」里手动开启。插件可以访问页面数据，请只安装信任来源。</p>
+    <p class="muted sparkle-warn">插件安装后默认关闭，请手动开启。插件可以访问页面数据，请只安装信任来源。</p>
     <div class="sparkle-market-list"></div>`;
   const marketInput = marketGroup.querySelector<HTMLInputElement>("input")!;
   const marketRefresh = marketGroup.querySelector<HTMLButtonElement>(".sparkle-market-refresh")!;

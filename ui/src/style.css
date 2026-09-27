@@ -797,24 +797,21 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 }
 .np-ly-empty { text-align: center; color: #fff8; font-size: 14px; padding: 60px 0; }
 
-/* —— 逐字歌词（lyric-dom 渲染器接管 .np-kara-host；行级列表隐藏；开关在 设置-外观） ——
-   扫色 = 文字色 + alpha 掩码（--ba 未唱 → --da 已唱），所以「高亮为 Tint」直接落在 --lp-color 上：
-   封面主色（--cvg-accent）固定 L=0.5，亮色相下与深色遮罩对比尚可、暗色相下会沉底 ——
+/* —— 逐字歌词（Sparkle 逐字提供器接管 .np-kara-host，官方 amll 插件 = AMLL 渲染；行级列表隐藏；
+   开关在 设置-外观） —— 高亮色落在 AMLL 的 --amll-lp-color 上：封面主色（--cvg-accent）
    统一掺白提亮（55% accent + 45% 白），保留色相的同时最坏情况也可读；
    --cvg-accent 注册过 @property 且 :root 上有 transition，换曲染色时扫色平滑跟随。
-   Shadow 与行级当前句同款（text-shadow 可继承，主行/翻译/音译一起吃到），压住深色遮罩上的发虚。 */
+   Shadow 与行级当前句同款（text-shadow 可继承，主行/翻译一起吃到），压住深色遮罩上的发虚。 */
 .np-kara-host {
   display: none; position: relative; height: 100%;
   font-family: var(--font-lyric, var(--font-default));
-  font-size: 20px; font-weight: 700; color: #fff;
+  font-weight: 700; color: #fff;
   text-shadow: 0 2px 14px #0004;
-  /* lyric-dom 主题变量：本页底色恒为深色遮罩，锚固定亮色而非 --ink（同 .np-menu 的口径） */
-  --lp-color: color-mix(in srgb, var(--cvg-accent, var(--cyan)) 55%, #fff);
-  --lp-padding-x: 4px;
-  --lp-sub-font-size: 13px;
-  --lp-sub-color: #fff;
-  --lp-sub-opacity: .8;
-  --lp-hover-bg: #ffffff1f;
+  /* AMLL 主题变量：本页底色恒为深色遮罩，文字锚固定亮色而非 --ink（同 .np-menu 的口径）；
+     字号沿用 AMLL 的视口基准（em 排版），下限贴近期旧的 20px 基准 */
+  --amll-lp-color: color-mix(in srgb, var(--cvg-accent, var(--cyan)) 55%, #fff);
+  --amll-lp-font-size: clamp(18px, 3vh, 28px);
+  --amll-lp-hover-bg-color: #ffffff1f;
 }
 .np.kara .np-lyrics { display: none; }
 .np.kara .np-kara-host { display: block; }

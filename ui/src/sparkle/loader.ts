@@ -10,22 +10,33 @@ export interface OfficialPluginMeta {
   name: string;
   version: string;
   author?: string;
+  license?: string;
   description?: string;
 }
 
 export const OFFICIAL_META: OfficialPluginMeta[] = [
   {
     id: "die-for-you",
-    name: "Die For You 歌词",
+    name: "Die For You - Demo Plugins",
     version: "1.0.0",
-    author: "quaver",
-    description: "在设置页随机展示一句《Die For You》（VALORANT Champions 2022 主题曲）歌词",
+    author: "Team Quaver",
+    license: "AGPL - v3",
+    description: "在设置页随机展示一句《Die For You》（《无畏契约》 2021 柏林冠军赛主题曲）歌词",
+  },
+  {
+    id: "amll",
+    name: "Apple Music-like Lyrics",
+    version: "1.0.0",
+    author: "Team Quaver",
+    license: "AGPL - v3",
+    description: "用 AMLL（applemusic-like-lyrics）渲染逐字歌词（QRC/TTML）",
   },
 ];
 
 /** 官方插件模块加载表（vite 静态分析这些路径，各自成 chunk） */
 const OFFICIAL_LOADERS: Record<string, () => Promise<{ default: SparklePlugin }>> = {
   "die-for-you": () => import("@quaver/sparkle/plugins/die-for-you"),
+  "amll": () => import("@quaver/sparkle/plugins/amll"),
 };
 
 export interface InstalledPlugin {

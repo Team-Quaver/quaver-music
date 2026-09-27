@@ -7,6 +7,7 @@
 // 每个注册动作都会往对应插件 record 的 teardown 里 push 一个反注册闭包 ——
 // 停用插件 = 倒序跑完 teardown，宿主的各个接入点就自动回到无插件形态。
 import type {
+  SparkleKaraokeProvider,
   SparkleMenuItem,
   SparkleNavItem,
   SparkleNpWidget,
@@ -41,6 +42,7 @@ interface MenuItemEntry {
   item: SparkleMenuItem | ((ctx: SparkleSongMenuCtx) => SparkleMenuItem);
 }
 interface StreamSourceEntry { pluginId: string; source: SparkleStreamSource }
+interface KaraokeProviderEntry { pluginId: string; provider: SparkleKaraokeProvider }
 interface ViewEntry { pluginId: string; path: string; view: SparkleView }
 
 const navItems: NavEntry[] = [];
@@ -50,6 +52,7 @@ const themes: ThemeEntry[] = [];
 const npWidgets: NpWidgetEntry[] = [];
 const menuItems: MenuItemEntry[] = [];
 const streamSources: StreamSourceEntry[] = [];
+const karaokeProviders: KaraokeProviderEntry[] = [];
 const pluginViews = new Map<string, ViewEntry>(); // key: path
 
 /** 活动插件表（pluginId → record）；host.ts 维护，registry 只读它写 teardown */
@@ -151,6 +154,16 @@ export function sparkRegisterStreamSource(pluginId: string, source: SparkleStrea
   emitChange();
 }
 
+export function sparkRegisterKaraokeProvider(pluginId: string, provider: SparkleKaraokeProvider) {
+  const entry: KaraokeProviderEntry = { pluginId, provider };
+  karaokeProviders.push(entry); // 先注册先得：宿主只消费 sparkleKaraokeProvider() 的第一个
+  teardownOf(pluginId).push(() => {
+    const at = karaokeProviders.indexOf(entry);
+    if (at >= 0) karaokeProviders.splice(at, 1);
+  });
+  emitChange();
+}
+
 export function sparkRecordInit(record: SparklePluginRecord) { records.set(record.pluginId, record); }
 export function sparkRecordDrop(pluginId: string) { records.delete(pluginId); }
 
@@ -166,6 +179,8 @@ export const sparkleSettingsSections = (): SettingsSectionEntry[] => settingsSec
 export const sparkleThemes = (): ThemeEntry[] => themes;
 export const sparkleNpWidgets = (): NpWidgetEntry[] => npWidgets;
 export const sparkleStreamSources = (): SparkleStreamSource[] => streamSources.map((e) => e.source);
+/** 逐字歌词提供器（首个注册者；无 = 宿主走纯 LRC 行级歌词） */
+export const sparkleKaraokeProvider = (): SparkleKaraokeProvider | null => karaokeProviders[0]?.provider ?? null;
 
 /** 歌曲右键菜单的插件追加项（ctx 逐次求值：函数型条目按当时上下文生成） */
 export function sparkleMenuItems(ctx: SparkleSongMenuCtx): SparkleMenuItem[] {
