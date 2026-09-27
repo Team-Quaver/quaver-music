@@ -247,11 +247,19 @@ jobs:
           uv python install 3.11-x86_64
           xpy="$(uv python find 3.11-x86_64)"
           echo "x64 python: $xpy"
+          # arm64：锁冻结安装即可（cryptography 50.0.1 有 macosx_11_0_arm64 wheel）
           uv sync --frozen --no-dev --python 3.11
-          UV_PROJECT_ENVIRONMENT="$PWD/.venv-x64" uv sync --frozen --no-dev --python "$xpy"
-          UV_PROJECT_ENVIRONMENT="$PWD/.venv-x64" uv pip install --python "$PWD/.venv-x64/bin/python" \
-            pyinstaller pyinstaller-hooks-contrib
           uv pip install --python .venv/bin/python pyinstaller pyinstaller-hooks-contrib
+          # x64：cryptography 从 48 起不再发 intel/universal2 macOS wheel（50.0.1 实测只剩
+          # macosx_11_0_arm64；47.0.0 的 cp311-abi3-macosx_10_9_universal2 是最后一份），
+          # 锁里的 50.0.1 在 x64 上会掉进源码构建（cargo exit 101）。→ x64 环境不走
+          # frozen sync，用 constraint 把 cryptography 钉回 47.0.0（恰为 qqmusic-api 的
+          # 下限 >=47.0.0）走预编译 wheel；其余依赖取最新，与 lock 的偏差已知可控。
+          printf 'cryptography==47.0.0\n' > "$RUNNER_TEMP/mac-x64-constraints.txt"
+          uv venv --python "$xpy" .venv-x64
+          uv pip install --python .venv-x64/bin/python \
+            -c "$RUNNER_TEMP/mac-x64-constraints.txt" \
+            . ../QQMusicApi pyinstaller pyinstaller-hooks-contrib
 
       - name: PyInstaller onefile (arm64)
         working-directory: vendor/Typhoeus
