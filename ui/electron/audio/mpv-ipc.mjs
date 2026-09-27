@@ -52,8 +52,19 @@ export class MpvIpc {
   /** 拉起 mpv 并连上 IPC socket。失败抛错（调用方决定报错/回落）。 */
   async start() {
     if (this.dead) throw new Error("mpv already dead");
-    this.sockDir = mkdtempSync(join(tmpdir(), "quaver-mpv-"));
-    const sockPath = join(this.sockDir, "ipc.sock"); // socket 是 0 字节，tmpfs 大小无关紧要
+    // IPC 端点按平台分两路：unix socket（文件系统可见，就绪 = 文件出现）与
+    // Windows 命名管道（不在文件系统里，就绪 = connect 第一次成功）。
+    const isWin = process.platform === "win32";
+    let connectTarget;
+    if (isWin) {
+      // 命名管道名带 pid+随机段：多实例不互踩。sockDir 保持 null，cleanup() 天然跳过。
+      const name = `quaver-mpv-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+      connectTarget = `\\\\.\\pipe\\${name}`;
+      this.sockDir = null;
+    } else {
+      this.sockDir = mkdtempSync(join(tmpdir(), "quaver-mpv-"));
+      connectTarget = join(this.sockDir, "ipc.sock"); // socket 是 0 字节，tmpfs 大小无关紧要
+    }
 
     const args = [
       // 受控子进程：不吃用户 ~/.config/mpv 的 mpv.conf / 自动加载的脚本 ——
@@ -64,7 +75,7 @@ export class MpvIpc {
       "--no-terminal",              // 不占 tty
       "--no-video",                 // 纯音频
       "--audio-display=no",
-      `--input-ipc-server=${sockPath}`,
+      `--input-ipc-server=${connectTarget}`,
       // —— 缓存：有上限的滑动窗口，纯内存，绝不落盘（合规线：不做整曲持久化）——
       "--cache-on-disk=no",
       "--demuxer-max-bytes=32MiB",  // 前向窗口
@@ -86,23 +97,44 @@ export class MpvIpc {
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (d) => this.log("[mpv]", String(d).trimEnd()));
     const exited = new Promise((_, rej) => child.once("exit", (c) => rej(new Error(`mpv exited early: ${c}`))));
+    // win 分支（管道）不走 race：mpv 早退时这个 promise 没人接 → unhandled rejection，垫一下。
+    exited.catch(() => {});
 
-    // 等 socket 出现（mpv 起来才创建）；期间进程死了要立刻知道
+    // 等 IPC 端点就绪；期间进程死了要立刻知道
     const deadline = Date.now() + SOCK_WAIT_MS;
-    while (!existsSync(sockPath)) {
-      if (child.exitCode !== null) throw new Error(`mpv exited early: ${child.exitCode}`);
-      if (Date.now() > deadline) {
-        try { child.kill(); } catch {}
-        throw new Error("mpv IPC socket 超时未就绪");
+    if (isWin) {
+      // 管道不可 stat → 用重试 connect 当就绪探针（成功即复用该连接）
+      await new Promise((resolve, reject) => {
+        let done = false;   // 连上之后 socket 的后续 error 不许再触发重连
+        const tryConn = () => {
+          if (done) return;
+          if (child.exitCode !== null) return reject(new Error(`mpv exited early: ${child.exitCode}`));
+          if (Date.now() > deadline) return reject(new Error("mpv IPC 管道超时未就绪"));
+          const s = connect(connectTarget, () => { done = true; resolve(s); });
+          s.on("error", () => {
+            if (done) return;
+            s.destroy();
+            setTimeout(tryConn, 50);
+          });
+        };
+        tryConn();
+      }).then((s) => { this.sock = s; });
+    } else {
+      while (!existsSync(connectTarget)) {
+        if (child.exitCode !== null) throw new Error(`mpv exited early: ${child.exitCode}`);
+        if (Date.now() > deadline) {
+          try { child.kill(); } catch {}
+          throw new Error("mpv IPC socket 超时未就绪");
+        }
+        await Promise.race([exited, new Promise((r) => setTimeout(r, 50))]);
       }
-      await Promise.race([exited, new Promise((r) => setTimeout(r, 50))]);
-    }
 
-    await new Promise((resolve, reject) => {
-      const s = connect(sockPath, () => resolve());
-      s.on("error", reject);
-      this.sock = s;
-    });
+      await new Promise((resolve, reject) => {
+        const s = connect(connectTarget, () => resolve());
+        s.on("error", reject);
+        this.sock = s;
+      });
+    }
     this.sock.setEncoding("utf8");
     this.sock.on("data", (chunk) => this.onData(chunk));
     this.sock.on("close", () => this.onSockClose());

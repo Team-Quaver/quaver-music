@@ -3,9 +3,11 @@
 // 随包是优化不是前提：三级兜底本来就在，没有随包那份就落系统 mpv，再没有就由渲染层落 <audio>。
 // 只认可执行文件：AppImage 只读挂载点不允许运行时 chmod，env 顶掉包里那份是排障刚需。
 //
-// 随包运行时 = pkgforge 的 mpv AppImage 在构建期 --appimage-extract 出来的目录
-// （quick-sharun 布局，见 ui/scripts/stage-mpv.sh），放在 <声源根>/mpv/。
-// 里面有两件事必须照它自己的声明来做，别自作聪明：
+// 随包运行时按平台分三套布局（暂存脚本：Linux=stage-mpv.sh，Windows/macOS=stage-mpv-official.mjs）：
+//   linux  = pkgforge mpv AppImage 构建期 --appimage-extract 出来的 quick-sharun 目录
+//   win32  = mpv 官方 release zip（mingw/msvc）平铺的 mpv.exe + 同目录 DLL
+//   darwin = mpv 官方 release 包的 mpv.app（自带 dylib，按 @executable_path 自举）
+// Linux 那套里有两件事必须照它自己的声明来做，别自作聪明：
 //   1. 载荷在 mpv/shared/bin/mpv，不能裸跑（缺包内 so，如 libunibreak）；
 //   2. 用包内自带 loader + `lib/lib.path` 声明的库路径启动 ——
 //      **绝不能改用宿主 LD_LIBRARY_PATH**：那会让宿主 loader 加载包内 libc.so.6，
@@ -66,6 +68,18 @@ function findLoader(tree) {
 export function resolveBundled(audioRoot) {
   if (!audioRoot) return null;
   const tree = join(audioRoot, "mpv");
+  // win32 / darwin：官方二进制自包含（win 同目录找 DLL；mac mpv.app 自带 dylib rpath），
+  // 直接 spawn 载荷本身，不需要 Linux 那套 loader + lib.path 花活。
+  if (platform === "win32") {
+    const payload = join(tree, "mpv.exe");
+    if (!isExec(payload)) return null;
+    return { source: "bundled", payload, argv: [payload], tree };
+  }
+  if (platform === "darwin") {
+    const payload = join(tree, "mpv.app", "Contents", "MacOS", "mpv");
+    if (!isExec(payload)) return null;
+    return { source: "bundled", payload, argv: [payload], tree };
+  }
   const payload = join(tree, "shared", "bin", "mpv");
   if (!isExec(payload)) return null; // 目录在但没产物（本地只放 .gitkeep）= 未随包，正常回落
   const loader = findLoader(tree);
@@ -110,7 +124,7 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   }
   const found = resolveBundled(root);
   if (!found) {
-    console.error(`✗ 随包运行时不可用：${root}（缺 mpv/shared/bin/mpv 或自带 loader）`);
+    console.error(`✗ 随包运行时不可用：${root}（本平台预期的载荷/loader 不在位，布局见 resolveBundled）`);
     process.exit(1);
   }
   const [bin, ...rest] = found.argv;

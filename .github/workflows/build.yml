@@ -1,20 +1,38 @@
-# Quaver — Linux 前后端打包 CI
+# Quaver — 全平台打包 CI
+#
 # 后端：vendor/Typhoeus (quaver_server FastAPI sidecar) → PyInstaller onefile 二进制
-# 前端：ui (Electron + Vite) → AppImage（内含对应架构的 sidecar 与随包音频运行时 mpv）
-# 架构：x86_64 + ARM64 双矩阵。PyInstaller 不能交叉编译，ARM 必须跑在
-#       GitHub 原生 ARM runner（ubuntu-24.04-arm）上，不用 QEMU。
+# 前端：ui (Electron + Vite) → 平台安装包（随包对应架构的 sidecar 与音频运行时 mpv）
+#
+# 目标平台：
+#   linux    x86_64 + aarch64 → AppImage（原生 runner，PyInstaller 不能交叉编译）
+#   windows  x64 + arm64      → NSIS（sidecar 跑原生 arm runner；前端都在 x64 上交叉打包）
+#   macos    universal (x64+arm64) → dmg（sidecar 无法 lipo 合并 → 壳脚本分发双单架构，见下）
+#   linux    loongarch64（龙芯新世界 ABI 2.0）→ tar.gz（无 electron-builder 支持 → dir 包换 Electron）
+#
+# 上游口径（别想当然）：
+#   - mpv 官方 release 只发 Windows + macOS 二进制：Windows 用 mingw x64（自带全套 DLL）+
+#     msvc arm64（静态链接）；macOS 用 macos-15 arm/intel 两份 zip，universal 由 lipo 逐文件合并
+#     后重签 ad-hoc（合并使原签名失效，arm mac 会直接拒跑）。Linux 用 pkgforge AppImage
+#     （x86_64/aarch64），loongarch64 无预编译 mpv → **不随包**，运行期回落系统 mpv / <audio>。
+#   - Electron 官方没有 loong64 发行版；loongnix 的新版只到 v31.7.7
+#     （https://ftp.loongnix.cn/electron/LoongArch/v31.7.7/）。主仓开发用 Electron 44 →
+#     loong64 包用 31.7.7 的二进制 + 同一份 app 资源（asar/DLL 无关架构），运行期兼容性
+#     无法在 CI 验证，属已知风险。
+#   - PyPI 没有 loong64 wheel 的三个 Rust 包（cryptography / pydantic-core / orjson）从
+#     loong64 社区镜像取预编译：https://mirrors.loong64.com/pypi/simple（cryptography 47+、
+#     pydantic-core 2.41+、orjson 3.12 均有 cp311 wheel，与 uv.lock 版本对齐）。
+#   - PyInstaller onefile 的档案拼在 Mach-O 尾部，**不能 lipo 合并两份单架构产物** →
+#     macOS universal 包里放 arm64/x64 两份二进制 + 壳脚本按 uname -m 分发
+#     （ui/scripts/quaver-server-launcher.sh，main.mjs 照旧 spawn bin/quaver-server）。
+#   - windows-11-arm 上 uv 会默认挑 x86_64 Python（模拟跑）→ 必须 `uv python install
+#     3.11-aarch64` 显式钉原生 arm64，否则 PyInstaller 出来的是 x64 二进制。
+#
 # 触发：
-#   - push 到 main / PR：只出 artifact（版本号 = package.json 里的 0.0.1）
+#   - push 到 main / PR：只出 artifact
 #   - 打 v* tag：额外发布正式 GitHub Release（版本号 = tag 去掉 v）
 #   - 每夜定时 / 手动勾 nightly：版本号 = <package.json 版本>-<短 commit id>-nightly，
 #     发布到滚动 Release「nightly」（覆盖昨天的）
-#
-# 版本号为什么不是纯 `commit id + nightly`：electron-builder 会跑 normalizePackageData，
-# 非 semver 直接 `throw new Error('Invalid version: ...')`，所以 commit id 只能待在
-# prerelease 段里。同理不能用 `0.0.1-nightly+<sha>` —— semver.clean() 会把 build metadata
-# （`+` 后面）抹掉，版本最后只剩 `0.0.1-nightly`，commit id 白写。
-
-name: Build Linux
+name: Build
 
 on:
   push:
@@ -35,10 +53,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# ────────────────────────────── 后端（sidecar） ──────────────────────────────
 jobs:
-  # ────────────────────────────── 后端 ──────────────────────────────
-  backend:
-    name: sidecar (${{ matrix.arch_label }})
+  sidecar-linux:
+    name: sidecar linux (${{ matrix.arch_label }})
     runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
@@ -111,13 +129,249 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: quaver-server-linux-${{ matrix.arch_label }}
+          name: sidecar-linux-${{ matrix.arch_label }}
           path: vendor/Typhoeus/dist-bin/quaver-server-${{ matrix.arch_label }}
 
-  # ────────────────────────────── 前端 ──────────────────────────────
-  frontend:
+  # Windows：PyInstaller 不能交叉编译 → arm64 必须跑原生 windows-11-arm runner。
+  # 那台机器上 uv 默认会挑 x86_64 Python（x64 模拟跑，产物架构就错了）→ 显式钉 3.11-aarch64。
+  sidecar-windows:
+    name: sidecar windows (${{ matrix.arch_label }})
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch_label: x64
+            runs_on: windows-latest
+            py_request: "3.11"
+          - arch_label: arm64
+            runs_on: windows-11-arm
+            py_request: "3.11-aarch64"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Init submodules
+        run: |
+          git submodule update --init --depth 1 vendor/QQMusicApi
+          git submodule update --init --depth 1 vendor/Typhoeus
+
+      # 不用 setup-python：windows-11-arm 上它拿到的 Python 架构不可控，交给 uv 按请求装
+      - uses: astral-sh/setup-uv@v10.1.0
+
+      - name: Install deps
+        working-directory: vendor/Typhoeus
+        run: |
+          uv python install "${{ matrix.py_request }}"
+          uv sync --frozen --no-dev --python "${{ matrix.py_request }}"
+
+      - name: PyInstaller onefile
+        working-directory: vendor/Typhoeus
+        run: |
+          uv run --python "${{ matrix.py_request }}" --frozen \
+            --with pyinstaller --with pyinstaller-hooks-contrib \
+            pyinstaller --clean --noconfirm --onefile \
+              --name quaver-server \
+              --distpath dist-bin --workpath build/pyi --specpath build/pyi \
+              --hidden-import uvicorn.logging \
+              --hidden-import uvicorn.loops.auto \
+              --hidden-import uvicorn.loops.asyncio \
+              --hidden-import uvicorn.protocols.http.auto \
+              --hidden-import uvicorn.protocols.http.h11_impl \
+              --hidden-import uvicorn.protocols.websockets.auto \
+              --hidden-import uvicorn.protocols.websockets.wsproto_impl \
+              --hidden-import uvicorn.protocols.websockets.websockets_impl \
+              --hidden-import python_socks \
+              --copy-metadata qqmusic-api-python \
+              build_entry.py
+
+      - name: Smoke test binary
+        working-directory: vendor/Typhoeus
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/qv-cfg"
+          QUAVER_CONFIG_DIR="$RUNNER_TEMP/qv-cfg" QUAVER_PORT=3999 ./dist-bin/quaver-server.exe > "$RUNNER_TEMP/sidecar-ci.log" 2>&1 &
+          SERVER_PID=$!
+          status=1
+          for i in $(seq 1 60); do
+            sleep 1
+            if curl -fsS --max-time 3 http://127.0.0.1:3999/login/status >/dev/null 2>&1; then
+              echo "sidecar OK"; status=0; break
+            fi
+          done
+          kill $SERVER_PID 2>/dev/null
+          [ "$status" = 0 ] || cat "$RUNNER_TEMP/sidecar-ci.log"
+          exit $status
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sidecar-windows-${{ matrix.arch_label }}
+          path: vendor/Typhoeus/dist-bin/quaver-server.exe
+
+  # macOS universal：arm64 原生 + x64 走 Rosetta（runner 自带）各出一侧 PyInstaller 产物，
+  # 外加分发壳脚本（见 ui/scripts/quaver-server-launcher.sh —— onefile 不能 lipo）。
+  sidecar-macos:
+    name: sidecar macos (universal)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Init submodules
+        run: |
+          git submodule update --init --depth 1 vendor/QQMusicApi
+          git submodule update --init --depth 1 vendor/Typhoeus
+
+      - uses: astral-sh/setup-uv@v10.1.0
+
+      # arm64（原生）与 x64（Rosetta）各一个项目环境；x64 解释器由 uv 按 --arch 取
+      # python-build-standalone 的 x86_64-apple-darwin 构建
+      - name: Install deps (arm64 native + x64 Rosetta)
+        working-directory: vendor/Typhoeus
+        run: |
+          set -euo pipefail
+          uv python install 3.11
+          uv python install 3.11 --arch x86_64
+          xpy="$(uv python find 3.11 --arch x86_64)"
+          echo "x64 python: $xpy"
+          uv sync --frozen --no-dev --python 3.11
+          UV_PROJECT_ENVIRONMENT="$PWD/.venv-x64" uv sync --frozen --no-dev --python "$xpy"
+          UV_PROJECT_ENVIRONMENT="$PWD/.venv-x64" uv pip install --python "$PWD/.venv-x64/bin/python" \
+            pyinstaller pyinstaller-hooks-contrib
+          uv pip install --python .venv/bin/python pyinstaller pyinstaller-hooks-contrib
+
+      - name: PyInstaller onefile (arm64)
+        working-directory: vendor/Typhoeus
+        run: |
+          set -euo pipefail
+          mkdir -p dist-bin
+          .venv/bin/python -m PyInstaller --clean --noconfirm --onefile \
+            --name quaver-server \
+            --distpath dist-bin --workpath build/pyi-arm --specpath build/pyi-arm \
+            --hidden-import uvicorn.logging \
+            --hidden-import uvicorn.loops.auto \
+            --hidden-import uvicorn.loops.asyncio \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.http.h11_impl \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import uvicorn.protocols.websockets.wsproto_impl \
+            --hidden-import uvicorn.protocols.websockets.websockets_impl \
+            --hidden-import python_socks \
+            --copy-metadata qqmusic-api-python \
+            build_entry.py
+          lipo -info dist-bin/quaver-server | grep -q arm64
+          mv dist-bin/quaver-server dist-bin/quaver-server-arm64
+
+      - name: PyInstaller onefile (x64)
+        working-directory: vendor/Typhoeus
+        run: |
+          set -euo pipefail
+          .venv-x64/bin/python -m PyInstaller --clean --noconfirm --onefile \
+            --name quaver-server \
+            --distpath dist-bin --workpath build/pyi-x64 --specpath build/pyi-x64 \
+            --hidden-import uvicorn.logging \
+            --hidden-import uvicorn.loops.auto \
+            --hidden-import uvicorn.loops.asyncio \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.http.h11_impl \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import uvicorn.protocols.websockets.wsproto_impl \
+            --hidden-import uvicorn.protocols.websockets.websockets_impl \
+            --hidden-import python_socks \
+            --copy-metadata qqmusic-api-python \
+            build_entry.py
+          lipo -info dist-bin/quaver-server | grep -q x86_64
+          mv dist-bin/quaver-server dist-bin/quaver-server-x64
+
+      # 分发壳：universal 包里 main.mjs 照旧 spawn bin/quaver-server，壳按 uname -m 转发
+      - name: Stage dispatcher script
+        run: |
+          cp ui/scripts/quaver-server-launcher.sh dist-bin/quaver-server
+          chmod +x dist-bin/quaver-server dist-bin/quaver-server-arm64 dist-bin/quaver-server-x64
+
+      - name: Smoke test binaries (arm64 native + x64 Rosetta)
+        working-directory: vendor/Typhoeus
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/qv-cfg"
+          for entry in "arm64 quaver-server-arm64 3999" "x64 quaver-server-x64 3998"; do
+            set -- $entry
+            label=$1; bin=$2; port=$3
+            QUAVER_CONFIG_DIR="$RUNNER_TEMP/qv-cfg" QUAVER_PORT=$port \
+              arch -"$label" "./dist-bin/$bin" > "$RUNNER_TEMP/sidecar-$label.log" 2>&1 &
+            pid=$!
+            status=1
+            for i in $(seq 1 60); do
+              sleep 1
+              curl -fsS --max-time 3 "http://127.0.0.1:$port/login/status" >/dev/null 2>&1 && { echo "$label OK"; status=0; break; }
+            done
+            kill $pid 2>/dev/null || true
+            [ "$status" = 0 ] || { cat "$RUNNER_TEMP/sidecar-$label.log"; exit 1; }
+          done
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sidecar-macos-universal
+          path: |
+            dist-bin/quaver-server
+            dist-bin/quaver-server-arm64
+            dist-bin/quaver-server-x64
+
+  # loongarch64（新世界 ABI 2.0）：无原生 runner → QEMU binfmt + loong64 容器里构建。
+  # Rust 依赖全靠 loong64 社区镜像的预编译 wheel（见文件头注），PyInstaller 从 sdist
+  # 编译自带 bootloader（纯 C）。smoke 在宿主机直接跑产物（binfmt 接管 loong64 ELF）。
+  sidecar-loong64:
+    name: sidecar loong64 (新世界)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Init submodules
+        run: |
+          git submodule update --init --depth 1 vendor/QQMusicApi
+          git submodule update --init --depth 1 vendor/Typhoeus
+
+      # master 标签的 binfmt 才带 qemu-loongarch64（Loongson 云社区文档口径）
+      - uses: docker/setup-qemu-action@v3
+        with:
+          image: tonistiigi/binfmt:master
+          platforms: loong64
+
+      - name: Build sidecar in loong64 container
+        run: |
+          docker run --rm --platform linux/loong64 \
+            -v "$GITHUB_WORKSPACE":/src \
+            ghcr.io/loong64/python:3.11 \
+            bash /src/.github/scripts/loong64-sidecar.sh
+
+      - name: Smoke test binary (QEMU user-mode)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/qv-cfg-la
+          QUAVER_CONFIG_DIR=/tmp/qv-cfg-la QUAVER_PORT=3999 \
+            ./dist-bin/quaver-server-loong64 > /tmp/sidecar-la.log 2>&1 &
+          pid=$!
+          status=1
+          for i in $(seq 1 120); do   # onefile 首启要在 QEMU 下解包，放宽容忍
+            sleep 1
+            curl -fsS --max-time 3 http://127.0.0.1:3999/login/status >/dev/null 2>&1 && { echo "sidecar OK"; status=0; break; }
+          done
+          kill $pid 2>/dev/null || true
+          [ "$status" = 0 ] || cat /tmp/sidecar-la.log
+          exit $status
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sidecar-loong64
+          path: dist-bin/quaver-server-loong64
+
+  # ────────────────────────────── 前端（客户端包） ──────────────────────────────
+  frontend-linux:
     name: AppImage (${{ matrix.arch_label }})
-    needs: backend
     runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
@@ -155,7 +409,7 @@ jobs:
       - name: Fetch sidecar for this arch
         uses: actions/download-artifact@v8
         with:
-          name: quaver-server-linux-${{ matrix.arch_label }}
+          name: sidecar-linux-${{ matrix.arch_label }}
           path: dist-bin
 
       - name: Build MPRIS daemon bundle
@@ -177,37 +431,22 @@ jobs:
         working-directory: ui
         run: node electron/audio/bins.mjs --check build-res/audio
 
-      # extraResources 里约定文件名是 quaver-server
+      # extraResources 里约定文件名是 quaver-server（filter: quaver-server*）
       - name: Stage sidecar
         working-directory: dist-bin
         run: |
+          chmod +x quaver-server-${{ matrix.arch_label }}
           mv quaver-server-${{ matrix.arch_label }} quaver-server
-          chmod +x quaver-server
 
       - name: npm ci
         working-directory: ui
         run: npm ci
 
-      # 版本号三态：tag 用 tag；每夜版用 <pkg version>-<短 sha>-nightly；其余留空走 package.json。
-      # 必须在 vite build 之前解析：vite.config.ts 会把它注入 __APP_VERSION__（关于页），
-      # 否则浅克隆下 git describe 拿不到 tag，关于页永远显示 package.json 里的 0.0.1。
       - name: Resolve version
         id: version
-        working-directory: ui
-        env:
-          NIGHTLY: ${{ github.event_name == 'schedule' || inputs.nightly == true }}
-        run: |
-          set -euo pipefail
-          if [[ "$NIGHTLY" == "true" ]]; then
-            base=$(node -p "require('./package.json').version")
-            sha="${GITHUB_SHA:0:7}"
-            echo "version=${base}-${sha}-nightly" >> "$GITHUB_OUTPUT"
-          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=" >> "$GITHUB_OUTPUT"
-          fi
-          echo "resolved: $(tail -1 "$GITHUB_OUTPUT")"
+        uses: ./.github/actions/resolve-version
+        with:
+          nightly: ${{ github.event_name == 'schedule' || inputs.nightly == true }}
 
       - name: Build dist (tsc + vite)
         working-directory: ui
@@ -224,9 +463,7 @@ jobs:
         # --publish never 下它本来也不需要。
         run: |
           ARGS="--linux AppImage --${{ matrix.electron_arch }} --publish never"
-          if [[ -n "$QUAVER_VERSION" ]]; then
-            ARGS="$ARGS --config.extraMetadata.version=$QUAVER_VERSION"
-          fi
+          ARGS="$ARGS --config.extraMetadata.version=${{ steps.version.outputs.version }}"
           npx electron-builder $ARGS
 
       # 断言打进包里的运行时真能跑：跨架构/缺库不会报错、只会跑不起来（exec 126），
@@ -246,18 +483,303 @@ jobs:
           path: ui/release/Quaver-*.AppImage
           if-no-files-found: error
 
+  # Windows：前端全在 x64 runner 上交叉打包（electron-builder 直接支持 arm64 目标）。
+  # arm64 的 mpv 在 x64 机器上跑不了 → 随包校验靠暂存脚本里的 PE 机器码核对。
+  frontend-windows:
+    name: NSIS (${{ matrix.arch_label }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch_label: x64
+          - arch_label: arm64
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Init submodules
+        shell: bash
+        run: |
+          git submodule update --init --depth 1 vendor/Typhoeus
+          git submodule update --init --depth 1 vendor/Sparkle
+
+      - name: Fetch sidecar
+        uses: actions/download-artifact@v8
+        with:
+          name: sidecar-windows-${{ matrix.arch_label }}
+          path: dist-bin
+
+      - name: Build MPRIS daemon bundle
+        working-directory: vendor/Typhoeus/mpris
+        shell: bash
+        run: |
+          npm install
+          npm run build
+
+      # 随包音频运行时（mpv 官方 release）：x64=mingw（自带 DLL）、arm64=msvc（静态链接）。
+      # 平铺 mpv.exe 布局，运行期 bins.mjs 直接 spawn（见其 win32 分支）。
+      - name: Stage bundled mpv runtime
+        working-directory: ui
+        shell: bash
+        run: node scripts/stage-mpv-official.mjs win32 ${{ matrix.arch_label }}
+
+      # x64 才能真跑一遍（arm64 载荷在 x64 机器上只会 exec 126，校验在暂存脚本里做 PE 机器码）
+      - name: Verify staged mpv runtime
+        if: matrix.arch_label == 'x64'
+        working-directory: ui
+        shell: bash
+        run: node electron/audio/bins.mjs --check build-res/audio
+
+      - name: npm ci
+        working-directory: ui
+        shell: bash
+        run: npm ci
+
+      - name: Resolve version
+        id: version
+        uses: ./.github/actions/resolve-version
+        with:
+          nightly: ${{ github.event_name == 'schedule' || inputs.nightly == true }}
+
+      - name: Build dist (tsc + vite)
+        working-directory: ui
+        shell: bash
+        env:
+          QUAVER_VERSION: ${{ steps.version.outputs.version }}
+        run: npm run build
+
+      - name: electron-builder NSIS
+        working-directory: ui
+        shell: bash
+        env:
+          QUAVER_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          npx electron-builder --win nsis --${{ matrix.arch_label }} --publish never \
+            --config.extraMetadata.version=${{ steps.version.outputs.version }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: quaver-windows-${{ matrix.arch_label }}
+          path: ui/release/Quaver-*.exe
+          if-no-files-found: error
+
+  # macOS universal：electron-builder 自己合并 arm64+x64 两份 Electron；
+  # sidecar 是「壳脚本 + 双单架构二进制」（PyInstaller 不能 lipo），mpv 是 lipo 合并的
+  # universal mpv.app（重签 ad-hoc）。
+  frontend-macos:
+    name: dmg (universal)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Init submodules
+        run: |
+          git submodule update --init --depth 1 vendor/Typhoeus
+          git submodule update --init --depth 1 vendor/Sparkle
+
+      - name: Fetch sidecar (dispatcher + arm64 + x64)
+        uses: actions/download-artifact@v8
+        with:
+          name: sidecar-macos-universal
+          path: dist-bin
+
+      - name: Stage sidecar
+        working-directory: dist-bin
+        run: |
+          # artifact 走 zip 不保权限，必须补 exec 位
+          chmod +x quaver-server quaver-server-arm64 quaver-server-x64
+
+      - name: Build MPRIS daemon bundle
+        working-directory: vendor/Typhoeus/mpris
+        run: |
+          npm install
+          npm run build
+
+      # universal mpv.app：arm/intel 两份官方 zip 逐文件 lipo + 重签 ad-hoc（见脚本头注）
+      - name: Stage bundled mpv runtime (universal)
+        working-directory: ui
+        run: node scripts/stage-mpv-official.mjs darwin universal
+
+      - name: Verify staged mpv runtime (arm64 native + x64 Rosetta)
+        working-directory: ui
+        run: |
+          set -euo pipefail
+          payload="build-res/audio/mpv/mpv.app/Contents/MacOS/mpv"
+          "$payload" --version
+          arch -x86_64 "$payload" --version
+          node electron/audio/bins.mjs --check build-res/audio
+
+      - name: npm ci
+        working-directory: ui
+        run: npm ci
+
+      - name: Resolve version
+        id: version
+        uses: ./.github/actions/resolve-version
+        with:
+          nightly: ${{ github.event_name == 'schedule' || inputs.nightly == true }}
+
+      - name: Build dist (tsc + vite)
+        working-directory: ui
+        env:
+          QUAVER_VERSION: ${{ steps.version.outputs.version }}
+        run: npm run build
+
+      - name: electron-builder dmg (universal)
+        working-directory: ui
+        env:
+          QUAVER_VERSION: ${{ steps.version.outputs.version }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"   # 无证书，跳过签名（identity: null 兜底）
+        run: |
+          npx electron-builder --mac dmg --universal --publish never \
+            --config.extraMetadata.version=${{ steps.version.outputs.version }}
+
+      # 挂载 dmg 验随包运行时与 sidecar 确实在位（arm 原生跑；x64 切片已在上一步验过）
+      - name: Verify bundled runtime inside dmg
+        working-directory: ui
+        run: |
+          set -euo pipefail
+          dmg=$(ls release/Quaver-*.dmg | head -1)
+          hdiutil attach -nobrowse -readonly -mountpoint /Volumes/quaver-verify "$dmg"
+          trap 'hdiutil detach /Volumes/quaver-verify -force >/dev/null 2>&1 || true' EXIT
+          app=$(ls -d /Volumes/quaver-verify/*.app | head -1)
+          node electron/audio/bins.mjs --check "$app/Contents/Resources/audio"
+          [ -x "$app/Contents/Resources/bin/quaver-server" ]
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: quaver-macos-universal
+          path: ui/release/Quaver-*.dmg
+          if-no-files-found: error
+
+  # loongarch64：Electron 官方无 loong64 发行版 → 拿 x64 的 dir 包（electron-builder 只认
+  # x64/arm64），把 Electron 本体换成 loongnix 的 v31.7.7 loong64 构建，resources（asar 与
+  # extraResources）原样保留 —— 那部分与架构无关。产物为 tar.gz，无 AppImage runtime。
+  frontend-loong64:
+    name: tar.gz (loongarch64 新世界)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Init submodules
+        run: |
+          git submodule update --init --depth 1 vendor/Typhoeus
+          git submodule update --init --depth 1 vendor/Sparkle
+
+      - name: Fetch sidecar
+        uses: actions/download-artifact@v8
+        with:
+          name: sidecar-loong64
+          path: dist-bin
+
+      - name: Stage sidecar
+        working-directory: dist-bin
+        run: |
+          chmod +x quaver-server-loong64
+          mv quaver-server-loong64 quaver-server
+
+      - name: Build MPRIS daemon bundle
+        working-directory: vendor/Typhoeus/mpris
+        run: |
+          npm install
+          npm run build
+
+      # loong64 无预编译 mpv（pkgforge 只发 x86_64/aarch64）→ 不随包，运行期回落
+      # 系统 mpv / <audio>。给 extraResources 留一个非空目录，免得打包报缺路径。
+      - name: Prepare empty audio resource dir
+        working-directory: ui
+        run: |
+          mkdir -p build-res/audio
+          echo "loongarch64 不随包 mpv，运行期回落系统 mpv / <audio>" > build-res/audio/README.txt
+
+      - name: npm ci
+        working-directory: ui
+        run: npm ci
+
+      - name: Resolve version
+        id: version
+        uses: ./.github/actions/resolve-version
+        with:
+          nightly: ${{ github.event_name == 'schedule' || inputs.nightly == true }}
+
+      - name: Build dist (tsc + vite)
+        working-directory: ui
+        env:
+          QUAVER_VERSION: ${{ steps.version.outputs.version }}
+        run: npm run build
+
+      # 先出 x64 dir 包拿 resources，再换 loong64 Electron 本体
+      - name: electron-builder dir (x64, 只为取 resources)
+        working-directory: ui
+        env:
+          QUAVER_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          npx electron-builder --linux dir --x64 --publish never \
+            --config.extraMetadata.version=${{ steps.version.outputs.version }}
+
+      - name: Swap in loong64 Electron and pack tar.gz
+        working-directory: ui
+        run: |
+          set -euo pipefail
+          ver="${{ steps.version.outputs.version }}"
+          ELECTRON_VER=31.7.7
+          url="https://ftp.loongnix.cn/electron/LoongArch/v${ELECTRON_VER}/electron-v${ELECTRON_VER}-linux-loong64.zip"
+          sha="e0c756ca8a66dde3bece6ad902f152f539365ce7442d6353871d7c54d1c0f47b"
+          curl -fsSL --retry 3 -o /tmp/electron-la.zip "$url"
+          echo "$sha  /tmp/electron-la.zip" | sha256sum -c - >/dev/null || {
+            echo "✗ loongnix electron zip sha256 不匹配（上游重发布？）" >&2; exit 1; }
+          rm -rf la-electron && mkdir la-electron
+          unzip -q /tmp/electron-la.zip -d la-electron
+          # resources 全量换成 dir 包的（app.asar + extraResources：bin/mpris/build-res/audio）
+          rm -rf la-electron/resources
+          cp -a release/linux-unpacked/resources la-electron/resources
+          # electron-builder 会把可执行文件改名成 executableName（quaver）；同 binary，照做
+          mv la-electron/electron la-electron/quaver
+          chmod 4755 la-electron/chrome-sandbox   # 沙盒需要 setuid（zip 不一定保住权限位）
+          # 断言换上的真是 LoongArch：跨架构不报错、只是跑不起来，必须看 ELF
+          readelf -h la-electron/quaver | grep -q LoongArch || {
+            echo "✗ 换上的 Electron 不是 LoongArch"; exit 1; }
+          readelf -h "$GITHUB_WORKSPACE/dist-bin/quaver-server" | grep -q LoongArch || {
+            echo "✗ sidecar 不是 LoongArch"; exit 1; }
+          mkdir -p release
+          tar --no-same-owner -czf "release/Quaver-${ver}-loong64.tar.gz" -C la-electron .
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: quaver-loong64
+          path: ui/release/Quaver-*-loong64.tar.gz
+          if-no-files-found: error
+
   # ───────────────────────────── Release ─────────────────────────────
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [backend, frontend]
+    needs: [frontend-linux, frontend-windows, frontend-macos, frontend-loong64]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      # sidecar 已随 extraResources 打进 AppImage，Release 只发客户端本体
+      # sidecar 与音频运行时已随 extraResources 打进各平台包，Release 只发客户端本体
       - uses: actions/download-artifact@v8
         with:
-          pattern: "quaver-appimage-*"
+          pattern: "quaver-*"
           merge-multiple: true
           path: out
 
@@ -270,21 +792,21 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             -R "$GITHUB_REPOSITORY" \
             --generate-notes \
-            out/Quaver-*.AppImage
+            out/Quaver-*
 
   # ─────────────────────────── 每夜版 Release ───────────────────────────
   # 滚动发布：tag/release 名恒为 nightly，每次构建覆盖上一次（含旧 tag 清理），
   # 产物名里带短 commit id，所以下载下来就知道是哪个 commit 构建的。
   nightly:
     if: github.event_name == 'schedule' || inputs.nightly == true
-    needs: frontend
+    needs: [frontend-linux, frontend-windows, frontend-macos, frontend-loong64]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v8
         with:
-          pattern: "quaver-appimage-*"
+          pattern: "quaver-*"
           merge-multiple: true
           path: out
 
@@ -299,7 +821,8 @@ jobs:
           {
             echo "每夜版自动构建于 $(date -u '+%Y-%m-%d %H:%M UTC')，对应 commit \`$GITHUB_SHA\`。"
             echo
-            echo "AppImage 文件名里的 \`$sha\` 即 commit id。"
+            echo "包名里的 \`$sha\` 即 commit id。平台覆盖：Linux AppImage（x86_64/aarch64）、"
+            echo "Windows NSIS（x64/arm64）、macOS dmg（universal）、loongarch64 tar.gz（新世界）。"
             echo
             echo "**非稳定版本**，仅用于验证最新改动。"
           } > "$notes"
@@ -313,4 +836,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "Nightly $sha ($(date -u +%Y-%m-%d))" \
             --notes-file "$notes" \
-            out/Quaver-*.AppImage
+            out/Quaver-*
