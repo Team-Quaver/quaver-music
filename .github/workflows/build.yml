@@ -8,11 +8,20 @@
 #   windows  x64 + arm64      → NSIS（sidecar 跑原生 arm runner；前端都在 x64 上交叉打包）
 #   macos    arm64 → dmg（x86 构建已裁撤：universal 合并要求包内所有 Mach-O 双架构，
 #            与 cryptography 无 intel macOS wheel、mpv 两包结构不对称一起构成死局）
+#   linux    loongarch64（龙芯新世界 ABI 2.0）→ tar.gz（无 electron-builder 支持 → dir 包换 Electron）
 #
 # 上游口径（别想当然）：
 #   - mpv 官方 release 只发 Windows + macOS 二进制：Windows 用 mingw x64（自带全套 DLL）+
 #     msvc arm64（静态链接）；macOS 用 macos-15 arm 单份 zip（自包含 mpv.app）。Linux 用
-#     pkgforge AppImage（x86_64/aarch64）。
+#     pkgforge AppImage（x86_64/aarch64），loongarch64 无预编译 mpv → **不随包**，
+#     运行期回落系统 mpv / <audio>。
+#   - Electron 官方没有 loong64 发行版；loongnix 的新版只到 v31.7.7
+#     （https://ftp.loongnix.cn/electron/LoongArch/v31.7.7/）。主仓开发用 Electron 44 →
+#     loong64 包用 31.7.7 的二进制 + 同一份 app 资源（asar/DLL 无关架构），运行期兼容性
+#     无法在 CI 验证，属已知风险。
+#   - PyPI 没有 loong64 wheel 的三个 Rust 包（cryptography / pydantic-core / orjson）从
+#     loong64 社区镜像取预编译：https://mirrors.loong64.com/pypi/simple（cryptography 47+、
+#     pydantic-core 2.41+、orjson 3.12 均有 cp311 wheel，与 uv.lock 版本对齐）。
 #   - windows-11-arm 上 **sidecar 是 x64 二进制**（cryptography 无 win-arm64 wheel，
 #     原生构建不现实）→ 钉 x64 Python，靠 Windows on ARM 的 x64 模拟跑；Electron 原生 arm64。
 #
@@ -276,6 +285,56 @@ jobs:
         with:
           name: sidecar-macos-arm64
           path: dist-bin/quaver-server
+
+  # loongarch64（新世界 ABI 2.0）：无原生 runner → QEMU binfmt + loong64 容器里构建。
+  # Rust 依赖全靠 loong64 社区镜像的预编译 wheel（见文件头注），PyInstaller 从 sdist
+  # 编译自带 bootloader（纯 C）。smoke 在宿主机直接跑产物（binfmt 接管 loong64 ELF）。
+  sidecar-loong64:
+    name: sidecar loong64 (新世界)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Init submodules
+        run: |
+          git submodule update --init --depth 1 vendor/QQMusicApi
+          git submodule update --init --depth 1 vendor/Typhoeus
+
+      # master 标签的 binfmt 才带 qemu-loongarch64（Loongson 云社区文档口径）
+      - uses: docker/setup-qemu-action@v3
+        with:
+          image: tonistiigi/binfmt:master
+          platforms: loong64
+
+      - name: Build sidecar in loong64 container
+        run: |
+          docker run --rm --platform linux/loong64 \
+            -v "$GITHUB_WORKSPACE":/src \
+            ghcr.io/loong64/python:3.11 \
+            bash /src/.github/scripts/loong64-sidecar.sh
+
+      - name: Smoke test binary (QEMU user-mode)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/qv-cfg-la
+          QUAVER_CONFIG_DIR=/tmp/qv-cfg-la QUAVER_PORT=3999 \
+            ./dist-bin/quaver-server-loong64 > /tmp/sidecar-la.log 2>&1 &
+          pid=$!
+          status=1
+          for i in $(seq 1 120); do   # onefile 首启要在 QEMU 下解包，放宽容忍
+            sleep 1
+            curl -fsS --max-time 3 http://127.0.0.1:3999/login/status >/dev/null 2>&1 && { echo "sidecar OK"; status=0; break; }
+          done
+          kill $pid 2>/dev/null || true
+          [ "$status" = 0 ] || cat /tmp/sidecar-la.log
+          exit $status
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sidecar-loong64
+          path: dist-bin/quaver-server-loong64
 
   # ────────────────────────────── 前端（客户端包） ──────────────────────────────
   frontend-linux:
@@ -590,10 +649,115 @@ jobs:
           path: ui/release/Quaver-*.dmg
           if-no-files-found: error
 
+  # loongarch64：Electron 官方无 loong64 发行版 → 拿 x64 的 dir 包（electron-builder 只认
+  # x64/arm64），把 Electron 本体换成 loongnix 的 v31.7.7 loong64 构建，resources（asar 与
+  # extraResources）原样保留 —— 那部分与架构无关。产物为 tar.gz，无 AppImage runtime。
+  frontend-loong64:
+    name: tar.gz (loongarch64 新世界)
+    needs: sidecar-loong64
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Init submodules
+        run: |
+          git submodule update --init --depth 1 vendor/Typhoeus
+          git submodule update --init --depth 1 vendor/Sparkle
+
+      - name: Fetch sidecar
+        uses: actions/download-artifact@v8
+        with:
+          name: sidecar-loong64
+          path: dist-bin
+
+      - name: Stage sidecar
+        working-directory: dist-bin
+        run: |
+          chmod +x quaver-server-loong64
+          mv quaver-server-loong64 quaver-server
+
+      - name: Build MPRIS daemon bundle
+        working-directory: vendor/Typhoeus/mpris
+        run: |
+          npm install
+          npm run build
+
+      # loong64 无预编译 mpv（pkgforge 只发 x86_64/aarch64）→ 不随包，运行期回落
+      # 系统 mpv / <audio>。给 extraResources 留一个非空目录，免得打包报缺路径。
+      - name: Prepare empty audio resource dir
+        working-directory: ui
+        run: |
+          mkdir -p build-res/audio
+          echo "loongarch64 不随包 mpv，运行期回落系统 mpv / <audio>" > build-res/audio/README.txt
+
+      - name: npm ci
+        working-directory: ui
+        run: npm ci
+
+      - name: Resolve version
+        id: version
+        uses: ./.github/actions/resolve-version
+        with:
+          nightly: ${{ github.event_name == 'schedule' || inputs.nightly == true }}
+
+      - name: Build dist (tsc + vite)
+        working-directory: ui
+        env:
+          QUAVER_VERSION: ${{ steps.version.outputs.version }}
+        run: npm run build
+
+      # 先出 x64 dir 包拿 resources，再换 loong64 Electron 本体
+      - name: electron-builder dir (x64, 只为取 resources)
+        working-directory: ui
+        env:
+          QUAVER_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          npx electron-builder --linux dir --x64 --publish never \
+            --config.extraMetadata.version=${{ steps.version.outputs.version }}
+
+      - name: Swap in loong64 Electron and pack tar.gz
+        working-directory: ui
+        run: |
+          set -euo pipefail
+          ver="${{ steps.version.outputs.version }}"
+          ELECTRON_VER=31.7.7
+          url="https://ftp.loongnix.cn/electron/LoongArch/v${ELECTRON_VER}/electron-v${ELECTRON_VER}-linux-loong64.zip"
+          sha="e0c756ca8a66dde3bece6ad902f152f539365ce7442d6353871d7c54d1c0f47b"
+          curl -fsSL --retry 3 -o /tmp/electron-la.zip "$url"
+          echo "$sha  /tmp/electron-la.zip" | sha256sum -c - >/dev/null || {
+            echo "✗ loongnix electron zip sha256 不匹配（上游重发布？）" >&2; exit 1; }
+          rm -rf la-electron && mkdir la-electron
+          unzip -q /tmp/electron-la.zip -d la-electron
+          # resources 全量换成 dir 包的（app.asar + extraResources：bin/mpris/build-res/audio）
+          rm -rf la-electron/resources
+          cp -a release/linux-unpacked/resources la-electron/resources
+          # electron-builder 会把可执行文件改名成 executableName（quaver）；同 binary，照做
+          mv la-electron/electron la-electron/quaver
+          chmod 4755 la-electron/chrome-sandbox   # 沙盒需要 setuid（zip 不一定保住权限位）
+          # 断言换上的真是 LoongArch：跨架构不报错、只是跑不起来，必须看 ELF
+          readelf -h la-electron/quaver | grep -q LoongArch || {
+            echo "✗ 换上的 Electron 不是 LoongArch"; exit 1; }
+          readelf -h "$GITHUB_WORKSPACE/dist-bin/quaver-server" | grep -q LoongArch || {
+            echo "✗ sidecar 不是 LoongArch"; exit 1; }
+          mkdir -p release
+          tar --no-same-owner -czf "release/Quaver-${ver}-loong64.tar.gz" -C la-electron .
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: quaver-loong64
+          path: ui/release/Quaver-*-loong64.tar.gz
+          if-no-files-found: error
+
   # ───────────────────────────── Release ─────────────────────────────
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [frontend-linux, frontend-windows, frontend-macos]
+    needs: [frontend-linux, frontend-windows, frontend-macos, frontend-loong64]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -621,7 +785,7 @@ jobs:
   # 产物名里带短 commit id，所以下载下来就知道是哪个 commit 构建的。
   nightly:
     if: github.event_name == 'schedule' || inputs.nightly == true
-    needs: [frontend-linux, frontend-windows, frontend-macos]
+    needs: [frontend-linux, frontend-windows, frontend-macos, frontend-loong64]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -644,7 +808,7 @@ jobs:
             echo "每夜版自动构建于 $(date -u '+%Y-%m-%d %H:%M UTC')，对应 commit \`$GITHUB_SHA\`。"
             echo
             echo "包名里的 \`$sha\` 即 commit id。平台覆盖：Linux AppImage（x86_64/aarch64）、"
-            echo "Windows NSIS（x64/arm64）、macOS dmg（arm64）。"
+            echo "Windows NSIS（x64/arm64）、macOS dmg（arm64）、loongarch64 tar.gz（新世界）。"
             echo
             echo "**非稳定版本**，仅用于验证最新改动。"
           } > "$notes"
