@@ -101,6 +101,8 @@
     }
   },
   "devDependencies": {
+    "@applemusic-like-lyrics/core": "^0.6.0",
+    "@applemusic-like-lyrics/lyric": "^1.1.0",
     "@types/node": "^22.20.2",
     "electron": "^44.3.0",
     "electron-builder": "^26.15.3",
@@ -110,9 +112,5 @@
   },
   "allowScripts": {
     "esbuild": true
-  },
-  "dependencies": {
-    "@applemusic-like-lyrics/core": "^0.6.0",
-    "@applemusic-like-lyrics/lyric": "^1.1.0"
   }
 }

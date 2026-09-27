@@ -676,9 +676,11 @@ jobs:
         run: |
           set -euo pipefail
           dmg=$(ls release/Quaver-*.dmg | head -1)
-          hdiutil attach -nobrowse -readonly -mountpoint /Volumes/quaver-verify "$dmg"
-          trap 'hdiutil detach /Volumes/quaver-verify -force >/dev/null 2>&1 || true' EXIT
-          app=$(ls -d /Volumes/quaver-verify/*.app | head -1)
+          mount="$RUNNER_TEMP/dmg-mount"   # hdiutil 的 -mountpoint 要求目录已存在
+          mkdir -p "$mount"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg"
+          trap 'hdiutil detach "$mount" -force >/dev/null 2>&1 || true' EXIT
+          app=$(ls -d "$mount"/*.app | head -1)
           node electron/audio/bins.mjs --check "$app/Contents/Resources/audio"
           [ -x "$app/Contents/Resources/bin/quaver-server" ]
 
