@@ -32,7 +32,7 @@ const BASE = `https://github.com/mpv-player/mpv/releases/download/v${MPV_VERSION
 const ASSETS = {
   "win32/x64":     { url: `${BASE}/mpv-v${MPV_VERSION}-x86_64-w64-mingw32.zip`,      sha256: "a49811c0752c108b8260636f9c6f6fcb97406641c98b30f1e7b500dfb20177de" },
   "win32/arm64":   { url: `${BASE}/mpv-v${MPV_VERSION}-aarch64-pc-windows-msvc.zip`, sha256: "a822abeffd0ac88951f4084f3425f949842aa17d616f880637ebe9041e482e97" },
-  "darwin/arm64":  { url: `${BASE}/mpv-v${MPV_VERSION}-macos-15-arm.zip`,            sha256: "5c96f9b21355fc0a11d2e2161ad65f33031070e9fb3f6bd9865fb459b94587e6" },
+  "darwin/arm64":  { url: `${BASE}/mpv-v${MPV_VERSION}-macos-15-arm.zip`,            sha256: "489cf6a54f57c54f86ad8d7cedaf5bb26848770d58dc059021214e2f689ee799" },
   "darwin/x64":    { url: `${BASE}/mpv-v${MPV_VERSION}-macos-15-intel.zip`,          sha256: "41003617ab4f7784394b5ddea7ce51b3e0838e8cfc8166ad1a378b2eda3b583c" },
 };
 // mingw x64 与 msvc arm64：mingw 自带全套运行时 DLL（自包含），arm64 只有 msvc 构建
