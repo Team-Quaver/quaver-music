@@ -15,6 +15,8 @@ import { audioEngine } from "./audio/engine.mjs";
 import { configDir, configFile, ensureConfigDir, logFile, readValues, resetConfig, writeValues } from "./config.mjs";
 // 系统深浅色探测（Linux 桌面各自的真相来源，见模块头）：「跟随系统」要靠它才真的跟得上
 import { readSystemTheme, watchSystemTheme } from "./systheme.mjs";
+// Windows SMTC / macOS Now Playing 原生桥（Linux 走下面的 mpris daemon）
+import { mediaBridge } from "./media.mjs";
 // 凭证的密钥环存取（系统密钥管理器 + credential.enc 密文）与 sidecar 交接信封
 import {
   CredentialStore, credentialSummary, decodeHandoff, drainLines, encodeHandoff,
@@ -147,7 +149,8 @@ function toggleWindow() {
   else { winShown = true; showWindow(); }
 }
 
-// MPRIS cmd 里 raise/quit 由主进程消费，其余转发给渲染层执行
+// MPRIS cmd 里 raise/quit 由主进程消费，其余转发给渲染层执行（win/mac 的 SMTC /
+// Now Playing 命令没有 raise/quit，media.mjs 只回推播放控制）
 
 function mprisDaemonPath() {
   // 打包态：electron-builder extraResources 把编译产物放到 <resources>/mpris/
@@ -164,7 +167,7 @@ let mprisDaemon = null; // 当前 daemon 子进程
 let mprisSpawnedAt = 0; // 上次拉起时刻（崩溃重拉的存活判据）
 
 function startMpris() {
-  if (process.platform !== "linux") return; // 本期只做 Linux MPRIS；macOS/Windows 原生媒体键另议
+  if (process.platform !== "linux") return; // Linux MPRIS；win/mac 走 media.mjs 的原生桥
   const script = mprisDaemonPath();
   if (!existsSync(script)) {
     log("[quaver] mpris daemon missing, skipped:", script);
@@ -228,9 +231,14 @@ function mprisWrite(state) {
   }
 }
 
-// 渲染层快照（preload quaverMpris.send）→ 直写 daemon stdin
+// 渲染层快照（preload quaverMpris.send）→ win/mac 喂原生媒体控件，Linux 直写 MPRIS daemon
 ipcMain.on("quaver:mpris", (_e, state) => {
-  if (state && state.t === "state") mprisWrite(state);
+  if (!state || state.t !== "state") return;
+  if (mediaBridge.active) {
+    mediaBridge.push(state);
+    return;
+  }
+  mprisWrite(state);
 });
 
 // build-res 资源定位：打包态在 <resources>/build-res，开发态在 ui/build-res。
@@ -441,6 +449,8 @@ async function createWindow() {
     },
   });
   win.loadURL(url);
+  // Windows：SMTC 绑当前窗口句柄（decor 切换重建窗口后走这里重绑）
+  mediaBridge.attachWindow(win);
   win.webContents.on("did-finish-load", () => log("[quaver] page loaded OK"));
   win.webContents.on("did-fail-load", (_e, code, desc) => log("[quaver] load FAIL", code, desc));
   win.on("close", (e) => {
@@ -706,6 +716,7 @@ app.whenReady().then(() => {
   });
   try { createTray(); } catch (e) { log("[quaver] tray init failed:", String(e)); }
   try { startMpris(); } catch (e) { log("[quaver] mpris init failed:", String(e)); }
+  try { mediaBridge.init({ log, getWin: () => win }); } catch (e) { log("[quaver] media init failed:", String(e)); }
 });
 app.on("window-all-closed", () => { if (!rebuilding) app.quit(); });
 // 注销/登出：会话管理器对本进程发 SIGTERM（超时后 SIGKILL）。不接住的话默认行为是立刻死，
@@ -717,6 +728,7 @@ for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
     try { audioEngine.shutdown(); } catch {}
     try { sidecar?.kill(); } catch {}
     try { mprisDaemon?.kill(); } catch {}
+    try { mediaBridge.shutdown(); } catch {}
     // app.exit 不触发 will-quit（上面已手动清理）；显式接信号后也不再用默认终止
     app.exit(0);
   });
@@ -725,4 +737,5 @@ app.on("will-quit", () => {
   try { sidecar?.kill(); } catch {}
   try { mprisDaemon?.kill(); } catch {}
   try { audioEngine.shutdown(); } catch {}
+  try { mediaBridge.shutdown(); } catch {}
 });

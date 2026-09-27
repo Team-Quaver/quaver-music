@@ -432,6 +432,14 @@ jobs:
           npm install
           npm run build
 
+      # Windows/macOS 系统媒体控件（SMTC / Now Playing）原生插件：N-API ABI 稳定，
+      # 无需按 Electron ABI 重编；arm64 在 x64 runner 上交叉编译（VS 自带 arm64 工具链）。
+      # 产物落 native/media/dist-current/，由 afterPack（scripts/pack-media.cjs）塞进包。
+      - name: Build media addon (SMTC)
+        working-directory: ui
+        shell: bash
+        run: node scripts/build-media.cjs --arch=${{ matrix.arch_label }}
+
       # 随包音频运行时（mpv 官方 release）：x64=mingw（自带 DLL）、arm64=msvc（静态链接）。
       # 平铺 mpv.exe 布局，运行期 bins.mjs 直接 spawn（见其 win32 分支）。
       - name: Stage bundled mpv runtime
@@ -469,6 +477,7 @@ jobs:
         shell: bash
         env:
           QUAVER_VERSION: ${{ steps.version.outputs.version }}
+          QUAVER_REQUIRE_MEDIA_ADDON: "1"   # afterPack 护栏：媒体插件缺失直接构建失败
         run: |
           npx electron-builder --win nsis --${{ matrix.arch_label }} --publish never \
             --config.extraMetadata.version=${{ steps.version.outputs.version }}
@@ -516,6 +525,11 @@ jobs:
           npm install
           npm run build
 
+      # macOS 系统媒体控件（Now Playing / MPRemoteCommandCenter）原生插件，单架构 arm64
+      - name: Build media addon (Now Playing)
+        working-directory: ui
+        run: node scripts/build-media.cjs --arch=arm64
+
       # 随包音频运行时（mpv 官方 release，arm64 单架构）：
       # 自包含 mpv.app（自带 dylib rpath），bins.mjs 直接 spawn（见其 darwin 分支）
       - name: Stage bundled mpv runtime
@@ -548,6 +562,7 @@ jobs:
         working-directory: ui
         env:
           QUAVER_VERSION: ${{ steps.version.outputs.version }}
+          QUAVER_REQUIRE_MEDIA_ADDON: "1"   # afterPack 护栏：媒体插件缺失直接构建失败
           CSC_IDENTITY_AUTO_DISCOVERY: "false"   # 无证书，跳过签名（identity: null 兜底）
         run: |
           npx electron-builder --mac dmg --arm64 --publish never \
@@ -566,6 +581,8 @@ jobs:
           app=$(ls -d "$mount"/*.app | head -1)
           node electron/audio/bins.mjs --check "$app/Contents/Resources/audio"
           [ -x "$app/Contents/Resources/bin/quaver-server" ]
+          # 系统媒体控件插件（Now Playing）确实进了包（构建步骤产物 + afterPack 塞包都要验）
+          [ -f "$app/Contents/Resources/media/quaver_media.node" ]
 
       - uses: actions/upload-artifact@v7
         with:

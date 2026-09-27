@@ -35,6 +35,7 @@
     "verify:sparkle": "node scripts/verify-sparkle.mjs",
     "verify:static": "node scripts/verify-config.mjs && node scripts/verify-prefs-map.mjs && node scripts/verify-highlight-contrast.mjs && node scripts/verify-song-menu.mjs && node scripts/verify-list-tools.mjs && node scripts/verify-queue-panel-anim.mjs && node scripts/verify-queue-drag.mjs && node scripts/verify-noselect.mjs && node scripts/verify-user-vip.mjs && node scripts/verify-sidebar.mjs && node scripts/verify-systheme.mjs && node scripts/verify-login.mjs && node scripts/verify-keyring.mjs && node scripts/verify-daily.mjs && node scripts/verify-guess.mjs && node scripts/verify-sparkle.mjs",
     "mpris:build": "npm --prefix ../vendor/Typhoeus/mpris install && npm --prefix ../vendor/Typhoeus/mpris run build",
+    "media:build": "node scripts/build-media.cjs",
     "dist": "npm run build && npm run mpris:build && electron-builder --linux AppImage"
   },
   "build": {
@@ -98,7 +99,8 @@
       ],
       "category": "public.app-category.music",
       "identity": null
-    }
+    },
+    "afterPack": "scripts/pack-media.cjs"
   },
   "devDependencies": {
     "@applemusic-like-lyrics/core": "^0.6.0",
