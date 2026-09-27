@@ -152,7 +152,7 @@ function toggleWindow() {
 function mprisDaemonPath() {
   // 打包态：electron-builder extraResources 把编译产物放到 <resources>/mpris/
   if (app.isPackaged) return join(process.resourcesPath, "mpris", "mpris-daemon.cjs");
-  // 开发态：vendor/Typhoeus/mpris/dist/（npm run build:mpris 产物，缺失则跳过 MPRIS）
+  // 开发态：vendor/Typhoeus/mpris/dist/（pnpm run mpris:build 产物，缺失则跳过 MPRIS）
   return resolve(UI_ROOT, "..", "vendor", "Typhoeus", "mpris", "dist", "mpris-daemon.cjs");
 }
 
@@ -367,7 +367,7 @@ async function waitSidecar(port, timeoutMs = 15000) {
 }
 
 function serveStatic() {
-  // dist 缺失时的友好错误页（先 npm run build）
+  // dist 缺失时的友好错误页（先 pnpm run build）
   const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".png": "image/png", ".json": "application/json", ".jpg": "image/jpeg" };
   const server = createServer(async (req, res) => {
     const path = decodeURIComponent((req.url || "/").split("?")[0]);
@@ -376,7 +376,7 @@ function serveStatic() {
     if (!existsSync(file) || !file.startsWith(DIST)) {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       return res.end(`<!doctype html><meta charset="utf-8"><body style="font:14px system-ui;padding:40px">
-        <h2>dist/ 不存在</h2><p>先构建再启动应用：<code>cd ui &amp;&amp; npm run build &amp;&amp; npm run app</code></p></body>`);
+        <h2>dist/ 不存在</h2><p>先构建再启动应用：<code>cd ui &amp;&amp; pnpm run build &amp;&amp; pnpm run app</code></p></body>`);
     }
     res.writeHead(200, { "content-type": types[extname(file)] ?? "application/octet-stream" });
     res.end(await readFile(file));

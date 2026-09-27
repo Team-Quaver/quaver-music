@@ -8,6 +8,7 @@
     "url": "git+https://github.com/Ne0W0r1d/quaver-music.git"
   },
   "private": true,
+  "packageManager": "pnpm@10.33.0",
   "version": "0.0.1",
   "type": "module",
   "main": "electron/main.mjs",
@@ -18,7 +19,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "app": "npm run build && electron .",
+    "app": "pnpm run build && electron .",
     "verify:config": "node scripts/verify-config.mjs && node scripts/verify-prefs-map.mjs",
     "verify:song-menu": "node scripts/verify-song-menu.mjs",
     "verify:list-tools": "node scripts/verify-list-tools.mjs",
@@ -34,8 +35,8 @@
     "verify:guess": "node scripts/verify-guess.mjs",
     "verify:sparkle": "node scripts/verify-sparkle.mjs",
     "verify:static": "node scripts/verify-config.mjs && node scripts/verify-prefs-map.mjs && node scripts/verify-highlight-contrast.mjs && node scripts/verify-song-menu.mjs && node scripts/verify-list-tools.mjs && node scripts/verify-queue-panel-anim.mjs && node scripts/verify-queue-drag.mjs && node scripts/verify-noselect.mjs && node scripts/verify-user-vip.mjs && node scripts/verify-sidebar.mjs && node scripts/verify-systheme.mjs && node scripts/verify-login.mjs && node scripts/verify-keyring.mjs && node scripts/verify-daily.mjs && node scripts/verify-guess.mjs && node scripts/verify-sparkle.mjs",
-    "mpris:build": "npm --prefix ../vendor/Typhoeus/mpris install && npm --prefix ../vendor/Typhoeus/mpris run build",
-    "dist": "npm run build && npm run mpris:build && electron-builder --linux AppImage"
+    "mpris:build": "pnpm --dir ../vendor/Typhoeus/mpris install && pnpm --dir ../vendor/Typhoeus/mpris run build",
+    "dist": "pnpm run build && pnpm run mpris:build && electron-builder --linux AppImage"
   },
   "build": {
     "appId": "red.0w0.quaver",
@@ -110,7 +111,11 @@
     "typescript": "^7.0.2",
     "vite": "^8.3.0"
   },
-  "allowScripts": {
-    "esbuild": true
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild",
+      "dmg-license"
+    ]
   }
 }

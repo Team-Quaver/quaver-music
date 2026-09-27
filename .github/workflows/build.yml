@@ -8,7 +8,7 @@
 #   windows  x64 + arm64      → NSIS（sidecar 跑原生 arm runner；前端都在 x64 上交叉打包）
 #   macos    arm64 → dmg（x86 构建已裁撤：universal 合并要求包内所有 Mach-O 双架构，
 #            与 cryptography 无 intel macOS wheel、mpv 两包结构不对称一起构成死局）
-#   linux    loongarch64（龙芯新世界 ABI 2.0）→ tar.gz（无 electron-builder 支持 → dir 包换 Electron）
+#   linux    loongarch64（龙芯 ABI 2.0）→ tar.gz（无 electron-builder 支持 → dir 包换 Electron）
 #
 # 上游口径（别想当然）：
 #   - mpv 官方 release 只发 Windows + macOS 二进制：Windows 用 mingw x64（自带全套 DLL）+
@@ -27,7 +27,8 @@
 #
 # 触发：
 #   - push 到 main / PR：只出 artifact
-#   - 打 v* tag：额外发布正式 GitHub Release（版本号 = tag 去掉 v）
+#   - 打 v* tag：额外创建正式 GitHub Release 的**草稿**（版本号 = tag 去掉 v），
+#     人工检查产物后手动 Publish
 #   - 每夜定时 / 手动勾 nightly：版本号 = <package.json 版本>-<短 commit id>-nightly，
 #     发布到滚动 Release「nightly」（覆盖昨天的）
 name: Build
@@ -290,7 +291,7 @@ jobs:
   # Rust 依赖全靠 loong64 社区镜像的预编译 wheel（见文件头注），PyInstaller 从 sdist
   # 编译自带 bootloader（纯 C）。smoke 在宿主机直接跑产物（binfmt 接管 loong64 ELF）。
   sidecar-loong64:
-    name: sidecar loong64 (新世界)
+    name: sidecar loong64 (ABI2.0)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -354,11 +355,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
+          cache: pnpm
+          cache-dependency-path: |
+            ui/pnpm-lock.yaml
+            vendor/Typhoeus/mpris/pnpm-lock.yaml
 
       # 顺序要紧：submodule 必须先 init，再往仓库里放产物，
       # 否则 checkout 后 vendor/Typhoeus 空目录被 sidecar 填充，submodule update
@@ -383,8 +390,8 @@ jobs:
       - name: Build MPRIS daemon bundle
         working-directory: vendor/Typhoeus/mpris
         run: |
-          npm install
-          npm run build
+          pnpm install --frozen-lockfile
+          pnpm run build
 
       # 随包音频运行时（mpv）：上游不发 Linux 二进制，脚本钉 pkgforge 的 AppImage（含版本 + sha256），
       # 在构建期 --appimage-extract 展开成目录再进 extraResources。运行期由 engine 用包内自带
@@ -406,9 +413,9 @@ jobs:
           chmod +x quaver-server-${{ matrix.arch_label }}
           mv quaver-server-${{ matrix.arch_label }} quaver-server
 
-      - name: npm ci
+      - name: pnpm install
         working-directory: ui
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Resolve version
         id: version
@@ -420,7 +427,7 @@ jobs:
         working-directory: ui
         env:
           QUAVER_VERSION: ${{ steps.version.outputs.version }}
-        run: npm run build
+        run: pnpm run build
 
       - name: electron-builder AppImage
         working-directory: ui
@@ -466,11 +473,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
+          cache: pnpm
+          cache-dependency-path: |
+            ui/pnpm-lock.yaml
+            vendor/Typhoeus/mpris/pnpm-lock.yaml
 
       - name: Init submodules
         shell: bash
@@ -488,16 +501,8 @@ jobs:
         working-directory: vendor/Typhoeus/mpris
         shell: bash
         run: |
-          npm install
-          npm run build
-
-      # Windows/macOS 系统媒体控件（SMTC / Now Playing）原生插件：N-API ABI 稳定，
-      # 无需按 Electron ABI 重编；arm64 在 x64 runner 上交叉编译（VS 自带 arm64 工具链）。
-      # 产物落 native/media/dist-current/，由 afterPack（scripts/pack-media.cjs）塞进包。
-      - name: Build media addon (SMTC)
-        working-directory: ui
-        shell: bash
-        run: node scripts/build-media.cjs --arch=${{ matrix.arch_label }}
+          pnpm install --frozen-lockfile
+          pnpm run build
 
       # 随包音频运行时（mpv 官方 release）：x64=mingw（自带 DLL）、arm64=msvc（静态链接）。
       # 平铺 mpv.exe 布局，运行期 bins.mjs 直接 spawn（见其 win32 分支）。
@@ -513,10 +518,10 @@ jobs:
         shell: bash
         run: node electron/audio/bins.mjs --check build-res/audio
 
-      - name: npm ci
+      - name: pnpm install
         working-directory: ui
         shell: bash
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Resolve version
         id: version
@@ -529,14 +534,13 @@ jobs:
         shell: bash
         env:
           QUAVER_VERSION: ${{ steps.version.outputs.version }}
-        run: npm run build
+        run: pnpm run build
 
       - name: electron-builder NSIS
         working-directory: ui
         shell: bash
         env:
           QUAVER_VERSION: ${{ steps.version.outputs.version }}
-          QUAVER_REQUIRE_MEDIA_ADDON: "1"   # afterPack 护栏：媒体插件缺失直接构建失败
         run: |
           npx electron-builder --win nsis --${{ matrix.arch_label }} --publish never \
             --config.extraMetadata.version=${{ steps.version.outputs.version }}
@@ -555,11 +559,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
+          cache: pnpm
+          cache-dependency-path: |
+            ui/pnpm-lock.yaml
+            vendor/Typhoeus/mpris/pnpm-lock.yaml
 
       - name: Init submodules
         run: |
@@ -581,13 +591,8 @@ jobs:
       - name: Build MPRIS daemon bundle
         working-directory: vendor/Typhoeus/mpris
         run: |
-          npm install
-          npm run build
-
-      # macOS 系统媒体控件（Now Playing / MPRemoteCommandCenter）原生插件，单架构 arm64
-      - name: Build media addon (Now Playing)
-        working-directory: ui
-        run: node scripts/build-media.cjs --arch=arm64
+          pnpm install --frozen-lockfile
+          pnpm run build
 
       # 随包音频运行时（mpv 官方 release，arm64 单架构）：
       # 自包含 mpv.app（自带 dylib rpath），bins.mjs 直接 spawn（见其 darwin 分支）
@@ -601,9 +606,9 @@ jobs:
           set -euo pipefail
           node electron/audio/bins.mjs --check build-res/audio
 
-      - name: npm ci
+      - name: pnpm install
         working-directory: ui
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Resolve version
         id: version
@@ -615,13 +620,12 @@ jobs:
         working-directory: ui
         env:
           QUAVER_VERSION: ${{ steps.version.outputs.version }}
-        run: npm run build
+        run: pnpm run build
 
       - name: electron-builder dmg (arm64)
         working-directory: ui
         env:
           QUAVER_VERSION: ${{ steps.version.outputs.version }}
-          QUAVER_REQUIRE_MEDIA_ADDON: "1"   # afterPack 护栏：媒体插件缺失直接构建失败
           CSC_IDENTITY_AUTO_DISCOVERY: "false"   # 无证书，跳过签名（identity: null 兜底）
         run: |
           npx electron-builder --mac dmg --arm64 --publish never \
@@ -640,8 +644,6 @@ jobs:
           app=$(ls -d "$mount"/*.app | head -1)
           node electron/audio/bins.mjs --check "$app/Contents/Resources/audio"
           [ -x "$app/Contents/Resources/bin/quaver-server" ]
-          # 系统媒体控件插件（Now Playing）确实进了包（构建步骤产物 + afterPack 塞包都要验）
-          [ -f "$app/Contents/Resources/media/quaver_media.node" ]
 
       - uses: actions/upload-artifact@v7
         with:
@@ -653,17 +655,23 @@ jobs:
   # x64/arm64），把 Electron 本体换成 loongnix 的 v31.7.7 loong64 构建，resources（asar 与
   # extraResources）原样保留 —— 那部分与架构无关。产物为 tar.gz，无 AppImage runtime。
   frontend-loong64:
-    name: tar.gz (loongarch64 新世界)
+    name: tar.gz (loongarch64 ABI2.0)
     needs: sidecar-loong64
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
+          cache: pnpm
+          cache-dependency-path: |
+            ui/pnpm-lock.yaml
+            vendor/Typhoeus/mpris/pnpm-lock.yaml
 
       - name: Init submodules
         run: |
@@ -685,8 +693,8 @@ jobs:
       - name: Build MPRIS daemon bundle
         working-directory: vendor/Typhoeus/mpris
         run: |
-          npm install
-          npm run build
+          pnpm install --frozen-lockfile
+          pnpm run build
 
       # loong64 无预编译 mpv（pkgforge 只发 x86_64/aarch64）→ 不随包，运行期回落
       # 系统 mpv / <audio>。给 extraResources 留一个非空目录，免得打包报缺路径。
@@ -696,9 +704,9 @@ jobs:
           mkdir -p build-res/audio
           echo "loongarch64 不随包 mpv，运行期回落系统 mpv / <audio>" > build-res/audio/README.txt
 
-      - name: npm ci
+      - name: pnpm install
         working-directory: ui
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Resolve version
         id: version
@@ -710,7 +718,7 @@ jobs:
         working-directory: ui
         env:
           QUAVER_VERSION: ${{ steps.version.outputs.version }}
-        run: npm run build
+        run: pnpm run build
 
       # 先出 x64 dir 包拿 resources，再换 loong64 Electron 本体
       - name: electron-builder dir (x64, 只为取 resources)
@@ -769,14 +777,16 @@ jobs:
           merge-multiple: true
           path: out
 
-      - name: Publish GitHub Release
+      - name: Publish GitHub Release (draft)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -la out/
           # -R 显式指定仓库：此 job 无 checkout，gh 靠 git 推断仓库会 fatal
+          # --draft：只建草稿不上线，人工核对产物/说明后到 Releases 页手动 Publish
           gh release create "$GITHUB_REF_NAME" \
             -R "$GITHUB_REPOSITORY" \
+            --draft \
             --generate-notes \
             out/Quaver-*
 
@@ -808,7 +818,7 @@ jobs:
             echo "每夜版自动构建于 $(date -u '+%Y-%m-%d %H:%M UTC')，对应 commit \`$GITHUB_SHA\`。"
             echo
             echo "包名里的 \`$sha\` 即 commit id。平台覆盖：Linux AppImage（x86_64/aarch64）、"
-            echo "Windows NSIS（x64/arm64）、macOS dmg（arm64）、loongarch64 tar.gz（新世界）。"
+            echo "Windows NSIS（x64/arm64）、macOS dmg（arm64）、loongarch64 tar.gz（ABI2.0）。"
             echo
             echo "**非稳定版本**，仅用于验证最新改动。"
           } > "$notes"
