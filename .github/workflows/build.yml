@@ -372,6 +372,7 @@ jobs:
   # ────────────────────────────── 前端（客户端包） ──────────────────────────────
   frontend-linux:
     name: AppImage (${{ matrix.arch_label }})
+    needs: sidecar-linux
     runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
@@ -487,6 +488,7 @@ jobs:
   # arm64 的 mpv 在 x64 机器上跑不了 → 随包校验靠暂存脚本里的 PE 机器码核对。
   frontend-windows:
     name: NSIS (${{ matrix.arch_label }})
+    needs: sidecar-windows
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -574,6 +576,7 @@ jobs:
   # universal mpv.app（重签 ad-hoc）。
   frontend-macos:
     name: dmg (universal)
+    needs: sidecar-macos
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
@@ -669,6 +672,7 @@ jobs:
   # extraResources）原样保留 —— 那部分与架构无关。产物为 tar.gz，无 AppImage runtime。
   frontend-loong64:
     name: tar.gz (loongarch64 新世界)
+    needs: sidecar-loong64
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
