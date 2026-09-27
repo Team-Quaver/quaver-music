@@ -24,8 +24,8 @@
 #   - PyInstaller onefile 的档案拼在 Mach-O 尾部，**不能 lipo 合并两份单架构产物** →
 #     macOS universal 包里放 arm64/x64 两份二进制 + 壳脚本按 uname -m 分发
 #     （ui/scripts/quaver-server-launcher.sh，main.mjs 照旧 spawn bin/quaver-server）。
-#   - windows-11-arm 上 uv 会默认挑 x86_64 Python（模拟跑）→ 必须 `uv python install
-#     3.11-aarch64` 显式钉原生 arm64，否则 PyInstaller 出来的是 x64 二进制。
+#   - windows-11-arm 上 **sidecar 是 x64 二进制**（cryptography 无 win-arm64 wheel，
+#     原生构建不现实）→ 钉 x64 Python，靠 Windows on ARM 的 x64 模拟跑；Electron 原生 arm64。
 #
 # 触发：
 #   - push 到 main / PR：只出 artifact
@@ -132,8 +132,13 @@ jobs:
           name: sidecar-linux-${{ matrix.arch_label }}
           path: vendor/Typhoeus/dist-bin/quaver-server-${{ matrix.arch_label }}
 
-  # Windows：PyInstaller 不能交叉编译 → arm64 必须跑原生 windows-11-arm runner。
-  # 那台机器上 uv 默认会挑 x86_64 Python（x64 模拟跑，产物架构就错了）→ 显式钉 3.11-aarch64。
+  # Windows：PyInstaller 不能交叉编译 → 两档各自跑。
+  # 注意全 job 的 run 步骤一律 shell: bash：默认 PowerShell 不认 `\` 续行。
+  # arm64 的口径：**sidecar 是 x64 二进制**，靠 Windows on ARM 的 x64 模拟跑 ——
+  # 依赖链上的 cryptography 连上游都不发 win-arm64 wheel（PyPI 50.0.1 实测只有
+  # win_amd64），原生构建要自拖 OpenSSL+Rust 工具链，不值得；整个生态在 WoA 上
+  # 就是模拟跑 x64 的。arm64 runner 上显式钉 3.11-x86_64（uv 默认恰好也是它，
+  # 但别依赖默认值）。Electron 本体仍是原生 arm64。
   sidecar-windows:
     name: sidecar windows (${{ matrix.arch_label }})
     runs-on: ${{ matrix.runs_on }}
@@ -146,28 +151,32 @@ jobs:
             py_request: "3.11"
           - arch_label: arm64
             runs_on: windows-11-arm
-            py_request: "3.11-aarch64"
+            py_request: "3.11-x86_64"
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: false
 
       - name: Init submodules
+        shell: bash
         run: |
           git submodule update --init --depth 1 vendor/QQMusicApi
           git submodule update --init --depth 1 vendor/Typhoeus
 
-      # 不用 setup-python：windows-11-arm 上它拿到的 Python 架构不可控，交给 uv 按请求装
+      # 不用 setup-python：python-versions 的 windows-arm64 原生包版本覆盖不全，
+      # 交给 uv 按请求装（x64 解释器在 WoA 上模拟跑，产物即 x64）
       - uses: astral-sh/setup-uv@v10.1.0
 
       - name: Install deps
         working-directory: vendor/Typhoeus
+        shell: bash
         run: |
           uv python install "${{ matrix.py_request }}"
           uv sync --frozen --no-dev --python "${{ matrix.py_request }}"
 
       - name: PyInstaller onefile
         working-directory: vendor/Typhoeus
+        shell: bash
         run: |
           uv run --python "${{ matrix.py_request }}" --frozen \
             --with pyinstaller --with pyinstaller-hooks-contrib \
@@ -226,15 +235,17 @@ jobs:
 
       - uses: astral-sh/setup-uv@v10.1.0
 
-      # arm64（原生）与 x64（Rosetta）各一个项目环境；x64 解释器由 uv 按 --arch 取
-      # python-build-standalone 的 x86_64-apple-darwin 构建
+      # arm64（原生）与 x64（Rosetta）各一个项目环境；x64 解释器用 uv 的架构后缀请求
+      # 取 python-build-standalone 的 x86_64-apple-darwin 构建。
+      # 注意：uv python install/find **没有 --arch 参数**（实测 unexpected argument），
+      # 架构只能写在请求串里（与 windows arm64 的 "3.11-aarch64" 同一语法）。
       - name: Install deps (arm64 native + x64 Rosetta)
         working-directory: vendor/Typhoeus
         run: |
           set -euo pipefail
           uv python install 3.11
-          uv python install 3.11 --arch x86_64
-          xpy="$(uv python find 3.11 --arch x86_64)"
+          uv python install 3.11-x86_64
+          xpy="$(uv python find 3.11-x86_64)"
           echo "x64 python: $xpy"
           uv sync --frozen --no-dev --python 3.11
           UV_PROJECT_ENVIRONMENT="$PWD/.venv-x64" uv sync --frozen --no-dev --python "$xpy"
