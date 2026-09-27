@@ -176,14 +176,18 @@ try {
     for (const a of ["x86_64", "arm64"]) if (!info.includes(a)) die(`lipo 结果缺 ${a}: ${info}`);
     // 合并后原 ad-hoc 签名失效 → 重签（不签 arm mac 直接拒跑）
     sh("codesign", ["--force", "--deep", "-s", "-", armApp]);
+    // cpSync 是「dest 变成 src 的拷贝」语义：必须落进 dest/mpv.app，
+    // 保持 bins.mjs 约定的 <声源根>/mpv/mpv.app/Contents/MacOS/mpv 布局
     rmSync(dest, { recursive: true, force: true });
-    cpSync(armApp, dest, { recursive: true });
+    mkdirSync(dest, { recursive: true });
+    cpSync(armApp, join(dest, "mpv.app"), { recursive: true });
     console.log(`✓ 落盘 ${dest}（universal mpv.app：${info.trim()}，已重签 ad-hoc）`);
   } else {
     const app = join(trees[need[0]], "mpv.app");
     if (!existsSync(app)) die(`mpv.app 缺失：${app}`);
     rmSync(dest, { recursive: true, force: true });
-    cpSync(app, dest, { recursive: true });
+    mkdirSync(dest, { recursive: true });
+    cpSync(app, join(dest, "mpv.app"), { recursive: true });
     console.log(`✓ 落盘 ${dest}（mpv.app）`);
   }
   console.log(`✓ 完成。验证：cd ui && node electron/audio/bins.mjs --check ${destRoot}`);
