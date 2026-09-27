@@ -265,10 +265,12 @@ jobs:
         working-directory: vendor/Typhoeus
         run: |
           set -euo pipefail
-          mkdir -p dist-bin
+          # distpath 用仓库根的 dist-bin（后续分发壳/smoke/upload 都以它为准）；
+          # PyInstaller 的相对路径是相对 working-directory 的，必须显式爬出去
+          mkdir -p ../../dist-bin
           .venv/bin/python -m PyInstaller --clean --noconfirm --onefile \
             --name quaver-server \
-            --distpath dist-bin --workpath build/pyi-arm --specpath build/pyi-arm \
+            --distpath ../../dist-bin --workpath build/pyi-arm --specpath build/pyi-arm \
             --hidden-import uvicorn.logging \
             --hidden-import uvicorn.loops.auto \
             --hidden-import uvicorn.loops.asyncio \
@@ -280,8 +282,8 @@ jobs:
             --hidden-import python_socks \
             --copy-metadata qqmusic-api-python \
             build_entry.py
-          lipo -info dist-bin/quaver-server | grep -q arm64
-          mv dist-bin/quaver-server dist-bin/quaver-server-arm64
+          lipo -info ../../dist-bin/quaver-server | grep -q arm64
+          mv ../../dist-bin/quaver-server ../../dist-bin/quaver-server-arm64
 
       - name: PyInstaller onefile (x64)
         working-directory: vendor/Typhoeus
@@ -289,7 +291,7 @@ jobs:
           set -euo pipefail
           .venv-x64/bin/python -m PyInstaller --clean --noconfirm --onefile \
             --name quaver-server \
-            --distpath dist-bin --workpath build/pyi-x64 --specpath build/pyi-x64 \
+            --distpath ../../dist-bin --workpath build/pyi-x64 --specpath build/pyi-x64 \
             --hidden-import uvicorn.logging \
             --hidden-import uvicorn.loops.auto \
             --hidden-import uvicorn.loops.asyncio \
@@ -301,8 +303,8 @@ jobs:
             --hidden-import python_socks \
             --copy-metadata qqmusic-api-python \
             build_entry.py
-          lipo -info dist-bin/quaver-server | grep -q x86_64
-          mv dist-bin/quaver-server dist-bin/quaver-server-x64
+          lipo -info ../../dist-bin/quaver-server | grep -q x86_64
+          mv ../../dist-bin/quaver-server ../../dist-bin/quaver-server-x64
 
       # 分发壳：universal 包里 main.mjs 照旧 spawn bin/quaver-server，壳按 uname -m 转发
       - name: Stage dispatcher script
@@ -311,7 +313,6 @@ jobs:
           chmod +x dist-bin/quaver-server dist-bin/quaver-server-arm64 dist-bin/quaver-server-x64
 
       - name: Smoke test binaries (arm64 native + x64 Rosetta)
-        working-directory: vendor/Typhoeus
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/qv-cfg"
