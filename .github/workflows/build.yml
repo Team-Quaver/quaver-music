@@ -69,6 +69,10 @@ jobs:
         working-directory: vendor/Typhoeus
         run: uv sync --frozen --no-dev
 
+      # rthook_ca_bundle.py：冻结进包里的 libcrypto 来自本 runner（Ubuntu），
+      # OPENSSLDIR=/usr/lib/ssl；Arch/Fedora/openSUSE 上没有这个目录，default
+      # context 会一个 CA 都加载不到（MQTT 扫码登录因此挂掉）。该钩子在运行时
+      # 回退到运行机自己的 CA 包。详见文件头部注释与下面那条 CA 回归测试。
       - name: PyInstaller onefile
         working-directory: vendor/Typhoeus
         run: |
@@ -86,6 +90,7 @@ jobs:
               --hidden-import uvicorn.protocols.websockets.websockets_impl \
               --hidden-import python_socks \
               --copy-metadata qqmusic-api-python \
+              --runtime-hook "$GITHUB_WORKSPACE/scripts/rthook_ca_bundle.py" \
               build_entry.py
 
       - name: Smoke test binary
@@ -104,6 +109,36 @@ jobs:
           kill $SERVER_PID 2>/dev/null
           [ "$status" = 0 ] || cat /tmp/sidecar-ci.log
           exit $status
+
+      # 回归：上面那条 smoke test 在 Ubuntu 上测不出 CA 问题（/usr/lib/ssl 就在那儿，
+      # 默认信任库是好的）。把 SSL_CERT_FILE / SSL_CERT_DIR 指到不存在的位置，等价于
+      # 造出「运行机没有那套默认路径」的状态 —— 也就是 Arch / Fedora / openSUSE 上
+      # 用户实际遇到的情况。此时 rthook 必须把信任库接过来。
+      - name: Smoke test CA fallback (simulate non-Debian host)
+        working-directory: vendor/Typhoeus
+        run: |
+          set -euo pipefail
+          log=/tmp/sidecar-ca.log
+          SSL_CERT_FILE=/nonexistent SSL_CERT_DIR=/nonexistent QUAVER_PORT=3998 \
+            ./dist-bin/quaver-server > "$log" 2>&1 &
+          pid=$!
+          up=1
+          for i in $(seq 1 30); do
+            sleep 1
+            if curl -fsS --max-time 3 http://127.0.0.1:3998/login/status >/dev/null 2>&1; then
+              up=0; break
+            fi
+          done
+          kill $pid 2>/dev/null || true
+
+          echo "--- sidecar 输出 ---"; cat "$log"
+          [ "$up" = 0 ] || { echo "::error::没有默认信任库时 sidecar 起不来"; exit 1; }
+          grep -q "已改用" "$log" \
+            || { echo "::error::rthook 没有回退到系统 CA 包，扫码登录会在非 Debian 系上挂掉"; exit 1; }
+          if grep -q "TLS 校验将失败" "$log"; then
+            echo "::error::兜底后仍没加载到 CA"; exit 1
+          fi
+          echo "CA fallback OK"
 
       - name: Rename for artifact
         working-directory: vendor/Typhoeus
