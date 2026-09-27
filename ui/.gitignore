@@ -16,10 +16,6 @@ pnpm-debug.log*
 build-res/audio/*
 !build-res/audio/.gitkeep
 
-# 系统媒体控件原生插件产物（scripts/build-media.cjs / native-gyp 输出，不入库）
-native/media/dist-current/
-native/media/build/
-
 # environment variables
 .env
 .env.production

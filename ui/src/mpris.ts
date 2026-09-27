@@ -1,11 +1,18 @@
-// Quaver — MPRIS 桥（渲染层发布/订阅）
-// 职责：把 player 状态快照经 preload 桥推给 Electron 主进程（再由它喂给 mpris daemon），
-// 并执行 daemon 回推的控制命令。仅 Electron 壳层生效（window.quaverMpris 存在）；
-// 浏览器 / dev 模式下 startMprisBridge() 直接返回，零副作用。
+// Quaver — 系统媒体控件桥（渲染层发布/订阅）
+// Linux：把 player 状态快照经 preload 桥推给 Electron 主进程（再由它喂给 mpris daemon），
+//        并执行 daemon 回推的控制命令。
+// win/mac：同一份快照直驱 navigator.mediaSession —— Chromium 内置了 MediaSession 到平台
+//        控件的对接（Windows = SMTC，macOS = MPNowPlayingInfoCenter + MPRemoteCommandCenter），
+//        纯 TS 零原生代码；命令经 action handler 直接调 player，不经 IPC。
+// 仅 Electron 壳层生效（window.quaverMpris 存在）；浏览器 / dev 模式下 startMprisBridge()
+// 直接返回，零副作用。
 //
 // 节流：timeupdate 约 4Hz 已在触发 notify()，但位置由 daemon 端单调时钟外推，
 // 所以渲染层只在「离散状态变化」（曲目/播放态/音量/循环/队列）时推送，外加 5s 一次的
 // 低频心跳纠偏。播放中无需逐秒 IPC。
+// 能力边界（win/mac 相对 Linux MPRIS）：SMTC / Now Playing 标准按钮只有
+// play/pause/prev/next/seekto —— 循环/随机/音量系统侧不暴露，纯 TS 方案做不了，
+// 与桌面内功能不一致处由播放页自行承担。
 import { player } from "./player";
 import { coverUrl, songTitle } from "./lib/api";
 
@@ -87,18 +94,74 @@ function fingerprint(): string {
 
 let started = false;
 
+/** Windows SMTC / macOS Now Playing：navigator.mediaSession 直驱（仅 win/mac Electron 壳层）。
+ *  Linux 上主进程已关掉 MediaSessionService（防与 mpris daemon 抢总线），这里也不接管；
+ *  浏览器 dev 模式不接管，避免 dev 页面抢系统媒体控件。返回值把快照喂给平台控件。 */
+function makeMediaSessionPush(): ((s: ReturnType<typeof snapshot>) => void) | null {
+  if (!window.quaverMpris) return null;
+  if (!/Windows|Macintosh/.test(navigator.userAgent)) return null; // Linux 走 MPRIS daemon
+  if (!("mediaSession" in navigator) || typeof MediaMetadata === "undefined") return null;
+  const ms = navigator.mediaSession;
+  try {
+    ms.setActionHandler("play", () => {
+      if (player.paused) player.resume(); // 复用错误重试/起播语义，与 MPRIS play 一致
+    });
+    ms.setActionHandler("pause", () => {
+      if (!player.paused) player.pause();
+    });
+    ms.setActionHandler("previoustrack", () => player.prev());
+    ms.setActionHandler("nexttrack", () => player.next());
+    ms.setActionHandler("seekto", (d) => {
+      const pos = d.seekTime;
+      if (typeof pos === "number" && isFinite(pos)) player.seek(pos);
+    });
+  } catch (e) {
+    console.warn("mediaSession action handler failed", e);
+    return null;
+  }
+  return (s) => {
+    try {
+      const t = s.track;
+      if (!t) {
+        ms.playbackState = "none";
+        return;
+      }
+      // 封面取 500px 一档：SMTC / Now Playing 显示面积比应用内封面大（无 500 时回落 300）
+      const art = player.current ? coverUrl(player.current, 500) || t.artUrl : t.artUrl;
+      ms.metadata = new MediaMetadata({
+        title: t.name,
+        artist: t.artists.join(", "),
+        album: t.album,
+        artwork: art ? [{ src: art, sizes: "500x500", type: "image/jpeg" }] : [],
+      });
+      // MPRIS 的 Stopped（无曲目）映射 none；有曲目未播放一律 paused（含停在 0:00）
+      ms.playbackState = s.status === "Playing" ? "playing" : "paused";
+      const dur = t.durationSec ?? 0;
+      const pos = s.posUs / 1e6;
+      if (isFinite(dur) && dur > 0 && isFinite(pos) && pos >= 0) {
+        ms.setPositionState({ duration: dur, position: Math.min(pos, dur), playbackRate: 1 });
+      }
+    } catch (e) {
+      console.warn("mediaSession push failed", e);
+    }
+  };
+}
+
 export function startMprisBridge(): void {
   const bridge = window.quaverMpris;
   if (!bridge || started) return;
   started = true;
 
   let lastFp = "";
+  const msPush = makeMediaSessionPush();
   const push = (seeked = false) => {
+    const s = snapshot(seeked);
     try {
-      bridge.send(snapshot(seeked));
+      bridge.send(s);
     } catch (e) {
       console.warn("mpris push failed", e);
     }
+    msPush?.(s);
   };
 
   // Seeked 信号：time 相邻两次间隔 >2s 视为位置突跳（拖动进度条/点击跳点）。
