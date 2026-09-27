@@ -316,19 +316,20 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/qv-cfg"
-          for entry in "arm64 quaver-server-arm64 3999" "x64 quaver-server-x64 3998"; do
+          # arch 的架构参数是 x86_64（不是 x64）；二进制名与 arch 参数解耦
+          for entry in "arm64 quaver-server-arm64 3999" "x86_64 quaver-server-x64 3998"; do
             set -- $entry
-            label=$1; bin=$2; port=$3
+            flag=$1; bin=$2; port=$3
             QUAVER_CONFIG_DIR="$RUNNER_TEMP/qv-cfg" QUAVER_PORT=$port \
-              arch -"$label" "./dist-bin/$bin" > "$RUNNER_TEMP/sidecar-$label.log" 2>&1 &
+              arch -"$flag" "./dist-bin/$bin" > "$RUNNER_TEMP/sidecar-$flag.log" 2>&1 &
             pid=$!
             status=1
             for i in $(seq 1 60); do
               sleep 1
-              curl -fsS --max-time 3 "http://127.0.0.1:$port/login/status" >/dev/null 2>&1 && { echo "$label OK"; status=0; break; }
+              curl -fsS --max-time 3 "http://127.0.0.1:$port/login/status" >/dev/null 2>&1 && { echo "$flag OK"; status=0; break; }
             done
             kill $pid 2>/dev/null || true
-            [ "$status" = 0 ] || { cat "$RUNNER_TEMP/sidecar-$label.log"; exit 1; }
+            [ "$status" = 0 ] || { cat "$RUNNER_TEMP/sidecar-$flag.log"; exit 1; }
           done
 
       - uses: actions/upload-artifact@v7
