@@ -15,6 +15,7 @@
 // 与桌面内功能不一致处由播放页自行承担。
 import { player } from "./player";
 import { coverUrl, songTitle } from "./lib/api";
+import { initFakeAudio } from "./fake-audio";
 
 type MprisBridge = {
   send(state: unknown): void;
@@ -154,6 +155,10 @@ export function startMprisBridge(): void {
 
   let lastFp = "";
   const msPush = makeMediaSessionPush();
+  // mpv 后端下渲染层没有音频元素，Chromium 媒体会话不激活 → SMTC/Now Playing 不出现。
+  // msPush 非 null 蕴含全部平台门（quaverMpris 桥 + win/mac UA + mediaSession API +
+  // handler 注册成功），假音频模块免费复用这道门（详见 fake-audio.ts 头注释）。
+  if (msPush) initFakeAudio();
   const push = (seeked = false) => {
     const s = snapshot(seeked);
     try {
