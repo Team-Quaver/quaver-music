@@ -20,9 +20,9 @@
 // 校验：脚本做 sha256 + 机器码校验；装完用生产解析路径真跑一次：
 //   cd ui && node electron/audio/bins.mjs --check build-res/audio
 import { createHash } from "node:crypto";
-import { cpSync, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, cpSync, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { pipeline } from "node:stream/promises";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { platform as hostPlatform, arch as hostArch } from "node:process";
 import { spawnSync } from "node:child_process";
 
@@ -100,7 +100,7 @@ async function fetchAndExtract(asset, dir) {
     rmSync(inner, { force: true });
   }
   const nestedTgz = readdirSync(dir).find((n) => n.endsWith(".tar.gz"));
-  if (nestedTgz) sh("tar", ["-xzf", join(dir, nestedTgz), "-C", dir]);
+  if (nestedTgz) sh("tar", ["-xzf", join(dir, nestedTgz), "--no-same-owner", "-C", dir]);
   return dir;
 }
 
@@ -147,30 +147,55 @@ try {
     checkPE(exe, arch === "arm64" ? 0xaa64 : 0x8664);
     console.log(`✓ 落盘 ${dest}（mpv.exe + 运行时 DLL）`);
   } else if (arch === "universal") {
-    // 以 arm 包为底，逐文件 lipo；两包结构必须同构（同构建管线）
+    // 以 arm 包为底，**整棵树递归 lipo**（MacOS/lib、Frameworks/ 的 MoltenVK、主二进制
+    // —— 只处理 MacOS/lib 会把 arm-only 的 dylib 留进两个临时包，universal 合并必炸）。
     const armApp = join(trees["darwin/arm64"], "mpv.app");
     const intelApp = join(trees["darwin/x64"], "mpv.app");
     for (const p of [armApp, intelApp]) if (!existsSync(p)) die(`mpv.app 缺失：${p}`);
     const lipo = (a, b, out) => sh("lipo", ["-create", a, b, "-output", out]);
-    lipo(join(armApp, "Contents/MacOS/mpv"), join(intelApp, "Contents/MacOS/mpv"), join(armApp, "Contents/MacOS/mpv"));
-    const libDir = join(armApp, "Contents/MacOS/lib");
-    if (existsSync(libDir)) {
-      // 上游 tar 里混着 .gitkeep 之类的占位文件，lipo 对非 Mach-O 直接 fatal ——
-      // 按魔数过滤（fat 0xcafebabe/0xbebafeca + Mach-O 32/64 及其字节序变体），
-      // 只有真二进制才参与合并。
-      const magics = new Set([0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabe, 0xbebafeca]);
-      const isMachO = (p) => {
-        try { return magics.has(readFileSync(p).subarray(0, 4).readUInt32BE(0)); }
-        catch { return false; }
+    // 占位文件（.gitkeep）与资源（plist/icns/json）不是 Mach-O，lipo 会直接 fatal ——
+    // 按魔数过滤（fat 0xcafebabe/0xbebafeca + Mach-O 32/64 及其字节序变体），只并真二进制。
+    const magics = new Set([0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabe, 0xbebafeca]);
+    const isMachO = (p) => {
+      try { return magics.has(readFileSync(p).subarray(0, 4).readUInt32BE(0)); }
+      catch { return false; }
+    };
+    const relFiles = (root) => {
+      const out = [];
+      const walk = (d) => {
+        for (const n of readdirSync(d)) {
+          const p = join(d, n);
+          const st = statSync(p);
+          if (st.isDirectory()) walk(p);
+          else if (st.isFile()) out.push(relative(root, p));   // 以各自 root 为基准，两侧才可比
+        }
       };
-      for (const dy of readdirSync(libDir)) {
-        if (dy.startsWith(".")) continue;   // .gitkeep 之类
-        const a = join(libDir, dy);
-        const intelDy = join(intelApp, "Contents/MacOS/lib", dy);
-        if (!existsSync(intelDy)) die(`两份 mpv.app 结构不同构：缺 ${dy}（上游换布局了？）`);
-        if (!statSync(a).isFile() || !isMachO(a) || !isMachO(intelDy)) continue;
-        lipo(a, intelDy, a);
+      walk(root);
+      return out.sort();
+    };
+    const armFiles = relFiles(armApp), intelFiles = relFiles(intelApp);
+    // 两包并非严格同构（实测 arm 独有 Frameworks/libMoltenVK.dylib，intel 没带）。
+    // 单侧独有二进制既没法 universal、electron-builder 合并也会拒 → 丢弃（mpv 纯音频
+    // 用途不走 Vulkan）；单侧独有的资源文件以 arm 侧为准保留/补拷。
+    for (const rel of armFiles) {
+      const a = join(armApp, rel), b = join(intelApp, rel);
+      if (!intelFiles.includes(rel)) {
+        if (isMachO(a)) console.log(`⚠ 单侧独有二进制，丢弃：${rel}`), rmSync(a);
+        continue;   // 独有资源保留
       }
+      if (!isMachO(a) || !isMachO(b)) continue;   // 资源/占位文件以 arm 侧为准
+      // 某个文件自身已是 universal（双架构都在）就不用并
+      const archs = sh("lipo", ["-archs", a], { stdio: ["ignore", "pipe", "pipe"] }).stdout;
+      if (archs.includes("x86_64") && archs.includes("arm64")) continue;
+      sh("chmod", ["u+w", a]);   // 上游 dylib 常是 0444/0555，lipo -output 覆盖写需要写位
+      lipo(a, b, a);
+    }
+    for (const rel of intelFiles) {
+      if (armFiles.includes(rel)) continue;
+      const b = join(intelApp, rel);
+      if (isMachO(b)) { console.log(`⚠ intel 独有二进制，丢弃：${rel}`); continue; }
+      mkdirSync(dirname(join(armApp, rel)), { recursive: true });
+      copyFileSync(b, join(armApp, rel));
     }
     const info = sh("lipo", ["-info", join(armApp, "Contents/MacOS/mpv")], { stdio: ["ignore", "pipe", "pipe"] }).stdout;
     for (const a of ["x86_64", "arm64"]) if (!info.includes(a)) die(`lipo 结果缺 ${a}: ${info}`);
