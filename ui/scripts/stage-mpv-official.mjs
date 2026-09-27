@@ -155,12 +155,21 @@ try {
     lipo(join(armApp, "Contents/MacOS/mpv"), join(intelApp, "Contents/MacOS/mpv"), join(armApp, "Contents/MacOS/mpv"));
     const libDir = join(armApp, "Contents/MacOS/lib");
     if (existsSync(libDir)) {
+      // 上游 tar 里混着 .gitkeep 之类的占位文件，lipo 对非 Mach-O 直接 fatal ——
+      // 按魔数过滤（fat 0xcafebabe/0xbebafeca + Mach-O 32/64 及其字节序变体），
+      // 只有真二进制才参与合并。
+      const magics = new Set([0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabe, 0xbebafeca]);
+      const isMachO = (p) => {
+        try { return magics.has(readFileSync(p).subarray(0, 4).readUInt32BE(0)); }
+        catch { return false; }
+      };
       for (const dy of readdirSync(libDir)) {
+        if (dy.startsWith(".")) continue;   // .gitkeep 之类
+        const a = join(libDir, dy);
         const intelDy = join(intelApp, "Contents/MacOS/lib", dy);
         if (!existsSync(intelDy)) die(`两份 mpv.app 结构不同构：缺 ${dy}（上游换布局了？）`);
-        const st = statSync(join(libDir, dy));
-        if (!st.isFile()) continue;
-        lipo(join(libDir, dy), intelDy, join(libDir, dy));
+        if (!statSync(a).isFile() || !isMachO(a) || !isMachO(intelDy)) continue;
+        lipo(a, intelDy, a);
       }
     }
     const info = sh("lipo", ["-info", join(armApp, "Contents/MacOS/mpv")], { stdio: ["ignore", "pipe", "pipe"] }).stdout;
