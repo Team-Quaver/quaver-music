@@ -1,12 +1,15 @@
 // 我的页（/user）会员信息与进出场动效的校验
 //
-// 这是本项目第一个**直接 import TS 模块**的校验脚本：Node ≥22.18 默认开启类型剥离
-// （更早的版本加 `--experimental-strip-types`），src/lib/vip.ts 是纯函数、零依赖，可以直接
-// 拿来做真单测 —— 日期解析这种事，对着源码写正则断言等于没测。
+// 这是本项目第一个**直接 import TS 模块**的校验脚本：Node ≥22.18 默认开启类型剥离，
+// src/lib/vip.ts 是纯函数、零运行时状态，可以拿来做真单测 —— 日期解析这种事，对着源码写
+// 正则断言等于没测。唯一的例外是 escHtml（b24baba 起挪进 api.ts 且带浏览器端依赖链），
+// Node 的类型剥离解析不了工程里的无扩展名导入 —— 见下方临时模块拼接的注释。
 //
 // 覆盖四块：
-//   1. **上游字段口径**：档位表里的字段名必须在 vendor/QQMusicApi 的模型里真实存在，且挂在正确的
-//      层（star/ystar 在顶层 UserVipInfoResponse，不在 identity 里 —— 写错不报错，只少一行）。
+//   1. **上游字段口径**：档位表里的字段名必须在真实抓包的 /user/vip 响应（下方 FIXTURE）里真实存在，
+//      且挂在正确的层（star/ystar 在顶层响应，不在 identity 里 —— 写错不报错，只少一行）。
+//      后端（vendor/Typhoeus-go）对这条 CGI 是 RawMessage 原样透传、不做强类型建模，
+//      字段真相只存在于上游响应本身，所以跨源参照用抓包而不再对某份模型文档。
 //   2. **时间口径**：+08:00 解析（换 TZ 结果必须一致，否则非 UTC+8 机器上「已过期」会假阳性）、
 //      脏值（"2026-02-31" 会被 V8 静默进位成 03-03，实测）必须拒掉、上游两种格式都能读。
 //   3. **展示口径**：过期/未过期文案、到期取最晚一档、**只读不买**（purchase_url/buy_url/
@@ -14,7 +17,8 @@
 //   4. **动效接线**：进场分级淡入 + 退出离场早于跳转（且跳转不许被动画或请求卡住）。
 //
 // 用法：node scripts/verify-user-vip.mjs
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -23,17 +27,41 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
 const EASE = "cubic-bezier(.22,.61,.36,1)"; // 全站唯一一套缓动，新增动效必须用它
 
-let vip;
-try {
-  vip = await import(pathToFileURL(join(root, "src/lib/vip.ts")).href);
-} catch (e) {
-  console.log(`❌ 加载不了 src/lib/vip.ts（本脚本靠 Node 的类型剥离跑真单测）\n   ${e.message}\n` +
-    "   提示：Node ≥22.18 默认开启类型剥离；更早的版本请加 --experimental-strip-types 再跑。");
-  process.exit(1);
+// 真实抓包（2026-09-19 本机 sidecar :3200 /user/vip，压缩后原样保存）——
+// 兼作展示口径的输入与「字段口径」的跨源参照（第 1、3 段共用）。
+const FIXTURE = JSON.parse(`{"auto_down":0,"can_renew":1,"max_dir_num":2000,"max_song_num":1000000,"song_limit_msg":"","svip":1,"star":0,"star_start":"","star_end":"","ystar":0,"ystar_start":"","ystar_end":"","identity":{"vip":1,"huge_vip":1,"huge_vip_start":"2026-07-25 18:40:17","huge_vip_end":"2026-09-25 18:40:17","year_flag":0,"huge_year_flag":0,"twelve":0,"twelve_start":"","twelve_end":"","child_vip":0,"exp_vip":0,"group_vip_flag":0,"group_vip_start":"","group_vip_end":"","cp_lover_flag":0,"cp_lover_start":"","cp_lover_end":"","ad_vip_flag":0,"eight":1,"eight_start":"2026-05-25","eight_end":"2026-09-26","level":6,"next_level":7,"icon":"http://y.gtimg.cn/mediastyle/global/vip_icon/lv_6.png","purchase_url":"http://y.qq.com/m/client/mall/myvip.html?"},"userinfo":{"buy_url":"https://y.qq.com/n2/m/myservice/index.html?_scrollhide=1&_hidehd=1&entry=1&tab1=svip&tab2=eight","my_vip_url":"https://y.qq.com/n2/m/myservice/index.html?_scrollhide=1&_hidehd=1&entry=1","score":20426,"expire":0,"music_level":10}}`);
+
+// vip.ts 的唯一 import 是 api.ts 的 escHtml，而 api.ts 又连着 prefs/config 一串浏览器端
+// 依赖 —— Node 的类型剥离模式解析不了工程里的无扩展名导入，直 import 必炸。
+// 处理：剥掉 import 行、注入同款 escHtml，落临时 .mts 模块加载（临时目录随用随删）。
+// 注入体必须与 api.ts 的实现逐字符同构 —— 语义动了这里就是假单测。
+const escHtmlStubSrc =
+  `const escHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ` +
+  `({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);`;
+{
+  const probe = new Function("return " + escHtmlStubSrc.slice("const escHtml =".length))();
+  if (probe('<a b="c">&d\'') !== '&lt;a b=&quot;c&quot;&gt;&amp;d&#39;') {
+    console.log("❌ escHtml 注入体与 api.ts 实现语义不一致 —— 先同步再跑校验");
+    process.exit(1);
+  }
+}
+
+let vip, vipUrl;
+{
+  const src = read("src/lib/vip.ts").replace(/^import[^\n]*\n/m, "");
+  const dir = mkdtempSync(join(tmpdir(), "verify-vip-"));
+  vipUrl = pathToFileURL(join(dir, "vip.mts")).href;
+  writeFileSync(join(dir, "vip.mts"), escHtmlStubSrc + "\n" + src);
+  try {
+    vip = await import(vipUrl);
+  } catch (e) {
+    console.log(`❌ 加载不了 src/lib/vip.ts（本脚本靠 Node 的类型剥离跑真单测）\n   ${e.message}\n` +
+      "   提示：Node ≥22.18 默认开启类型剥离；更早的版本请加 --experimental-strip-types 再跑。");
+    process.exit(1);
+  }
 }
 const views = read("src/views.ts");
 const css = read("src/style.css");
-const model = read("../vendor/QQMusicApi/qqmusic_api/models/user.py");
 
 let checks = 0, fails = 0;
 const ok = (name, cond, note = "") => {
@@ -49,19 +77,8 @@ const eq = (name, got, want) => ok(name, JSON.stringify(got) === JSON.stringify(
 /** 自然日差（UTC 日历日算，与本模块的 +08:00 口径实现无关 = 独立参照） */
 const calDays = (a, b) => Math.round((Date.UTC(a[0], a[1] - 1, a[2]) - Date.UTC(b[0], b[1] - 1, b[2])) / 86400_000);
 
-// ============ 1. 上游字段口径（跨源核对） ============
-section("上游字段口径（对照 vendored 模型）");
-const classBody = (name) => {
-  const i = model.indexOf(`class ${name}(`);
-  if (i < 0) return "";
-  const rest = model.slice(i + 1);
-  const j = rest.indexOf("\nclass ");
-  return j < 0 ? rest : rest.slice(0, j);
-};
-const IDENTITY = classBody("VipIdentity");
-const ROOTCLS = classBody("UserVipInfoResponse");
-ok("vendored 模型里能定位 VipIdentity / UserVipInfoResponse", IDENTITY.length > 200 && ROOTCLS.length > 200);
-
+// ============ 1. 上游字段口径（对照抓包响应） ============
+section("上游字段口径（对照抓包 FIXTURE）");
 const src = read("src/lib/vip.ts");
 const tableSrc = src.slice(src.indexOf("export const VIP_TIERS"), src.indexOf("];", src.indexOf("export const VIP_TIERS")));
 const tiers = tableSrc.split("\n").map((l) => l.trim()).filter((l) => l.startsWith("{ label:"))
@@ -80,17 +97,19 @@ ok("档位表字段名与模块导出一致",
   JSON.stringify(tiers.map((t) => [t.label, t.where, t.flag, t.start, t.end]).flat())
   === JSON.stringify(vip.VIP_TIERS.map((t) => [t.label, t.where, t.flag, t.start ?? "", t.end ?? ""]).flat()));
 
+// 上游响应的字段按层取键：identity = FIXTURE.identity，root = 响应顶层
+const layerKeys = (where) => new Set(Object.keys(where === "identity" ? FIXTURE.identity : FIXTURE));
+
 const missing = [], wrongLayer = [];
 for (const t of tiers) {
-  const own = t.where === "identity" ? IDENTITY : ROOTCLS;
-  const other = t.where === "identity" ? ROOTCLS : IDENTITY;
+  const own = layerKeys(t.where), other = layerKeys(t.where === "identity" ? "root" : "identity");
   for (const f of [t.flag, t.start, t.end, t.year].filter(Boolean)) {
-    if (!re(own, new RegExp(`\\b${f}\\s*:`))) missing.push(`${t.label}.${f}@${t.where}`);
-    else if (re(other, new RegExp(`\\b${f}\\s*:`))) wrongLayer.push(`${t.label}.${f}`);
+    if (!own.has(f)) missing.push(`${t.label}.${f}@${t.where}`);
+    else if (other.has(f)) wrongLayer.push(`${t.label}.${f}`);
   }
 }
 ok("档位字段名全部存在于所指的那一层", missing.length === 0, missing.join(", ") || `${tiers.length} 档字段全中`);
-ok("档位没有挂错层（star/ystar 只属于顶层，不属 identity）", wrongLayer.length === 0, wrongLayer.join(", "));
+ok("档位没有挂错层（huge_vip 只属于 identity，svip 只属于顶层）", wrongLayer.length === 0, wrongLayer.join(", "));
 ok("星级会员两档确实挂在顶层（防后人「顺手」挪进 identity）",
   tiers.filter((t) => t.flag === "star" || t.flag === "ystar").every((t) => t.where === "root"));
 
@@ -112,7 +131,7 @@ eq("只有日期的到期串收到当天 23:59:59（否则到期日零点就喊�
 
 // 换时区必须得到同一个瞬时 —— 这是「按 +08:00 解析」的意义所在（本地时区解析会整体偏一天）
 const probe = (tz) => {
-  const code = `const m = await import(${JSON.stringify(pathToFileURL(join(root, "src/lib/vip.ts")).href)});` +
+  const code = `const m = await import(${JSON.stringify(vipUrl)});` +
     `const ms = m.parseVipTime("2026-09-25 18:40:17");` +
     `console.log(JSON.stringify([ms, m.fmtVipWall(ms), m.parseVipTime("2026-09-26")]));`;
   return JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", code], { env: { ...process.env, TZ: tz }, encoding: "utf8" }).trim());
@@ -123,8 +142,7 @@ eq("墙钟展示不随时区漂（上游那串是什么就显示什么）", [inU
 
 // ============ 3. 展示口径 ============
 section("展示口径（到期/过期/只读不买）");
-// 真实抓包（2026-09-19 本机 sidecar :3200 /user/vip，压缩后原样保存）
-const FIXTURE = JSON.parse(`{"auto_down":0,"can_renew":1,"max_dir_num":2000,"max_song_num":1000000,"song_limit_msg":"","svip":1,"star":0,"star_start":"","star_end":"","ystar":0,"ystar_start":"","ystar_end":"","identity":{"vip":1,"huge_vip":1,"huge_vip_start":"2026-07-25 18:40:17","huge_vip_end":"2026-09-25 18:40:17","year_flag":0,"huge_year_flag":0,"twelve":0,"twelve_start":"","twelve_end":"","child_vip":0,"exp_vip":0,"group_vip_flag":0,"group_vip_start":"","group_vip_end":"","cp_lover_flag":0,"cp_lover_start":"","cp_lover_end":"","ad_vip_flag":0,"eight":1,"eight_start":"2026-05-25","eight_end":"2026-09-26","level":6,"next_level":7,"icon":"http://y.gtimg.cn/mediastyle/global/vip_icon/lv_6.png","purchase_url":"http://y.qq.com/m/client/mall/myvip.html?"},"userinfo":{"buy_url":"https://y.qq.com/n2/m/myservice/index.html?_scrollhide=1&_hidehd=1&entry=1&tab1=svip&tab2=eight","my_vip_url":"https://y.qq.com/n2/m/myservice/index.html?_scrollhide=1&_hidehd=1&entry=1","score":20426,"expire":0,"music_level":10}}`);
+// 输入 = 顶部那份抓包 FIXTURE（2026-09-19 本机 sidecar :3200 /user/vip）
 const NOW = Date.parse("2026-09-19T13:56:11+08:00");
 const ov = vip.vipOverview(FIXTURE, NOW);
 ok("只列身份徽章那一套：超级会员 + 豪华绿钻（绿钻被 hideIf 顶掉）",
@@ -184,7 +202,8 @@ const fnBody = (name) => {
 };
 const uv = fnBody("userView");
 const ex = fnBody("exitMe");
-ok("userView 把 /user/vip 的结果交给了会员卡", uv.includes('api<any>("/user/vip")') && uv.includes("vipCardHtml(vip)"));
+ok("userView 把 /user/vip 的结果交给了会员卡",
+  re(uv, /api<(?:any|unknown)>\("\/user\/vip"\)/) && uv.includes("vipCardHtml(vip)"));
 ok("退出登录：先播离场、再跳登录页（顺序不能反）",
   re(uv, /await Promise\.all\(\[exitMe\(wrap\), settleIn\(api\("\/login\/logout"/) &&
   uv.indexOf('location.href = "/login.html"') > uv.indexOf("exitMe(wrap)"));
@@ -206,7 +225,8 @@ ok("分级延迟逐级递增（头像→昵称→徽章→UID→卡片→按钮�
   [".me > *:nth-child(2)", ".me > *:nth-child(3)", ".me > *:nth-child(4)", ".me > *:nth-child(n+5)"]
     .every((s) => cssBlock(s).includes("animation-delay")));
 ok("整块动画给 .me 让位（写在选择器上，不靠权重打架）",
-  css.includes(".route.entering > *:not(.me)") && !/\.route\.entering > \* \{/.test(css));
+  // 5c6a848 起 entering 挂在 route 的子宿主上（.route > .entering），断言跟着新机制走
+  css.includes(".route > .entering > *:not(.me)") && !/\.route > \.entering > \* \{/.test(css));
 ok("头像那一拍用 scale 收束（.94→1）",
   cssBlock(".me > .avatar-big").includes("me-pop") && /@keyframes me-pop \{[\s\S]*?scale\(\.94\)/.test(css));
 ok("keyframes: 进场是 opacity + translateY 微位移",

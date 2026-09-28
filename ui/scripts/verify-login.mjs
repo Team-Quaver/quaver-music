@@ -15,7 +15,7 @@ const read = (p) => readFileSync(join(root, p), "utf8");
 const views = read("src/views.ts");
 const css = read("src/style.css");
 const contrast = read("scripts/verify-highlight-contrast.mjs");
-const appPy = readFileSync(join(root, "..", "vendor", "Typhoeus", "quaver_server", "app.py"), "utf8");
+const appGo = readFileSync(join(root, "..", "vendor", "Typhoeus-go", "server", "app.go"), "utf8");
 
 let fails = 0;
 let checks = 0;
@@ -44,11 +44,11 @@ ok("DOM: 三个标签都是 button.tag + role=tab + aria-selected + data-ch",
   (view.match(/<button class="tag[^"]*" type="button" role="tab" aria-selected="(?:true|false)" data-ch="[a-z]+">/g) ?? []).length === 3);
 ok("DOM: 默认选中第一个标签（.sel + aria-selected=true 都落在同一颗上）",
   /<button class="tag sel" type="button" role="tab" aria-selected="true" data-ch="(\w+)">/.test(view)
-  && has(view, "let channel = tabs[0]?.dataset.ch ?? \"mobile\";"));
+  && re(view, /let channel = \(?tabs\[0\]\?\.dataset\.ch \?\? "mobile"\)?/));
 
 // ============ 三个通道必须与 sidecar 对齐 ============
-const backend = new Set((appPy.match(/QR_TYPES = \{([^}]*)\}/)?.[1] ?? "")
-  .split(",").map((s) => s.split(":")[0].trim().replace(/["']/g, "")).filter(Boolean));
+// Go sidecar 的登录类型表 = app.go 的 qrTypeNames（写错是 422，不是静默失败）
+const backend = new Set([...appGo.matchAll(/^\t"([a-z]+)":\s+modules\.QRType/gm)].map((m) => m[1]));
 const frontend = [...view.matchAll(/data-ch="([a-z]+)"/g)].map((m) => m[1]);
 ok("通道: 前端三个 data-ch 都落在 sidecar QR_TYPES 里",
   frontend.length === 3 && frontend.every((c) => backend.has(c)),
@@ -63,8 +63,8 @@ ok("换标签: 选中态与 aria-selected 同步切换",
 ok("换标签: 重开前先清掉旧轮询（两个通道的轮询不许串台）",
   re(view, /async function start\(\) \{\s*window\.clearInterval\(timer\);/));
 ok("请求路径用当前通道（不是元素 value）",
-  re(view, /api<any>\(`\/login\/qrcode\/\$\{channel\}`\)/)
-  && re(view, /api\(`\/login\/qrcode\/\$\{channel\}\/status\?identifier=/));
+  re(view, /api(?:<[^>(]*>)?\(`\/login\/qrcode\/\$\{channel\}`\)/)
+  && re(view, /api(?:<[^>(]*>)?\(`\/login\/qrcode\/\$\{channel\}\/status\?identifier=/));
 ok("「重新生成」按钮仍在", re(view, /#refresh"\)!\.onclick = \(\) => void start\(\)/));
 ok("回归: 视图返回的 cleanup 仍然停轮询（离页不留定时器）",
   re(view, /return \(\) => \{ stopped = true; window\.clearInterval\(timer\); \};/));

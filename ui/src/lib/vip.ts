@@ -1,9 +1,8 @@
 // Quaver — 会员（VIP）展示口径：/user/vip 的原样数据 → 界面上的到期时间与档位明细
 //
-// 数据源：/user/vip → 上游 `VipLogin.VipLoginInter` / `vip_login_base`，模型见
-// vendor/QQMusicApi/qqmusic_api/models/user.py 的 UserVipInfoResponse / VipIdentity / VipUserInfo
-// （即 https://l-1124.github.io/QQMusicApi/reference/model/user/#models.user.VipIdentity）。
-// 档位字段名一律以那份模型为准 —— 字段挂在哪一层、叫什么，写错了不会报错，只会静静地少一行。
+// 数据源：/user/vip → 上游 `VipLogin.VipLoginInter` / `vip_login_base` 的原始 JSON
+// （Go 后端 vendor/Typhoeus-go 对该 CGI 原样透传，不做强类型建模）。字段挂在哪一层、
+// 叫什么，以真实响应为准 —— 写错了不会报错，只会静静地少一行。
 //
 // 两条硬口径：
 //

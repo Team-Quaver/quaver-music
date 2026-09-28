@@ -63,7 +63,8 @@ SOFTWARE.
 
 ## [L-1124/QQMusicApi](https://github.com/L-1124/QQMusicApi)
 
-This is backend by Quavler,abstracted through [quaver-typhoeus(AGPL-v3-or-later)](https://github.com/ne0w0r1d/quaver-typhoeus).
+接口语义来源：Go sidecar（vendor/Typhoeus-go，AGPL-v3-or-later）按该项目的接口口径重写，
+不再随包分发其 Python 代码，但派生关系在此致谢。
 
 The project is licensed under GPLv3-or-later.
 

@@ -2,7 +2,7 @@
 
 Vite 多页入口，运行时为 SPA 壳：`index.html` 是唯一真页面（hash 路由），
 其余 `*.html` 是深链兼容的跳转层。无框架，原生 TS + DOM。
-浏览器不直接碰 QQ 音乐接口：所有请求走同源 `/api/*`，由 `src/relay.ts` 中继到本地 sidecar（:3200，`vendor/Typhoeus/`）。
+浏览器不直接碰 QQ 音乐接口：所有请求走同源 `/api/*`，由 `src/relay.ts` 中继到本地 Go sidecar（:3200，`vendor/Typhoeus-go/`）。
 
 ```sh
 pnpm install
@@ -88,11 +88,12 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
 GNOME Keyring（Linux）、钥匙串（macOS）、凭据管理器 / DPAPI（Windows）里 —— 换机器、换用户、
 重装系统都解不开，也不会被「顺手打包一下家目录」带走。实现见 `electron/keyring.mjs`。
 
-- **归属翻转**：凭证的真相从 Python sidecar 挪到 Electron 主进程。主进程先把已存凭证塞进
+- **归属翻转**：凭证的真相从 sidecar 挪到 Electron 主进程。主进程先把已存凭证塞进
   sidecar 的 stdin（`QCRED1 {json}` 一行），sidecar 之后每次登录/刷新/登出再从 stdout 交回来；
   sidecar 侧由 `QUAVER_CREDENTIAL_MODE=external` 声明，**自己不读写任何凭证文件**。
-  **开发态也一样**（`pnpm run app` 会由主进程拉起 `vendor/Typhoeus/run.py`，优先用仓库里的
-  `.venv`，退回 `uv run`）—— 手工起 sidecar 拿不到那条管道，就只能只驻内存。
+  **开发态也一样**（`pnpm run app` 会由主进程拉起 `vendor/Typhoeus-go`：优先用已编译的
+  `typhoeus-go` 二进制，否则 `go run ./cmd/quaver-server` 现编）—— 手工起 sidecar 拿不到
+  那条管道，就只能只驻内存。
 - **`--password-store` 必须在 app ready 之前钉死**（ready 之后再 appendSwitch 是空操作），
   且 ready 之后要用 `safeStorage.getSelectedStorageBackend()` 校验：落在 `basic_text`
   （硬编码口令的假加密，而 `isEncryptionAvailable()` 照样返回 true）一律当不可用。
@@ -209,15 +210,15 @@ CI 两道断言：暂存后 `bins.mjs --check build-res/audio`；AppImage 产出
   localStorage（`quaver.session.v1`，本地会话数据不是设置，与收藏同类），下次启动**挂流但不自动播**，
   按播放键从原处继续。两条硬约束：还原完成前不写盘（闸门 `sessionReady`，否则启动瞬间的空队列
   会覆盖存档）；用户先点了歌就放弃还原（用户意图优先）。
-- **歌单写入**（加入歌单 / 从歌单删除）走 vendored submodule `vendor/QQMusicApi` 的
-  `SonglistApi.add_songs` / `del_songs` —— **别拿 `SonglistApi.delete` 干这事**：那个删的是整个歌单
-  （dirid 传错会删错单），移出一首歌只能是 `del_songs`。三条实测/文档约定：
+- **歌单写入**（加入歌单 / 从歌单删除）走 Go sidecar `POST/DELETE /songlist/{dirid}/songs`
+  （上游 `SonglistApi.add_songs` / `del_songs` 语义）—— **别拿「删除歌单」接口干这事**：那个删的是整个歌单
+  （dirid 传错会删错单），移出一首歌只能是 del_songs。三条实测/文档约定：
   ①写接口要 **dirid**、读详情要 **disstid**（歌单详情里 `info.dirid` 与 `info.id` 各取所需）；
   ②`song_type` 必须发**写侧**枚举（读侧 type - 1，见 `api.ts:writeSongType`），发原值时上游回 retCode=0
-  却什么都不发生；③`add_songs`/`del_songs` 返回的 True 很宽容（歌已存在、歌本就不在都算 True），
+  却什么都不发生；③add/del 返回的 True 很宽容（歌已存在、歌本就不在都算 True），
   只有异常码 **80092** 压成 False = 确凿失败 → `lib/playlists.ts:assertAccepted` 必须把它抛出来，
   否则「其实没写进去」会静默显示成「已加入」。
-  后端 = `quaver_server/app.py` 的 `POST/DELETE /songlist/{dirid}/songs`（body: song_id/song_type/tid）。
+  后端 = `vendor/Typhoeus-go/server/handlers_content.go` 的 `POST/DELETE /songlist/{dirid}/songs`（body: song_id/song_type/tid）。
 - 播放条悬浮：`.player` 绝对定位悬浮窗底（高 64 + 底距 10）；`.body` 底部 padding 84px
   把侧栏/内容卡整体收缩到条上方（条不再遮挡任何容器，列表尾行滚到卡片底部即完整可见）。
   进度 = 整个 Bar 可拖拽（pointerdown 于任意非控件处起拖，拖中预览线/圆点/时间跟手，
@@ -233,7 +234,7 @@ CI 两道断言：暂存后 `bins.mjs --check build-res/audio`；AppImage 产出
 - **每日30首 = 系统虚拟歌单（dirid 202）**：与「我喜欢」（201）同一族的系统目录 —— 服务端**每天重生成**
   30 首个性化歌单，disstid 每天都变（`created-songlists` 里也不列它，首页 feed 的卡片虽带 id/dirid，
   但按 dirid 取才稳）。读法与普通歌单详情一致（`CgiGetDiss` 传 disstid = dirid = 202），
-  后端 = `quaver_server/app.py` 的 `GET /recommend/daily`（`DAILY_DIRID = 202`），返回结构与
+  后端 = `vendor/Typhoeus-go/server/handlers_discovery.go` 的 `GET /recommend/daily`（`dailyDirid = 202`），返回结构与
   `/songlist/{id}/detail` 相同。前端 `dailyView` 一把 `num=100` 拿全 30 首，说明文案直接用服务端那句
   编辑语（`info.desc`）。**这页以前是假的**（拿「我喜欢」按日期种子随机凑 30 首），别再改回去。
 - **猜你喜欢（`/recommend/guess`）想多拿只能「多调几轮」**：上游 `get_radio_track` **一次只给 5 首** ——

@@ -65,7 +65,7 @@ z：修补版本号
 
 - [x] 代号为 `Typhoeus` 的统一后端（集合现在的 Quaver SAL，抽象部分 API 能力 + 自实现播放后端，使用 AGPLv3 协议开源，在考虑因此学习 Zig 还是重新开始 Rust 还是复习 C++ ）
 - [x] MPRIS 支持（使用 `Typhoeus` 后端实现）
-- [x] 使用 PythonAPI 完善后端功能（使用 `Typhoeus` 后端抽象实现）
+- [x] 使用 Go 重写后端 sidecar（`vendor/Typhoeus-go`：QQMusicApi 接口口径 + `Typhoeus` 档位协商/流中继语义，替代 Python 实现）
 - [x] 清理 Bugs
 
 并在未来的 FEP 版本中，加入呼声较高的功能，或未完成实现的功能。

@@ -1,5 +1,5 @@
 // Quaver — 同源 API 中继（dev/preview 中间件）
-// 浏览器 -> /api/* -> Python sidecar :3200（FastAPI, vendor/Typhoeus/quaver_server）。
+// 浏览器 -> /api/* -> Go sidecar :3200（vendor/Typhoeus-go，与旧 Python sidecar 同一套 HTTP API）。
 // 会话凭证（Credential）由 Electron 主进程加密保存在系统密钥管理器里（KWallet / 钥匙串 /
 // 凭据管理器，磁盘上只有密文 credential.enc），token 完全不进浏览器侧 ——
 // 所以这里只剩纯透传 + 封面代理。

@@ -26,8 +26,9 @@ const read = (p) => readFileSync(join(ROOT, p), "utf8");
 const mainSrc = read("electron/main.mjs");
 const keyringSrc = read("electron/keyring.mjs");
 const configSrc = read("electron/config.mjs");
-const sessionPy = readFileSync(join(ROOT, "..", "vendor", "Typhoeus", "quaver_server", "session.py"), "utf8");
-const appPy = readFileSync(join(ROOT, "..", "vendor", "Typhoeus", "quaver_server", "app.py"), "utf8");
+// sidecar 侧契约的真相在 Go 实现（vendor/Typhoeus-go）：session.go = 交接协议，app.go = /login/status
+const sessionGo = readFileSync(join(ROOT, "..", "vendor", "Typhoeus-go", "server", "session.go"), "utf8");
+const loginStatusGo = readFileSync(join(ROOT, "..", "vendor", "Typhoeus-go", "server", "app.go"), "utf8");
 const pkg = JSON.parse(read("package.json"));
 
 // —— 假 safeStorage：真加解密的形状，足够跑通归档逻辑（不依赖 Electron）——
@@ -220,32 +221,31 @@ check("日志摘要不露凭证内容（一个字符都不许）",
   !summary.includes(CRED.musickey) && !summary.includes(CRED.refresh_token) && !summary.includes(CRED.musickey.slice(-4)));
 check("…但要有可记账的信息（musicid + 长度）", summary.includes("8237199") && summary.includes("W_X_verysecretkey".length + "字符"), summary);
 
-// ——— 六、两侧契约（源码级）———
+// —— 六、两侧契约（源码级，sidecar = Go 实现 vendor/Typhoeus-go）———
 section("两侧契约（源码级断言）");
-const pyPrefix = sessionPy.match(/^HANDOFF_PREFIX = "([^"]*)"/m)?.[1];
-check("前缀在 Python / JS 两侧逐字一致（含末尾空格）", pyPrefix === HANDOFF_PREFIX, `py=${JSON.stringify(pyPrefix)} js=${JSON.stringify(HANDOFF_PREFIX)}`);
-check("Python 侧只在 QUAVER_CREDENTIAL_MODE=external 时接管",
-  /EXTERNAL_CREDENTIALS = os\.environ\.get\("QUAVER_CREDENTIAL_MODE", ""\)\.strip\(\)\.lower\(\) == "external"/.test(sessionPy));
-check("Python 侧 credential_mode 只有 external / memory 两档",
-  sessionPy.includes('return "external" if EXTERNAL_CREDENTIALS else "memory"'));
-check("Python 侧采用「先判前缀」再解析（不匹配的行当未登录）", sessionPy.includes("if not body.startswith(HANDOFF_PREFIX):"));
-check("Python 侧发出前 flush（走管道是块缓冲，不 flush 会睡在缓冲区里）", /sys\.stdout\.flush\(\)/.test(sessionPy));
-check("Python 侧 external 下 save_credential 直接交接、不落盘",
-  /def save_credential[\s\S]{0,220}?if EXTERNAL_CREDENTIALS:\s*\n\s*_emit_credential\(credential\)/.test(sessionPy));
-check("Python 侧 external 下 clear_credential 发 null 而不是删文件",
-  /def clear_credential[\s\S]{0,200}?if EXTERNAL_CREDENTIALS:\s*\n\s*_emit_credential\(None\)/.test(sessionPy));
-check("**Python 侧不存在写明文的代码**（mkstemp / os.replace 都不该有）",
-  !sessionPy.includes("mkstemp") && !sessionPy.includes("os.replace"));
-check("**Python 侧不存在读明文的代码**（老口径已拆）",
-  !sessionPy.includes("_load_credential_from_disk") && !sessionPy.includes("CREDENTIAL_PATH.read_text"));
+const goPrefix = sessionGo.match(/^const HandoffPrefix = "([^"]*)"/m)?.[1];
+check("前缀在 Go / JS 两侧逐字一致（含末尾空格）", goPrefix === HANDOFF_PREFIX, `go=${JSON.stringify(goPrefix)} js=${JSON.stringify(HANDOFF_PREFIX)}`);
+check("Go 侧只在 QUAVER_CREDENTIAL_MODE=external 时接管",
+  /strings\.TrimSpace\(os\.Getenv\("QUAVER_CREDENTIAL_MODE"\)\) == "external"/.test(sessionGo));
+check("Go 侧 credential_mode 只有 external / memory 两档",
+  sessionGo.includes('ModeExternal CredentialMode = "external"') && sessionGo.includes('ModeMemory   CredentialMode = "memory"'));
+check("Go 侧采用「先判前缀」再解析（不匹配的行当未登录）",
+  sessionGo.includes("strings.HasPrefix(body, HandoffPrefix)"));
+check("Go 侧发出前 Flush（走管道是块缓冲，不 Flush 会睡在缓冲区里）", /s\.out\.Flush\(\)/.test(sessionGo));
+check("Go 侧 external 下 Adopt 直接交接、不落盘",
+  /if s\.mode == ModeExternal \{\s*\n\s*s\.emitCredential\(cred\)/.test(sessionGo));
+check("Go 侧 external 下 Logout 发 null 而不是删文件",
+  /if s\.mode == ModeExternal \{\s*\n\s*s\.emitCredential\(nil\)/.test(sessionGo));
+check("**Go 侧不存在写明文的代码**（os.Create / os.WriteFile 都不该有）",
+  !sessionGo.includes("os.Create") && !sessionGo.includes("os.WriteFile"));
 check("凭证模式默认 memory（手工单跑不落盘，且有明确日志）",
-  /credential_mode\(\)\s*\n?\s*\{?\s*\n?\s*"""[\s\S]{0,200}?memory/.test(sessionPy) || sessionPy.includes('"""当前凭证模式：external=交给主进程'));
-check("启动凭证只经 _initial_credential 取（external 才读 stdin）",
-  /if EXTERNAL_CREDENTIALS:\s*\n\s*return _read_injected_credential\(\)/.test(sessionPy));
-const stdinCallSites = sessionPy.split("\n").filter((l) => /_read_injected_credential\(\)/.test(l) && !/^\s*def /.test(l));
+  sessionGo.includes("ModeMemory") && sessionGo.includes("登录只在内存里"));
+check("启动凭证只经 readInjectedCredential 取（external 才读 stdin）",
+  /if mode == ModeExternal \{\s*\n\s*s\.readInjectedCredential\(\)/.test(sessionGo));
+const stdinCallSites = sessionGo.split("\n").filter((l) => /readInjectedCredential\(\)/.test(l) && !l.includes("func "));
 check("阻塞读 stdin 只有那一处调用点（终端手跑不会卡在输入上）", stdinCallSites.length === 1, stdinCallSites.join(" | "));
 check("sidecar 的 /login/status 报出 credential_mode（便于 curl 确认）",
-  appPy.includes('"credential_mode": credential_mode()') && appPy.includes("credential_mode,"));
+  /"credential_mode": string\(a\.session\.Mode\(\)\)/.test(loginStatusGo));
 
 // —— keyring.mjs：明文写出路径必须为零 ——
 section("「明文绝不落盘」的源码级护栏");
@@ -284,9 +284,10 @@ check("开发态由主进程自拉 sidecar（否则凭证拿不到交接管道 �
   /} else \{[\s\S]{0,400}?sidecar = spawnSidecar\(\);/.test(mainSrc));
 check("开发态 spawn 早于 vite preview（relay.ts 在模块加载时读 QUAVER_API）",
   mainSrc.indexOf("sidecar = spawnSidecar()", mainSrc.indexOf("} else {")) < mainSrc.lastIndexOf("await import(\"vite\")"));
-check("开发态优先用仓库里的 venv，退回 uv run",
-  mainSrc.includes('join(dir, ".venv", "bin", "python")') && mainSrc.includes('args: ["run", "run.py"]'));
-check("Windows 上找 venv 的 python.exe（别拼成 POSIX 路径）", mainSrc.includes('".venv", "Scripts", "python.exe"'));
+check("开发态优先用已编译的 Go 二进制，退回 go run 现编",
+  mainSrc.includes('join(dir, process.platform === "win32" ? "typhoeus-go.exe" : "typhoeus-go")')
+  && mainSrc.includes('"go", args: ["run", "./cmd/quaver-server"]'));
+check("开发态 sidecar 指向 Go 实现（vendor/Typhoeus-go）", mainSrc.includes('"vendor", "Typhoeus-go"'));
 check("环境已给 QUAVER_API（手工 sidecar / 联调）时不抢，并说明凭证只驻内存",
   /QUAVER_API 已由环境给出，本进程不自拉 sidecar（凭证不落盘，只驻内存）/.test(mainSrc));
 check("随机端口不含 3200（那是手工 sidecar 的默认端口，开发态很容易正被占用）",

@@ -268,23 +268,23 @@ function applySidecarCredential(cred) {
 }
 
 /**
- * 开发态 sidecar 的启动方式：优先仓库里已 sync 的 venv（快、不联网），没有就退回 uv run。
+ * 开发态 sidecar 的启动方式（Go 后端 vendor/Typhoeus-go）：优先仓库里已编译的二进制
+ * （go build -o typhoeus-go ./cmd/quaver-server，快、不依赖 PATH），没有就 go run 现编。
  * 为什么开发态也要主进程来拉：凭证只走 stdin/stdout 交接，而手工起的 sidecar 拿不到那条管道
  * —— 它只能去读写明文 credential.json，而明文已经不允许存在了。
  */
 function devSidecarCommand() {
-  const dir = resolve(UI_ROOT, "..", "vendor", "Typhoeus");
-  if (!existsSync(join(dir, "run.py"))) return null;
-  const venvPython = process.platform === "win32"
-    ? join(dir, ".venv", "Scripts", "python.exe")
-    : join(dir, ".venv", "bin", "python");
-  if (existsSync(venvPython)) return { cmd: venvPython, args: ["run.py"], cwd: dir, label: venvPython };
-  return { cmd: "uv", args: ["run", "run.py"], cwd: dir, label: "uv run run.py" };
+  const dir = resolve(UI_ROOT, "..", "vendor", "Typhoeus-go");
+  if (!existsSync(join(dir, "go.mod"))) return null;
+  const bin = join(dir, process.platform === "win32" ? "typhoeus-go.exe" : "typhoeus-go");
+  if (existsSync(bin)) return { cmd: bin, args: [], cwd: dir, label: bin };
+  // go run 会把自身 stdio 转发给编译产物 —— 凭证交接管道（QCRED1）不受影响
+  return { cmd: "go", args: ["run", "./cmd/quaver-server"], cwd: dir, label: "go run ./cmd/quaver-server (vendor/Typhoeus-go)" };
 }
 
 function sidecarCommand() {
   if (app.isPackaged) {
-    // electron-builder 把 PyInstaller 产物放在 <resources>/bin/（Windows 上是 .exe）
+    // electron-builder 把 Go sidecar 产物放在 <resources>/bin/（Windows 上是 .exe）
     const bin = join(process.resourcesPath ?? "", "bin", process.platform === "win32" ? "quaver-server.exe" : "quaver-server");
     return existsSync(bin) ? { cmd: bin, args: [], cwd: undefined, label: bin } : null;
   }
@@ -301,7 +301,7 @@ function spawnSidecar() {
   const command = sidecarCommand();
   if (!command) {
     if (app.isPackaged) log("[quaver] sidecar binary missing, /api 将回退到环境里的 QUAVER_API");
-    else log("[quaver] 未找到 vendor/Typhoeus/run.py，开发态 sidecar 需自行提供（QUAVER_API）");
+    else log("[quaver] 未找到 vendor/Typhoeus-go（缺 go.mod），开发态 sidecar 需自行提供（QUAVER_API）");
     return null;
   }
   // 随机端口：从 3201 起 —— 3200 是「手工跑 sidecar」的默认端口，开发态很可能正被占着

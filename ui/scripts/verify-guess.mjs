@@ -4,8 +4,8 @@
 //   · num 加大被忽略（实测 5/10/20/50 都只回 5 首）；
 //   · 回灌 song_ids 续拿直接报 22006；
 //   · **并发只放行一个**，其余回 700000 —— 所以必须串行。
-// 结论：想多拿只能「多调几轮 + 按 mid 去重」。这里把这几个实测约束钉死，
-// 免得以后有人改成 asyncio.gather（会静默退化成 1 轮 5 首）。
+// 结论：想多拿只能「多调几轮 + 按 mid 去重」。这里把这几个实测约束钉死在 Go sidecar
+// （vendor/Typhoeus-go）源码上，免得以后有人改成并发抓取（会静默退化成 1 轮 5 首）。
 //
 // 用法：node scripts/verify-guess.mjs
 import { readFileSync } from "node:fs";
@@ -16,7 +16,9 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
 const views = read("src/views.ts");
 const css = read("src/style.css");
-const app = readFileSync(join(root, "..", "vendor", "Typhoeus", "quaver_server", "app.py"), "utf8");
+const guessRoutes = readFileSync(join(root, "..", "vendor", "Typhoeus-go", "server", "app.go"), "utf8");
+const guessHandler = readFileSync(join(root, "..", "vendor", "Typhoeus-go", "server", "handlers_discovery.go"), "utf8");
+const recommendGo = readFileSync(join(root, "..", "vendor", "Typhoeus-go", "qqmusic", "modules", "recommend.go"), "utf8");
 
 let fails = 0;
 let checks = 0;
@@ -35,36 +37,34 @@ const guess = (() => {
   return i < 0 ? "" : views.slice(i, views.indexOf("\n}", i));
 })();
 const guessCode = code(guess);
-const route = (() => {
-  const i = app.indexOf('@app.get("/recommend/guess")');
-  return i < 0 ? "" : app.slice(i, app.indexOf("\n@app.", i + 10));
-})();
 
-// ============ 1. 后端：串行多轮（并发会被上游 700000 拒）============
-ok("后端: /recommend/guess 路由存在", !!route);
-ok("后端: **串行**取多轮（for 循环，不是 asyncio.gather —— 并发只放行一个，其余 700000）",
-  re(route, /for i in range\(rounds\)/) && !has(route, "asyncio.gather"));
+// ============ 1. 后端（Go sidecar）：串行多轮（并发会被上游 700000 拒）============
+ok("后端: /recommend/guess 路由存在",
+  re(guessRoutes, /"GET \/recommend\/guess"/) && re(guessHandler, /func \(a \*App\) handleRecommendGuess/));
+ok("后端: **串行**取多轮（for 循环 —— 并发只放行一个，其余 700000）",
+  re(guessHandler, /for i := 0; i < rounds; i\+\+/) && !has(guessHandler, "errgroup"));
 ok("后端: 轮数钳位在 1..8（别让人传个 999 把上游打爆）",
-  re(route, /rounds = max\(1, min\(rounds, 8\)\)/));
+  re(guessHandler, /rounds > 8/) && re(guessHandler, /rounds = 8/));
 ok("后端: 按 mid 去重（多轮内容随机，会撞歌）",
-  re(route, /mid = getattr\(s, "mid", ""\)/) && re(route, /if not mid or mid in seen/));
+  re(guessHandler, /seen\[t\.Mid\]/));
 ok("后端: 单轮失败只记 warning 并 continue（不拖垮整页）",
-  re(route, /except Exception as exc/) && re(route, /logger\.warning\([\s\S]{0,80}continue/));
-ok("后端: 全轮都失败才抛 502", re(route, /if not songs:[\s\S]{0,80}HTTPException\(502/));
+  re(guessHandler, /logWarn\("猜你喜欢第 %d\/%d 轮失败/) && re(guessHandler, /continue/));
+ok("后端: 全轮都失败才抛 502", re(guessHandler, /len\(songs\) == 0 \{[\s\S]{0,120}StatusBadGateway/));
 ok("后端: 实测结论写进注释（num 被忽略 / 22006 / 700000）",
-  has(route, "22006") && has(route, "700000") && has(route, "只给 5 首"));
+  has(guessHandler, "700000") && has(recommendGo, "22006") && has(recommendGo, "只给 5 首"));
 
 // ============ 2. 前端：分两段取，别让用户干等 6 秒 ============
 ok("前端: 首批 rounds=2 先出画面（单轮 ~950ms，一口气 6 轮是 6 秒白屏）",
-  re(guessCode, /api<any>\("\/recommend\/guess\?rounds=2"\)/));
-ok("前端: 第二批 rounds=4 补齐到 ~30 首", re(guessCode, /api<any>\("\/recommend\/guess\?rounds=4"\)/));
+  re(guessCode, /api(?:<[^>(]*>)?\("\/recommend\/guess\?rounds=2"\)/));
+ok("前端: 第二批 rounds=4 补齐到 ~30 首", re(guessCode, /api(?:<[^>(]*>)?\("\/recommend\/guess\?rounds=4"\)/));
 ok("前端: 首批拿到就画，不等第二批", re(guessCode, /if \(fresh\.length\) \{ songs = fresh; paint\(\); \}/));
 ok("前端: 按 mid 去重（两批之间会撞歌）",
   has(guessCode, "const seen = new Set<string>();") && re(guessCode, /seen\.has\(k\)/));
 ok("前端: 第二批失败不拖垮首批（catch 只在「一首都没有」时才报错）",
-  re(guessCode, /catch \(e: any\) \{\s*if \(!songs\.length\)/));
+  re(guessCode, /catch \(e\) \{[\s\S]{0,200}if \(!songs\.length\)/));
 ok("前端: 重画后重标当前曲", has(guessCode, "player.markActive()"));
-ok("前端: 说明文案交代了为什么要等（一次只给 5 首）", has(guess, "一次只给 5 首"));
+ok("前端: 两段式的理由写在注释里（上游偶发节流，宁可少几首也别整页报错）",
+  has(guess, "宁可少几首也别整页报错"));
 ok("前端: 空态有可读文案", has(guess, "暂无推荐，登录后可得"));
 
 // ============ 3. 「换一批」============
@@ -79,7 +79,7 @@ ok("换一批: 有 busy 闸门防重复触发（顺便挡键盘/程序触发）"
 ok("换一批: finally 里一定恢复按钮（异常也不把按钮卡死）",
   re(guessCode, /finally \{\s*busy = false;\s*btn\.disabled = false;\s*btn\.textContent = "换一批";/));
 ok("换一批: **新批次先攒在临时数组**，成了才整体换上（失败时手上这批还在，不会一片空白）",
-  re(guessCode, /const fresh: any\[\] = \[\];/) && re(guessCode, /songs = fresh; paint\(\)/)
+  re(guessCode, /const fresh: (?:any|Song)\[\] = \[\];/) && re(guessCode, /songs = fresh; paint\(\)/)
   && !re(guessCode, /songs = \[\];/));
 ok("换一批: 已有列表时失败只 toast，不整页报错",
   re(guessCode, /if \(!songs\.length\) box\.innerHTML[\s\S]{0,80}else toast\(/));

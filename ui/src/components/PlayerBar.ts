@@ -134,6 +134,8 @@ export function PlayerBar(): HTMLElement {
   async function initQuality() {
     try {
       const t = await getStreamTiers();
+      // 档位表以后端为准（dts/atmosdb/vinyl 已在后端裁撤：dtsx tag ffmpeg 不识别、
+      // AC-4 播放端无解码器、黑胶从未放行——见 typhoeus/quality.go 裁撤注释）
       tierList = t.all_tiers;
     } catch {
       tierList = Object.entries(QUALITIES).map(([id, label]) => ({ id, label }));

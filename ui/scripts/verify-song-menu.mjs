@@ -24,7 +24,8 @@ const src = {
   np: read("src/components/NowPlaying.ts"),
   mpris: read("src/mpris.ts"),
   css: read("src/style.css"),
-  app: readFileSync(join(root, "..", "vendor", "Typhoeus", "quaver_server", "app.py"), "utf8"),
+  app: readFileSync(join(root, "..", "vendor", "Typhoeus-go", "server", "handlers_content.go"), "utf8"),
+  appRoutes: readFileSync(join(root, "..", "vendor", "Typhoeus-go", "server", "app.go"), "utf8"),
 };
 
 let fails = 0;
@@ -133,11 +134,14 @@ ok("playlists: ok=false 必须抛错（80092 不当成功）",
   has(src.playlists, "function assertAccepted")
   && /assertAccepted\(r, "加入歌单"\)/.test(src.playlists)
   && /assertAccepted\(r, "从歌单删除"\)/.test(src.playlists));
-ok("app.py: POST /songlist/{dirid}/songs -> add_songs",
-  re(src.app, /@app\.post\("\/songlist\/\{dirid\}\/songs"\)[\s\S]{0,320}add_songs\(dirid, \[\(body\.song_id, body\.song_type\)\], tid=body\.tid\)/));
-ok("app.py: DELETE /songlist/{dirid}/songs -> del_songs",
-  re(src.app, /@app\.delete\("\/songlist\/\{dirid\}\/songs"\)[\s\S]{0,360}del_songs\(dirid, \[\(body\.song_id, body\.song_type\)\], tid=body\.tid\)/));
-ok("app.py: 写接口要求登录态", re(src.app, /songlist_add_song[\s\S]{0,300}need_login=True/));
+ok("Go sidecar: POST /songlist/{dirid}/songs -> AddSongs",
+  re(src.appRoutes, /"POST \/songlist\/\{dirid\}\/songs"/)
+  && re(src.app, /handleSonglistAddSong[\s\S]{0,400}AddSongs\(dirid, body\.Tid,\s*\[\]modules\.SongRef\{\{SongID: body\.SongID, SongType: body\.SongType\}\}\)/));
+ok("Go sidecar: DELETE /songlist/{dirid}/songs -> DelSongs",
+  re(src.appRoutes, /"DELETE \/songlist\/\{dirid\}\/songs"/)
+  && re(src.app, /handleSonglistDelSong[\s\S]{0,400}DelSongs\(dirid, body\.Tid/));
+ok("Go sidecar: 写接口要求登录态（走 needLogin 的 call2）",
+  re(src.app, /a\.call2\(\s*func\(\) \(bool, error\) \{\s*return a\.songlist\.AddSongs/));
 
 // 视图接线：歌单页提供 dirid/tid/removable，删除后计数 -1 且行淡出
 ok("views: 歌单页把 dirid/tid/removable 交给行", re(src.views, /playlist: \{\s*dirid: Number\(info\?\.dirid \?\? 0\),\s*tid: Number\(info\?\.id \?\? 0\)/) && has(src.views, "removable: own"));

@@ -3,7 +3,7 @@
 // 为什么不用 localStorage：打包态（AppImage）此前每次启动都在随机端口上起 HTTP 服务，
 // 页面 origin 每次不同 → localStorage 按 origin 隔离 → 设置每次归零。文件配置不受 origin 影响。
 //
-// 目录规则（Node 与 Python sidecar 必须严格一致，见 vendor/Typhoeus/quaver_server/session.py）：
+// 目录规则（Node 与 Go sidecar 必须严格一致，由 QUAVER_CONFIG_DIR 显式约定）：
 //   Linux    $XDG_CONFIG_HOME/quaver-music   默认 ~/.config/quaver-music
 //   Windows  %AppData%/Quaver Music          即 %USERPROFILE%\AppData\Roaming\Quaver Music
 //   macOS    ~/Library/Application Support/Quaver Music

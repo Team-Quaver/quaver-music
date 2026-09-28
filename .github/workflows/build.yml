@@ -1,20 +1,22 @@
 # Quaver — 全平台打包 CI
 #
-# 后端：vendor/Typhoeus (quaver_server FastAPI sidecar) → PyInstaller onefile 二进制
+# 后端：vendor/Typhoeus-go（Go sidecar）→ 交叉编译，一个 Linux runner 出全平台二进制
 # 前端：ui (Electron + Vite) → 平台安装包（随包对应架构的 sidecar 与音频运行时 mpv）
 #
 # 目标平台：
-#   linux    x86_64 + aarch64 → AppImage（原生 runner，PyInstaller 不能交叉编译）
-#   windows  x64 + arm64      → NSIS（sidecar 跑原生 arm runner；前端都在 x64 上交叉打包）
-#   macos    arm64 → dmg（x86 构建已裁撤：universal 合并要求包内所有 Mach-O 双架构，
-#            与 cryptography 无 intel macOS wheel、mpv 两包结构不对称一起构成死局）
+#   linux    x86_64 + aarch64 → AppImage（原生 runner 打包）
+#   windows  x64 + arm64      → NSIS（前端全在 x64 上交叉打包）
+#   macos    arm64 → dmg（x86 构建已裁撤）
+#   linux    loong64 → **仅 sidecar 二进制**（Go 官方支持，交叉编译零障碍）；
+#             客户端包仍受 Electron / mpv 上游制约，不随包
 #
-# 上游口径（别想当然）：
+# 口径：
+#   - sidecar 纯 Go（唯一依赖 gorilla/websocket，零 cgo）→ CGO_ENABLED=0 交叉编译即可，
+#     PyInstaller 时代的 wheel / QEMU / WoA 模拟问题全部消失。跨架构二进制「不报错、
+#     只跑不起来」→ 非原生档用 file 核对机器码，linux x86_64 档真跑 smoke。
 #   - mpv 官方 release 只发 Windows + macOS 二进制：Windows 用 mingw x64（自带全套 DLL）+
 #     msvc arm64（静态链接）；macOS 用 macos-15 arm 单份 zip（自包含 mpv.app）。Linux 用
 #     pkgforge AppImage（x86_64/aarch64）。
-#   - windows-11-arm 上 **sidecar 是 x64 二进制**（cryptography 无 win-arm64 wheel，
-#     原生构建不现实）→ 钉 x64 Python，靠 Windows on ARM 的 x64 模拟跑；Electron 原生 arm64。
 #
 # 触发：
 #   - push 到 main / PR：只出 artifact
@@ -43,72 +45,89 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# ────────────────────────────── 后端（sidecar） ──────────────────────────────
+# ────────────────────────────── 后端（sidecar，Go 交叉编译） ──────────────────────────────
 jobs:
-  sidecar-linux:
-    name: sidecar linux (${{ matrix.arch_label }})
-    runs-on: ${{ matrix.runs_on }}
+  # 纯 Go（唯一依赖 gorilla/websocket，零 cgo）→ 一个 ubuntu runner 交叉编译全部目标。
+  # artifact 名与二进制名沿用 PyInstaller 时代的约定（sidecar-linux-x86_64 / quaver-server /
+  # quaver-server.exe），前端 job 因此零改动。loong64 = Go 官方支持矩阵内的交叉编译目标，
+  # 只出 sidecar 二进制；客户端包（Electron/mpv 上游不发 loong64）仍不随包。
+  sidecar:
+    name: sidecar (${{ matrix.arch_label }})
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch_label: x86_64
-            runs_on: ubuntu-24.04
-          - arch_label: aarch64
-            runs_on: ubuntu-24.04-arm
+          # ── 前端消费的五档 ──
+          - arch_label: linux-x86_64
+            goos: linux
+            goarch: amd64
+            artifact: sidecar-linux-x86_64
+            bin: quaver-server-x86_64
+          - arch_label: linux-aarch64
+            goos: linux
+            goarch: arm64
+            artifact: sidecar-linux-aarch64
+            bin: quaver-server-aarch64
+          - arch_label: windows-x64
+            goos: windows
+            goarch: amd64
+            artifact: sidecar-windows-x64
+            bin: quaver-server.exe
+          - arch_label: windows-arm64
+            goos: windows
+            goarch: arm64
+            artifact: sidecar-windows-arm64
+            bin: quaver-server.exe
+          - arch_label: macos-arm64
+            goos: darwin
+            goarch: arm64
+            artifact: sidecar-macos-arm64
+            bin: quaver-server
+          # ── 龙芯：仅 sidecar 二进制 ──
+          - arch_label: linux-loong64
+            goos: linux
+            goarch: loong64
+            artifact: sidecar-linux-loong64
+            bin: quaver-server-loong64
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: false
 
-      # sidecar 在 vendor/Typhoeus（本仓 submodule）内构建，仅需 QQMusicApi（SDK）path 依赖
-      - name: Init submodules
-        run: |
-          git submodule update --init --depth 1 vendor/QQMusicApi
-          git submodule update --init --depth 1 vendor/Typhoeus
+      - name: Init submodule vendor/Typhoeus-go
+        run: git submodule update --init --depth 1 vendor/Typhoeus-go
 
-      - uses: astral-sh/setup-uv@v10.1.0
-
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-go@v6
         with:
-          python-version: "3.11"   # 与本地 uv.lock 生成环境一致（3.11/3.12 均满足 >=3.11,<3.14）
+          go-version: stable
+          cache-dependency-path: vendor/Typhoeus-go/go.sum
 
-      - name: Install deps
-        working-directory: vendor/Typhoeus
-        run: uv sync --frozen --no-dev
+      # qmc 与 unlock-music 的跨语言对拍向量 + zzc 签名对拍 —— 编译前先拦住算法回归
+      - name: Test (qmc 对拍 + 签名)
+        working-directory: vendor/Typhoeus-go
+        run: go test ./qmc/ ./qqmusic/
 
-      # rthook_ca_bundle.py：冻结进包里的 libcrypto 来自本 runner（Ubuntu），
-      # OPENSSLDIR=/usr/lib/ssl；Arch/Fedora/openSUSE 上没有这个目录，default
-      # context 会一个 CA 都加载不到（MQTT 扫码登录因此挂掉）。该钩子在运行时
-      # 回退到运行机自己的 CA 包。详见文件头部注释与下面那条 CA 回归测试。
-      - name: PyInstaller onefile
-        working-directory: vendor/Typhoeus
+      - name: Build
+        working-directory: vendor/Typhoeus-go
+        env:
+          CGO_ENABLED: "0"
         run: |
-          uv run --frozen --with pyinstaller --with pyinstaller-hooks-contrib \
-            pyinstaller --clean --noconfirm --onefile \
-              --name quaver-server \
-              --distpath dist-bin --workpath build/pyi --specpath build/pyi \
-              --hidden-import uvicorn.logging \
-              --hidden-import uvicorn.loops.auto \
-              --hidden-import uvicorn.loops.asyncio \
-              --hidden-import uvicorn.protocols.http.auto \
-              --hidden-import uvicorn.protocols.http.h11_impl \
-              --hidden-import uvicorn.protocols.websockets.auto \
-              --hidden-import uvicorn.protocols.websockets.wsproto_impl \
-              --hidden-import uvicorn.protocols.websockets.websockets_impl \
-              --hidden-import python_socks \
-              --copy-metadata qqmusic-api-python \
-              --runtime-hook "$GITHUB_WORKSPACE/scripts/rthook_ca_bundle.py" \
-              build_entry.py
+          mkdir -p ../../dist-bin
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            go build -trimpath -ldflags "-s -w" \
+            -o "../../dist-bin/${{ matrix.bin }}" ./cmd/quaver-server
 
-      - name: Smoke test binary
-        working-directory: vendor/Typhoeus
+      # linux x86_64 档在原生 runner 上真跑一遍（Go 起服务很快，5s 足够）
+      - name: Smoke test (linux x86_64 原生)
+        if: matrix.arch_label == 'linux-x86_64'
+        working-directory: vendor/Typhoeus-go
         run: |
-          mkdir -p "$HOME/.config/quaver"   # 无凭证文件也须能起（返回未登录）
-          QUAVER_PORT=3999 ./dist-bin/quaver-server > /tmp/sidecar-ci.log 2>&1 &
+          mkdir -p "$HOME/.config/quaver"
+          QUAVER_PORT=3999 ../../dist-bin/quaver-server-x86_64 > /tmp/sidecar-ci.log 2>&1 &
           SERVER_PID=$!
           status=1
-          for i in $(seq 1 30); do
+          for i in $(seq 1 15); do
             sleep 1
             if curl -fsS --max-time 3 http://127.0.0.1:3999/login/status >/dev/null 2>&1; then
               echo "sidecar OK"; status=0; break
@@ -118,205 +137,34 @@ jobs:
           [ "$status" = 0 ] || cat /tmp/sidecar-ci.log
           exit $status
 
-      # 回归：上面那条 smoke test 在 Ubuntu 上测不出 CA 问题（/usr/lib/ssl 就在那儿，
-      # 默认信任库是好的）。把 SSL_CERT_FILE / SSL_CERT_DIR 指到不存在的位置，等价于
-      # 造出「运行机没有那套默认路径」的状态 —— 也就是 Arch / Fedora / openSUSE 上
-      # 用户实际遇到的情况。此时 rthook 必须把信任库接过来。
-      - name: Smoke test CA fallback (simulate non-Debian host)
-        working-directory: vendor/Typhoeus
+      # 跨架构二进制不报错、只会跑不起来（exec 126）→ 非原生档核对机器码
+      - name: Verify target machine (cross-compiled)
+        if: matrix.arch_label != 'linux-x86_64'
         run: |
           set -euo pipefail
-          log=/tmp/sidecar-ca.log
-          SSL_CERT_FILE=/nonexistent SSL_CERT_DIR=/nonexistent QUAVER_PORT=3998 \
-            ./dist-bin/quaver-server > "$log" 2>&1 &
-          pid=$!
-          up=1
-          for i in $(seq 1 30); do
-            sleep 1
-            if curl -fsS --max-time 3 http://127.0.0.1:3998/login/status >/dev/null 2>&1; then
-              up=0; break
-            fi
-          done
-          kill $pid 2>/dev/null || true
-
-          echo "--- sidecar 输出 ---"; cat "$log"
-          [ "$up" = 0 ] || { echo "::error::没有默认信任库时 sidecar 起不来"; exit 1; }
-          grep -q "已改用" "$log" \
-            || { echo "::error::rthook 没有回退到系统 CA 包，扫码登录会在非 Debian 系上挂掉"; exit 1; }
-          if grep -q "TLS 校验将失败" "$log"; then
-            echo "::error::兜底后仍没加载到 CA"; exit 1
-          fi
-          echo "CA fallback OK"
-
-      - name: Rename for artifact
-        working-directory: vendor/Typhoeus
-        run: cp dist-bin/quaver-server dist-bin/quaver-server-$(uname -m)
+          f="dist-bin/${{ matrix.bin }}"
+          [ -s "$f" ] || { echo "::error::产物为空"; exit 1; }
+          want="${{ matrix.goos }}/${{ matrix.goarch }}"
+          case "$want" in
+            linux/arm64)   file "$f" | grep -q "ARM aarch64" ;;
+            linux/loong64) file "$f" | grep -qi "LoongArch" ;;
+            windows/amd64) file "$f" | grep -q "x86-64" ;;
+            windows/arm64) file "$f" | grep -q "ARM64" ;;
+            darwin/arm64)  file "$f" | grep -q "arm64" ;;
+            *) echo "::error::未知的交叉目标 $want"; exit 1 ;;
+          esac
+          echo "machine check OK: $want"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: sidecar-linux-${{ matrix.arch_label }}
-          path: vendor/Typhoeus/dist-bin/quaver-server-${{ matrix.arch_label }}
+          name: ${{ matrix.artifact }}
+          path: dist-bin/${{ matrix.bin }}
+          if-no-files-found: error
 
-  # Windows：PyInstaller 不能交叉编译 → 两档各自跑。
-  # 注意全 job 的 run 步骤一律 shell: bash：默认 PowerShell 不认 `\` 续行。
-  # arm64 的口径：**sidecar 是 x64 二进制**，靠 Windows on ARM 的 x64 模拟跑 ——
-  # 依赖链上的 cryptography 连上游都不发 win-arm64 wheel（PyPI 50.0.1 实测只有
-  # win_amd64），原生构建要自拖 OpenSSL+Rust 工具链，不值得；整个生态在 WoA 上
-  # 就是模拟跑 x64 的。arm64 runner 上显式钉 3.11-x86_64（uv 默认恰好也是它，
-  # 但别依赖默认值）。Electron 本体仍是原生 arm64。
-  sidecar-windows:
-    name: sidecar windows (${{ matrix.arch_label }})
-    runs-on: ${{ matrix.runs_on }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch_label: x64
-            runs_on: windows-latest
-            py_request: "3.11"
-          - arch_label: arm64
-            runs_on: windows-11-arm
-            py_request: "3.11-x86_64"
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: false
-
-      - name: Init submodules
-        shell: bash
-        run: |
-          git submodule update --init --depth 1 vendor/QQMusicApi
-          git submodule update --init --depth 1 vendor/Typhoeus
-
-      # 不用 setup-python：python-versions 的 windows-arm64 原生包版本覆盖不全，
-      # 交给 uv 按请求装（x64 解释器在 WoA 上模拟跑，产物即 x64）
-      - uses: astral-sh/setup-uv@v10.1.0
-
-      - name: Install deps
-        working-directory: vendor/Typhoeus
-        shell: bash
-        run: |
-          uv python install "${{ matrix.py_request }}"
-          uv sync --frozen --no-dev --python "${{ matrix.py_request }}"
-
-      - name: PyInstaller onefile
-        working-directory: vendor/Typhoeus
-        shell: bash
-        run: |
-          uv run --python "${{ matrix.py_request }}" --frozen \
-            --with pyinstaller --with pyinstaller-hooks-contrib \
-            pyinstaller --clean --noconfirm --onefile \
-              --name quaver-server \
-              --distpath dist-bin --workpath build/pyi --specpath build/pyi \
-              --hidden-import uvicorn.logging \
-              --hidden-import uvicorn.loops.auto \
-              --hidden-import uvicorn.loops.asyncio \
-              --hidden-import uvicorn.protocols.http.auto \
-              --hidden-import uvicorn.protocols.http.h11_impl \
-              --hidden-import uvicorn.protocols.websockets.auto \
-              --hidden-import uvicorn.protocols.websockets.wsproto_impl \
-              --hidden-import uvicorn.protocols.websockets.websockets_impl \
-              --hidden-import python_socks \
-              --copy-metadata qqmusic-api-python \
-              build_entry.py
-
-      - name: Smoke test binary
-        working-directory: vendor/Typhoeus
-        shell: bash
-        run: |
-          mkdir -p "$RUNNER_TEMP/qv-cfg"
-          QUAVER_CONFIG_DIR="$RUNNER_TEMP/qv-cfg" QUAVER_PORT=3999 ./dist-bin/quaver-server.exe > "$RUNNER_TEMP/sidecar-ci.log" 2>&1 &
-          SERVER_PID=$!
-          status=1
-          for i in $(seq 1 60); do
-            sleep 1
-            if curl -fsS --max-time 3 http://127.0.0.1:3999/login/status >/dev/null 2>&1; then
-              echo "sidecar OK"; status=0; break
-            fi
-          done
-          kill $SERVER_PID 2>/dev/null
-          [ "$status" = 0 ] || cat "$RUNNER_TEMP/sidecar-ci.log"
-          exit $status
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: sidecar-windows-${{ matrix.arch_label }}
-          path: vendor/Typhoeus/dist-bin/quaver-server.exe
-
-  # macOS：只出 arm64（x86 构建已裁撤——universal 合并要求包内所有 Mach-O 双架构，
-  # 而 cryptography 自 48 起没有 intel macOS wheel、mpv 官方包两侧结构也不对称，得不偿失）。
-  sidecar-macos:
-    name: sidecar macos (arm64)
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: false
-
-      - name: Init submodules
-        run: |
-          git submodule update --init --depth 1 vendor/QQMusicApi
-          git submodule update --init --depth 1 vendor/Typhoeus
-
-      - uses: astral-sh/setup-uv@v10.1.0
-
-      - name: Install deps
-        working-directory: vendor/Typhoeus
-        run: |
-          set -euo pipefail
-          uv python install 3.11
-          uv sync --frozen --no-dev --python 3.11   # cryptography 50.0.1 有 macosx_11_0_arm64 wheel
-          uv pip install --python .venv/bin/python pyinstaller pyinstaller-hooks-contrib
-
-      - name: PyInstaller onefile (arm64)
-        working-directory: vendor/Typhoeus
-        run: |
-          set -euo pipefail
-          # distpath 用仓库根的 dist-bin（smoke/upload 都以它为准）；
-          # PyInstaller 的相对路径是相对 working-directory 的，必须显式爬出去
-          mkdir -p ../../dist-bin
-          .venv/bin/python -m PyInstaller --clean --noconfirm --onefile \
-            --name quaver-server \
-            --distpath ../../dist-bin --workpath build/pyi --specpath build/pyi \
-            --hidden-import uvicorn.logging \
-            --hidden-import uvicorn.loops.auto \
-            --hidden-import uvicorn.loops.asyncio \
-            --hidden-import uvicorn.protocols.http.auto \
-            --hidden-import uvicorn.protocols.http.h11_impl \
-            --hidden-import uvicorn.protocols.websockets.auto \
-            --hidden-import uvicorn.protocols.websockets.wsproto_impl \
-            --hidden-import uvicorn.protocols.websockets.websockets_impl \
-            --hidden-import python_socks \
-            --copy-metadata qqmusic-api-python \
-            build_entry.py
-          lipo -info ../../dist-bin/quaver-server | grep -q arm64
-          chmod +x ../../dist-bin/quaver-server
-
-      - name: Smoke test binary
-        working-directory: vendor/Typhoeus
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/qv-cfg"
-          QUAVER_CONFIG_DIR="$RUNNER_TEMP/qv-cfg" QUAVER_PORT=3999 \
-            ../../dist-bin/quaver-server > "$RUNNER_TEMP/sidecar-ci.log" 2>&1 &
-          pid=$!
-          status=1
-          for i in $(seq 1 60); do
-            sleep 1
-            curl -fsS --max-time 3 http://127.0.0.1:3999/login/status >/dev/null 2>&1 && { echo "sidecar OK"; status=0; break; }
-          done
-          kill $pid 2>/dev/null || true
-          [ "$status" = 0 ] || { cat "$RUNNER_TEMP/sidecar-ci.log"; exit 1; }
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: sidecar-macos-arm64
-          path: dist-bin/quaver-server
-
-  # ────────────────────────────── 前端（客户端包） ──────────────────────────────
+# ────────────────────────────── 前端（客户端包） ──────────────────────────────
   frontend-linux:
     name: AppImage (${{ matrix.arch_label }})
-    needs: sidecar-linux
+    needs: sidecar
     runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
@@ -344,10 +192,10 @@ jobs:
             vendor/Typhoeus/mpris/pnpm-lock.yaml
 
       # 顺序要紧：submodule 必须先 init，再往仓库里放产物，
-      # 否则 checkout 后 vendor/Typhoeus 空目录被 sidecar 填充，submodule update
+      # 否则 checkout 后 vendor/Typhoeus 空目录被产物填充，submodule update
       # 会拒绝 clone 进非空目录（"already exists and is not an empty directory"）。
-      # MPRIS 守护进程源码也在该 submodule（mpris/），esbuild 产物供 extraResources。
-      # Typhoeus：sidecar 产物来源 + MPRIS 守护进程源码（mpris/）
+      # Typhoeus：MPRIS 守护进程源码所在（mpris/），esbuild 产物供 extraResources
+      #           （sidecar 自 Go 起改由 vendor/Typhoeus-go 交叉编译，此 submodule 只剩 mpris）
       # Sparkle：插件 SDK，ui/tsconfig.json 的 paths 把 @quaver/sparkle 指到
       #          ../vendor/Sparkle/sdk —— 不 init 的话 tsc 全量 TS2307，缺类型再连锁
       #          TS7006/TS2339，构建直接挂
@@ -438,7 +286,7 @@ jobs:
   # arm64 的 mpv 在 x64 机器上跑不了 → 随包校验靠暂存脚本里的 PE 机器码核对。
   frontend-windows:
     name: NSIS (${{ matrix.arch_label }})
-    needs: sidecar-windows
+    needs: sidecar
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -530,7 +378,7 @@ jobs:
   # macOS arm64：Electron / sidecar / 随包 mpv 全单架构，无 universal 合并。
   frontend-macos:
     name: dmg (arm64)
-    needs: sidecar-macos
+    needs: sidecar
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
