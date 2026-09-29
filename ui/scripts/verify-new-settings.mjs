@@ -94,7 +94,7 @@ await step("后端 deprioritize 协商", async () => {
       return { status: r.status, tier: j?.data?.tier, msg: j?.msg };
     };
     return {
-      withDp: await call({ mid: m.mid, media_mid: m.media, tier: "master", auto: true, deprioritize: ["atmos51"] }),
+      withDp: await call({ mid: m.mid, media_mid: m.media, tier: "master", auto: true, deprioritize: ["atmos51", "atmos71"] }),
       legacy: await call({ mid: m.mid, media_mid: m.media, tier: "flac", auto: true }), // 旧客户端不带 deprioritize
     };
   }, { mid: songs[0].mid, media: songs[0].file?.media_mid ?? songs[0].mid });

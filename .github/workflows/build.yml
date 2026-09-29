@@ -7,8 +7,10 @@
 #   linux    x86_64 + aarch64 → AppImage（原生 runner 打包）
 #   windows  x64 + arm64      → NSIS（前端全在 x64 上交叉打包）
 #   macos    arm64 → dmg（x86 构建已裁撤）
-#   linux    loong64 → **仅 sidecar 二进制**（Go 官方支持，交叉编译零障碍）；
-#             客户端包仍受 Electron / mpv 上游制约，不随包
+#   linux    loong64 → sidecar 二进制 + 客户端 tar.gz（Electron 用 loongson/electron
+#             社区构建 v34.3.4（ABI 2.0），mpv 用 Debian sid loong64 的 0.41.0 依赖闭包
+#             组装，见 ui/scripts/stage-mpv-loong64.sh；electron-builder 不支持 loong64，
+#             手工组装 tar.gz）
 #
 # 口径：
 #   - sidecar 纯 Go（唯一依赖 gorilla/websocket，零 cgo）→ CGO_ENABLED=0 交叉编译即可，
@@ -280,6 +282,134 @@ jobs:
         with:
           name: quaver-appimage-${{ matrix.arch_label }}
           path: ui/release/Quaver-*.AppImage
+          if-no-files-found: error
+
+  # 龙芯客户端：Electron 官方 / pkgforge mpv / electron-builder 三方都不支持 loong64 ——
+  #   Electron 用 loongson/electron 社区构建（v34.3.4，LoongArch64 ABI 2.0）；
+  #   mpv 用 Debian sid loong64 的 0.41.0 依赖闭包组装（与 x86 随包同版本，脚本：
+  #   ui/scripts/stage-mpv-loong64.sh）；electron-builder 无 loong64 目标 → 手工组装
+  #   tar.gz（electron dist + asar(app) + resources 等价物），布局对齐 electron-builder
+  #   的 extraResources 约定，主进程无需改动。
+  #   运行环境需 ABI 2.0（new world：Debian sid / loongnix 25 / openKylin）。
+  #   Electron 主进程代码同时要兼容 34 与 44 两代 API（44 仅用于 x64/arm64/mac 官方包）。
+  frontend-linux-loong64:
+    name: loong64 tarball
+    needs: sidecar
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: |
+            ui/pnpm-lock.yaml
+            vendor/Typhoeus/mpris/pnpm-lock.yaml
+
+      - name: Init submodules
+        run: |
+          git submodule update --init --depth 1 vendor/Typhoeus
+          git submodule update --init --depth 1 vendor/Sparkle
+
+      - name: Fetch sidecar (loong64)
+        uses: actions/download-artifact@v8
+        with:
+          name: sidecar-linux-loong64
+          path: dist-bin
+
+      - name: Build MPRIS daemon bundle
+        working-directory: vendor/Typhoeus/mpris
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      # runner 非龙芯 → 无法真跑 --version，只做 ELF 机器码核对
+      - name: Stage bundled mpv runtime (loong64, Debian 闭包)
+        working-directory: ui
+        run: ./scripts/stage-mpv-loong64.sh build-res/audio
+
+      - name: Verify staged mpv (机器码核对)
+        run: file ui/build-res/audio/mpv/shared/bin/mpv | grep -qi LoongArch
+
+      - name: Stage sidecar
+        working-directory: dist-bin
+        run: |
+          chmod +x quaver-server-loong64
+          mv quaver-server-loong64 quaver-server
+
+      - name: pnpm install
+        working-directory: ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve version
+        id: version
+        uses: ./.github/actions/resolve-version
+        with:
+          nightly: ${{ github.event_name == 'schedule' || inputs.nightly == true }}
+
+      - name: Build dist (tsc + vite)
+        working-directory: ui
+        env:
+          QUAVER_VERSION: ${{ steps.version.outputs.version }}
+        run: pnpm run build
+
+      # Electron loong64：loongson 社区构建（版本钉住；升级时连 sha256 一起换）
+      - name: Download loong64 Electron (loongson v34.3.4)
+        run: |
+          ELEC_VER=34.3.4
+          curl -fsSL --retry 3             "https://github.com/loongson/electron/releases/download/v${ELEC_VER}/electron-v${ELEC_VER}-linux-loong64.zip"             -o /tmp/electron-loong64.zip
+          echo "${ELEC_VER}" > /tmp/electron-version
+
+      # electron-builder 不支持 loong64 → 手工组装：
+      #   electron dist（可执行改名 quaver）+ resources/app.asar（electron/** dist/** package.json）
+      #   + resources/{bin,mpris,build-res,audio}（对齐 electron-builder extraResources 布局）
+      - name: Assemble loong64 tarball
+        working-directory: ui
+        env:
+          QUAVER_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          STAGE=$(mktemp -d)
+          PKGROOT="$STAGE/quaver"
+          mkdir -p "$PKGROOT"
+          unzip -q /tmp/electron-loong64.zip -d "$PKGROOT"
+          mv "$PKGROOT/electron" "$PKGROOT/quaver"
+          file "$PKGROOT/quaver" | grep -qi LoongArch
+
+          APP="$STAGE/app"
+          mkdir -p "$APP"
+          cp -r electron "$APP/electron"
+          cp -r dist "$APP/dist"
+          node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version='${QUAVER_VERSION}'; fs.writeFileSync('$APP/package.json', JSON.stringify(p,null,2))"
+          npx --yes @electron/asar pack "$APP" "$PKGROOT/resources/app.asar"
+
+          mkdir -p "$PKGROOT/resources/bin" "$PKGROOT/resources/mpris" "$PKGROOT/resources/build-res"
+          cp ../dist-bin/quaver-server "$PKGROOT/resources/bin/"
+          cp ../vendor/Typhoeus/mpris/dist/mpris-daemon.cjs "$PKGROOT/resources/mpris/"
+          cp build-res/icon.png build-res/tray.png "$PKGROOT/resources/build-res/"
+          cp -r build-res/audio "$PKGROOT/resources/audio"
+
+          # tar 包没有 AppImage 的 mount/setuid 机制：chrome-sandbox 未 setuid 时退沙箱
+          cat > "$PKGROOT/quaver.sh" <<'LAUNCH'
+          #!/usr/bin/env bash
+          DIR="$(cd "$(dirname "$0")" && pwd)"
+          [ -u "$DIR/chrome-sandbox" ] || export ELECTRON_DISABLE_SANDBOX=1
+          exec "$DIR/quaver" "$@"
+          LAUNCH
+          chmod +x "$PKGROOT/quaver.sh"
+
+          mkdir -p release
+          tar -czf "release/Quaver-${QUAVER_VERSION}-loong64.tar.gz" -C "$STAGE" quaver
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: quaver-loong64-tar
+          path: ui/release/Quaver-*-loong64.tar.gz
           if-no-files-found: error
 
   # Windows：前端全在 x64 runner 上交叉打包（electron-builder 直接支持 arm64 目标）。

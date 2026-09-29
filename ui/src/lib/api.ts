@@ -117,15 +117,19 @@ export function identityBadges(me: any, vip: any): string {
 export const QUALITIES = {
   "128": "标准音质",
   "320": "高品质 HQ",
+  "320ogg": "高品质 HQ (OGG)",
   flac: "无损 SQ",
   "640ogg": "无损 SQ (OGG)",
-  atmos2: "臻品音质",
-  atmos51: "臻品全景声",
+  atmos2: "臻品音质 2.0",
+  atmos51: "臻品全景声 5.1",
+  atmos71: "臻品全景声 7.1",
   master: "臻品母带",
 } as const;
 export type Quality = keyof typeof QUALITIES;
 
-// 默认音质存在 quaver.conf 的 [Quality] DefaultQuality（Auto｜128｜320｜flac｜640ogg｜atmos2｜atmos51｜master）
+// 默认音质存在 quaver.conf 的 [Quality] DefaultQuality（Auto｜128｜320｜320ogg｜flac｜640ogg｜atmos2｜atmos51｜atmos71｜master）
+// 表必须与后端 tierTable 全量对齐（getQuality 白名单 + 播放条菜单兜底数据源）：
+// 设置页列表是动态的（/stream/tiers all_tiers），点了一个表里没有的档，syncQ 回读会被白名单弹回「自动」。
 export function getQuality(): Quality | "auto" {
   const q = cfg("Quality.DefaultQuality", "Auto");
   return q && q !== "Auto" && q in QUALITIES ? (q as Quality) : "auto";
@@ -145,7 +149,7 @@ export const effectiveQuality = (): Quality | "auto" => sessionQuality ?? getQua
 /** 档位短标签（播放条音质胶囊用） */
 export const QUALITY_SHORT: Record<string, string> = {
   auto: "自动", "128": "标准", "320": "HQ", "320ogg": "HQ·Ogg", flac: "SQ", "640ogg": "SQ·Ogg",
-  atmos2: "臻品", atmos51: "全景", master: "母带",
+  atmos2: "臻品", atmos51: "全景", atmos71: "全景7.1", master: "母带",
 };
 
 // —— Typhoeus 播放流：resolve 协商（会员门控 403 / 加密档 451 / 回退降级 degraded）→ token 中继 ——
@@ -193,8 +197,8 @@ export async function resolveStreamUrl(song: any, quality: Quality | "auto" = ef
   const mediaId: string = song.file?.media_mid ?? song.media_mid ?? song.mid;
   let tier = quality as string;
   if (tier === "auto") tier = (await getStreamTiers()).max ?? "128";
-  // 回退排序开关（设置页）：默认不把「臻品全景声」当作优先降档落点（压到链尾兜底）
-  const deprioritize = getFallbackSort() === "no-atmos" ? ["atmos51"] : [];
+  // 回退排序开关（设置页）：默认不把「臻品全景声（5.1 / 7.1）」当作优先降档落点（压到链尾兜底）
+  const deprioritize = getFallbackSort() === "no-atmos" ? ["atmos51", "atmos71"] : [];
   try {
     const r = await postResolve({ mid: song.mid, media_mid: mediaId, tier, auto: true, deprioritize });
     return { url: "/api" + r.path, tier: r.tier, label: r.tier_label, degraded: r.degraded };

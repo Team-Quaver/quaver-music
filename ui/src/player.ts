@@ -86,6 +86,11 @@ class Player {
   private listeners = new Set<Listener>();
   private lyricSeq = 0;
   private playSeq = 0;   // startCurrent 竞态令牌：换曲即作废上一轮
+  // —— 播放失败自动回退链（流加载失败 → 逐档降级重试 → 穷尽跳下一曲）——
+  private fallbackMid = "";                  // 降级尝试记录归属的曲（换曲即重置）
+  private fallbackTried = new Set<string>(); // 该曲已失败的档位：请求档与实际档都记（auto 降级下发它档时不绕回）
+  private failStreak = 0;                    // 自动跳曲连续失败数（真出声即清零；达队列长度停止跳，防断网时无限快跳）
+  private lastAutoplay = true;               // 最近一轮 startCurrent 的 autoplay（error 分类：还原挂流失败不自动重试）
   private prefetch = new Map<string, Promise<StreamResult>>(); // mid+档 → 已协商流（单击预热，双击秒起播）
   private pendingSeek = 0; // 换音质续播：新流时长就绪后跳到旧进度
   /** 启动还原的续播点：流还没就绪时保住它，别让存档被 0 覆盖 */
@@ -151,6 +156,7 @@ class Player {
         break;
       case "playing": // playing = 真的出声了（起播/缓冲恢复）
         if (this.loading) { this.loading = false; this.error = ""; this.notify(); }
+        this.failStreak = 0; // 出声即成功：自动跳曲的连续失败计数清零
         break;
       case "canplay":
         if (this.loading && !this.transport.paused) { this.loading = false; this.notify(); }
@@ -158,13 +164,17 @@ class Player {
       case "ended":
         this.onEnded();
         break;
-      case "error":
-        // src 加载/解码失败（含 token 过期、上游断流、mpv 退出）→ 可重试错误态，避免永久转圈
+      case "error": {
+        // src 加载/解码失败（token 过期、上游断流、mpv 退出）→ 在播/正常起播态自动回退音质，
+        // 回退链穷尽（最低档仍失败）→ 直接下一曲，别把队列卡死在一首坏流上。
+        // 非自动播放轮（还原挂流失败）与用户暂停态不自动动：留错误态，点播放键重试。
         if (!this.current || !this.transport.src) return;
+        const wasLoading = this.loading; // 起播尚未成功过（区别于「用户暂停后」的流错误）
         this.loading = false;
-        this.error = e.message || "音频流加载失败，可能已过期：再次点击播放或换一首";
-        this.notify();
+        if (!this.lastAutoplay || (this.transport.paused && !wasLoading)) { this.notify(); return; }
+        this.handleStreamError(e.message ?? "音频流加载失败");
         break;
+      }
     }
   }
 
@@ -485,9 +495,12 @@ class Player {
     try { this.transport.stop(); } catch { /* noop */ }
   }
 
-  private async startCurrent(resumeTo = 0, autoplay = true) {
+  private async startCurrent(resumeTo = 0, autoplay = true, overrideTier?: string) {
     const s = this.current;
     this.interrupt();
+    // 降级尝试记录按曲归属：换到别的歌就重置（每首都有完整的一次回退机会）
+    if (s && s.mid !== this.fallbackMid) { this.fallbackMid = s.mid; this.fallbackTried.clear(); }
+    this.lastAutoplay = autoplay;
     this.lyrics = [];
     this.karaoke = [];
     this.lyricState = "idle";
@@ -498,7 +511,7 @@ class Player {
     try {
       await this.backendInit; // 首播发生在启动后端检查完成前：等检查定再挂流
       if (seq !== this.playSeq || this.current !== s) return; // 期间又切了歌：本轮作废
-      const r = await this.getStream(s); // 命中单击预取的链接 → 直接跳过取链
+      const r = await this.getStream(s, overrideTier); // 命中单击预取的链接 → 直接跳过取链；降级重试带指定档
       if (seq !== this.playSeq || this.current !== s) return;
       setLastStream({ tier: r.tier, label: r.label, degraded: r.degraded });
       await this.transport.load(r.url, { paused: !autoplay }); // web: 赋 src；engine: loadfile replace
@@ -520,11 +533,52 @@ class Player {
     } catch (e: any) {
       if (seq === this.playSeq && this.current === s) {
         this.loading = false;
-        this.error = String(e?.message ?? e);
+        const msg = String(e?.message ?? e);
+        this.error = msg;
+        // 取链失败 = 后端 auto 全链回退 + 128 兜底都没拿到流（无源/网络故障）：
+        // 前端再逐档重试是重复劳动，直接按「回退失败」跳下一曲
+        this.skipSong(msg);
       }
     }
     if (seq === this.playSeq && this.current === s) this.fetchLyric(s); // 被作废的轮次不拉歌词，防竞态覆盖
     this.notify();
+  }
+
+  // —— 播放失败自动回退：流加载/解码失败 → 沿档位链逐档降级重试（不动会话音质选择，
+  //     播放条胶囊由 setLastStream 跟随实际降到的档）；链穷尽 → 自动跳下一曲。
+  //     已败档位按曲记录：请求档与后端实际下发的档都记 —— auto 模式后端可能把请求档
+  //     降级成它档返回，只记其一会被「同一请求」绕回死循环。 ——
+
+  /** 前端降级链（与后端 tierTable rank 降序对齐，见 vendor/Typhoeus-go/typhoeus/quality.go） */
+  private static readonly FALLBACK_CHAIN = ["master", "atmos71", "atmos51", "atmos2", "flac", "640ogg", "320ogg", "320", "128"];
+
+  private handleStreamError(msg: string) {
+    const s = this.current;
+    if (!s) return;
+    if (this.fallbackMid !== s.mid) { this.fallbackMid = s.mid; this.fallbackTried.clear(); }
+    const applied = getLastStream()?.tier; // 实际在放的档（auto 降级后 ≠ 会话选择）
+    if (applied) this.fallbackTried.add(applied);
+    const nextTier = Player.FALLBACK_CHAIN.find((t) => !this.fallbackTried.has(t));
+    if (!nextTier) { this.skipSong(msg); return; } // 最低档仍失败：这首在本会话里播不动了
+    this.fallbackTried.add(nextTier); // 请求档也记：它失败（或被降级后失败）时不重发同一请求
+    this.error = "";
+    this.loading = true;
+    this.notify();
+    // 断流点续播：position ≤1（起播就失败）自然从头；换档后时长一致，pendingSeek 机制接管
+    void this.startCurrent(this.transport.position > 1 ? this.transport.position : 0, true, nextTier);
+  }
+
+  /** 回退穷尽/取链失败 → 跳下一曲。failStreak 防全队列坏流/断网时无限快跳：连续失败满队列长度即停。
+   *  不用 next(true)（单曲循环语义是原地重播，坏流会死循环），直接顺序跳。 */
+  private skipSong(reason: string) {
+    this.failStreak++;
+    if (!this.queue.length || this.failStreak >= this.queue.length) {
+      this.loading = false;
+      this.error = `播放失败（${reason}），已停止自动切歌`;
+      this.notify();
+      return;
+    }
+    this.jump((this.index + 1) % this.queue.length);
   }
 
   // —— 单击预加载：行点击即后台协商播放链接（含上游取链+嗅探这两次慢 RTT），
@@ -556,8 +610,10 @@ class Player {
     return resolveStreamUrl(song, q as any);
   }
 
-  /** getPlayUrl 语义的内部入口：预取命中用预取结果，否则现场协商 */
-  private async getStream(s: Song): Promise<StreamResult> {
+  /** getPlayUrl 语义的内部入口：预取命中用预取结果，否则现场协商；
+   *  overrideTier = 播放失败自动回退的指定档（预取按 effectiveQuality 键存，指定档时必须绕开）。 */
+  private async getStream(s: Song, overrideTier?: string): Promise<StreamResult> {
+    if (overrideTier) return this.resolveWithSources(s, overrideTier);
     const q = String(effectiveQuality());
     const hit = this.prefetch.get(q + "|" + s.mid);
     this.prefetch.clear(); // 用后即弃：链接是一次性上下文（会员/曲库状态可能变化），不跨切歌复用

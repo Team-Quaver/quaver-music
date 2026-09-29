@@ -923,12 +923,12 @@ async function settingsView(root: HTMLElement) {
       </div>
 
       <div class="set-group">
-        <div class="set-label">是否启用回退臻品全景声<span class="set-note-inline">臻品全景声可能会影响部分歌曲视听体验，故默认关闭</span></div>
+        <div class="set-label">是否启用回退臻品全景声<span class="set-note-inline">臻品全景声（5.1 / 7.1）可能会影响部分歌曲视听体验，故默认关闭</span></div>
         <div class="opt-cards" id="atmos-fallback-cards">
           <button class="opt-card" data-opt="no-atmos" type="button">关闭</button>
           <button class="opt-card" data-opt="rank" type="button">开启</button>
         </div>
-        <p class="muted set-hint">自动优先「臻品母带」，若音源无该音质则跳过「臻品全景声」；「开启」则保留全景声模式。</p>
+        <p class="muted set-hint">自动优先「臻品母带」，若音源无该音质则跳过「臻品全景声 5.1 / 7.1」；「开启」则保留全景声模式。</p>
         <p class="muted set-hint">即时生效。仅限 QQ 音乐超级会员生效。</p>
       </div>
     </section>
