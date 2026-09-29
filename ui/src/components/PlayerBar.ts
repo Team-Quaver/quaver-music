@@ -36,6 +36,7 @@ export function PlayerBar(): HTMLElement {
       <button class="pb-btn pb-ghost" id="pb-loop" aria-label="循环模式"></button>
       <button class="pb-q" id="pb-quality" title="音质（本会话生效，不保存；高档自动回退可播档）"></button>
       <button class="pb-btn pb-ghost" id="pb-love" aria-label="收藏">${icons.heart}</button>
+      <button class="pb-btn pb-ghost" id="pb-gallery" aria-label="画廊模式"></button>
       <button class="pb-btn pb-ghost" id="pb-queue" aria-label="播放队列">${icons.queue}</button>
     </div>
     <!-- 音量浮窗：静音控制 + 滑杆 + 读数 -->
@@ -52,6 +53,7 @@ export function PlayerBar(): HTMLElement {
   const cover = $("pb-cover"), title = $("pb-title"), sub = $("pb-sub");
   const time = $("pb-time"), fill = $("pb-fill");
   const play = $("pb-play"), loop = $("pb-loop"), love = $("pb-love");
+  const gallery = $("pb-gallery");
   const mute = $("pb-mute"), mute2 = $("pb-mute2");
   const pop = $("pb-volpop");
   const vol = el.querySelector<HTMLInputElement>("#pb-vol")!;
@@ -70,6 +72,15 @@ export function PlayerBar(): HTMLElement {
   loop.onclick = () => player.cycleMode();
   love.onclick = () => player.toggleLove(player.current);
   $("pb-queue").onclick = () => { player.queueOpen = !player.queueOpen; player.notifyPublic(); };
+  // 画廊模式开关（运行时态）：开 = 展开正在播放页并进全屏；再点 = 收起并还原窗口。
+  // 无歌不开页（与封面钮同口径）；收起本页的其它路径（ESC/封面钮/跳转）由 NowPlaying
+  // 的 expanded 迁移统一退全屏并清 gallery。
+  gallery.innerHTML = icons.gallery;
+  gallery.onclick = () => {
+    if (player.gallery) { player.gallery = false; player.expanded = false; }
+    else { if (!player.current) return; player.gallery = true; player.expanded = true; }
+    player.notifyPublic();
+  };
   mute.onclick = () => player.toggleMute();
   mute2.onclick = () => player.toggleMute();
 
@@ -253,6 +264,8 @@ export function PlayerBar(): HTMLElement {
     loop.setAttribute("aria-label", `循环模式：${loopName}`);
     love.innerHTML = s && player.loved.has(s.mid) ? icons.heartFill : icons.heart;
     love.classList.toggle("on", !!s && player.loved.has(s.mid));
+    // 画廊模式按钮点亮 = 正在播放页正处于全屏画廊会话
+    gallery.classList.toggle("on", player.gallery && player.expanded);
     if (!dragging) {
       const d = player.duration, t = player.time;
       const frac = player.current && d ? Math.min(1, t / d) : 0; // 无当前曲：分数归零，染色条不残留

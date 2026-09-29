@@ -693,19 +693,28 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 
 /* ===================== 正在播放 / 歌词（全屏覆盖层） ===================== */
 /* 展开/收起 = 上下滑动面板（fixed 元素不产生滚动条，translateY 到屏外即可） */
+/* 固体底色：封面背景淡入/未就绪的任何瞬间都保证本页不透明 —— 遮罩只做轻度压暗，
+   没有这层兜底，底下主页面（Content View）会透出来（切歌闪一下的另一半根源） */
 .np {
   position: fixed; inset: 0; z-index: 50; overflow: hidden;
+  background: #0b0e19;
   display: grid; place-items: center;
   opacity: 0; pointer-events: none;
   transform: translateY(100%);
   transition: transform .34s cubic-bezier(.32,.72,.24,1), opacity .3s ease;
 }
 .np.open { opacity: 1; pointer-events: auto; transform: none; }
+/* 背景双层交叉淡化（见 NowPlaying.ts applyBg）：DOM 序天然 B 在 A 上 —— B 淡入盖住
+   A 的旧图，过渡结束 A 原地换新图再让 B 退场，换曲全程无透明缝隙。禁止给两层挂
+   z-index：提到 z1 会盖住 z-auto 的 .np-scrim（kara 模式左缘渐变蒙版随之消失）。
+   .show 即「该层可见」 */
 .np-bg {
   position: absolute; inset: -80px; background-size: cover; background-position: center;
-  filter: blur(60px) saturate(1.6) brightness(1.08); opacity: var(--np-vis, 0);
+  filter: blur(60px) saturate(1.6) brightness(1.08);
   transform: scale(1.05);
+  opacity: 0; transition: opacity .45s ease;
 }
+.np-bg.show { opacity: 1; }
 /* 压暗但保留封面氛围色：底层已铺满模糊封面，这里只做轻度对比遮罩 */
 .np-scrim { position: absolute; inset: 0; background: linear-gradient(180deg, #0c0f1859, #0b0e1973 55%, #0b0e198c); }
 /* 更多选项（⋮）：右侧信息列（封面/歌名/歌手-专辑）下缘的竖三点按钮，点开向上弹出小菜单。

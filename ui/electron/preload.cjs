@@ -8,6 +8,16 @@ contextBridge.exposeInMainWorld("quaverCSD", {
   setDecor: (mode) => ipcRenderer.send("quaver:decor", mode),
   // 关闭按钮行为偏好（tray=缩放到托盘 / quit=退出程序）同步给主进程
   setCloseAction: (action) => ipcRenderer.send("quaver:close-action", action === "quit" ? "quit" : "tray"),
+  // 全屏（画廊模式）：显式目标态；状态经主进程 enter/leave-full-screen 事件回推
+  fullscreen: (on) => ipcRenderer.send("quaver:win", on ? "fullscreen" : "unfullscreen"),
+  isFullscreen: () => {
+    try { return !!ipcRenderer.sendSync("quaver:win-sync")?.fullscreen; } catch { return false; }
+  },
+  onFullscreen: (cb) => {
+    const listener = (_e, on) => { try { cb(!!on); } catch (err) { console.warn("fullscreen event failed", err); } };
+    ipcRenderer.on("quaver:fullscreen-state", listener);
+    return () => ipcRenderer.removeListener("quaver:fullscreen-state", listener);
+  },
 });
 
 // MPRIS：渲染层 ↔ mpris daemon（经主进程中转，daemon 走 stdio NDJSON）。

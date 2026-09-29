@@ -29,4 +29,6 @@ export const icons = {
   trash: svg('<path d="M4 7h16"/><path d="M9.5 7V5.2A1.2 1.2 0 0 1 10.7 4h2.6a1.2 1.2 0 0 1 1.2 1.2V7"/><path d="M6.3 7l.7 11.2A1.8 1.8 0 0 0 8.8 20h6.4a1.8 1.8 0 0 0 1.8-1.8L17.7 7"/><path d="M10 11v5.5M14 11v5.5"/>', 15, 1.7),
   // 竖三点（更多选项）：正在播放页右侧信息列的 ⋮ 按钮
   more: svg('<circle cx="12" cy="5.5" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="18.5" r="1.7" fill="currentColor" stroke="none"/>', 18),
+  // 画廊模式（播放条开关）：四角括号 = 全屏化正在播放页
+  gallery: svg('<path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3"/>', 18),
 };

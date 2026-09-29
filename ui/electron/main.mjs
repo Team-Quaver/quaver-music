@@ -457,6 +457,9 @@ async function createWindow() {
   win.on("show", () => (winShown = true));
   win.on("hide", () => (winShown = false));
   win.on("closed", () => (win = null));
+  // 全屏态广播（画廊模式据此回同步；WM 手势/快捷键进出全屏同样送达渲染层）
+  win.on("enter-full-screen", () => win?.webContents.send("quaver:fullscreen-state", true));
+  win.on("leave-full-screen", () => win?.webContents.send("quaver:fullscreen-state", false));
 }
 
 // ——— quaver.conf 读写桥 ———
@@ -603,8 +606,21 @@ ipcMain.on("quaver:close-action", (_e, action) => {  closeAction = action === "q
 ipcMain.on("quaver:win", (_e, action) => {
   if (!win) return;
   if (action === "min") win.minimize();
-  else if (action === "max") win.isMaximized() ? win.unmaximize() : win.maximize();
+  // 全屏下「最大化」钮语义 = 还原（画廊模式从全屏退出），否则按最大化 ⇄ 还原切换
+  else if (action === "max") {
+    if (win.isFullScreen()) win.setFullScreen(false);
+    else win.isMaximized() ? win.unmaximize() : win.maximize();
+  }
   else if (action === "close") win.close();
+  // 画廊模式（渲染层「正在播放页」全屏化）：显式给目标态而不是翻转 —— 渲染层据此维护
+  // 「全屏由正在播放页接管」的标志，避免与用户的 WM 手势互相打架
+  else if (action === "fullscreen") win.setFullScreen(true);
+  else if (action === "unfullscreen") win.setFullScreen(false);
+});
+
+// 渲染层同步读全屏态（sendSync：与 config-sync 同理，装载期就要拿到确定值）
+ipcMain.on("quaver:win-sync", (e) => {
+  e.returnValue = { fullscreen: !!win?.isFullScreen() };
 });
 
 // 装饰模式切换（CSD<->SSD）：frame 只能在构造时给定 → 记住几何、拆掉旧窗、重建。

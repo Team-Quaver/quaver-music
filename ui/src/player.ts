@@ -73,6 +73,9 @@ class Player {
   karaoke: SparkleKaraokeLine[] = [];
   loading = false; // 正在取链/缓冲（UI 画加载指示）
   expanded = false; // 正在播放页是否展开
+  /** 画廊模式（运行时态，不持久化）：正在播放页全屏化展示。开 = 展开本页并进全屏，
+   *  收起本页即退出（NowPlaying 在 expanded 迁移里联动全屏并清零本标志）。 */
+  gallery = false;
   queueOpen = false;
   showTrans = getShowTrans(); // 歌词翻译显示开关（quaver.conf [Style] ShowTranslation，默认开）
   /** 实际生效后端（"mpv"=原生引擎；"web"=浏览器 <audio>） */
@@ -491,6 +494,9 @@ class Player {
     this.lyrics = [];
     this.karaoke = [];
     this.lyricState = "idle";
+    // 换曲即作废在途歌词请求：fetchLyric 的序号守卫只防「更新的 fetch」，不防换曲 ——
+    // 不作废的话，上一曲慢悠悠的歌词响应会在新曲起播期间回写（快速连点下一首时显示前前一首的歌词）
+    this.lyricSeq++;
     if (!s) { this.notify(); return; }
     this.loading = true;
     this.notify();
@@ -580,11 +586,12 @@ class Player {
     try {
       const mid = encodeURIComponent(s.mid);
       let d: any = await api(`/song/${mid}/lyric?trans=1&qrc=1`);
-      if (seq !== this.lyricSeq) return;
+      // 双守卫：序号防更新的 fetch；current 防换曲（startCurrent 已作废序号，这里是兜底）
+      if (seq !== this.lyricSeq || this.current !== s) return;
       if (!String(d?.lyric ?? "").trim()) {
         // qrc=1 下无逐字内容的歌曲可能整包为空 → 退回普通歌词请求再试一次
         d = await api(`/song/${mid}/lyric?trans=1`);
-        if (seq !== this.lyricSeq) return;
+        if (seq !== this.lyricSeq || this.current !== s) return;
       }
       let raw = String(d?.lyric ?? "");
       let trans = String(d?.trans ?? "");
@@ -594,7 +601,7 @@ class Player {
         // 逐字解析失败（或无提供器）且内容不是行级 LRC（QRC XML / 纯文本 QRC / TTML
         // 都是 parseLrc 读不了的格式）→ 退回普通歌词请求，「停用逐字」时行级歌词仍有内容
         d = await api(`/song/${mid}/lyric?trans=1`);
-        if (seq !== this.lyricSeq) return;
+        if (seq !== this.lyricSeq || this.current !== s) return;
         raw = String(d?.lyric ?? "");
         trans = String(d?.trans ?? "");
         kara = provider ? provider.parse(raw, trans) : null;
