@@ -646,7 +646,7 @@ jobs:
   # ───────────────────────────── Release ─────────────────────────────
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [frontend-linux, frontend-windows, frontend-macos]
+    needs: [frontend-linux, frontend-windows, frontend-linux-loong64, frontend-macos]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -676,7 +676,7 @@ jobs:
   # 产物名里带短 commit id，所以下载下来就知道是哪个 commit 构建的。
   nightly:
     if: github.event_name == 'schedule' || inputs.nightly == true
-    needs: [frontend-linux, frontend-windows, frontend-macos]
+    needs: [frontend-linux, frontend-windows, frontend-linux-loong64, frontend-macos]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
