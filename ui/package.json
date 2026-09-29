@@ -1,11 +1,11 @@
 {
-  "name": "quaver-ui",
-  "productName": "Quaver",
+  "name": "red.0w0.quaver",
+  "productName": "Quaver Music",
   "description": "又一个第三方 QQ 音乐客户端",
   "author": "ne0w0r1d",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Ne0W0r1d/quaver-music.git"
+    "url": "git+https://github.com/team-quaver/quaver-music.git"
   },
   "private": true,
   "packageManager": "pnpm@10.33.0",
@@ -37,7 +37,7 @@
     "verify:static": "node scripts/verify-config.mjs && node scripts/verify-prefs-map.mjs && node scripts/verify-highlight-contrast.mjs && node scripts/verify-song-menu.mjs && node scripts/verify-list-tools.mjs && node scripts/verify-queue-panel-anim.mjs && node scripts/verify-queue-drag.mjs && node scripts/verify-noselect.mjs && node scripts/verify-user-vip.mjs && node scripts/verify-sidebar.mjs && node scripts/verify-systheme.mjs && node scripts/verify-login.mjs && node scripts/verify-keyring.mjs && node scripts/verify-daily.mjs && node scripts/verify-guess.mjs && node scripts/verify-sparkle.mjs",
     "mpris:build": "pnpm --dir ../vendor/Typhoeus/mpris install && pnpm --dir ../vendor/Typhoeus/mpris run build",
     "dist": "pnpm run build && pnpm run mpris:build && electron-builder --linux AppImage",
-    "verify:np-gallery": "node scripts/verify-np-gallery.mjs",
+    "verify:np-gallery": "node scripts/verify-np-gallery.mjs"
   },
   "build": {
     "appId": "red.0w0.quaver",
