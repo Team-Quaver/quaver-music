@@ -1,5 +1,9 @@
 // 「正在播放 / 歌词」全屏覆盖页：点击播放条封面展开/收起（唯一入口；播放条不放开关按钮）。
 // 无标题栏 CSD：np 铺满整窗，右上角窗口按钮簇（z-index 更高）在其上。
+// 画廊模式（player.gallery 运行时态，不持久化）：播放条按钮开 = 展开本页并进窗口全屏
+// （沉浸看歌词/封面），再点 = 收起并还原；收起本页的任何路径同样退出。全屏能力在
+// src/lib/fullscreen.ts（Electron 原生 / 浏览器 Fullscreen API），与 WM 手势互不打架靠
+// npFullscreen 标记「这轮全屏是不是本页带的」。ESC 收起本页。
 // 歌词 = 整首列表：当前句居中、清晰、白色（染色版可读性差，已弃）；其余行模糊渐隐。
 // 滚轮可自由翻阅全文（翻阅期间暂停自动跟随，播放进度追上行号后恢复跟随）。
 // 翻阅是为了读别的行：浏览期间整列去模糊提亮（.browse），回跟随态平滑雾回。
@@ -13,11 +17,13 @@
 // 右侧 = 封面在上，歌名 / 「歌手 - 专辑」在下，文本右对齐且与封面右缘齐平；
 // 信息列下缘挂 ⋮ 更多选项（同名搜索 / 跳转歌手 / 跳转专辑 / 翻译 Switch 开关 /
 // 歌词大小 −/+ 步进，仅行级歌词时出现；也可在歌词上 Ctrl+滚轮/触控板捏合直接调）。
-// 背景 = 当前封面高斯模糊放大铺满 + 深色渐变压暗；进度与控制由常驻播放条承担。
+// 背景 = 当前封面高斯模糊放大铺满（双层交叉淡化：新图解码完成后才淡入，换曲不闪主页面）
+// + 深色渐变压暗 + .np 固体底色兜底；进度与控制由常驻播放条承担。
 import { player, type Song } from "../player";
 import { coverUrl, songTitle, stripEm } from "../lib/api";
 import { icons } from "../lib/icons";
 import { getLyricScale, setLyricScale, LYRIC_SCALE_MAX, LYRIC_SCALE_MIN, LYRIC_SCALE_STEP } from "../lib/prefs";
+import { isFullscreen, setFullscreen, onFullscreenChange } from "../lib/fullscreen";
 import type { SparkleKaraokeProvider } from "@quaver/sparkle";
 import { sparkleKaraokeProvider } from "../sparkle/registry";
 
@@ -27,6 +33,7 @@ export function NowPlaying(): HTMLElement {
   el.id = "now-playing";
   el.innerHTML = `
     <div class="np-bg" id="np-bg"></div>
+    <div class="np-bg np-bg2" id="np-bg2"></div>
     <div class="np-scrim"></div>
     <div class="np-inner">
       <div class="np-lyrics" id="np-lyrics"></div>
@@ -48,7 +55,8 @@ export function NowPlaying(): HTMLElement {
   `;
 
   const $ = <T extends HTMLElement>(id: string) => el.querySelector<T>("#" + id)!;
-  const bg = $("np-bg"), lyrics = $("np-lyrics"), cover = $("np-cover");
+  const lyrics = $("np-lyrics"), cover = $("np-cover");
+  const bgA = $("np-bg"), bgB = $("np-bg2");
   const karaHost = $("np-karaoke");
 
   // 共享 marquee：容器宽 < 文本宽才启用滚动；--mx 行程在溢出量外再补偿两端渐隐遮罩 ±12px，
@@ -192,6 +200,17 @@ export function NowPlaying(): HTMLElement {
   }
   moreBtn.addEventListener("click", () => (menuOpen() ? closeMoreMenu() : openMoreMenu()));
 
+  // —— ESC 收起本页（画廊模式下顺路退出全屏，联动在 notify 的 expanded 迁移里）——
+  // 菜单开着时由它自己的捕获监听（stopPropagation）接管，走不到这里；搜索框/列表工具
+  // 输入框里的 ESC 只清输入不收页；队列拖拽的 ESC 已 preventDefault，同样不抢。
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || e.defaultPrevented) return;
+    if ((e.target as HTMLElement | null)?.closest?.("input, textarea")) return;
+    if (!player.expanded) return;
+    player.expanded = false;
+    player.notifyPublic();
+  });
+
   let lastMid = "";        // 歌词行 DOM 只在换曲/状态迁移时重建
   let lastLyricState = "";
   let lastIdx = -1;        // 高亮行索引（避免每帧改 class）
@@ -304,19 +323,91 @@ export function NowPlaying(): HTMLElement {
     lineEls = [...lyrics.querySelectorAll<HTMLElement>(".np-ly-line")];
   }
 
+  // —— 背景交叉淡化（双层 .np-bg：A 垫底 / B 淡入）——
+  // 直接换 backgroundImage 会有「旧图已清、新图未解码」的透明窗口：np 遮罩只做轻度压暗，
+  // 底下的主页面（Content View）会透出来 —— 正在播放页切歌「闪一下 Content View」的根源。
+  // 分工：A = 垫底层，恒显不透明（B 完全淡出后可见）；B = 淡入层（DOM 序在 A 之上，
+  // **不许碰 z-index** —— np-inner 是 z1、scrim 是 z-auto，背景层一旦提到 z1 就会盖住
+  // scrim 的歌词列渐变蒙版，逐字模式的可读性背光直接消失）。时序：新图经 Image() 预载，
+  // 解码完成后写到 B 淡入盖住 A 的旧图；过渡结束把 A 原地换成新图（在不透明的 B 底下换，
+  // 肉眼不可见）再让 B 退场 —— 任何时刻可见面 = 新图或旧图，从无透明缝隙。
+  // notify 是 4Hz 高频调用：同封面幂等返回，慢 onload 以 bgWant 判最新防旧图顶掉新图。
+  let bgHold = "";   // A 层内容（B 透明时用户看到的图）
+  let bgFade = "";   // B 层正在淡入的内容
+  let bgWant = "";   // 最近一次请求的封面 URL
+  let bgFailed = ""; // 加载失败过的封面 URL：notify 4Hz 会反复进来，别对着 404 封面刷请求
+  let bgSettle = 0;  // 淡入完成后的收尾定时器（A 换新图 + B 退场）
+  const settleBg = (pic: string) => {
+    bgHold = pic;
+    bgFade = "";
+    bgA.style.backgroundImage = `url("${pic}")`;
+    bgA.classList.add("show");
+    bgB.classList.remove("show");
+    bgB.style.backgroundImage = ""; // 释放 B 上的位图（A 已接管）
+  };
+  function applyBg(pic: string) {
+    bgWant = pic;
+    if (!pic) {
+      window.clearTimeout(bgSettle);
+      bgHold = bgFade = "";
+      bgA.classList.remove("show");
+      bgA.style.backgroundImage = "";
+      bgB.classList.remove("show");
+      bgB.style.backgroundImage = "";
+      return;
+    }
+    if (pic === bgHold || pic === bgFade || pic === bgFailed) return; // 已在屏 / 已在淡入 / 已知失败（不动进行中的收尾）
+    window.clearTimeout(bgSettle); // 真要换图：作废上一轮收尾，避免它把新图当旧图换掉
+    const img = new Image();
+    img.onload = () => {
+      if (bgWant !== pic) return; // 预载期间又换曲了
+      bgFade = pic;
+      bgB.style.backgroundImage = `url("${pic}")`;
+      bgB.classList.add("show"); // .45s 淡入（CSS 过渡），盖在 A 的旧图上
+      bgSettle = window.setTimeout(() => settleBg(pic), 520);
+    };
+    img.onerror = () => { if (bgWant === pic) { bgFailed = pic; applyBg(""); } }; // 封面 404：回到无背景态（固体底色兜底）
+    img.src = pic;
+  }
+
+  // —— 画廊模式（player.gallery，运行时态；开关在播放条按钮）——
+  // npFullscreen 标记「当前全屏是本页带起来的」：只有这种情况收起本页才退全屏；
+  // 用户经 WM 手势自己进的全屏（gallery 关着）不归本页管，收起时不去抢窗口态。
+  let lastExpanded = player.expanded;
+  let npFullscreen = false;
+  onFullscreenChange((on) => {
+    // 回同步：外部退出（WM/最大化钮）→ 画廊会话结束、本页不再认领；
+    // 外部进入且画廊开着且本页开着 → 视作本页接管
+    if (!on) { npFullscreen = false; player.gallery = false; }
+    else if (player.expanded && player.gallery) npFullscreen = true;
+  });
+
   player.on(() => {
     const s = player.current;
     const open = player.expanded;
+    // 画廊模式联动。放在早退之前：无歌收起也要能退出全屏。
+    //  - 展开迁移：画廊开着 → 进全屏；收起 → 画廊会话结束，本页带的全屏随之退出
+    //  - 无展开迁移但 gallery 刚被播放条置真（本页已开着）→ 立即进全屏
+    if (open !== lastExpanded) {
+      lastExpanded = open;
+      if (open && player.gallery && !isFullscreen()) { npFullscreen = true; setFullscreen(true); }
+      else if (!open) {
+        player.gallery = false;
+        if (npFullscreen) { npFullscreen = false; setFullscreen(false); }
+      }
+    } else if (player.gallery && open && !npFullscreen && !isFullscreen()) {
+      npFullscreen = true;
+      setFullscreen(true);
+    }
     el.classList.toggle("open", open);
     el.classList.toggle("no-trans", !player.showTrans);
     // 菜单开着时同步翻译开关的选中态（toggleTrans 之外的改法 — 如设置页 — 也能跟上）
     if (transSw && menuOpen()) transSw.checked = player.showTrans;
     if (!open && !s) return;
 
-    // 背景：封面模糊放大
+    // 背景：封面模糊放大（交叉淡化，见 applyBg）；侧栏封面同一张图
     const pic = s ? coverUrl(s, 300) : "";
-    bg.style.backgroundImage = pic ? `url("${pic}")` : "";
-    el.style.setProperty("--np-vis", pic ? "1" : "0");
+    applyBg(pic);
 
     // 换曲 / 歌词状态迁移 / 逐字模式切换（loading→ok/none 时行 DOM 需要重建，否则占位/歌词丢失）
     const st: "idle" | "loading" | "ok" | "none" = player.lyrics.length ? "ok" : player.lyricState;
