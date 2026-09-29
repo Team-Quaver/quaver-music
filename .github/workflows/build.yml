@@ -151,7 +151,8 @@ jobs:
             linux/arm64)   file "$f" | grep -q "ARM aarch64" ;;
             linux/loong64) file "$f" | grep -qi "LoongArch" ;;
             windows/amd64) file "$f" | grep -q "x86-64" ;;
-            windows/arm64) file "$f" | grep -q "ARM64" ;;
+            # file ≤5.45（含 CI 的 ubuntu-24.04）打 "Aarch64"，5.46 起改打 "ARM64" → 两者都收
+            windows/arm64) file "$f" | grep -qiE "aarch64|arm64" ;;
             darwin/arm64)  file "$f" | grep -q "arm64" ;;
             *) echo "::error::未知的交叉目标 $want"; exit 1 ;;
           esac
