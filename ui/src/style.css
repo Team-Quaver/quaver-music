@@ -766,35 +766,65 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 .np-menu-switch input:checked + .np-sw { background: color-mix(in srgb, var(--cvg-accent, var(--cyan)) 55%, #0b0e19); }
 .np-menu-switch input:checked + .np-sw::after { transform: translateX(13px); }
 .np-menu-switch input:focus-visible + .np-sw { outline: 2px solid #fff8; outline-offset: 1px; }
+/* 歌词大小行：标签 + −/+ 步进。挂 ⋮ 菜单里而不是浮在歌词上 —— 不遮词。
+   只在行级歌词就位时由 NowPlaying 现建（逐字/AMLL 模式有自己的排版变量，不出现）；
+   菜单每次打开重建，读数与 −/+ 禁用态天然是最新值。行比菜单其余项宽，
+   :has 在场时把菜单撑到 208px，标签 nowrap —— 别让 CJK 标签被 flex 压换行。 */
+.np-menu:has(.np-menu-size) { min-width: 208px; }
+.np-menu-size {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 5px 10px; border-radius: 8px; font-size: 13px; color: #fffb;
+}
+.np-menu-size > span { white-space: nowrap; }
+.np-menu-size:hover { background: #ffffff14; color: #fff; }
+.np-menu-size-ctl { display: flex; align-items: center; gap: 2px; flex: none; }
+.np-menu-size button {
+  width: 22px; height: 22px; border: 0; border-radius: 50%; padding: 0;
+  background: transparent; color: #fffb; cursor: pointer;
+  font-size: 14px; line-height: 1; display: grid; place-items: center;
+  transition: background .12s, color .12s;
+}
+.np-menu-size button:hover:not(:disabled) { background: #ffffff1f; color: #fff; }
+.np-menu-size button:disabled { opacity: .35; cursor: default; }
+.np-size-val { min-width: 40px; text-align: center; font-size: 11.5px; color: #fffb; font-variant-numeric: tabular-nums; }
 .np-inner {
   position: relative; z-index: 1; width: min(1060px, 92%); height: min(560px, calc(100vh - 150px));
   display: grid; grid-template-columns: 1.15fr 1fr; gap: 48px; align-items: center;
   padding-bottom: 40px; /* 给播放条让位 */
 }
 /* 歌词 = 整首列表可滚轮翻阅；当前句清晰（颜色与进度条染色同源），其余模糊渐隐。
-   文本全部左对齐（原文/翻译同左）。逐字卡拉OK动画后续叠加在 .cur 上。 */
+   文本全部左对齐（原文/翻译同左）。逐字卡拉OK动画后续叠加在 .cur 上。
+   字号档位 = --np-ly-scale（左下胶囊 −/+ 或歌词上 Ctrl+滚轮）：行内排版全走 em，
+   放大时字号与行距一起长、缩小一起缩；调的是 font-size 而非 transform ——
+   重排出来的文字在任何档位都是锐利的。基准：行 17px / 当前句 20px / 翻译 12.5px / 行距 9px。 */
 .np-lyrics {
   position: relative; height: 100%; overflow-y: auto; scrollbar-width: none;
+  font-size: calc(17px * var(--np-ly-scale, 1));
   mask-image: linear-gradient(180deg, transparent, #000 22%, #000 78%, transparent);
   scroll-behavior: smooth;
 }
 .np-lyrics::-webkit-scrollbar { display: none; }
 .np-lyrics::before, .np-lyrics::after { content: ""; display: block; height: 38%; flex: none; }
 .np-ly-line {
-  padding: 9px 4px; text-align: left; cursor: pointer;
+  padding: 0.53em 4px; text-align: left; cursor: pointer;
   transition: opacity .3s ease, filter .3s ease, transform .3s ease, color .3s ease;
-  opacity: .34; filter: blur(1.6px); color: #fff; font-size: 17px; font-weight: 500;
+  opacity: .34; filter: blur(1.6px); color: #fff; font-size: 1em; font-weight: 500;
 }
 .np-ly-line .l1 { display: block; }
-.np-ly-line .l2 { display: block; font-size: 12.5px; opacity: .8; margin-top: 2px; }
+.np-ly-line .l2 { display: block; font-size: 0.735em; opacity: .8; margin-top: 0.12em; }
 .np.no-trans .np-ly-line .l2 { display: none; }
-/* 当前句：清晰、加大、染色 = 进度条同源 --np-hl（PlayerBar 取封面主色写入 root） */
+/* 翻阅（滚轮自由浏览）期间：雾化只属于跟随态的氛围 —— 翻阅是为了读别的行，
+   整列去模糊提亮；回跟随（3s 静默/点击行）随原过渡平滑雾回。当前句本就清晰，不参与。 */
+.np-lyrics.browse .np-ly-line:not(.cur) { filter: none; opacity: .55; }
+/* 当前句：清晰、加大、染色 = 进度条同源 --np-hl（PlayerBar 取封面主色写入 root）。
+   加大落在 .l1（行内 span）上：.np-ly-line 自身字号不动，em 行距在当前句上不跳变。 */
 .np-ly-line.cur {
 /*  因为我觉得这样可读性有点差，遂改成白色  */
 /*   opacity: 1; filter: none; color: var(--np-hl, #fff); */
   opacity: 1; filter: none; color: #fff;
-  font-size: 20px; font-weight: 800; transform: scale(1.015); text-shadow: 0 2px 14px #0004;
+  font-weight: 800; transform: scale(1.015); text-shadow: 0 2px 14px #0004;
 }
+.np-ly-line.cur .l1 { font-size: 1.176em; }
 .np-ly-empty { text-align: center; color: #fff8; font-size: 14px; padding: 60px 0; }
 
 /* —— 逐字歌词（Sparkle 逐字提供器接管 .np-kara-host，官方 amll 插件 = AMLL 渲染；行级列表隐藏；
