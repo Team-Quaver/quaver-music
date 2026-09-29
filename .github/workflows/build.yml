@@ -132,11 +132,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # pnpm 10：mpris submodule（vendor/Typhoeus @ 0716108 起）的 build 脚本内嵌
+      # `pnpm run typecheck`，ui 也已提交 pnpm-lock.yaml —— 整个前端 job 统一走 pnpm，
+      # 任何一步漏装 pnpm 都会在脚本里以 `pnpm: not found`（exit 127）收场
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
+          cache: pnpm
+          cache-dependency-path: |
+            ui/pnpm-lock.yaml
+            vendor/Typhoeus/mpris/pnpm-lock.yaml
 
       # 顺序要紧：submodule 必须先 init，再往仓库里放产物，
       # 否则 checkout 后 vendor/Typhoeus 空目录被 sidecar 填充，submodule update
@@ -161,8 +170,8 @@ jobs:
       - name: Build MPRIS daemon bundle
         working-directory: vendor/Typhoeus/mpris
         run: |
-          npm install
-          npm run build
+          pnpm install --frozen-lockfile
+          pnpm run build
 
       # 随包音频运行时（mpv）：上游不发 Linux 二进制，脚本钉 pkgforge 的 AppImage（含版本 + sha256），
       # 在构建期 --appimage-extract 展开成目录再进 extraResources。运行期由 engine 用包内自带
@@ -184,9 +193,9 @@ jobs:
           mv quaver-server-${{ matrix.arch_label }} quaver-server
           chmod +x quaver-server
 
-      - name: npm ci
+      - name: pnpm install
         working-directory: ui
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       # 版本号三态：tag 用 tag；每夜版用 <pkg version>-<短 sha>-nightly；其余留空走 package.json。
       # 必须在 vite build 之前解析：vite.config.ts 会把它注入 __APP_VERSION__（关于页），
@@ -213,7 +222,7 @@ jobs:
         working-directory: ui
         env:
           QUAVER_VERSION: ${{ steps.version.outputs.version }}
-        run: npm run build
+        run: pnpm run build
 
       - name: electron-builder AppImage
         working-directory: ui
