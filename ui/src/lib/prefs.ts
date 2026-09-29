@@ -193,6 +193,24 @@ export function setShowTrans(v: boolean) {
   cfgSet({ "Style.ShowTranslation": v ? "True" : "False" });
 }
 
+// —— 正在播放页行级（LRC）歌词缩放：字号与行距随同一系数放大/缩小（0.7..1.5，1=默认）。
+//    只作用于行级歌词；逐字（QRC/AMLL）模式的排版由 AMLL 自己的变量管理。调节走
+//    滚轮/按钮连点，属高频项 → cfgSetSoon 合并落盘。 ——
+export const LYRIC_SCALE_MIN = 0.7;
+export const LYRIC_SCALE_MAX = 1.5;
+export const LYRIC_SCALE_STEP = 0.1;
+
+export function getLyricScale(): number {
+  const n = Number(cfg("Style.LyricScale", "1"));
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(LYRIC_SCALE_MAX, Math.max(LYRIC_SCALE_MIN, n));
+}
+
+export function setLyricScale(v: number) {
+  const clamped = Math.min(LYRIC_SCALE_MAX, Math.max(LYRIC_SCALE_MIN, v));
+  cfgSetSoon({ "Style.LyricScale": String(Math.round(clamped * 100) / 100) });
+}
+
 
 // —— 音质 Fallback 排序：False=自动/回退时不优先落到臻品全景声（默认，母带优先），
 //    True=按标准 rank 降序回退（全景声在其 rank 位置自然参与） ——
