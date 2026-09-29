@@ -19,7 +19,6 @@ const FALLBACK: ConfigSnapshot = {
   "Style.DefaultUIFonts": "Source Han Sans,Microsoft Yahei UI",
   "Style.DefaultLyricsFonts": "Source Han Serif",
   "Style.ShowTranslation": "True",
-  "Style.LyricScale": "1",
   "Window.Decor": "csd",
   "Window.CloseAction": "tray",
   "Window.SidebarCollapsed": "False",

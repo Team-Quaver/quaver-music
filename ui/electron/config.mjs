@@ -207,12 +207,6 @@ export const SCHEMA = [
         doc: ["歌词是否显示翻译行：True（默认）｜False"],
         valid: (v) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
       },
-      {
-        key: "LyricScale",
-        def: "1",
-        doc: ["正在播放页行级（LRC）歌词缩放：0.7..1.5，1=默认；字号与行距随同一系数缩放。逐字（QRC/AMLL）模式不生效"],
-        valid: (v) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0.7 && Number(v) <= 1.5,
-      },
     ],
   },
   {

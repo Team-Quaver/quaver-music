@@ -2,22 +2,16 @@
 // 无标题栏 CSD：np 铺满整窗，右上角窗口按钮簇（z-index 更高）在其上。
 // 歌词 = 整首列表：当前句居中、清晰、白色（染色版可读性差，已弃）；其余行模糊渐隐。
 // 滚轮可自由翻阅全文（翻阅期间暂停自动跟随，播放进度追上行号后恢复跟随）。
-// 翻阅是为了读别的行：浏览期间整列去模糊提亮（.browse），回跟随态平滑雾回。
-// 字号/行距 = ⋮ 菜单「歌词大小」−/+（或歌词上 Ctrl+滚轮、触控板捏合）调 --np-ly-scale：
-// 行内排版全走 em，字号与行距随同一系数缩放；改 font-size 不用 transform，任何档位都锐利。
-// 系数持久化在 Style.LyricScale；逐字（QRC/AMLL）模式有 AMLL 自己的排版，菜单行自动隐藏。
 // 逐字歌词（歌曲带 QRC 且开关开启）：Sparkle 逐字提供器（官方 amll 插件 = AMLL 渲染）
 // 接管同一列位（.np-kara-host），宿主只管容器与重建时机；停用插件即自动回退行级歌词。
 // 开关在插件的设置区（Sparkle tab → Apple Music-like Lyrics）；无逐字数据 / 无提供器 /
 // 开关关闭时维持原有行级高亮。
 // 右侧 = 封面在上，歌名 / 「歌手 - 专辑」在下，文本右对齐且与封面右缘齐平；
-// 信息列下缘挂 ⋮ 更多选项（同名搜索 / 跳转歌手 / 跳转专辑 / 翻译 Switch 开关 /
-// 歌词大小 −/+ 步进，仅行级歌词时出现；也可在歌词上 Ctrl+滚轮/触控板捏合直接调）。
+// 信息列下缘挂 ⋮ 更多选项（同名搜索 / 跳转歌手 / 跳转专辑 / 翻译 Switch 开关）。
 // 背景 = 当前封面高斯模糊放大铺满 + 深色渐变压暗；进度与控制由常驻播放条承担。
 import { player, type Song } from "../player";
 import { coverUrl, songTitle, stripEm } from "../lib/api";
 import { icons } from "../lib/icons";
-import { getLyricScale, setLyricScale, LYRIC_SCALE_MAX, LYRIC_SCALE_MIN, LYRIC_SCALE_STEP } from "../lib/prefs";
 import type { SparkleKaraokeProvider } from "@quaver/sparkle";
 import { sparkleKaraokeProvider } from "../sparkle/registry";
 
@@ -125,11 +119,6 @@ export function NowPlaying(): HTMLElement {
     if (run) b.onclick = () => collapseThenRun(run);
     return b;
   }
-  /** 逐字模式是否接管中（有逐字数据 + 提供器在位且启用）——菜单的歌词大小行据此显隐 */
-  const karaModeNow = () => {
-    const provider = sparkleKaraokeProvider();
-    return player.karaoke.length > 0 && !!provider && (provider.enabled?.() ?? true);
-  };
   function openMoreMenu() {
     const s = player.current;
     moreMenu.innerHTML = "";
@@ -170,21 +159,6 @@ export function NowPlaying(): HTMLElement {
       if (transSw && transSw.checked !== player.showTrans) player.toggleTrans();
     });
     moreMenu.append(row);
-    // 歌词大小：−/+ 步进（仅行级歌词就位时；逐字模式有 AMLL 自己的排版，不出现）。
-    // 菜单开着时 Ctrl+滚轮缩放 → zoomLyric 里的 syncSizeRow 会原地更新读数与禁用态。
-    if (!karaModeNow() && lineEls.length > 0) {
-      const size = document.createElement("div");
-      size.className = "np-menu-size";
-      size.title = "也可在歌词上按住 Ctrl 滚轮（触控板捏合）调节";
-      size.innerHTML = `<span>歌词大小</span><div class="np-menu-size-ctl">
-        <button type="button" class="np-size-dec" aria-label="缩小歌词" title="缩小歌词">−</button>
-        <span class="np-size-val">${Math.round(lyScale * 100)}%</span>
-        <button type="button" class="np-size-inc" aria-label="放大歌词" title="放大歌词">+</button></div>`;
-      size.querySelector<HTMLButtonElement>(".np-size-dec")!.onclick = () => zoomLyric(-1);
-      size.querySelector<HTMLButtonElement>(".np-size-inc")!.onclick = () => zoomLyric(1);
-      moreMenu.append(size);
-      syncSizeRow(); // 先入树再同步：禁用态要在行上生效（syncSizeRow 查的是 moreMenu 内的行）
-    }
     moreMenu.classList.add("open");
     moreBtn.setAttribute("aria-expanded", "true");
     document.addEventListener("pointerdown", onDocDownMore, true);
@@ -221,65 +195,24 @@ export function NowPlaying(): HTMLElement {
       paused: () => player.paused,
       expanded: () => player.expanded,
       showTrans: () => player.showTrans,
-      seek: (ms) => { player.seek(ms / 1000); setBrowse(false); },
+      seek: (ms) => { player.seek(ms / 1000); browsing = false; },
       onNotify: (cb) => player.on(cb),
     }) ?? null;
   }
 
   // —— 滚轮翻阅：浏览模式暂停自动跟随；3s 无操作回到跟随，或点击任意行立刻跟随该句 ——
-  // 浏览态给列表挂 .browse：整列去模糊提亮（翻阅是为了读，雾化只属于跟随态的氛围）。
   let browsing = false;
   let browseTimer = 0;
-  const setBrowse = (v: boolean) => {
-    browsing = v;
-    lyrics.classList.toggle("browse", v);
-    if (!v) window.clearTimeout(browseTimer);
-  };
   const enterBrowse = () => {
+    browsing = true;
     window.clearTimeout(browseTimer);
-    setBrowse(true);
     browseTimer = window.setTimeout(() => {
-      setBrowse(false);
+      browsing = false;
       followCurrent(); // 回到跟随态：立刻把当前句滚回中心
     }, 3000);
   };
-  lyrics.addEventListener("wheel", (e) => { if (!e.ctrlKey) enterBrowse(); }, { passive: true });
+  lyrics.addEventListener("wheel", enterBrowse, { passive: true });
   lyrics.addEventListener("pointerdown", enterBrowse, { passive: true });
-
-  // —— LRC 字号/行距缩放（--np-ly-scale）：字号与行距（em 排版）随同一系数缩放，改的是
-  //    font-size 而非 transform，任何档位文字都锐利。⋮ 菜单「歌词大小」−/+ 与歌词上
-  //    Ctrl+滚轮（触控板捏合同）共用一档；系数持久化 Style.LyricScale。菜单每次打开现建
-  //    行 DOM（读数/禁用态即最新）；菜单开着时缩放（如 Ctrl+滚轮）由 syncSizeRow 原地跟随。
-  //    逐字（AMLL）模式有自己的排版变量，菜单行不出现。 ——
-  let lyScale = getLyricScale();
-  el.style.setProperty("--np-ly-scale", lyScale.toFixed(2));
-  function syncSizeRow() {
-    const val = moreMenu.querySelector<HTMLElement>(".np-size-val");
-    if (!val) return;
-    val.textContent = `${Math.round(lyScale * 100)}%`;
-    const dec = moreMenu.querySelector<HTMLButtonElement>(".np-size-dec");
-    const inc = moreMenu.querySelector<HTMLButtonElement>(".np-size-inc");
-    if (dec) dec.disabled = lyScale <= LYRIC_SCALE_MIN + 1e-9;
-    if (inc) inc.disabled = lyScale >= LYRIC_SCALE_MAX - 1e-9;
-  }
-  function zoomLyric(dir: 1 | -1) {
-    const clamped = Math.min(LYRIC_SCALE_MAX, Math.max(LYRIC_SCALE_MIN, Math.round((lyScale + dir * LYRIC_SCALE_STEP) * 100) / 100));
-    if (clamped === lyScale) return;
-    lyScale = clamped;
-    setLyricScale(lyScale);
-    el.style.setProperty("--np-ly-scale", lyScale.toFixed(2));
-    syncSizeRow();
-    if (!browsing) followCurrent(); // 行高变了：把当前句重新带回中心
-  }
-  let lastZoomAt = 0;
-  lyrics.addEventListener("wheel", (e) => {
-    if (!e.ctrlKey) return; // 普通滚轮走翻阅（上面的 passive 监听）
-    e.preventDefault();     // 先顶掉浏览器页面缩放；节流只影响步进不影响拦截
-    const now = performance.now();
-    if (now - lastZoomAt < 100) return; // 触控板捏合事件密集，节流成可控的档位步进
-    lastZoomAt = now;
-    zoomLyric(e.deltaY < 0 ? 1 : -1);   // 上滚放大
-  }, { passive: false });
 
   function followCurrent() {
     const line = lineEls[lastIdx];
@@ -289,7 +222,7 @@ export function NowPlaying(): HTMLElement {
   function buildLyricDom(s: Song | undefined) {
     lastMid = s?.mid ?? "";
     lastIdx = -1;
-    setBrowse(false);
+    browsing = false;
     if (!s) { lyrics.innerHTML = `<div class="np-ly-empty">未在播放</div>`; lineEls = []; return; }
     if (player.lyricState === "loading" || (player.lyricState === "idle" && !player.lyrics.length)) { lyrics.innerHTML = `<div class="np-ly-empty">歌词加载中…</div>`; lineEls = []; return; }
     if (!player.lyrics.length) { lyrics.innerHTML = `<div class="np-ly-empty">暂无歌词</div>`; lineEls = []; return; }
@@ -298,7 +231,7 @@ export function NowPlaying(): HTMLElement {
       const d = document.createElement("div");
       d.className = "np-ly-line";
       d.innerHTML = `<span class="l1">${escapeHtml(line.text)}</span>${line.trans ? `<span class="l2">${escapeHtml(line.trans)}</span>` : ""}`;
-      d.onclick = () => { player.seek(line.t); setBrowse(false); }; // 点击跳回该行并恢复跟随
+      d.onclick = () => { player.seek(line.t); browsing = false; }; // 点击跳回该行并恢复跟随
       lyrics.append(d);
     }
     lineEls = [...lyrics.querySelectorAll<HTMLElement>(".np-ly-line")];
@@ -320,9 +253,10 @@ export function NowPlaying(): HTMLElement {
 
     // 换曲 / 歌词状态迁移 / 逐字模式切换（loading→ok/none 时行 DOM 需要重建，否则占位/歌词丢失）
     const st: "idle" | "loading" | "ok" | "none" = player.lyrics.length ? "ok" : player.lyricState;
-    const karaMode = karaModeNow();
+    const provider = sparkleKaraokeProvider();
+    const karaMode = player.karaoke.length > 0 && !!provider && (provider.enabled?.() ?? true);
     el.classList.toggle("kara", karaMode);
-    if (s?.mid !== lastMid || st !== lastLyricState || karaMode !== lastKaraMode || (karaMode && sparkleKaraokeProvider() !== karaProvider)) {
+    if (s?.mid !== lastMid || st !== lastLyricState || karaMode !== lastKaraMode || (karaMode && provider !== karaProvider)) {
       lastKaraMode = karaMode;
       if (karaMode) { lastMid = s?.mid ?? ""; lastIdx = -1; buildKara(); }
       else { disposeKara(); buildLyricDom(s); }
