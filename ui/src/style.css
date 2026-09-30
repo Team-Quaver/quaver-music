@@ -721,7 +721,44 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
    菜单项 = 同名搜索 / 跳转歌手 / 跳转专辑 / 翻译（Switch 开关）。
    本页底色恒为「模糊封面 + 深色遮罩」，菜单直接锚固定深色玻璃（同 .np-kara-host 的口径），
    不随明暗主题翻面 —— 封面底色任意，深玻璃 + 白字永远压得住。 */
-.np-morewrap { position: relative; align-self: flex-end; margin-top: 10px; flex: none; }
+.np-morewrap { position: relative; align-self: flex-end; margin-top: 10px; flex: none; display: flex; align-items: center; gap: 6px; }
+/* 音质胶囊（⋮ 旁）：显示当前音质设置；点击弹出锚定它的音频流信息浮窗。
+   视觉沿用播放条音质胶囊（.pb-q）的胶囊语言，但本页恒为深色玻璃，色锚走 .np-menu 的白字口径。 */
+.np-qpill {
+  height: 24px; min-width: 44px; padding: 0 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid #ffffff2e; background: #ffffff14; color: #fffb;
+  font: inherit; font-size: 11px; font-weight: 600; letter-spacing: .2px; white-space: nowrap;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.np-qpill:hover, .np-qpill.open { background: #ffffff1f; color: #fff; border-color: #ffffff4d; }
+/* 音频流信息浮窗：锚在音质胶囊上方（右缘对齐胶囊右缘），同 .np-menu 深玻璃 + 开合动画。 */
+.np-qinfo {
+  position: absolute; right: 36px; bottom: calc(100% + 8px); z-index: 5;
+  min-width: 228px; padding: 10px 12px 11px; border-radius: 12px;
+  background: #10131cd9; border: 1px solid #ffffff1f;
+  box-shadow: 0 12px 36px #0006;
+  backdrop-filter: blur(24px) saturate(1.5); -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  text-align: left;
+  transform-origin: calc(100% - 24px) calc(100% + 8px);
+  opacity: 0; transform: scale(.8);
+  pointer-events: none;
+  transition: transform .16s cubic-bezier(.32,.72,.24,1), opacity .12s ease;
+}
+.np-qinfo.open { opacity: 1; transform: scale(1); pointer-events: auto; }
+.np-qinfo:not(.open) { transition-duration: .13s, .1s; }
+.qi-title {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 14px;
+  font-size: 11px; color: #fff8; letter-spacing: .4px;
+  padding: 0 2px 5px; margin-bottom: 4px; border-bottom: 1px solid #ffffff1a;
+}
+.qi-title .qi-tier { color: #fffb; font-weight: 600; letter-spacing: 0; }
+.qi-row {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 16px;
+  font-size: 12.5px; color: #fff; line-height: 2.05; font-variant-numeric: tabular-nums;
+}
+.qi-row span { color: #fff8; flex: none; }
+.qi-row b { font-weight: 500; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qi-empty { font-size: 12px; color: #fff8; padding: 3px 2px 4px; }
 .np-more {
   width: 30px; height: 30px;
   border: 0; border-radius: 50%; background: transparent; color: #fffb;

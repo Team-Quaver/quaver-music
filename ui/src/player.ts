@@ -84,6 +84,9 @@ class Player {
   showTrans = getShowTrans(); // 歌词翻译显示开关（quaver.conf [Style] ShowTranslation，默认开）
   /** 实际生效后端（"mpv"=原生引擎；"web"=浏览器 <audio>） */
   backend: ActiveBackend = "web";
+  /** 当前已挂载播放流的 URL（/api/stream/<token> 或插件源；运行时态，不进存档）。
+   *  流信息探测（lib/streaminfo）据此取头字节；打断/换曲即失效。 */
+  streamUrl = "";
   /** 后端不可用/回退原因（设置页提示；空 = 正常） */
   backendNotice = "";
   /** 引擎（mpv）版本串；未拉起时为空 */
@@ -220,6 +223,7 @@ class Player {
       const es = await t.snapshot();
       if (es && this.current) {
         t.adopt(es.url, es);
+        this.streamUrl = es.url; // 接管正在放的流：流信息浮窗（正在播放页）照样可探测
         // 会话音质覆盖与实际流档位一并接管：播放条音质胶囊显示正在放的档，
         // 而不是跳回「自动」（这两个是渲染层内存态，靠拆窗前的存档带过来）
         setSessionQuality((snap.quality ?? null) as Parameters<typeof setSessionQuality>[0]);
@@ -496,6 +500,7 @@ class Player {
     this.loading = false;
     this.error = "";
     this.pendingSeek = 0;
+    this.streamUrl = "";
     try { this.transport.stop(); } catch { /* noop */ }
   }
 
@@ -517,6 +522,7 @@ class Player {
       if (seq !== this.playSeq || this.current !== s) return; // 期间又切了歌：本轮作废
       const r = await this.getStream(s); // 命中单击预取的链接 → 直接跳过取链
       if (seq !== this.playSeq || this.current !== s) return;
+      this.streamUrl = r.url;
       setLastStream({ tier: r.tier, label: r.label, degraded: r.degraded });
       await this.transport.load(r.url, { paused: !autoplay }); // web: 赋 src；engine: loadfile replace
       if (resumeTo > 1) this.pendingSeek = resumeTo; // 换音质/换后端：时长就绪后从旧进度续播
