@@ -21,6 +21,7 @@
     "preview": "vite preview",
     "app": "pnpm run build && electron .",
     "verify:config": "node scripts/verify-config.mjs && node scripts/verify-prefs-map.mjs",
+    "verify:input": "node scripts/verify-input-policy.mjs",
     "verify:song-menu": "node scripts/verify-song-menu.mjs",
     "verify:list-tools": "node scripts/verify-list-tools.mjs",
     "verify:queue-anim": "node scripts/verify-queue-panel-anim.mjs",
@@ -34,7 +35,7 @@
     "verify:daily": "node scripts/verify-daily.mjs",
     "verify:guess": "node scripts/verify-guess.mjs",
     "verify:sparkle": "node scripts/verify-sparkle.mjs",
-    "verify:static": "node scripts/verify-config.mjs && node scripts/verify-prefs-map.mjs && node scripts/verify-highlight-contrast.mjs && node scripts/verify-song-menu.mjs && node scripts/verify-list-tools.mjs && node scripts/verify-queue-panel-anim.mjs && node scripts/verify-queue-drag.mjs && node scripts/verify-noselect.mjs && node scripts/verify-user-vip.mjs && node scripts/verify-sidebar.mjs && node scripts/verify-systheme.mjs && node scripts/verify-login.mjs && node scripts/verify-keyring.mjs && node scripts/verify-daily.mjs && node scripts/verify-guess.mjs && node scripts/verify-sparkle.mjs",
+    "verify:static": "node scripts/verify-config.mjs && node scripts/verify-prefs-map.mjs && node scripts/verify-highlight-contrast.mjs && node scripts/verify-song-menu.mjs && node scripts/verify-list-tools.mjs && node scripts/verify-queue-panel-anim.mjs && node scripts/verify-queue-drag.mjs && node scripts/verify-noselect.mjs && node scripts/verify-user-vip.mjs && node scripts/verify-sidebar.mjs && node scripts/verify-systheme.mjs && node scripts/verify-login.mjs && node scripts/verify-keyring.mjs && node scripts/verify-daily.mjs && node scripts/verify-guess.mjs && node scripts/verify-sparkle.mjs && node scripts/verify-input-policy.mjs",
     "mpris:build": "pnpm --dir ../vendor/Typhoeus/mpris install && pnpm --dir ../vendor/Typhoeus/mpris run build",
     "dist": "pnpm run build && pnpm run mpris:build && electron-builder --linux AppImage",
     "verify:np-gallery": "node scripts/verify-np-gallery.mjs"
