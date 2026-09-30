@@ -22,6 +22,7 @@ import {
   getFade,
   getFallbackSort,
   getLyricFontList,
+  getPrevBehavior,
   getTheme,
   getUiFontList,
   normalizeFontList,
@@ -30,9 +31,11 @@ import {
   setFallbackSort,
   setLyricFontList,
   setLyricFontPreset,
+  setPrevBehavior,
   setTheme,
   setUiFontList,
   setUiFontPreset,
+  type PrevBehavior,
   type ThemeMode,
 } from "./lib/prefs";
 import {configInfo, resetConfig, revealConfig} from "./lib/config";
@@ -916,6 +919,15 @@ async function settingsView(root: HTMLElement) {
       </div>
 
       <div class="set-group">
+        <div class="set-label">上一首按钮行为</div>
+        <div class="opt-cards" id="prev-behavior-cards">
+          <button class="opt-card" data-opt="replay" type="button">重放当前曲</button>
+          <button class="opt-card" data-opt="previous" type="button">跳到上一首</button>
+        </div>
+        <p class="muted set-hint">「重放当前曲」：点击上一首把当前曲从头再放（默认）；「跳到上一首」：点击上一首直接切到队列里的上一首。即时生效，媒体键同样遵循。</p>
+      </div>
+
+      <div class="set-group">
         <div class="set-label">默认音质 <span class="set-note-inline" id="q-member-note"></span></div>
         <div class="opt-cards" id="quality-grid">
           <button class="opt-card q" data-q="auto" type="button">自动</button>
@@ -996,6 +1008,8 @@ async function settingsView(root: HTMLElement) {
   bindOptCards<CloseAction>(wrap.querySelector<HTMLElement>("#close-cards")!, getCloseAction, setCloseAction);
   // Fallback 排序：默认「不优先全景声」（母带优先，atmos51 压链尾兜底）；改动自下一首协商起生效
   bindOptCards<FallbackSort>(wrap.querySelector<HTMLElement>("#atmos-fallback-cards")!, getFallbackSort, setFallbackSort);
+  // 上一首按钮行为：重放当前曲（默认）/ 直接跳到队列里的上一首（播放条按钮与媒体键共用，即时生效）
+  bindOptCards<PrevBehavior>(wrap.querySelector<HTMLElement>("#prev-behavior-cards")!, getPrevBehavior, setPrevBehavior);
   // 淡入淡出预设：持久化 + 立即下发时长（引擎侧做振幅包络；Blink 后端无此项）
   bindOptCards<FadePreset>(
     wrap.querySelector<HTMLElement>("#fade-cards")!,

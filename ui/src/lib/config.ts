@@ -30,6 +30,7 @@ const FALLBACK: ConfigSnapshot = {
   "Playing.Fade": "normal",
   "Playing.Volume": "0.8",
   "Playing.Muted": "False",
+  "Playing.PrevReplay": "True",
   "Quality.DefaultQuality": "Auto",
   "Quality.FallbackToQMAtmos": "False",
   // [Security] 只有主进程读（凭证存储走 electron/keyring.mjs），渲染层没有对应 getter ——

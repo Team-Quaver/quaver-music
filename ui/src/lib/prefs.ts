@@ -185,6 +185,17 @@ export function setMuted(m: boolean) {
   cfgSet({ "Playing.Muted": m ? "True" : "False" });
 }
 
+// —— 「上一首」按钮逻辑：replay=点击先把当前曲从头重放（默认）；previous=直接跳到队列里的上一首。
+//    播放条按钮与 MPRIS/媒体键共用 player.prev() 一个入口，每次点击现读内存快照 → 设置页改完即时生效。 ——
+export type PrevBehavior = "replay" | "previous";
+export function getPrevBehavior(): PrevBehavior {
+  // 默认开（重放）：只有明确写 False 档才关闭，手误写进来的值回落默认
+  return /^(false|0|no)$/i.test(cfg("Playing.PrevReplay", "True")) ? "previous" : "replay";
+}
+export function setPrevBehavior(v: PrevBehavior) {
+  cfgSet({ "Playing.PrevReplay": v === "replay" ? "True" : "False" });
+}
+
 // —— 歌词翻译行开关（默认开） ——
 export function getShowTrans(): boolean {
   return !/^(false|0|no)$/i.test(cfg("Style.ShowTranslation", "True"));
