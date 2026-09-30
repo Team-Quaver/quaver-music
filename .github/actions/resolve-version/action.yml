@@ -43,6 +43,8 @@ runs:
         elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
           echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
         else
-          node -p "require('$ui_dir/package.json').version" >> "$GITHUB_OUTPUT"
+          # GITHUB_OUTPUT 每行必须是 name=value —— 裸值会让 runner 报 Invalid format。
+          # （这行此前从未跑通过：先被 ui_dir 的层级 bug 挡在 require，格式错误是修完才露出来的。）
+          echo "version=$(node -p "require('$ui_dir/package.json').version")" >> "$GITHUB_OUTPUT"
         fi
         echo "resolved: $(tail -1 "$GITHUB_OUTPUT")"
