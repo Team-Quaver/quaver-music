@@ -346,9 +346,10 @@ async function homeView(root: HTMLElement) {
 // —— 歌单页收藏按钮（在线收藏写接口：PlaylistFavWrite Fav/CancelFavPlaylist） ——
 // 收藏态取自 lib/favs 的收藏歌单缓存（与侧栏同源，收藏后侧栏同帧出现）；
 // 自有歌单不渲染（不能收藏自己的歌单），未登录不渲染（收藏必须带登录态）。
+// cleanups：视图销毁时的退订登记（playlistView 交给 renderRoute 调用）。
 async function favSonglistButton(meta: {
   id: string; title: string; picurl?: string; songnum?: number; creatorMusicid?: number;
-}): Promise<HTMLElement | null> {
+}, cleanups: (() => void)[]): Promise<HTMLElement | null> {
   const myId = await getMyMusicid();
   if (!myId) return null;
   if (meta.creatorMusicid && Number(meta.creatorMusicid) === myId) return null;
@@ -366,8 +367,12 @@ async function favSonglistButton(meta: {
     btn.title = on ? "从我的收藏中移除" : "收藏这首歌单";
   };
   paint();
+  // 订阅挂**按钮的一生**（曾经只挂在点击期间）：侧栏右键「取消收藏」等别处的收藏变更
+  // 必须同帧反映到这里 —— 否则按钮停在旧态，下一次点击按旧态取反，做出与显示相反的动作。
+  // 退订交给 playlistView 的视图 cleanup（cleanups 数组），路由切换不留死监听。
+  const off = onFavSonglistsChange(() => { if (!btn.dataset.fail) paint(); });
+  cleanups.push(off);
   btn.onclick = async () => {
-    const off = onFavSonglistsChange(() => { if (!btn.dataset.fail) paint(); });
     btn.disabled = true;
     try {
       await toggleFavSonglist({ id: meta.id, title: meta.title, picurl: meta.picurl, songnum: meta.songnum });
@@ -384,7 +389,6 @@ async function favSonglistButton(meta: {
       }, 2600);
     } finally {
       btn.disabled = false;
-      off();
       if (!btn.dataset.fail) paint();
     }
   };
@@ -395,6 +399,8 @@ async function favSonglistButton(meta: {
 async function playlistView(root: HTMLElement, q: URLSearchParams) {
   const name = q.get("name") || "歌单";
   const id = q.get("id") || "";
+  // 收藏按钮的 favs 订阅退订登记：视图被替换/打断丢弃时由 renderRoute 调用（见 favSonglistButton）
+  const cleanups: (() => void)[] = [];
   const box = h("div", "rows", `<div class="muted">加载中…</div>`);
   root.append(box);
   if (!/^\d+$/.test(id)) { box.innerHTML = `<div class="muted">歌单 id 无效</div>`; return; }
@@ -431,14 +437,14 @@ async function playlistView(root: HTMLElement, q: URLSearchParams) {
       picurl: logo,
       songnum: info?.songnum,
       creatorMusicid: info?.creator?.musicid,
-    }).catch(() => null),
+    }, cleanups).catch(() => null),
   });
 
   const rows = h("div", "rows");
   if (!songs.length) {
     root.append(rows);
     rows.innerHTML = `<div class="muted">歌单为空或不可见</div>`;
-    return;
+    return () => cleanups.forEach((f) => f());
   }
   // 工具条（本地搜索 + 排序）：控件靠右，计数在左。实现见 components/ListTools.ts
   // all 恒为服务端原序（orderlist = 加入歌单的时间），工具条只读它，排序作用在副本上。
@@ -480,6 +486,7 @@ async function playlistView(root: HTMLElement, q: URLSearchParams) {
     };
   }
   tools.repaint();
+  return () => cleanups.forEach((f) => f());
 }
 
 // 专辑卡网格（歌手页「专辑」标签 / 歌手全部专辑页共用同一套卡面）

@@ -422,6 +422,17 @@ class Player {
     this.notify();
   }
 
+  /** 整批插队：把一批歌（歌单「插队播放」）按原序排到当前曲之后等着播 —— 不切歌、不打断。
+   *  与 enqueueNext 同一分叉：队列还空着时没有「下一首」可言，退化成整列起播。 */
+  enqueueNextMany(songs: Song[]) {
+    const list = songs.filter((s) => s?.mid);
+    if (!list.length) return;
+    if (this.index < 0 || !this.queue.length) { this.playList(list, 0); return; }
+    this.queueVersion++;
+    this.queue.splice(this.index + 1, 0, ...list);
+    this.notify();
+  }
+
   /** 立即插队播放：插到**当前曲之后**并**马上切过去**（打断当前曲）。与 enqueueNext 只差时机 ——
    *  不等当前曲放完。只带这一首进队列，队列原有内容不动（其余搜索结果不入列）。
    *  搜索页双击用：即点即播，但不把搜索结果整列灌进队列。

@@ -28,7 +28,7 @@ export interface SongMenuContext {
   onRemoved?: () => void;
 }
 
-interface MenuItem {
+export interface MenuItem {
   label: string;
   note?: string;
   thumb?: string;
@@ -413,4 +413,13 @@ export function bindSongMenu(row: HTMLElement, get: () => SongMenuContext) {
     me.stopPropagation();
     openSongMenu(me.clientX, me.clientY, get(), row);
   });
+}
+
+/** 通用右键菜单入口（侧栏歌单菜单等复用本套面板机制）：items 完全由调用方给定。
+ *  与歌曲菜单互斥（同屏只留一层）；anchor = 右键的目标元素，滚动收起判据要用它。 */
+export function openMenuAt(x: number, y: number, items: MenuItem[], anchor?: HTMLElement) {
+  closeMenu(); // 只留一层：换目标/重复右键都以最后一次为准
+  anchorEl = anchor ?? null;
+  bindGlobal(true);
+  openPanel(items, 0, { x, y });
 }
