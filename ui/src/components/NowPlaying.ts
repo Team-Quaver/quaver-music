@@ -206,9 +206,9 @@ export function NowPlaying(): HTMLElement {
   }
   moreBtn.addEventListener("click", () => (menuOpen() ? closeMoreMenu() : openMoreMenu()));
 
-  // —— 音质胶囊 + 音频流信息浮窗（⋮ 旁）：胶囊显示当前音质设置（会话选择 > 设置页默认，
-  //     与播放条胶囊同一数据源）；点击弹出以胶囊为锚的浮窗，现场对当前播放流取头字节
-  //     探测 编码格式/采样率/采样精度/码率/声道（lib/streaminfo，结果按流 URL 缓存）。
+  // —— 音质胶囊 + 音频流信息浮窗（⋮ 旁）：胶囊显示最后实际应用的档位（lastStream，未播放
+  //     时回落当前设置，同播放条口径）；点击弹出以胶囊为锚的浮窗，现场对当前播放流取头
+  //     字节探测 编码格式/采样率/采样精度/码率/声道（lib/streaminfo，结果按流 URL 缓存）。
   //     浮窗只展示不切换：切档在播放条胶囊的音质菜单里做。 ——
   const qPill = $("np-quality"), qInfo = $("np-qinfo");
   const qinfoOpen = () => qInfo.classList.contains("open");
@@ -254,7 +254,7 @@ export function NowPlaying(): HTMLElement {
     if (player.current && ls) {
       const tier = document.createElement("span");
       tier.className = "qi-tier";
-      tier.textContent = ls.degraded ? `实际 ${ls.label}（已回退）` : `实际 ${ls.label}`;
+      tier.textContent = ls.degraded ? `${ls.label}（已回退）` : ls.label;
       d.append(tier);
     }
     return d;
@@ -506,12 +506,16 @@ export function NowPlaying(): HTMLElement {
     el.classList.toggle("no-trans", !player.showTrans);
     // 菜单开着时同步翻译开关的选中态（toggleTrans 之外的改法 — 如设置页 — 也能跟上）
     if (transSw && menuOpen()) transSw.checked = player.showTrans;
-    // 音质胶囊：显示当前音质设置（会话选择 > 设置页默认，同播放条口径）；浮窗开着时跟随换曲刷新
-    const qLabel = QUALITY_SHORT[effectiveQuality()] ?? "音质";
+    // 音质胶囊：直接显示最后实际应用的档位（lastStream；未在播放时回落到当前设置）——
+    // 与播放条胶囊同口径，↓ = 该流是被回退降档的
+    const ls = getLastStream();
+    const qLabel = player.current && ls
+      ? (ls.degraded ? "↓" : "") + (QUALITY_SHORT[ls.tier] ?? ls.label)
+      : (QUALITY_SHORT[effectiveQuality()] ?? "音质");
     if (qLabel !== lastQLabel) {
       lastQLabel = qLabel;
       qPill.textContent = qLabel;
-      qPill.title = `音质：${qLabel}（当前设置；点看这条流的采样率/位深/编码/码率/声道）`;
+      qPill.title = `音质：${qLabel}${player.current && ls ? "（实际档位）" : "（当前设置）"}；点看这条流的采样率/位深/编码/码率/声道`;
     }
     if (qinfoOpen()) void syncQInfo();
     if (!open && !s) return;
