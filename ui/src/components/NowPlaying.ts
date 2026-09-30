@@ -20,7 +20,11 @@
 // 背景 = 当前封面高斯模糊放大铺满（双层交叉淡化：新图解码完成后才淡入，换曲不闪主页面）
 // + 深色渐变压暗 + .np 固体底色兜底；进度与控制由常驻播放条承担。
 import { player, type Song } from "../player";
-import { coverUrl, songTitle, stripEm } from "../lib/api";
+import { coverUrl, songTitle, stripEm, QUALITY_SHORT, effectiveQuality, getLastStream } from "../lib/api";
+import {
+  probeStreamInfo, cachedStreamInfo, fmtSampleRate, fmtBitDepth, fmtBitrate, fmtChannels,
+  type StreamInfo,
+} from "../lib/streaminfo";
 import { icons } from "../lib/icons";
 import { getLyricScale, setLyricScale, LYRIC_SCALE_MAX, LYRIC_SCALE_MIN, LYRIC_SCALE_STEP } from "../lib/prefs";
 import { isFullscreen, setFullscreen, onFullscreenChange } from "../lib/fullscreen";
@@ -44,8 +48,10 @@ export function NowPlaying(): HTMLElement {
           <div class="np-title np-marquee" id="np-title"><span class="mt">未在播放</span></div>
           <div class="np-artist np-marquee" id="np-artist"><span class="mt"></span></div>
           <div class="np-morewrap">
+            <button class="np-qpill" id="np-quality" type="button" aria-haspopup="dialog" aria-expanded="false" title="音质"></button>
             <button class="np-more" id="np-more" type="button" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false" title="更多操作">${icons.more}</button>
             <div class="np-menu" id="np-menu"></div>
+            <div class="np-qinfo" id="np-qinfo" role="dialog" aria-label="音频流信息"></div>
           </div>
         </div>
       </div>
@@ -199,6 +205,101 @@ export function NowPlaying(): HTMLElement {
     document.addEventListener("keydown", onEscMore, true);
   }
   moreBtn.addEventListener("click", () => (menuOpen() ? closeMoreMenu() : openMoreMenu()));
+
+  // —— 音质胶囊 + 音频流信息浮窗（⋮ 旁）：胶囊显示当前音质设置（会话选择 > 设置页默认，
+  //     与播放条胶囊同一数据源）；点击弹出以胶囊为锚的浮窗，现场对当前播放流取头字节
+  //     探测 编码格式/采样率/采样精度/码率/声道（lib/streaminfo，结果按流 URL 缓存）。
+  //     浮窗只展示不切换：切档在播放条胶囊的音质菜单里做。 ——
+  const qPill = $("np-quality"), qInfo = $("np-qinfo");
+  const qinfoOpen = () => qInfo.classList.contains("open");
+  let lastQLabel = ""; // 胶囊文案签名（4Hz notify 里防重复写 DOM）
+  let qFillSig = "";   // 浮窗内容签名
+  function onDocDownQ(e: PointerEvent) {
+    const t = e.target as Node;
+    if (!qInfo.contains(t) && !qPill.contains(t)) closeQInfo();
+  }
+  function onEscQ(e: KeyboardEvent) {
+    if (e.key === "Escape") { e.stopPropagation(); closeQInfo(); }
+  }
+  function closeQInfo() {
+    if (!qinfoOpen()) return;
+    qInfo.classList.remove("open");
+    qPill.setAttribute("aria-expanded", "false");
+    document.removeEventListener("pointerdown", onDocDownQ, true);
+    document.removeEventListener("keydown", onEscQ, true);
+  }
+  function qiRow(label: string, value: string) {
+    const d = document.createElement("div");
+    d.className = "qi-row";
+    const l = document.createElement("span");
+    l.textContent = label;
+    const v = document.createElement("b");
+    v.textContent = value;
+    d.append(l, v);
+    return d;
+  }
+  function qiEmpty(text: string) {
+    const d = document.createElement("div");
+    d.className = "qi-empty";
+    d.textContent = text;
+    return d;
+  }
+  function qiHead(): HTMLElement {
+    const d = document.createElement("div");
+    d.className = "qi-title";
+    const t = document.createElement("span");
+    t.textContent = "音频流信息";
+    d.append(t);
+    const ls = getLastStream();
+    if (player.current && ls) {
+      const tier = document.createElement("span");
+      tier.className = "qi-tier";
+      tier.textContent = ls.degraded ? `实际 ${ls.label}（已回退）` : `实际 ${ls.label}`;
+      d.append(tier);
+    }
+    return d;
+  }
+  function fillQInfo(url: string, info: StreamInfo | null | "none" | "pending") {
+    const sig = url + "|" + (typeof info === "string" ? info
+      : info ? `${info.codec}|${info.sampleRate ?? ""}|${info.bitDepth ?? ""}|${Math.round(info.bitrate ?? 0)}|${info.channels ?? ""}` : "null");
+    if (sig === qFillSig && qInfo.childElementCount) return; // notify 4Hz：内容没变不重建 DOM
+    qFillSig = sig;
+    qInfo.innerHTML = "";
+    qInfo.append(qiHead());
+    if (info === "none") { qInfo.append(qiEmpty(player.current ? "等待播放流…" : "未在播放")); return; }
+    if (info === "pending") { qInfo.append(qiEmpty("探测中…")); return; }
+    if (!info) { qInfo.append(qiEmpty("流信息不可用")); return; }
+    qInfo.append(
+      qiRow("编码格式", info.codec),
+      qiRow("采样率", fmtSampleRate(info.sampleRate)),
+      qiRow("采样精度", fmtBitDepth(info.bitDepth)),
+      qiRow("码率", fmtBitrate(info)),
+      qiRow("声道", fmtChannels(info.channels)),
+    );
+  }
+  /** 打开/刷新浮窗内容：先画即时态，探测回来后（仍开着且还是同一条流）再落最终行 */
+  async function syncQInfo() {
+    const url = player.streamUrl;
+    if (!player.current || !url) { fillQInfo("", "none"); return; }
+    const cached = cachedStreamInfo(url);
+    if (cached) {
+      const info = await cached;
+      if (qinfoOpen() && player.streamUrl === url) fillQInfo(url, info);
+      return;
+    }
+    fillQInfo(url, "pending");
+    const info = await probeStreamInfo(url, { duration: player.duration });
+    if (qinfoOpen() && player.streamUrl === url) fillQInfo(url, info);
+  }
+  qPill.addEventListener("click", () => {
+    if (qinfoOpen()) { closeQInfo(); return; }
+    closeMoreMenu(); // 两个浮窗同锚区：只开一个
+    qInfo.classList.add("open");
+    qPill.setAttribute("aria-expanded", "true");
+    document.addEventListener("pointerdown", onDocDownQ, true);
+    document.addEventListener("keydown", onEscQ, true);
+    void syncQInfo();
+  });
 
   // —— ESC 收起本页（画廊模式下顺路退出全屏，联动在 notify 的 expanded 迁移里）——
   // 菜单开着时由它自己的捕获监听（stopPropagation）接管，走不到这里；搜索框/列表工具
@@ -395,6 +496,7 @@ export function NowPlaying(): HTMLElement {
       else if (!open) {
         player.gallery = false;
         if (npFullscreen) { npFullscreen = false; setFullscreen(false); }
+        closeQInfo();
       }
     } else if (player.gallery && open && !npFullscreen && !isFullscreen()) {
       npFullscreen = true;
@@ -404,6 +506,14 @@ export function NowPlaying(): HTMLElement {
     el.classList.toggle("no-trans", !player.showTrans);
     // 菜单开着时同步翻译开关的选中态（toggleTrans 之外的改法 — 如设置页 — 也能跟上）
     if (transSw && menuOpen()) transSw.checked = player.showTrans;
+    // 音质胶囊：显示当前音质设置（会话选择 > 设置页默认，同播放条口径）；浮窗开着时跟随换曲刷新
+    const qLabel = QUALITY_SHORT[effectiveQuality()] ?? "音质";
+    if (qLabel !== lastQLabel) {
+      lastQLabel = qLabel;
+      qPill.textContent = qLabel;
+      qPill.title = `音质：${qLabel}（当前设置；点看这条流的采样率/位深/编码/码率/声道）`;
+    }
+    if (qinfoOpen()) void syncQInfo();
     if (!open && !s) return;
 
     // 背景：封面模糊放大（交叉淡化，见 applyBg）；侧栏封面同一张图。
