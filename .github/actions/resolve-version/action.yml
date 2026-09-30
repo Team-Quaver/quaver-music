@@ -1,0 +1,44 @@
+# Quaver — 版本号三态解析（所有前端打包 job 共用）。
+#   打 v* tag  → tag 去掉 v
+#   每夜版     → <package.json 版本>-<短 sha>-nightly
+#   其余       → package.json 里的版本
+# 必须在 vite build 之前解析：vite.config.ts 把它注入 __APP_VERSION__（关于页），
+# 否则浅克隆下 git describe 拿不到 tag，关于页永远显示 package.json 里的 0.0.1。
+#
+# 版本号为什么不是纯 `commit id + nightly`：electron-builder 会跑 normalizePackageData，
+# 非 semver 直接 `throw new Error('Invalid version: ...')`，所以 commit id 只能待在
+# prerelease 段里。同理不能用 `0.0.1-nightly+<sha>` —— semver.clean() 会把 build metadata
+# （`+` 后面）抹掉，版本最后只剩 `0.0.1-nightly`，commit id 白写。
+#
+# 三个分支都输出具体版本号（空值分支回退 package.json 版本）：产物文件名
+# （Quaver-<version>-<arch>）与 --config.extraMetadata.version 全部用同一个输出，
+# 不再依赖「留空让 builder 自己取」——那是 Linux AppImage 时代的老口径。
+name: Resolve Quaver version
+inputs:
+  nightly:
+    description: 按每夜版解析（版本号带短 commit id）
+    type: boolean
+    default: false
+outputs:
+  version:
+    value: ${{ steps.version.outputs.version }}
+runs:
+  using: composite
+  steps:
+    - id: version
+      shell: bash
+      env:
+        NIGHTLY: ${{ inputs.nightly }}
+      run: |
+        set -euo pipefail
+        ui_dir="$GITHUB_ACTION_PATH/../../ui"   # action 在 <repo>/.github/actions/resolve-version/
+        if [[ "$NIGHTLY" == "true" ]]; then
+          base=$(node -p "require('$ui_dir/package.json').version")
+          sha="${GITHUB_SHA:0:7}"
+          echo "version=${base}-${sha}-nightly" >> "$GITHUB_OUTPUT"
+        elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+        else
+          node -p "require('$ui_dir/package.json').version" >> "$GITHUB_OUTPUT"
+        fi
+        echo "resolved: $(tail -1 "$GITHUB_OUTPUT")"

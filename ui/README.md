@@ -5,10 +5,10 @@ Vite 多页入口，运行时为 SPA 壳：`index.html` 是唯一真页面（has
 浏览器不直接碰 QQ 音乐接口：所有请求走同源 `/api/*`，由 `src/relay.ts` 中继到本地 sidecar（:3200，`vendor/Typhoeus/`）。
 
 ```sh
-npm install
-npm run dev        # 开发服务 http://localhost:5173（含 /api 中继）
-npm run build      # tsc 检查 + 产物到 dist/
-npm run preview    # 预览构建产物（同样挂 /api 中继）
+pnpm install
+pnpm run dev        # 开发服务 http://localhost:5173（含 /api 中继）
+pnpm run build      # tsc 检查 + 产物到 dist/
+pnpm run preview    # 预览构建产物（同样挂 /api 中继）
 ```
 
 ## 结构
@@ -80,7 +80,7 @@ npm run preview    # 预览构建产物（同样挂 /api 中继）
 - 打包态页面跑在**固定端口**（`main.mjs:STABLE_PORT`）：origin 稳定，Chromium 的 localStorage/IndexedDB/Cache
   才能跨启动延续；端口被占时 `native-server.mjs` 自动回落系统分配端口（设置本就在 conf 里，不受影响）。
 
-自检：`npm run verify:config`（INI 引擎 + 渲染层映射，纯 Node，不用起浏览器）。
+自检：`pnpm run verify:config`（INI 引擎 + 渲染层映射，纯 Node，不用起浏览器）。
 
 ## 凭证存储（系统密钥管理器）
 
@@ -91,7 +91,7 @@ GNOME Keyring（Linux）、钥匙串（macOS）、凭据管理器 / DPAPI（Wind
 - **归属翻转**：凭证的真相从 Python sidecar 挪到 Electron 主进程。主进程先把已存凭证塞进
   sidecar 的 stdin（`QCRED1 {json}` 一行），sidecar 之后每次登录/刷新/登出再从 stdout 交回来；
   sidecar 侧由 `QUAVER_CREDENTIAL_MODE=external` 声明，**自己不读写任何凭证文件**。
-  **开发态也一样**（`npm run app` 会由主进程拉起 `vendor/Typhoeus/run.py`，优先用仓库里的
+  **开发态也一样**（`pnpm run app` 会由主进程拉起 `vendor/Typhoeus/run.py`，优先用仓库里的
   `.venv`，退回 `uv run`）—— 手工起 sidecar 拿不到那条管道，就只能只驻内存。
 - **`--password-store` 必须在 app ready 之前钉死**（ready 之后再 appendSwitch 是空操作），
   且 ready 之后要用 `safeStorage.getSelectedStorageBackend()` 校验：落在 `basic_text`
@@ -117,7 +117,7 @@ GNOME Keyring（Linux）、钥匙串（macOS）、凭据管理器 / DPAPI（Wind
 构建与签名目前只做了 Linux AppImage（`electron-builder` 的 `linux.target` 与 CI 都只出 AppImage），
 代码路径与平台分支有单测覆盖，但 Windows/macOS 的打包还没接。
 
-自检：`npm run verify:keyring`（后端选择与校验矩阵、密文存档、明文导入、两侧交接契约、
+自检：`pnpm run verify:keyring`（后端选择与校验矩阵、密文存档、明文导入、两侧交接契约、
 「无明文写出路径」的源码级护栏，纯 Node）。
 
 ## 播放管线（双后端）

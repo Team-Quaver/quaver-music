@@ -3,7 +3,7 @@
 Vite MPA（无框架）。启动 dev server 用后台模式：
 
 ```sh
-npm run dev -- --port 5173 --strictPort --host 127.0.0.1
+pnpm run dev -- --port 5173 --strictPort --host 127.0.0.1
 ```
 
 健康检查：`curl -s http://127.0.0.1:5173/index.html | head -5` 应返回 HTML；
@@ -43,7 +43,7 @@ npm run dev -- --port 5173 --strictPort --host 127.0.0.1
 **不删**（可能只是这次没拿到钥匙）；遗留明文**回读校验通过才删**，且只在明文比存档新时才导入
 （更旧的残留不许顶掉新登录态）。设备指纹 `device.json` 不是密钥，保持明文。
 
-**开发态也走同一条交接通道**（踩过一次）：`npm run app` 时主进程自己拉起
+**开发态也走同一条交接通道**（踩过一次）：`pnpm run app` 时主进程自己拉起
 `vendor/Typhoeus/run.py`（优先 `.venv/bin/python`，退回 `uv run`），必须在 vite 加载**之前**拉
 （`relay.ts` 在模块加载时读一次 `QUAVER_API`）。手工起的 sidecar 拿不到交接管道 → 只能 memory 模式，
 所以**不要再手工起 sidecar 并期望登录被持久化** —— 环境里已有 `QUAVER_API` 时主进程不抢，并在日志里说明。

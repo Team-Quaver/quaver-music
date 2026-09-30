@@ -87,7 +87,7 @@ CI（`.github/workflows/build.yml`）产出 x86_64 / aarch64 双架构 AppImage�
 
 | 触发 | 版本号 | 发布 |
 | --- | --- | --- |
-| 打 `v*` tag | tag 去掉 `v` | 正式 Release |
+| 打 `v*` tag | tag 去掉 `v` | Release **草稿**（人工核对后手动 Publish） |
 | 每夜定时（每天 18:00 UTC）/ 手动勾 `nightly` | `<package.json 版本>-<短 commit id>-nightly` | 滚动 Release `nightly`（覆盖上一次） |
 | push main / PR | `package.json` 里的值 | 不发布，只出 artifact |
 

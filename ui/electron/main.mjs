@@ -152,7 +152,7 @@ function toggleWindow() {
 function mprisDaemonPath() {
   // 打包态：electron-builder extraResources 把编译产物放到 <resources>/mpris/
   if (app.isPackaged) return join(process.resourcesPath, "mpris", "mpris-daemon.cjs");
-  // 开发态：vendor/Typhoeus/mpris/dist/（npm run build:mpris 产物，缺失则跳过 MPRIS）
+  // 开发态：vendor/Typhoeus/mpris/dist/（pnpm run mpris:build 产物，缺失则跳过 MPRIS）
   return resolve(UI_ROOT, "..", "vendor", "Typhoeus", "mpris", "dist", "mpris-daemon.cjs");
 }
 
@@ -164,7 +164,7 @@ let mprisDaemon = null; // 当前 daemon 子进程
 let mprisSpawnedAt = 0; // 上次拉起时刻（崩溃重拉的存活判据）
 
 function startMpris() {
-  if (process.platform !== "linux") return; // 本期只做 Linux MPRIS；macOS/Windows 原生媒体键另议
+  if (process.platform !== "linux") return; // Linux MPRIS；win/mac 由渲染层 navigator.mediaSession 直驱（src/mpris.ts）
   const script = mprisDaemonPath();
   if (!existsSync(script)) {
     log("[quaver] mpris daemon missing, skipped:", script);
@@ -228,7 +228,8 @@ function mprisWrite(state) {
   }
 }
 
-// 渲染层快照（preload quaverMpris.send）→ 直写 daemon stdin
+// 渲染层快照（preload quaverMpris.send）→ 直写 daemon stdin（win/mac 无 daemon，
+// 系统媒体控件由渲染层 navigator.mediaSession 直驱，不经主进程）
 ipcMain.on("quaver:mpris", (_e, state) => {
   if (state && state.t === "state") mprisWrite(state);
 });
@@ -366,7 +367,7 @@ async function waitSidecar(port, timeoutMs = 15000) {
 }
 
 function serveStatic() {
-  // dist 缺失时的友好错误页（先 npm run build）
+  // dist 缺失时的友好错误页（先 pnpm run build）
   const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".png": "image/png", ".json": "application/json", ".jpg": "image/jpeg" };
   const server = createServer(async (req, res) => {
     const path = decodeURIComponent((req.url || "/").split("?")[0]);
@@ -375,7 +376,7 @@ function serveStatic() {
     if (!existsSync(file) || !file.startsWith(DIST)) {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       return res.end(`<!doctype html><meta charset="utf-8"><body style="font:14px system-ui;padding:40px">
-        <h2>dist/ 不存在</h2><p>先构建再启动应用：<code>cd ui &amp;&amp; npm run build &amp;&amp; npm run app</code></p></body>`);
+        <h2>dist/ 不存在</h2><p>先构建再启动应用：<code>cd ui &amp;&amp; pnpm run build &amp;&amp; pnpm run app</code></p></body>`);
     }
     res.writeHead(200, { "content-type": types[extname(file)] ?? "application/octet-stream" });
     res.end(await readFile(file));
@@ -660,10 +661,11 @@ ipcMain.on("quaver:decor", (_e, mode) => {
 // 但要关掉 Electron 内嵌 Chromium 的 MPRIS mediator：渲染层 HTML5 音频开播后，
 // Chromium 自己会注册 org.mpris.MediaPlayer2.chromium.instance<pid>（Identity 用页面标题），
 // 与 Quaver 的 mpris daemon 在总线上双条目并存、互抢桌面部件/媒体键（实测 electron#18253 workaround）。
-// Quaver 不用 navigator.mediaSession，全局媒体键由我们自己的 daemon 经 MPRIS 提供 → 关掉零副作用。
-// AutofillServerCommunication 一并关掉：本应用没有表单自动填充，省掉它的服务端通信与常驻状态。
-if (!process.env.QUAVER_KEEP_MEDIATOR) {
-  app.commandLine.appendSwitch("disable-features", "MediaSessionService,HardwareMediaKeyHandling,AutofillServerCommunication");
+// Quaver 不用 navigator.mediaSession 挂 MPRIS，全局媒体键由我们自己的 daemon 提供。
+// 仅 Linux 关掉：win/mac 的系统媒体控件（SMTC / Now Playing）恰恰依赖渲染层
+// navigator.mediaSession（src/mpris.ts），关掉 MediaSessionService 它们就全瞎了。
+if (process.platform === "linux" && !process.env.QUAVER_KEEP_MEDIATOR) {
+  app.commandLine.appendSwitch("disable-features", "MediaSessionService,HardwareMediaKeyHandling");
 }
 // 渲染进程 V8 老生代上限：本应用的数据面很小（千首级歌单/队列也就几 MB 的 JS 对象），V8 默认
 // 无上限会按堆增长启发式惰性扩堆，渲染进程 RSS 轻松上 400MB。钉一个 256MB 顶部逼 V8 提前回收，

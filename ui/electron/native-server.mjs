@@ -145,7 +145,7 @@ function readBody(req) {
 }
 
 const MISSING_DIST_PAGE = `<!doctype html><meta charset="utf-8"><body style="font:14px system-ui;padding:40px">
-  <h2>dist/ 不存在</h2><p>先构建再启动应用：<code>cd ui &amp;&amp; npm run build &amp;&amp; npm run app</code></p></body>`;
+  <h2>dist/ 不存在</h2><p>先构建再启动应用：<code>cd ui &amp;&amp; pnpm run build &amp;&amp; pnpm run app</code></p></body>`;
 
 /**
  * @param {{dist: string, logFile?: string, host?: string, port?: number, pluginsRoot?: string}} opts
