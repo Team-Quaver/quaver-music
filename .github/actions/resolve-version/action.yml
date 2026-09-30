@@ -31,7 +31,11 @@ runs:
         NIGHTLY: ${{ inputs.nightly }}
       run: |
         set -euo pipefail
-        ui_dir="$GITHUB_ACTION_PATH/../../ui"   # action 在 <repo>/.github/actions/resolve-version/
+        # 本地 action 只能在本仓内引用，GITHUB_WORKSPACE 即仓库根 —— ui/ 的定位走它。
+        # 别用 $GITHUB_ACTION_PATH 数层级：从 resolve-version/ 上两级只到 .github/ 而非
+        # 仓库根（少算一级），拼出 <repo>/.github/ui 直接 MODULE_NOT_FOUND —— tag 构建
+        # 走 elif 短路碰不到 require，绿灯 run 一直掩盖着这条只有 push/nightly 才踩的雷。
+        ui_dir="$GITHUB_WORKSPACE/ui"
         if [[ "$NIGHTLY" == "true" ]]; then
           base=$(node -p "require('$ui_dir/package.json').version")
           sha="${GITHUB_SHA:0:7}"

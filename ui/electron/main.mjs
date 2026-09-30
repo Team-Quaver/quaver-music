@@ -441,6 +441,23 @@ async function createWindow() {
       sandbox: false, // preload 只用 ipcRenderer/contextBridge；Linux chrome-sandbox 权限链路复杂，先绕开
     },
   });
+  // —— 关闭浏览器式「全局导航」（中键不许跳转/开新窗口）——
+  // 应用内跳转只有两条正路：渲染层 hash 路由（不经过 will-navigate）与登录流程的
+  // 同 origin 整页 location.href。其余浏览器级导航一律关死：
+  //   • 中键/Ctrl+点击链接、window.open、target=_blank —— Electron 缺省会弹一个
+  //     新 BrowserWindow（「中键打开新窗口」的来源），setWindowOpenHandler 一律拒绝；
+  //   • 离开应用 origin 的顶层导航（拖文件进窗、误触 form 提交等）—— will-navigate 拦下。
+  // 渲染层还有一份中键就地拦截（src/main.ts）：浏览器 dev 态没有主进程兜底，靠那份生效。
+  const appOrigin = new URL(url).origin;
+  win.webContents.setWindowOpenHandler(({ url: openUrl }) => {
+    log("[quaver] 已拒绝新窗口请求:", openUrl);
+    return { action: "deny" };
+  });
+  win.webContents.on("will-navigate", (e, navUrl) => {
+    try { if (new URL(navUrl).origin === appOrigin) return; } catch {}
+    e.preventDefault();
+    log("[quaver] 已拦截页面跳转:", navUrl);
+  });
   win.loadURL(url);
   win.webContents.on("did-finish-load", () => log("[quaver] page loaded OK"));
   win.webContents.on("did-fail-load", (_e, code, desc) => log("[quaver] load FAIL", code, desc));

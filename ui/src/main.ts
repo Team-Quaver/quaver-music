@@ -21,6 +21,33 @@ window.addEventListener(
   { capture: true },
 );
 
+// —— 全局输入治理（桌面客户端口径）——
+// ① 中键不许「跳转/打开新窗口」：点在链接上，浏览器（含 Electron webview）缺省会开
+//    新窗口/新标签跳走，这不是预期行为。mousedown 阶段拦掉自动滚动起点，auxclick 阶段
+//    拦掉「新窗口打开」这个缺省动作 —— Electron 主进程另有 setWindowOpenHandler 兜底，
+//    浏览器 dev 态没有主进程，全靠这里。不碰输入框（Linux 中键粘贴仍可用）。
+// ② 鼠标左键按下按钮类元素不转移焦点：点按钮偷焦点是浏览器缺省行为，而空格键会被那个
+//    还带着焦点的按钮吞掉 —— 将来空格=暂停、回车=导航确认的键盘操作都要靠焦点不落在
+//    随手点过的按钮上。只拦左键（其它键无焦点语义）；输入类控件不拦（点搜索框要能打字，
+//    音量条等原生控件也依赖焦点）。焦点只留给未来的键盘导航系统显式落焦。
+const interactive = (t: EventTarget | null) =>
+  t instanceof Element && t.closest("button, [role=\"button\"], a");
+const linkish = (t: EventTarget | null) =>
+  t instanceof Element && t.closest("a[href]");
+window.addEventListener(
+  "mousedown",
+  (e) => {
+    if (e.button === 1 && linkish(e.target)) e.preventDefault();
+    else if (e.button === 0 && interactive(e.target)) e.preventDefault();
+  },
+  { capture: true },
+);
+window.addEventListener(
+  "auxclick",
+  (e) => { if (e.button === 1 && linkish(e.target)) e.preventDefault(); },
+  { capture: true },
+);
+
 if (!location.hash) location.replace("#/");
 bootShell();
 // Sparkle 插件系统：必须在 bootShell 之后（要操作 nav DOM / np 插槽 / views 查表）；
