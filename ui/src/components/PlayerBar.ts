@@ -170,9 +170,14 @@ export function PlayerBar(): HTMLElement {
   };
   void initQuality();
 
-  // 滚轮在 Bar 上 = 微调音量
+  // 滚轮在 Bar 上 = 微调音量。音质控件例外：
+  // 浮窗上把滚轮还给菜单自身的 overflow-y 滚动（这里 preventDefault 会杀掉原生滚动）；
+  // 胶囊上无内容可滚也不该动音量，吞掉即可（.frame overflow:hidden，吞掉不会漏滚页面）。
   el.addEventListener("wheel", (e) => {
+    const t = e.target as HTMLElement;
+    if (t.closest("#pb-qpop")) return;
     e.preventDefault();
+    if (t.closest("#pb-quality")) return;
     player.setVolume(player.volume - Math.sign(e.deltaY) * 0.04);
   }, { passive: false });
 
