@@ -165,6 +165,8 @@ ok("si: 解析器导出齐备",
 ok("relay: Range 透传仍在（探测走的是播放流同一条中继）",
   has(src.relay, 'headers.set("range", range)'));
 ok("api: 音质档位短表在场（胶囊文案依赖）", has(src.api, "export const QUALITY_SHORT"));
+ok("np: 胶囊显示实际已应用档位（lastStream 优先，未播放回落设置）",
+  has(src.np, "player.current && ls") && re(src.np, /ls\.degraded \? "↓" : ""/));
 
 console.log(`\n${checks - fails}/${checks} passed${fails ? ` — ${fails} FAILED` : ""}`);
 process.exit(fails ? 1 : 0);

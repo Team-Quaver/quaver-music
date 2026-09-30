@@ -48,8 +48,8 @@ export function mp3FrameOffset(head: Uint8Array): number | null {
 }
 
 /** FLAC：STREAMINFO 永远是第一个元数据块（4 magic + 4 块头 + 34 字节块体，规格保证）。
- *  块体布局：0-9 = min/max block/frame size，10-12 = 采样率(20b)+声道(3b)+位深(5b)，
- *  13-17 = 总样本数(36b)。RATE 指向采样率字段的绝对偏移（= 8 + 10）。 */
+ *  块体布局：0-9 = min/max block/frame size，10-12 = 采样率(20b,按 12+8 打包)+声道(3b)+位深(5b)，
+ *  13-17 = 总样本数(36b)。s 指向采样率字段的绝对偏移（= 8 + 10）。 */
 function parseFlac(b: Uint8Array, totalSize: number): StreamInfo | null {
   if (b.length < 42 || b[4] >> 7 || (b[4] & 0x7f) !== 0) return null; // 首块必须是 STREAMINFO
   const s = 18;
