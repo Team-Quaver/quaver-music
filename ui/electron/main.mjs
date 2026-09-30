@@ -662,11 +662,15 @@ ipcMain.on("quaver:decor", (_e, mode) => {
 // Chromium 自己会注册 org.mpris.MediaPlayer2.chromium.instance<pid>（Identity 用页面标题），
 // 与 Quaver 的 mpris daemon 在总线上双条目并存、互抢桌面部件/媒体键（实测 electron#18253 workaround）。
 // Quaver 不用 navigator.mediaSession 挂 MPRIS，全局媒体键由我们自己的 daemon 提供。
-// 仅 Linux 关掉：win/mac 的系统媒体控件（SMTC / Now Playing）恰恰依赖渲染层
-// navigator.mediaSession（src/mpris.ts），关掉 MediaSessionService 它们就全瞎了。
+// MediaSessionService 仅 Linux 关：win/mac 的系统媒体控件（SMTC / Now Playing）恰恰依赖
+// 渲染层 navigator.mediaSession（src/mpris.ts），关掉 MediaSessionService 它们就全瞎了。
+// AutofillServerCommunication 与媒体键无关，全平台关：本应用没有表单自动填充，省掉它的
+// 服务端通信与常驻状态（内存优化）。合成一次 appendSwitch —— disable-features 不发两次。
+const disabledFeatures = ["AutofillServerCommunication"];
 if (process.platform === "linux" && !process.env.QUAVER_KEEP_MEDIATOR) {
-  app.commandLine.appendSwitch("disable-features", "MediaSessionService,HardwareMediaKeyHandling");
+  disabledFeatures.push("MediaSessionService", "HardwareMediaKeyHandling");
 }
+app.commandLine.appendSwitch("disable-features", disabledFeatures.join(","));
 // 渲染进程 V8 老生代上限：本应用的数据面很小（千首级歌单/队列也就几 MB 的 JS 对象），V8 默认
 // 无上限会按堆增长启发式惰性扩堆，渲染进程 RSS 轻松上 400MB。钉一个 256MB 顶部逼 V8 提前回收，
 // 行为零变化（正常使用远碰不到这个顶）。js-flags 只作用于 Chromium 子进程（渲染层/工具进程），

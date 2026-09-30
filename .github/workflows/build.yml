@@ -265,7 +265,7 @@ jobs:
         run: |
           ARGS="--linux AppImage --${{ matrix.electron_arch }} --publish never"
           ARGS="$ARGS --config.extraMetadata.version=${{ steps.version.outputs.version }}"
-          npx electron-builder $ARGS
+          pnpm exec electron-builder $ARGS
 
       # 断言打进包里的运行时真能跑：跨架构/缺库不会报错、只会跑不起来（exec 126），
       # 且 AppImage 是只读挂载 —— 运行时没法 chmod 补救，必须在 CI 就验过。
@@ -387,7 +387,7 @@ jobs:
           cp -r dist "$APP/dist"
           node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version='${QUAVER_VERSION}'; fs.writeFileSync('$APP/package.json', JSON.stringify(p,null,2))"
           mkdir -p "$PKG/opt/quaver/resources"
-          npx --yes @electron/asar pack "$APP" "$PKG/opt/quaver/resources/app.asar"
+          pnpm dlx @electron/asar pack "$APP" "$PKG/opt/quaver/resources/app.asar"
 
           mkdir -p "$PKG/opt/quaver/resources/bin" "$PKG/opt/quaver/resources/mpris" "$PKG/opt/quaver/resources/build-res"
           cp ../dist-bin/quaver-server "$PKG/opt/quaver/resources/bin/"
@@ -534,7 +534,7 @@ jobs:
         env:
           QUAVER_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          npx electron-builder --win nsis --${{ matrix.arch_label }} --publish never \
+          pnpm exec electron-builder --win nsis --${{ matrix.arch_label }} --publish never \
             --config.extraMetadata.version=${{ steps.version.outputs.version }}
 
       - uses: actions/upload-artifact@v7
@@ -620,7 +620,7 @@ jobs:
           QUAVER_VERSION: ${{ steps.version.outputs.version }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"   # 无证书，跳过签名（identity: null 兜底）
         run: |
-          npx electron-builder --mac dmg --arm64 --publish never \
+          pnpm exec electron-builder --mac dmg --arm64 --publish never \
             --config.extraMetadata.version=${{ steps.version.outputs.version }}
 
       # 挂载 dmg 验随包运行时与 sidecar 确实在位（arm 原生跑）

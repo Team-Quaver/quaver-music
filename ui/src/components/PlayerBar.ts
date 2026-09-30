@@ -106,8 +106,12 @@ export function PlayerBar(): HTMLElement {
   const qBtn = $<HTMLButtonElement>("pb-quality"), qPop = $("pb-qpop");
   let tierList: { id: string; label: string; locked?: number | boolean }[] = [];
   let qReady = false;
+  let qSig = "";
   function paintQ() {
-    if (!qReady) { qBtn.textContent = "…"; qBtn.disabled = true; return; }
+    if (!qReady) {
+      if (qSig !== "…") { qSig = "…"; qBtn.textContent = "…"; qBtn.disabled = true; }
+      return;
+    }
     qBtn.disabled = false;
     const ls = getLastStream();
     const want = getSessionQuality();
@@ -115,10 +119,14 @@ export function PlayerBar(): HTMLElement {
     const label = player.current && ls
       ? (ls.degraded ? "↓" : "") + (QUALITY_SHORT[ls.tier] ?? ls.label)
       : (QUALITY_SHORT[want ?? effectiveQuality()] ?? "音质");
-    qBtn.textContent = label;
-    qBtn.title = want
+    const title = want
       ? `音质：${label}（本会话选择，不保存；关窗后回到设置页默认）`
       : "音质（点此切换，仅本会话生效不保存；高档不可及时自动回退到可播档）";
+    const sig = label + "|" + (want ?? "");
+    if (sig === qSig) return;
+    qSig = sig;
+    qBtn.textContent = label;
+    qBtn.title = title;
     qBtn.classList.toggle("active", !!want);
     if (el.classList.contains("q-open")) syncSel();
   }
@@ -204,15 +212,20 @@ export function PlayerBar(): HTMLElement {
   el.addEventListener("pointerup", endScrub);
   el.addEventListener("pointercancel", endScrub);
 
-  // 音量浮窗绘制（滑杆填充 --v + 图标档位 + 读数）
+  // 音量浮窗绘制（滑杆填充 --v + 图标档位 + 读数）；图标 innerHTML 按档位守卫
+  let lastVolIcon = "";
   function paintVol() {
     const v = document.activeElement === vol ? Number(vol.value) / 100 : player.muted ? 0 : player.volume;
     vol.style.setProperty("--v", `${Math.round(v * 100)}%`);
-    volnum.textContent = `${Math.round(v * 100)}%`;
+    const num = `${Math.round(v * 100)}%`;
+    if (volnum.textContent !== num) volnum.textContent = num;
     vol.classList.toggle("off", player.muted || v === 0);
     const ic = player.muted || v === 0 ? icons.volMute : v < 0.5 ? icons.volLow : v < 0.99 ? icons.volMid : icons.volHigh;
-    mute.innerHTML = ic;
-    mute2.innerHTML = ic;
+    if (ic !== lastVolIcon) {
+      lastVolIcon = ic;
+      mute.innerHTML = ic;
+      mute2.innerHTML = ic;
+    }
     mute.classList.toggle("on", player.muted);
     mute2.classList.toggle("on", player.muted);
   }
@@ -232,40 +245,55 @@ export function PlayerBar(): HTMLElement {
     document.documentElement.style.setProperty("--np-hl", c.line);
   }
 
-  // 订阅状态
+  // 订阅状态。notify 是 ~4Hz 的位置广播：所有 DOM 写入先比对签名再落，
+  // 否则每帧重建 <img>/SVG 会反复触发图片重解码与 GC，把 V8 堆顶在高位。
+  let lastTitle = "", lastSub = "", lastCover = "", lastPlaySig = "", lastLoop = "", lastLove = "", lastErr = "";
+  let lastMarkKey: string | undefined;
   player.on(() => {
     const s = player.current;
-    title.textContent = s ? songTitle(s) : "未在播放";
-    // 实际档位不在这里展示：播放条右侧的可选音质胶囊（paintQ）已承载「已应用档位」信息
-    sub.innerHTML = s
-      ? (s.singer ?? []).map((x) => x.name).join(" / ")
-      : "点一首歌试试";
+    const titleText = s ? songTitle(s) : "未在播放";
+    if (titleText !== lastTitle) { title.textContent = titleText; lastTitle = titleText; }
+    // 错误条与歌手行共用 sub：签名含错误文案，出现/变化/消失各重画一次
+    const singerLine = s ? (s.singer ?? []).map((x) => x.name).join(" / ") : "点一首歌试试";
+    const subSig = player.error && !player.loading ? "ERR:" + player.error : singerLine;
+    if (subSig !== lastSub) {
+      lastSub = subSig;
+      if (player.error && !player.loading) {
+        const e = document.createElement("i");
+        e.className = "pb-err";
+        e.textContent = player.error;
+        sub.innerHTML = "";
+        sub.append(e);
+      } else sub.innerHTML = singerLine;
+    }
     const pic = s ? coverUrl(s, 150) : "";
-    cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : "";
+    if (pic !== lastCover) { lastCover = pic; cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : ""; }
     void paintTint(pic);
     // 中央按钮三态：取链/缓冲=spinner（点击=取消）；出错=重试图标；常规=播放/暂停
     el.classList.toggle("loading", player.loading);
-    if (player.loading) play.innerHTML = icons.spinner;
-    else if (player.error) play.innerHTML = icons.retry;
-    else play.innerHTML = player.playing ? icons.pause : icons.play;
-    play.setAttribute("title", player.loading ? "加载中，点击取消" : player.error ? "加载失败，点击重试" : "播放/暂停");
-    if (player.error && !player.loading) {
-      const e = document.createElement("i");
-      e.className = "pb-err";
-      e.textContent = player.error;
-      sub.innerHTML = "";
-      sub.append(e);
+    const playSig = player.loading ? "load" : player.error ? "err" : player.playing ? "play" : "pause";
+    if (playSig !== lastPlaySig) {
+      lastPlaySig = playSig;
+      play.innerHTML = player.loading ? icons.spinner : player.error ? icons.retry : player.playing ? icons.pause : icons.play;
+      play.setAttribute("title", player.loading ? "加载中，点击取消" : player.error ? "加载失败，点击重试" : "播放/暂停");
     }
     paintQ();
-    loop.innerHTML = player.mode === "off" ? icons.loopOff : player.mode === "all" ? icons.loopAll : icons.loopOne;
-    loop.classList.toggle("on", player.mode !== "off");
-    // 「列表循环」与「单曲循环」的图形只差一个 9px 的「1」，光看图标分不出来 —— 把模式名挂到
-    // title / aria-label 上，悬停与读屏都能确认当前处于哪一档（顺序 → 列表 → 单曲 三态轮转）。
-    const loopName = player.mode === "off" ? "顺序播放" : player.mode === "all" ? "列表循环" : "单曲循环";
-    loop.title = `${loopName}（点击切换）`;
-    loop.setAttribute("aria-label", `循环模式：${loopName}`);
-    love.innerHTML = s && player.loved.has(s.mid) ? icons.heartFill : icons.heart;
-    love.classList.toggle("on", !!s && player.loved.has(s.mid));
+    if (player.mode !== lastLoop) {
+      lastLoop = player.mode;
+      loop.innerHTML = player.mode === "off" ? icons.loopOff : player.mode === "all" ? icons.loopAll : icons.loopOne;
+      loop.classList.toggle("on", player.mode !== "off");
+      // 「列表循环」与「单曲循环」的图形只差一个 9px 的「1」，光看图标分不出来 —— 把模式名挂到
+      // title / aria-label 上，悬停与读屏都能确认当前处于哪一档（顺序 → 列表 → 单曲 三态轮转）。
+      const loopName = player.mode === "off" ? "顺序播放" : player.mode === "all" ? "列表循环" : "单曲循环";
+      loop.title = `${loopName}（点击切换）`;
+      loop.setAttribute("aria-label", `循环模式：${loopName}`);
+    }
+    const loveSig = (s?.mid ?? "") + (s && player.loved.has(s.mid) ? "1" : "0");
+    if (loveSig !== lastLove) {
+      lastLove = loveSig;
+      love.innerHTML = s && player.loved.has(s.mid) ? icons.heartFill : icons.heart;
+      love.classList.toggle("on", !!s && player.loved.has(s.mid));
+    }
     // 画廊模式按钮点亮 = 正在播放页正处于全屏画廊会话
     gallery.classList.toggle("on", player.gallery && player.expanded);
     if (!dragging) {
@@ -276,7 +304,8 @@ export function PlayerBar(): HTMLElement {
     }
     if (document.activeElement !== vol) vol.value = String(Math.round((player.muted ? 0 : player.volume) * 100));
     paintVol();
-    player.markActive();
+    // 行高亮只需在换曲时重扫（视图重画处会显式调 markActive，见 views/songs）
+    if (s?.mid !== lastMarkKey) { lastMarkKey = s?.mid; player.markActive(); }
   });
   return el;
 }

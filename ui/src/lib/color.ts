@@ -2,7 +2,18 @@
 // 24x24 量化取主色（4bit/通道分桶，票数为主、饱和度破平），再调成适合浅色 UI 的柔和填充。
 export type RGB = { r: number; g: number; b: number };
 
+// LRU 上限：条目本身极小（URL → RGB），但封面 URL 无限多，长期驻留没必要
+const CACHE_MAX = 256;
 const cache = new Map<string, RGB | null>();
+
+function cacheSet(key: string, v: RGB | null) {
+  cache.delete(key);          // 重插到队尾 = MRU
+  cache.set(key, v);
+  if (cache.size > CACHE_MAX) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+}
 
 const proxied = (url: string) => "/api/img?u=" + encodeURIComponent(url);
 
@@ -109,6 +120,6 @@ export async function extractCoverColor(url: string): Promise<RGB | null> {
   } catch {
     out = null; // 中继不可用（如壳层 file:// 直开）：退回默认青色
   }
-  cache.set(url, out);
+  cacheSet(url, out);
   return out;
 }
