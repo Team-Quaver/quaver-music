@@ -34,7 +34,7 @@ const code = noComments(qp);
 ok("形态与开合解耦：applyLayout() 只管 dock/float，applyOpen() 只管 .open",
   re(code, /function applyLayout\(\): boolean \{/) && re(code, /function applyOpen\(\) \{/));
 ok("applyLayout 返回「是否换了父节点」（换过才需要推迟 .open）",
-  re(code, /want\.append\(el\);\s*return true;/) && re(code, /return false;/));
+  re(code, /want\.append\(el\);[\s\S]*?return true;/) && re(code, /return false;/));
 ok("换过父节点：先摘掉 .open，再 requestAnimationFrame 补上",
   re(code, /if \(applyLayout\(\)\) \{\s*el\.classList\.remove\("open"\);\s*requestAnimationFrame\(applyOpen\);/));
 ok("启动时就定形态（首展不再换父节点 = 这次修的核心）",

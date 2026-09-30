@@ -153,10 +153,15 @@ export function QueuePanel(): HTMLElement {
   }
 
   player.on(() => {
-    syncMount();
-    const s = player.queue.map((q) => q.mid).join(",") + "#" + player.index + "#" + player.playing + "#" + player.loading;
+    // 签名 = 队列内容版本 + 指针/播放态 + 两个布局相关开关。版本号由 player 在队列
+    // 变更处自增 —— 位置广播是 4Hz 的，拿整条队列拼字符串比对（千首队列 ≈ 每次 20KB）
+    // 是持续白烧 GC；syncMount 也收进守卫：它读 clientWidth 会强制布局，无需每帧跑
+    // （宽度变化由 ResizeObserver 独立覆盖，expanded/queueOpen 在签名里）。
+    const s = player.queueVersion + "#" + player.index + "#" + player.playing + "#"
+      + player.loading + "#" + player.expanded + "#" + player.queueOpen;
     if (s === sig) return; // 内容没变不重建
     sig = s;
+    syncMount();
     cnt.textContent = player.queue.length ? `${player.queue.length} 首` : "";
     // 拖拽中**绝不重建**：整表重画会把正在拖的那一行连节点带监听一起换掉，表现就是
     // 「拖到一半突然不动了」—— notify 是 4Hz 的位置广播，随时可能踩进来（缓冲完成、

@@ -214,6 +214,7 @@ export function NowPlaying(): HTMLElement {
   let lastMid = "";        // 歌词行 DOM 只在换曲/状态迁移时重建
   let lastLyricState = "";
   let lastIdx = -1;        // 高亮行索引（避免每帧改 class）
+  let lastCover: string | null = null; // 封面 img 的 src 签名（4Hz notify 里防 <img> 重建/重解码）
   let lineEls: HTMLElement[] = [];
 
   // —— 逐字歌词（Sparkle 逐字提供器接管 .np-kara-host）——
@@ -405,9 +406,11 @@ export function NowPlaying(): HTMLElement {
     if (transSw && menuOpen()) transSw.checked = player.showTrans;
     if (!open && !s) return;
 
-    // 背景：封面模糊放大（交叉淡化，见 applyBg）；侧栏封面同一张图
+    // 背景：封面模糊放大（交叉淡化，见 applyBg）；侧栏封面同一张图。
+    // 封面 img 按 src 守卫：notify 是 4Hz 广播，无条件重建 <img> 会反复触发重解码
     const pic = s ? coverUrl(s, 300) : "";
     applyBg(pic);
+    if (pic !== lastCover) { lastCover = pic; cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : `<div class="np-cover-ph">${icons.disc ?? ""}</div>`; }
 
     // 换曲 / 歌词状态迁移 / 逐字模式切换（loading→ok/none 时行 DOM 需要重建，否则占位/歌词丢失）
     const st: "idle" | "loading" | "ok" | "none" = player.lyrics.length ? "ok" : player.lyricState;
@@ -422,7 +425,6 @@ export function NowPlaying(): HTMLElement {
     setTitle(s ? songTitle(s) : "未在播放");
     const albumName = (s as any)?.album?.name ?? "";
     setArtist(s ? [(s.singer ?? []).map((x) => x.name).join(" / "), albumName].filter(Boolean).join(" - ") : "");
-    cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : `<div class="np-cover-ph">${icons.disc ?? ""}</div>`;
 
     // 高亮当前歌词行 + 滚动居中（翻阅模式暂停自动跟随；3s 静默或点击行号恢复；逐字模式由渲染器接管）
     if (lineEls.length) {

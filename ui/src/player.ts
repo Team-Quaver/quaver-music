@@ -55,6 +55,9 @@ class Player {
   private transport: Transport = new WebTransport();
   queue: Song[] = [];
   index = -1;
+  /** 队列内容版本号：任何队列变更 +1（QueuePanel 据此做 4Hz 去重，
+   *  免得每次位置广播都把整条队列拼成大字符串比对） */
+  queueVersion = 0;
   mode: Mode = "all";
   loved = new Set<string>(JSON.parse(localStorage.getItem(LS_KEY) ?? "[]"));
   /** 红心态版本号：每次变更 +1（UI 侧据此去重，避免 notify 空转重画几百行） */
@@ -204,6 +207,7 @@ class Player {
     this.queue = snap.queue;
     this.index = snap.index;
     this.mode = snap.mode;
+    this.queueVersion++;
     this.savedPos = snap.position;
     this.notify();
     this.sessionReady = true;
@@ -397,6 +401,7 @@ class Player {
   playList(songs: Song[], i = 0) {
     this.queue = songs.filter((s) => s?.mid);
     this.index = Math.max(0, Math.min(i, this.queue.length - 1));
+    this.queueVersion++;
     void this.startCurrent();
   }
 
@@ -407,6 +412,7 @@ class Player {
   enqueueNext(song: Song) {
     if (!song?.mid) return;
     if (this.index < 0 || !this.queue.length) { this.playList([song], 0); return; }
+    this.queueVersion++;
     this.queue.splice(this.index + 1, 0, song);
     this.notify();
   }
@@ -420,6 +426,7 @@ class Player {
     if (this.index < 0 || !this.queue.length) { this.playList([song], 0); return; }
     this.queue.splice(this.index + 1, 0, song);
     this.index++;
+    this.queueVersion++;
     void this.startCurrent();
   }
 
@@ -429,6 +436,7 @@ class Player {
     if (i < 0 || i >= this.queue.length) return;
     const cur = this.index;
     this.queue.splice(i, 1);
+    this.queueVersion++;
     if (!this.queue.length) { this.index = -1; this.interrupt(); this.notify(); return; }
     if (i < cur) this.index = cur - 1;
     else if (i === cur) {
@@ -444,6 +452,7 @@ class Player {
     if (from === to || from < 0 || to < 0 || from >= n || to >= n) return;
     const [s] = this.queue.splice(from, 1);
     this.queue.splice(to, 0, s);
+    this.queueVersion++;
     if (this.index === from) this.index = to;
     else if (from < this.index && to >= this.index) this.index--;
     else if (from > this.index && to <= this.index) this.index++;
@@ -455,6 +464,7 @@ class Player {
     if (!this.queue.length && this.index < 0) { this.notify(); return; }
     this.queue = [];
     this.index = -1;
+    this.queueVersion++;
     this.interrupt();
     this.notify();
   }
