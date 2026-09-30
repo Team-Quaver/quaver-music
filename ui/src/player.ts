@@ -8,6 +8,7 @@ import {
   getVolume as getVolumeConf, setVolume as setVolumeConf,
   getMuted as getMutedConf, setMuted as setMutedConf,
   getShowTrans, setShowTrans,
+  getPrevBehavior,
   type DecodeBackend, type FadePreset,
 } from "./lib/prefs";
 import { WebTransport, EngineTransport, type Transport, type TransportEvent, type AudioDeviceInfo } from "./lib/transport";
@@ -720,7 +721,9 @@ class Player {
 
   prev() {
     if (!this.queue.length) return;
-    if (this.time > 3) { this.transport.seek(0); return; }
+    // 「上一首」逻辑（Playing.PrevReplay，设置页即时生效）：
+    // replay=把当前曲从头重放；previous=直接切到队列里的上一首
+    if (getPrevBehavior() === "replay") { this.transport.seek(0); return; }
     this.jump((this.index - 1 + this.queue.length) % this.queue.length);
   }
 

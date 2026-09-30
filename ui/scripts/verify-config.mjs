@@ -80,9 +80,10 @@ check("模板随读取落地", (readValues(), existsSync(FILE)));
 check("模板含全部段", ["[Style]", "[Window]", "[Playing]", "[Quality]", "[Security]"].every((s) => template().includes(s)));
 check("模板注释来自 schema", template().includes("可选 dark,light,follow-system"));
 eq("默认值与模板占位一致", (() => { const v = readValues().values; return v["Style.Style"] === "dark" && v["Playing.Backend"] === "MPV" && v["Quality.DefaultQuality"] === "Auto" && v["Quality.FallbackToQMAtmos"] === "False"; })(), true);
-eq("schema 默认值表条数", Object.keys(defaults()).length, 19); // WordByWord 移入 amll 插件设置；LyricScale 为行级歌词缩放
+eq("schema 默认值表条数", Object.keys(defaults()).length, 20); // WordByWord 移入 amll 插件设置；LyricScale 为行级歌词缩放；PrevReplay 为上一首按钮逻辑
 eq("音量默认 0.8", defaults()["Playing.Volume"], "0.8");
 eq("歌词翻译默认开", defaults()["Style.ShowTranslation"], "True");
+eq("上一首逻辑默认开（重放当前曲）", defaults()["Playing.PrevReplay"], "True");
 eq("侧栏默认展开", defaults()["Window.SidebarCollapsed"], "False");
 eq("侧栏宽度默认未自定义", defaults()["Window.SidebarWidth"], "");
 eq("队列宽度默认未自定义", defaults()["Window.QueueWidth"], "");
@@ -95,6 +96,9 @@ eq("非法音量被拒绝", writeValues({ "Playing.Volume": "1.5" }), []);
 eq("非法音量被拒绝（负数）", writeValues({ "Playing.Volume": "-0.1" }), []);
 eq("空音量被拒绝（Number('')===0 的坑）", writeValues({ "Playing.Volume": "" }), []);
 eq("合法音量写入", writeValues({ "Playing.Volume": "0.35" }), ["Playing.Volume"]);
+eq("非法布尔值被拒绝（上一首逻辑）", writeValues({ "Playing.PrevReplay": "maybe" }), []);
+eq("合法布尔值写入（上一首逻辑）", writeValues({ "Playing.PrevReplay": "False" }), ["Playing.PrevReplay"]);
+writeValues({ "Playing.PrevReplay": "True" }); // 后续断言不受影响，回到默认
 
 // ——— 权限 ———
 section("权限与原子写");
