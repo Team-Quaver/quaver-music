@@ -35,7 +35,12 @@ runs:
         # 别用 $GITHUB_ACTION_PATH 数层级：从 resolve-version/ 上两级只到 .github/ 而非
         # 仓库根（少算一级），拼出 <repo>/.github/ui 直接 MODULE_NOT_FOUND —— tag 构建
         # 走 elif 短路碰不到 require，绿灯 run 一直掩盖着这条只有 push/nightly 才踩的雷。
-        ui_dir="$GITHUB_WORKSPACE/ui"
+        # Windows runner 的 GITHUB_WORKSPACE 带反斜杠（D:\a\<owner>\<repo>），原样拼进下面的
+        # node -p "require('...')" 会被 JS 字符串当转义序列吃掉（\a、\q 非法转义 → 静默丢
+        # 反斜杠），变成 D:a<owner><repo>/ui/... MODULE_NOT_FOUND —— nightly 的 Windows job
+        # 专属雷，Linux/macOS 路径无反斜杠不炸。统一转正斜杠：Windows node 认 D:/a/...，
+        # 其余平台不含反斜杠，等于无操作。
+        ui_dir="${GITHUB_WORKSPACE//\\//}/ui"
         if [[ "$NIGHTLY" == "true" ]]; then
           base=$(node -p "require('$ui_dir/package.json').version")
           sha="${GITHUB_SHA:0:7}"
