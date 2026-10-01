@@ -94,3 +94,14 @@ export async function removeSongFromSonglist(
   const hit = mySonglists().find((x) => x.dirid === target.dirid);
   if (hit && Number(hit.songnum ?? 0) > 0) hit.songnum = Number(hit.songnum) - 1;
 }
+
+/** 删除整个自建歌单（PlaylistBaseWrite DelPlaylist）。走的是 DELETE /songlist/{dirid}
+ *  —— **没有** /songs 后缀，与上面的按歌移除是两条路由。dirid 缺失就无从下手，
+ *  静默吞掉等于「看起来删了其实没删」。成功后把本地缓存里的该歌单摘掉
+ *  （侧栏条目数据在 shell 侧另有一份，由调用方经回调自行摘除）。 */
+export async function deleteSonglist(target: { dirid: number; title?: string }): Promise<void> {
+  if (!Number(target?.dirid)) throw new Error("缺少歌单 dirid，无法删除");
+  const r = await api<{ ok: boolean }>(`/songlist/${target.dirid}`, { method: "DELETE" });
+  assertAccepted(r, "删除歌单");
+  if (items) items = items.filter((x) => x.dirid !== Number(target.dirid));
+}

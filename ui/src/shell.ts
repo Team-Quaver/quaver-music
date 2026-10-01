@@ -15,6 +15,7 @@ import { PlayerBar } from "./components/PlayerBar";
 import { NowPlaying } from "./components/NowPlaying";
 import { QueuePanel } from "./components/QueuePanel";
 import { SearchBox } from "./components/SearchBox";
+import { playPlaylistNow, openPlaylistMenu, type PlaylistMenuOptions } from "./components/PlaylistMenu";
 import { views, BACK_SVG } from "./views";
 import { extractCoverColor, toUiColors, type RGB } from "./lib/color";
 
@@ -319,7 +320,8 @@ const esc = (s: unknown) =>
 
 // 单个歌单条目：封面 + 标题（副行可选，收藏的歌单用来标创建者）
 // title 恒给：侧栏缩回后只剩封面图，鼠标悬停是唯一认得出来的途径。
-function plItem(x: any, sub = ""): HTMLElement {
+// menu 给了（自建/收藏两团）就挂双击播放与右键菜单；插件歌单组不挂。
+function plItem(x: any, sub = "", menu?: { kind: PlaylistMenuOptions["kind"]; onDeleted?: (pl: any) => void }): HTMLElement {
   const a = document.createElement("a");
   a.className = "pl";
   const pic = upPic(x.picurl || x.bigpic_url);
@@ -328,6 +330,15 @@ function plItem(x: any, sub = ""): HTMLElement {
   a.innerHTML = `<span class="thumb">${pic ? `<img src="${pic}" alt="" loading="lazy"/>` : ""}</span>
     <span class="pname"><span class="ptitle">${esc(title)}</span>${sub ? `<span class="psub">${esc(sub)}</span>` : ""}</span>`;
   a.href = `#/playlist?id=${encodeURIComponent(x.id ?? "")}&name=${encodeURIComponent(x.title ?? "歌单")}`;
+  if (menu) {
+    // 双击 = 直接播放该歌单（单击仍导航进歌单页；两击的第一次导航先落地，双击随即开播）
+    a.addEventListener("dblclick", () => { void playPlaylistNow(x); });
+    a.addEventListener("contextmenu", (e) => {
+      e.preventDefault(); // 不弹系统菜单
+      e.stopPropagation();
+      openPlaylistMenu(e.clientX, e.clientY, x, menu, a);
+    });
+  }
   return a;
 }
 
@@ -340,16 +351,28 @@ function renderSidebarPlaylists(box: HTMLElement) {
     box.innerHTML = `<div class="pl-empty">暂无歌单</div>`;
     return;
   }
-  const group = (label: string, list: any[], sub: (x: any) => string) => {
+  const group = (label: string, list: any[], sub: (x: any) => string, menu?: { kind: PlaylistMenuOptions["kind"]; onDeleted?: (pl: any) => void }) => {
     if (!list.length) return;
     const head = document.createElement("div");
     head.className = "pl-group";
     head.innerHTML = `<span>${label}</span><span class="pl-cnt">${list.length}</span>`;
     box.append(head);
-    for (const x of list) box.append(plItem(x, sub(x)));
+    for (const x of list) box.append(plItem(x, sub(x), menu));
   };
-  group("我创建的歌单", sidebarCreated, () => "");
-  group("收藏的歌单", favs ?? [], (x) => (x.nickname ? `${x.nickname} 创建` : ""));
+  // 自建歌单删除成功后从侧栏数据里摘掉并重画（playlists 数据层缓存由 deleteSonglist 自理）；
+  // 正开着被删歌单的详情页则立刻重渲染回上游真实状态，不留「还在」的缓存假象
+  group("我创建的歌单", sidebarCreated, () => "", {
+    kind: "created",
+    onDeleted: (x) => {
+      const at = sidebarCreated.indexOf(x);
+      if (at >= 0) sidebarCreated.splice(at, 1);
+      renderSidebarPlaylists(box);
+      const { path, query } = currentRoute();
+      if (path === "/playlist" && String(query.get("id") ?? "") === String(x.id)) void renderRoute();
+    },
+  });
+  // 收藏歌单取消收藏后由 favs 订阅重画（bootSidebar 已挂监听），这里不用回调
+  group("收藏的歌单", favs ?? [], (x) => (x.nickname ? `${x.nickname} 创建` : ""), { kind: "fav" });
   // 插件自定义歌单组（Sparkle）：条目 href 由插件给定（通常是它自己注册的路由）
   for (const g of sparkGroups) {
     if (!g.items.length) continue;
