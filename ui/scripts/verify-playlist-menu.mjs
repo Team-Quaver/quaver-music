@@ -4,6 +4,8 @@
 // **前端调用路径 ↔ sidecar 路由 ↔ 数据层** 三边对得上，以及几处
 // 「界面上很难一眼看出来」的语义分叉（整批插队不打断当前曲、
 // 删除歌单走 dirid 而不是 tid、拉歌单要分页拉全）。
+// 删除歌单路由 Python（quaver-typhoeus）与 Go（typhoeus-go）两侧都要有，
+// 打包态跑的是 Go 二进制 —— 缺一侧就是某一形态的 app 删不掉歌单。
 //
 // 用法：node scripts/verify-playlist-menu.mjs
 import { readFileSync } from "node:fs";
@@ -20,6 +22,8 @@ const src = {
   playlists: read("src/lib/playlists.ts"),
   favs: read("src/lib/favs.ts"),
   app: readFileSync(join(root, "..", "vendor", "Typhoeus", "quaver_server", "app.py"), "utf8"),
+  appGo: readFileSync(join(root, "..", "vendor", "Typhoeus-go", "server", "handlers_content.go"), "utf8")
+    + readFileSync(join(root, "..", "vendor", "Typhoeus-go", "server", "app.go"), "utf8"),
   pkg: read("package.json"),
 };
 
@@ -102,6 +106,15 @@ ok("plMenu: 缺 dirid 时删除项禁用（写接口的唯一定位缺失，点�
 ok("app.py: DELETE /songlist/{dirid} -> songlist.delete（PlaylistBaseWrite DelPlaylist）",
   re(src.app, /@app\.delete\("\/songlist\/\{dirid\}"\)[\s\S]{0,420}session\.client\.songlist\.delete\(dirid\)/));
 ok("app.py: 删除歌单要求登录态", re(src.app, /songlist_delete[\s\S]{0,460}need_login=True/));
+
+// ============ 4b. Go sidecar 同款路由（打包态跑 Go 二进制，两侧必须对齐） ============
+ok("go: DELETE /songlist/{dirid} 已注册", re(src.appGo, /mux\.HandleFunc\("DELETE \/songlist\/\{dirid\}", a\.handleSonglistDelete\)/));
+ok("go: handler 走 songlist.Delete（模块侧 PlaylistBaseWrite DelPlaylist）",
+  re(src.appGo, /handleSonglistDelete[\s\S]{0,600}a\.songlist\.Delete\(dirid\)/));
+ok("go: 删除要求登录态（call 的 needLogin 守卫）",
+  re(src.appGo, /handleSonglistDelete[\s\S]{0,400}a\.call\(true, func\(\) \(json\.RawMessage, error\) \{ return a\.songlist\.Delete\(dirid\) \}\)/));
+ok("go: retCode 兜底核验（业务码非零已在 ParseCGIData 报错，这里回 {ok} 信封）",
+  re(src.appGo, /handleSonglistDelete[\s\S]{0,600}retCode[\s\S]{0,200}writeOK\(w, map\[string\]any\{"ok": resp\.RetCode == 0\}\)/));
 
 // ============ 5. 取消收藏：走 favs 单一真相 ============
 ok("plMenu: 取消收藏走 toggleFavSonglist（乐观更新 + 失败回滚，与歌单页红心同一写入口）",
