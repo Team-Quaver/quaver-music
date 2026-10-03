@@ -108,8 +108,8 @@ ok("views: 两页都把工具条插在列表之前（工具条在上、行在下
 ok("views: 两页都在首帧主动画一次", (views.match(/tools\.(repaint|refreshCount)\(\)/g) ?? []).length >= 2);
 ok("我喜欢: 拉不到数据（未登录）时把工具条摘掉，不摆死控件",
   re(noComments(likedView), /if \(!cached\) \{\s*tools\.el\.remove\(\);/));
-ok("我喜欢: 取消收藏同步从原序 items 摘掉（否则重排会把它放回来）",
-  re(noComments(likedView), /const at = items\.indexOf\(song\);\s*if \(at >= 0\) items\.splice\(at, 1\);/));
+ok("我喜欢: 取消收藏同步从原序 items 与上屏序列 painted 摘掉（否则重排会把它放回来/触发无谓重画）",
+  re(noComments(likedView), /const at = items\.findIndex\(byKey\);\s*if \(at >= 0\) items\.splice\(at, 1\);\s*const pat = painted\.findIndex\(byKey\);\s*if \(pat >= 0\) painted\.splice\(pat, 1\);/));
 ok("我喜欢: 标题计数取「全部」而不是筛后的可见数",
   re(noComments(likedView), /setCount\(Math\.max\(items\.length, player\.likedTotal\)\)/));
 ok("歌单页: 从歌单删除同步从原序 all 摘掉", re(noComments(plView), /const at = all\.indexOf\(song\);\s*if \(at >= 0\) all\.splice\(at, 1\);/));

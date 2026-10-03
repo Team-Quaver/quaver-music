@@ -1,7 +1,7 @@
 // Quaver — 路由视图表（仅内容区渲染；播放器/侧栏常驻）
 // 视图函数: async (root, query) => cleanup?
 import { api, escHtml, getQuality, getStreamTiers, identityBadges, setQuality, setSessionQuality, stripEm, upPic, type Quality } from "./lib/api";
-import { renderSongRows, type RowHooks } from "./lib/songs";
+import { renderSongRows, renumberRows, type RowHooks } from "./lib/songs";
 import { songListTools } from "./components/ListTools";
 import { getMyMusicid, isFavSonglist, loadFavSonglists, onFavSonglistsChange, toggleFavSonglist } from "./lib/favs";
 import { pushHistory } from "./components/SearchBox";
@@ -770,19 +770,25 @@ async function likedView(root: HTMLElement) {
   const box = h("div", "rows", `<div class="muted">加载中…</div>`);
 
   let items: Song[] = []; // 原序 = 收藏顺序（服务端返回的顺序），工具条只读它
+  let painted: Song[] = []; // 最近一次上屏的序列（筛排后的副本）：列表级重画只在与缓存不一致时发生
   let shown = 0; // 标题计数（服务端 total 优先：超预载上限时也报真实总数）
   const setCount = (n: number) => { shown = Math.max(0, n); cnt.textContent = shown ? `· ${shown} 首` : ""; };
+  const keyOf = (s: Song) => String(s._key ?? s.mid ?? "");
   // 取消收藏：行淡出后移出本页 + 计数 -1。只在写接口确认后调用——失败已在 player 侧回滚，不会触发
   const dropRow = (song: Song) => {
-    // 从原序里也摘掉：player.likedCache 是**换新数组**（filter），这里的 items 还指着旧数组，
-    // 不摘的话下次重排/筛选会把这行放回来。
-    const at = items.indexOf(song);
-    if (at >= 0) items.splice(at, 1);
-    const key = String(song._key ?? song.mid ?? "");
+    const key = keyOf(song);
     const row = key ? box.querySelector<HTMLElement>(`.row[data-songkey="${CSS.escape(key)}"]`) : null;
-    if (row && !row.classList.contains("leaving")) {
+    if (row?.classList.contains("leaving")) return; // 已在淡出：别把计数扣两次
+    // 从原序与上屏序列里都摘掉：player.likedCache 是**换新数组**（filter），这里的 items/painted
+    // 还指着旧数组，不摘的话下次重排/筛选会把这行放回来（或触发一次无谓的整表重画）。
+    const byKey = (x: Song) => keyOf(x) === key;
+    const at = items.findIndex(byKey);
+    if (at >= 0) items.splice(at, 1);
+    const pat = painted.findIndex(byKey);
+    if (pat >= 0) painted.splice(pat, 1);
+    if (row) {
       row.classList.add("leaving");
-      setTimeout(() => row.remove(), 220);
+      setTimeout(() => { row.remove(); renumberRows(box); }, 220);
     }
     setCount(shown - 1);
     tools.refreshCount();
@@ -793,6 +799,7 @@ async function likedView(root: HTMLElement) {
     source: () => items,
     hint: "在我喜欢内搜索",
     paint: (songs, st) => {
+      painted = songs; // 记下真正上屏的序列（筛排副本），列表级重画据此去重
       if (!songs.length) {
         box.innerHTML = `<div class="muted">${st.filtering ? "没有匹配的歌曲" : "还没有收藏的歌曲"}</div>`;
         return;
@@ -808,11 +815,30 @@ async function likedView(root: HTMLElement) {
   root.append(tools.el, box);
   const adopt = (songs: Song[]) => { items = songs; tools.repaint(); };
 
+  // 写后增量回源/别处收藏（player 侧）落定 → 打开中的本页即时跟进。
+  // 延一拍再动手：行内取消红心的 dropRow（含淡出）在同任务里先落地，多数变更到这里已自洽。
+  // 仍不一致时：纯移除逐行淡出补齐（兜住播放条等别处的取消），其余整表重画；有行在淡出则先跳过。
+  const offList = player.onLovedListChange(() => {
+    const cur = player.likedCache;
+    if (!cur || sameMids(painted, cur)) return;
+    setTimeout(() => {
+      const now = player.likedCache;
+      if (!now || sameMids(painted, now) || box.querySelector(".row.leaving")) return;
+      const nowKeys = new Set(now.map(keyOf));
+      const paintKeys = new Set(painted.map(keyOf));
+      const gone = painted.filter((s) => !nowKeys.has(keyOf(s)));
+      const added = [...nowKeys].filter((k) => !paintKeys.has(k));
+      if (!added.length && gone.length) { for (const s of gone) dropRow(s); return; }
+      adopt(now);
+    }, 0);
+  });
+
   // 预载命中（开机已拉回）：首帧直接出，红心默认全部点亮；随后按 TTL 后台对账，内容变了才重画
   const cached = player.likedCache;
   if (cached) adopt(cached);
   const ok = await player.loadLoved();
   if (!ok) {
+    offList();
     if (!cached) {
       tools.el.remove(); // 拉不到就别摆一排没用的控件
       box.innerHTML = `<div class="muted">加载失败 — 需要先登录</div>`;
@@ -820,7 +846,9 @@ async function likedView(root: HTMLElement) {
     return;
   }
   const fresh: Song[] = player.likedCache ?? [];
-  if (!cached || !sameMids(cached, fresh)) adopt(fresh);
+  if (!sameMids(painted, fresh)) adopt(fresh);
+  player.syncLovedSoon(); // 进页顺带一次小窗对账：TTL 内不整单重载也能纠漂移
+  return () => offList();
 }
 
 // —— 设置页（对齐设计稿：外观设置 / 播放设置 / 调试 三区；不触碰侧栏与播放条） ——
