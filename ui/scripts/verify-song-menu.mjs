@@ -147,7 +147,7 @@ ok("Go sidecar: 写接口要求登录态（走 needLogin 的 call2）",
 ok("views: 歌单页把 dirid/tid/removable 交给行", re(src.views, /playlist: \{\s*dirid: Number\(info\?\.dirid \?\? 0\),\s*tid: Number\(info\?\.id \?\? 0\)/) && has(src.views, "removable: own"));
 ok("views: 只有自有歌单才 removable", re(src.views, /Number\(info\?\.creator\?\.musicid\) === myId/));
 ok("views: 删除后计数 -1（并从原序里摘掉，见 verify-playlist-tools）",
-  re(src.views, /onRemoved: \(song\) => \{[\s\S]{0,240}if \(songCount > 0\) songCount--;/));
+  re(src.views, /onRemoved: \(song\) => \{[\s\S]{0,460}if \(songCount > 0\) songCount--;/));
 ok("songs: 删除成功后行淡出移除", re(src.songs, /onRemoved: \(\) => \{[\s\S]{0,160}classList\.add\("leaving"\)/));
 
 // ============ 5. 退出保留队列与进度 ============
