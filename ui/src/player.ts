@@ -41,6 +41,9 @@ type Listener = () => void;
 // 红心收藏是「本地数据」不是设置：留在 localStorage（上游无收藏写接口，见 README 约定）。
 // 其余偏好（音量/静音/歌词翻译/后端/音质…）一律走 quaver.conf，见 lib/prefs.ts。
 const LS_KEY = "quaver.loved.v1";
+// 近期写入记录（mid → 写入时刻/期望态）：跨页面重载的读侧滞后庇护 —— 重载会丢进程内状态，
+// 而上游读侧缓存不保证单调（不同分页参数各缓存各的），整单预载可能拿到写之前的旧快照。
+const LS_WRITES_KEY = "quaver.loved.writes.v1";
 
 // 「我喜欢」(dirid=201) 预载：每页条数 + 总上限（防超大歌单一口气拉爆首屏），
 // 以及预载结果的新鲜期——期内视图直接吃缓存，过期才回源对账。
@@ -48,6 +51,15 @@ const LS_KEY = "quaver.loved.v1";
 const LOVED_PAGE = 500;
 const LOVED_MAX = 1000;
 const LOVED_TTL = 60_000;
+
+// 写后增量回源：红心写确认后不做整单分页重载，只拉「最近收藏」一小窗与远端对账。
+// 上游读侧有 1-2s 滞后（见 api.ts writeSongType），故延迟触发；滞后期间的已确认写入
+// 以本地乐观态为准（reconcilePending），别让回源把用户刚点的红心冲掉。
+const LOVED_SYNC_DELAY = 2_000;    // 距最后一次写入/进页的静默期（去抖合并连点）
+const LOVED_SYNC_PAGE = 100;       // 增量窗口：单请求，覆盖最近收藏段
+// 写入庇护期：期内所有读路径都按已确认写入校正读数（读数反映也不提前出名单 ——
+// 读侧缓存不保证单调，同一写值可能被更旧的快照再次冲掉）。实测过期快照能活 20s+，取 2 分钟。
+const LOVED_PENDING_TTL = 120_000;
 
 // 会话存档（队列 + 指针 + 位置 + 循环模式）节流：notify 是 4Hz 的，不能跟着写盘。
 const SESSION_EVERY = 5000;
@@ -71,6 +83,21 @@ class Player {
   private lovedRef = new Map<string, { id: number; type: number }>();
   private likedAt = 0;                       // 预载完成时刻（LOVED_TTL 判新鲜）
   private likedFlight: Promise<boolean> | null = null; // 飞行中的预载（并发共享）
+  /** 「我喜欢」列表版本号：likedCache/likedTotal 变更 +1（打开中的我喜欢页据此增量重画） */
+  lovedListVersion = 0;
+  private lovedListListeners = new Set<Listener>();
+  private lovedSyncTimer: number | null = null;        // 增量回源去抖定时器
+  private lovedSyncFlight: Promise<void> | null = null;
+  private lovedSyncTries = 0;                          // 滞后未对上的连续重试次数（封顶防打转）
+  private lovedSyncCorrected = false;                  // 上一轮回源是否校正过（决定要不要重试）
+  /** 近期写入庇护名单（localStorage 持久化，跨重载存活）：mid → 期望态 + 写入时刻 */
+  private recentWrites: Map<string, { on: boolean; at: number }> = (() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(LS_WRITES_KEY) ?? "{}") as Record<string, { on: boolean; at: number }>;
+      const now = Date.now();
+      return new Map(Object.entries(raw ?? {}).filter(([, w]) => w && now - Number(w.at) <= LOVED_PENDING_TTL));
+    } catch { return new Map(); }
+  })();
   lyrics: LyricLine[] = [];
   lyricState: "idle" | "loading" | "ok" | "none" = "idle";
   /** 逐字歌词（Sparkle 逐字提供器解析的词级时间轴行，毫秒）；无逐字数据时为空 */
@@ -709,6 +736,11 @@ class Player {
 
   private persistLoved() {
     localStorage.setItem(LS_KEY, JSON.stringify([...this.loved]));
+    // 庇护名单一起落盘：页面重载后，整单预载的旧快照照样冲不掉近期写入
+    const now = Date.now();
+    const writes: Record<string, { on: boolean; at: number }> = {};
+    for (const [mid, w] of this.recentWrites) if (now - w.at <= LOVED_PENDING_TTL) writes[mid] = w;
+    localStorage.setItem(LS_WRITES_KEY, JSON.stringify(writes));
   }
 
   /** 红心态唯一写入口（渲染读 this.loved，落盘走这里） */
@@ -724,6 +756,7 @@ class Player {
   /** 「我喜欢」预载：分页拉全收藏的单曲 → 灌满红心态（各视图默认点亮）+ 缓存列表。
    *  - 幂等：飞行中共享同一次请求；fresh=false 且缓存未过期（LOVED_TTL）直接复用。
    *  - 拉全了整体以服务端为准；被 LOVED_MAX 截断时只做并集，不误灭本地已亮红心。
+   *  - 读侧滞后庇护：本会话刚写确认的收藏可能还没反映进读数，以本地为准补回/剔除。
    *  - 失败不清空红心态（未登录/上游抖动时保留本地缓存），返回是否成功。 */
   loadLoved(fresh = false): Promise<boolean> {
     if (this.likedFlight) return this.likedFlight;
@@ -739,12 +772,21 @@ class Player {
         all.push(...batch);
         if (!r?.hasmore || !batch.length) break;
       }
+      // 别让整单预载冲掉刚点的红心：滞后写入以本地为准校正读数（love-song-reload 的教训）
+      const old = this.likedCache;
+      const rec = this.reconcilePending(all, total);
+      total = rec.total;
+      for (const mid of [...rec.laggingOn].reverse()) {
+        const row = old?.find((x) => x.mid === mid);
+        if (row) all.unshift(row); // 本地乐观行插回头部（收藏顺序 = 最近在前）
+      }
       const mids = new Set<string>();
       for (const s of all) {
         if (!s?.mid) continue;
         mids.add(s.mid);
         if (s.id) this.lovedRef.set(s.mid, { id: s.id, type: s.type ?? 1 }); // 存读侧原值，写时再转写侧枚举
       }
+      for (const mid of rec.laggingOn) mids.add(mid); // 无行可插的滞后 like 至少保住红心
       if (all.length >= total) this.loved = mids;
       else for (const m of mids) this.loved.add(m);
       this.likedCache = all;
@@ -753,6 +795,7 @@ class Player {
       this.loveVersion++;
       this.persistLoved();
       this.notify();
+      this.emitLovedListChange();
       return true;
     })()
       .catch((e) => {
@@ -764,8 +807,110 @@ class Player {
     return flight;
   }
 
+  /** 订阅「我喜欢」列表内容变更（写确认新增 / 增量回源 / 整单预载后触发）。返回退订函数。 */
+  onLovedListChange(fn: Listener): () => void {
+    this.lovedListListeners.add(fn);
+    return () => { this.lovedListListeners.delete(fn); };
+  }
+  private emitLovedListChange() {
+    this.lovedListVersion++;
+    for (const fn of [...this.lovedListListeners]) { try { fn(); } catch (e) { console.warn(e); } }
+  }
+
+  /** 安排一次写后增量回源（去抖：连点合并成最后一击后的一次）。进我喜欢页也用它顺带对账。 */
+  syncLovedSoon() {
+    if (this.lovedSyncTimer !== null) window.clearTimeout(this.lovedSyncTimer);
+    this.lovedSyncTimer = window.setTimeout(() => {
+      this.lovedSyncTimer = null;
+      void this.syncLoved();
+    }, LOVED_SYNC_DELAY);
+  }
+
+  /** 读侧滞后庇护：把「已写确认但读数（或其缓存）还没反映」的收藏校正进拉取结果
+   *  （loadLoved/syncLoved 共用）。名单在庇护期内不删除 —— 读数反映也不提前出名单，
+   *  同一写入可能被更旧的快照再次冲掉；只按 LOVED_PENDING_TTL 过期（persistLoved 落盘）。
+   *  - like 不可见 → 红心补回 + 计数 +1，mid 归入 laggingOn（行由调用方插回）；
+   *  - unlike 仍在读数 → 从结果剔除 + 计数 -1；
+   *  - corrected = 本轮真的校正过（增量回源据此决定要不要重试追平）。 */
+  private reconcilePending(songs: Song[], total: number): {
+    songs: Song[]; total: number; laggingOn: string[]; corrected: boolean;
+  } {
+    const now = Date.now();
+    for (const [mid, w] of this.recentWrites) if (now - w.at > LOVED_PENDING_TTL) this.recentWrites.delete(mid);
+    const laggingOn: string[] = [];
+    let t = total;
+    for (const [mid, w] of this.recentWrites) {
+      const at = songs.findIndex((s) => s?.mid === mid);
+      if (w.on && at < 0) { laggingOn.push(mid); this.loved.add(mid); t++; continue; }
+      if (w.on) continue; // 已反映：无需校正，但更旧的快照仍可能缺它
+      if (at >= 0) { songs.splice(at, 1); t--; continue; } // unlike 滞后：从读数剔除
+      // unlike 已反映：无需校正
+    }
+    return { songs, total: t, laggingOn, corrected: laggingOn.length > 0 || t !== total };
+  }
+
+  /** 写后增量回源：只拉「最近收藏」一小窗（LOVED_SYNC_PAGE）与本地对账，不做整单分页重载。
+   *  - **只增不灭**：窗口内以服务端顺序/字段为准（滞后 unlike 剔除、滞后 like 插回头部），
+   *    窗口外与读数里缺失的条目一律保留 —— 读侧缓存不保证单调，不能凭一次拉取把用户
+   *    看得见的红心/行灭掉；他端取消收藏的最终收敛交给整单预载（TTL 过期/进页）。
+   *  - 滞后写入以本地为准（reconcilePending），没对上的限次重试；全程静默失败 ——
+   *    本地乐观态本就是兜底。 */
+  private syncLoved(): Promise<void> {
+    if (!this.likedCache || this.likedFlight) return Promise.resolve(); // 无基线不凭空造列表；整单预载在跑则交给它
+    if (this.lovedSyncFlight) return this.lovedSyncFlight;
+    let flight!: Promise<void>;
+    flight = (async () => {
+      try {
+        const r: any = await api(`/user/liked?page=1&num=${LOVED_SYNC_PAGE}`);
+        const fetched: Song[] = ((r?.songs ?? []) as Song[]).filter((s) => s?.mid);
+        const rec = this.reconcilePending(fetched, Number(r?.total ?? 0));
+        this.lovedSyncCorrected = rec.corrected;
+        const old = this.likedCache!;
+        const prevOrder = old.slice();
+        const prevTotal = this.likedTotal;
+        const prevLoved = new Set(this.loved);
+        // 窗口内以服务端顺序为准；滞后 like 的本地乐观行插回头部（收藏顺序 = 最近在前）
+        const head = [...rec.songs];
+        const seen = new Set(head.map((s) => s.mid));
+        for (const mid of [...rec.laggingOn].reverse()) {
+          seen.add(mid);
+          const row = old.find((x) => x.mid === mid);
+          if (row) head.unshift(row);
+        }
+        const tail = old.filter((s) => s?.mid && !seen.has(s.mid));
+        this.likedCache = [...head, ...tail];
+        for (const s of head) {
+          if (!s.mid) continue;
+          this.loved.add(s.mid);
+          if (s.id) this.lovedRef.set(s.mid, { id: s.id, type: s.type ?? 1 }); // 存读侧原值，写时再转写侧枚举
+        }
+        for (const mid of rec.laggingOn) this.loved.add(mid);
+        this.likedTotal = Math.max(rec.total, prevTotal); // 计数同理不回退（stale 读数只会更旧）
+        const changed = !sameLovedOrder(prevOrder, this.likedCache)
+          || prevTotal !== this.likedTotal
+          || prevLoved.size !== this.loved.size
+          || [...prevLoved].some((m) => !this.loved.has(m));
+        if (changed) this.emitLovedListChange();
+      } catch (e) {
+        console.warn("「我喜欢」增量回源失败（保留本地）", e);
+      } finally {
+        this.lovedSyncFlight = null;
+        if (this.lovedSyncCorrected && this.lovedSyncTries < 3) {
+          this.lovedSyncTries++; // 读侧滞后没追平：稍后再对一轮（封顶，防上游真丢了无限打转）
+          this.syncLovedSoon();
+        } else if (!this.lovedSyncCorrected) {
+          this.lovedSyncTries = 0;
+        }
+        this.lovedSyncCorrected = false;
+      }
+    })();
+    this.lovedSyncFlight = flight;
+    return flight;
+  }
+
   /** 切换单曲收藏（红心）：乐观更新、失败回滚，返回写接口终态（null = 缺少 song_id 无从下手）。
-   *  取消收藏同样走在线 unlike 接口，「我喜欢」缓存同步移出该曲。 */
+   *  取消收藏同样走在线 unlike 接口，「我喜欢」缓存同步移出该曲。
+   *  写确认后进滞后庇护名单并安排一次增量回源（syncLovedSoon）：拉一小窗与远端对账。 */
   async toggleLove(song?: Song): Promise<boolean | null> {
     const mid = song?.mid;
     if (!mid) return null;
@@ -776,15 +921,20 @@ class Player {
     this.setLoved(mid, on, ref);
     this.notify();
     try {
-      await postJson(on ? "/song/like" : "/song/unlike",
+      const r = await postJson<boolean>(on ? "/song/like" : "/song/unlike",
         { song_id: ref.id, song_type: writeSongType(ref.type) });
+      // 上游把 retCode≠0（含 80092）压成 false 且不抛错 —— 不拦就是「看着收藏了、其实没有」
+      if (r === false) throw new Error("上游未接受本次收藏写入");
     } catch (e: any) {
+      this.recentWrites.delete(mid);
       console.warn("收藏同步失败", e);
       this.setLoved(mid, !on, ref); // 回滚
       this.error = "收藏失败：" + (e?.message ?? e);
       this.notify();
       return !on;
     }
+    this.recentWrites.set(mid, { on, at: Date.now() });
+    this.lovedSyncTries = 0;
     // 缓存与列表计数跟进（写接口已确认，视图据此即时自洽）
     if (on) {
       if (this.likedCache && !this.likedCache.some((x) => x.mid === mid)) this.likedCache.unshift(song!);
@@ -793,6 +943,9 @@ class Player {
       if (this.likedCache) this.likedCache = this.likedCache.filter((x) => x.mid !== mid);
       if (this.likedTotal > 0) this.likedTotal--;
     }
+    // 广播列表变更：新增行让打开中的我喜欢页立刻出现；移除由该页逐行淡出消化（views.ts）
+    this.emitLovedListChange();
+    this.syncLovedSoon();
     return on;
   }
 
@@ -809,6 +962,12 @@ export const player = new Player();
 export { coverUrl };
 
 // —— 逐字歌词辅助（模块级纯函数，便于复用与测试） ——
+
+/** 两个列表是否同一批曲（同序同 mid）：一样就不广播/不重画，避免打断滚动。
+ *  （与 views.ts 的 sameMids 同义；player 不能反向 import songs.ts —— 会成环） */
+function sameLovedOrder(a: Song[], b: Song[]) {
+  return a.length === b.length && a.every((x, i) => x.mid === b[i]?.mid);
+}
 
 /** 逐字行 → 行级展示列表（逐字提供器缺位/解析失败回退时的行级视图，与 LRC 行为一致） */
 function karaokeToLines(lines: SparkleKaraokeLine[]): LyricLine[] {
