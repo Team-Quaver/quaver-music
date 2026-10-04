@@ -11,6 +11,7 @@
 //  3. tid 传歌单的 tid（= 列表里的 id）；不知道就 0，上游多数情况容得下。
 //  4. dirid=201 是「我喜欢」，与行内红心是同一份数据，故不列进「加入歌单」菜单。
 import { api, postJson, writeSongType } from "./api";
+import { getCachedSonglist, noteSonglistWrite } from "./songlist-detail";
 
 export interface MyPlaylist {
   /** disstid / tid（歌单详情页路由与写接口的 tid 用它） */
@@ -77,6 +78,8 @@ export async function addSongToSonglist(target: MyPlaylist, song: any): Promise<
   assertAccepted(r, "加入歌单");
   const hit = mySonglists().find((x) => x.dirid === target.dirid);
   if (hit) hit.songnum = Number(hit.songnum ?? 0) + 1;
+  // 乐观跟进歌单详情缓存并排一次增量回源（打开中的该歌单页即时上屏；love-song-reload 同款）
+  noteSonglistWrite(target.id, String(song.mid ?? ""), true, song);
 }
 
 /** 从歌单移除（dirid/tid 见文件头约定 1） */
@@ -93,4 +96,17 @@ export async function removeSongFromSonglist(
   assertAccepted(r, "从歌单删除");
   const hit = mySonglists().find((x) => x.dirid === target.dirid);
   if (hit && Number(hit.songnum ?? 0) > 0) hit.songnum = Number(hit.songnum) - 1;
+  // 没拿不到 tid（个别调用方只带 dirid）就没法对上详情缓存，只跳过跟进，写本身已生效
+  if (target.tid) noteSonglistWrite(target.tid, String(song.mid ?? ""), false, song);
+}
+
+// 开发/自动化测试钩子（生产构建里 vite define 会剔除，同 player.ts 的 __quaverPlayer）
+declare global { interface Window { __quaverSonglists?: {
+  addSongToSonglist: typeof addSongToSonglist;
+  removeSongFromSonglist: typeof removeSongFromSonglist;
+  mySonglists: typeof mySonglists;
+  getCachedSonglist: typeof getCachedSonglist;
+} } }
+if (import.meta.env?.DEV) {
+  window.__quaverSonglists = { addSongToSonglist, removeSongFromSonglist, mySonglists, getCachedSonglist };
 }
