@@ -170,7 +170,8 @@ ok("player: 关窗/切后台立刻补落一次",
 ok("player: 流未就绪时保住还原点（不被 0 覆盖）", re(src.player, /posForSave\(\)[\s\S]{0,200}return this\.savedPos \|\| p;/));
 
 // ============ 6. 回归：行的既有交互不能被菜单改动带走 ============
-ok("回归: 双击播放仍走 hooks.onPlay", re(src.songs, /"dblclick"[\s\S]{0,180}hooks\.onPlay\?\.\(s, i, songs\)/));
+ok("回归: 双击播放仍走 hooks.onPlay（序号/列表以当时 DOM 为准，删除重排后不错位）",
+  re(src.songs, /"dblclick"[\s\S]{0,420}hooks\.onPlay\?\.\(s, rows\.indexOf\(row\), all\)/));
 ok("回归: 红心按钮仍先乐观改态再写接口", re(src.songs, /player\.toggleLove\(s\)[\s\S]{0,120}paintLove\(btn/));
 ok("回归: 单击仍选中 + 预加载", re(src.songs, /player\.prefetchSong\(s\);/) && has(src.songs, "classList.add(\"sel\")"));
 ok("回归: 歌手/专辑行内链仍在", re(src.songs, /dataset\.link!;[\s\S]{0,400}location\.hash = `#\/\$\{kind\}/));
