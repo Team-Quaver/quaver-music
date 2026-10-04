@@ -1390,3 +1390,15 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 }
 
 
+
+/* —— 设置页 · 热键（components/HotkeySettings.ts）——
+   绑定按钮 = 胶囊（与 .tag/.chip 同语言）；录制中虚线描边提示「在听键盘」，
+   未设置态整体减淡，悬停恢复。 */
+.hk-btn {
+  min-width: 148px; padding: 5px 14px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  font: inherit; font-size: 12.5px; letter-spacing: 0.4px; cursor: pointer; text-align: center;
+}
+.hk-btn:hover { border-color: var(--ink2); }
+.hk-btn.empty { color: var(--idx); }
+.hk-btn.capturing { border-style: dashed; border-color: var(--acc); color: var(--acc); cursor: progress; }

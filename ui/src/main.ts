@@ -4,6 +4,7 @@ import { applyTheme, applyFonts, applyDecor, applySidebar, syncCloseAction } fro
 import { player } from "./player";
 import { bootShell } from "./shell";
 import { startMprisBridge } from "./mpris";
+import { startHotkeysBridge } from "./lib/hotkeys";
 import { initSparkle } from "./sparkle/init";
 
 applyTheme();
@@ -54,6 +55,7 @@ bootShell();
 // void 不阻塞首帧 —— 插件视图/侧栏项在首帧后补挂，属渐进增强
 void initSparkle();
 startMprisBridge(); // Electron 壳层才有桥；浏览器 dev 下为 no-op
+startHotkeysBridge(); // 全局热键回程 + 焦点内热键 keydown（后者浏览器 dev 也生效）
 
 // dev 钩子：e2e/调试可直接驱动播放器状态（生产构建不含）
 if (import.meta.env.DEV) (window as any).__player = player;

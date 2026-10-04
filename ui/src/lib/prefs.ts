@@ -290,3 +290,59 @@ export function getQueueWidth(): number | null {
 export function setQueueWidth(px: number | null) {
   writePx("Window.QueueWidth", px, 64, 2000);
 }
+
+// —— 热键（全局 / 焦点内）——
+// 取值 = 规范化 accelerator（值域在 electron/config.mjs 的 isHotkey）：修饰键 Ctrl/Alt/Shift/
+// Super 按固定序组合 + 键名，如 "Ctrl+Alt+F5"；空串 = 停用该热键（合法）。
+// 全局热键由主进程注册（Windows/macOS 用 Electron globalShortcut，Linux 走 XDG 桌面门户），
+// 焦点内热键由渲染层 keydown 分发（src/lib/hotkeys.ts）；两边都实时读内存快照，改完即生效。
+export type HotkeyAction = "toggle" | "prev" | "next" | "volup" | "voldown" | "quit";
+export type HotkeyScope = "Global" | "Focus";
+
+/** Global 段没有 quit（退出程序只作为焦点内热键）；UI 据此取各自的行动清单。 */
+export const hotkeyConfKey = (scope: HotkeyScope, action: HotkeyAction) => `Hotkeys.${scope}.${HOTKEY_KEY_NAMES[action]}`;
+
+/** 动作 → schema 键名。VolUp/VolDown 是多词键，首字母大写法（volup→Volup）会拼错，
+ *  必须显式列全 —— 与 electron/global-hotkeys.mjs 的 GLOBAL_CONF_KEYS 逐字一致
+ *  （verify-hotkeys 交叉比对两边）。 */
+const HOTKEY_KEY_NAMES: Record<HotkeyAction, string> = {
+  toggle: "Toggle", prev: "Prev", next: "Next", volup: "VolUp", voldown: "VolDown", quit: "Quit",
+};
+
+export function getHotkey(scope: HotkeyScope, action: HotkeyAction): string {
+  return cfg(hotkeyConfKey(scope, action));
+}
+export function setHotkey(scope: HotkeyScope, action: HotkeyAction, accel: string): void {
+  cfgSet({ [hotkeyConfKey(scope, action)]: accel });
+}
+
+/** KeyboardEvent → 规范化 accelerator；不可录制的组合返回 null（纯键名 / 无修饰键 / 未知键）。 */
+export function acceleratorFromEvent(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "altKey" | "shiftKey" | "metaKey">): string | null {
+  const KEY_NAMES: Record<string, string> = {
+    " ": "Space", ArrowLeft: "Left", ArrowRight: "Right", ArrowUp: "Up", ArrowDown: "Down",
+    "-": "Minus", "=": "Equal", ",": "Comma", ".": "Period",
+  };
+  const raw = e.key;
+  if (!raw) return null;
+  let key = KEY_NAMES[raw] ?? "";
+  if (/^[a-zA-Z]$/.test(raw)) key = raw.toUpperCase();
+  else if (/^[0-9]$/.test(raw)) key = raw;
+  else if (/^F(?:[1-9]|1[0-9]|2[0-4])$/.test(raw)) key = raw;
+  else if (["Enter", "Escape", "Backspace", "Delete", "Insert", "Home", "End", "PageUp", "PageDown", "Tab"].includes(raw)) key = raw;
+  if (!key) return null;
+  const mods = [e.ctrlKey ? "Ctrl" : "", e.altKey ? "Alt" : "", e.shiftKey ? "Shift" : "", e.metaKey ? "Super" : ""].filter(Boolean);
+  if (!mods.length) return null; // 裸键不许录：单键热键会吞掉正常输入
+  return [...mods, key].join("+");
+}
+
+/** 左侧描述文案：设置页两份清单（Focus 多一个退出；顺序即展示顺序）。 */
+export const HOTKEY_LABELS: Record<HotkeyAction, string> = {
+  toggle: "暂停 / 播放",
+  prev: "上一曲",
+  next: "下一曲",
+  volup: "音量加大",
+  voldown: "音量减小",
+  quit: "退出 Quaver Music",
+};
+export const GLOBAL_HOTKEY_ACTIONS: HotkeyAction[] = ["toggle", "prev", "next", "volup", "voldown"];
+export const FOCUS_HOTKEY_ACTIONS: HotkeyAction[] = ["toggle", "quit", "prev", "next", "volup", "voldown"];
