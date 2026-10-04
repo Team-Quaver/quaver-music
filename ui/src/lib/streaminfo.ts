@@ -7,6 +7,8 @@
 // 加密档位在后端中继侧已解密，渲染层看到的永远是明文容器 —— 三种容器覆盖全部档位：
 // FLAC（STREAMINFO 首块必在文件头 42 字节内）、Ogg（Vorbis/Opus 的 ID 头必在首页）、
 // MP3（帧头；带 ID3v2 时按头 10 字节里的标签大小跳过标签再取一段）。
+// 各档位实际容器：atmos51 是 FLAC（6ch），atmos71 是 Ogg（7.1.4 = 12ch Opus）——
+// 声道数按字段规范放行，别按「常见值」收口成 8（见 parseOgg 注释）。
 //
 // 本模块**零依赖**（不 import 任何东西）：解析函数是纯函数，Node 直接 strip-types
 // 跑 scripts/verify-streaminfo.mjs 的合成头用例。
@@ -67,14 +69,23 @@ function parseFlac(b: Uint8Array, totalSize: number): StreamInfo | null {
   return info;
 }
 
-/** Ogg：ID 头（Vorbis 30B / Opus 19B）按规格必须在第一页，直接在首部字节里找 magic。 */
+/** Ogg：ID 头（Vorbis 30B / Opus 19B）按规格必须在第一页，直接在首部字节里找 magic。
+ *
+ * 声道上界按**字段规范**放行到 255，不按 8 收口：OpusHead 的 Channel Count 字段
+ * （RFC 7845 §4）是 1-255，8 只是绝大多数内容的实际取值。上游「臻品全景声 7.1」
+ * （Q003，7.1.4 = 7 主 + LFE + 4 顶 = 12 声道）就落在区间里——早前按 `> 8` 判废，
+ * 结果只有这一个档位的流信息恒为「不可用」，而6 声道/立体声的全景声、FLAC 各档全正常，
+ * 症状看起来像「随机失效」实则是写死的上界。
+ *
+ * 首字节是 OggS 但认不出编码时也照样给一条 Ogg 记录：浮窗是只读展示，宁可少几行
+ * 也不要掉进「流信息不可用」的死胡同（未知封装不该让整个面板变空）。 */
 function parseOgg(b: Uint8Array, totalSize: number, durationSec: number): StreamInfo | null {
   const limit = Math.min(b.length - 8, 200);
   for (let i = 27; i < limit; i++) {
     if (str(b, i, 8) === "OpusHead") {
       // Opus 解码输出恒为 48 kHz（头里的 input samplerate 是原始录音率，不是播放采样率）
       const channels = b[i + 9];
-      if (channels < 1 || channels > 8) return null;
+      if (channels < 1) return null;
       const info: StreamInfo = { codec: "Opus", sampleRate: 48000, channels };
       const bitrate = avgBitrate(totalSize, durationSec);
       if (bitrate) { info.bitrate = bitrate; info.bitrateApprox = true; }
@@ -84,7 +95,7 @@ function parseOgg(b: Uint8Array, totalSize: number, durationSec: number): Stream
       const channels = b[i + 11];
       const sampleRate = le32(b, i + 12);
       const nominal = le32(b, i + 20); // 标称码率（有符号，<=0 视为缺）
-      if (channels < 1 || channels > 8 || sampleRate < 8000 || sampleRate > 655350) return null;
+      if (channels < 1 || sampleRate < 8000 || sampleRate > 655350) return null;
       const info: StreamInfo = { codec: "Vorbis", sampleRate, channels };
       if (nominal > 0) info.bitrate = nominal / 1000;
       else {
@@ -94,7 +105,11 @@ function parseOgg(b: Uint8Array, totalSize: number, durationSec: number): Stream
       return info;
     }
   }
-  return null;
+  // 是 Ogg 但不是已知的 Vorbis/Opus（如腾讯自研封装）：只报容器，不猜编码
+  const info: StreamInfo = { codec: "Ogg" };
+  const bitrate = avgBitrate(totalSize, durationSec);
+  if (bitrate) { info.bitrate = bitrate; info.bitrateApprox = true; }
+  return info;
 }
 
 /** MP3 帧头 4 字节：11 位帧同步 + 版本/层/位率/采样率/声道模式。 */
@@ -200,7 +215,9 @@ async function fetchHead(url: string, start: number, end: number): Promise<{ byt
 
 // —— 展示格式化（浮窗直接用） ——
 
-const CH_LAYOUT: Record<number, string> = { 1: "单声道", 2: "立体声", 3: "3.0", 4: "4.0", 5: "5.0", 6: "5.1", 7: "6.1", 8: "7.1" };
+/** 声道布局名。只列frequently 出现的包围盒排布（数 = LFE + 主 + 高度/后置），
+ *  表外直接落「N 声道」——宁可少个布局名，也不要把 12ch 硬套成 7.1。 */
+const CH_LAYOUT: Record<number, string> = { 1: "单声道", 2: "立体声", 3: "3.0", 4: "4.0", 5: "5.0", 6: "5.1", 7: "6.1", 8: "7.1", 10: "5.1.4", 12: "7.1.4" };
 
 export const fmtSampleRate = (hz?: number) =>
   hz && hz > 0 ? `${hz % 1000 ? (hz / 1000).toFixed(1) : hz / 1000} kHz` : "—";

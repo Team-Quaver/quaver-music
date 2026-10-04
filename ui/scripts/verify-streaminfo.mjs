@@ -100,6 +100,23 @@ try {
   ok("opus: 识别 Opus/48000/2ch", info?.codec === "Opus" && info?.sampleRate === 48000 && info?.channels === 2);
   ok("opus: 平均码率 ≈288（approx 标记）", info?.bitrateApprox === true && Math.abs(info.bitrate - 288) < 0.5, String(info?.bitrate));
 }
+// Ogg Opus 多声道（回归：臻品全景声 7.1 = Q003，7.1.4 → 12ch）。
+// OpusHead 的 Channel Count 字段规范是 1-255，早前按 >8 判废 → 只有 7.1 这一个档位
+// 恒显「流信息不可用」（5.1 走 FLAC、其余档 ≤8ch 全正常，症状看着像随机失效）。
+{
+  const p = new Uint8Array(19);
+  put(p, 0, ascii("OpusHead"));
+  p[8] = 1; p[9] = 12; putLe32(p, 12, 48000);
+  const info = si.parseStreamHead(oggHead(p), 40_000_000, 240);
+  ok("opus 12ch: 不被声道上界判废（Q003 全景声 7.1）",
+    info?.codec === "Opus" && info?.channels === 12 && info?.sampleRate === 48000, JSON.stringify(info));
+  ok("opus 12ch: 展示为 7.1.4布局", si.fmtChannels(12) === "12（7.1.4）", si.fmtChannels(12));
+}
+// Ogg 但认不出编码（未知封装）：只报容器，别整个面板空掉
+{
+  const info = si.parseStreamHead(oggHead(new Uint8Array(16).fill(7)), 2_000_000, 100);
+  ok("ogg 未知编码: 回落为 Ogg 而非 null", info?.codec === "Ogg" && info?.channels === undefined, JSON.stringify(info));
+}
 // MP3 裸帧头：FF FB 90 00 = MPEG1 LayerIII 128kbps/44100/立体声；帧头位率是精确值
 ok("mp3: 128kbps/44100/立体声",
   (() => { const i = si.parseStreamHead(Uint8Array.from([0xff, 0xfb, 0x90, 0x00]), 0, 0);
