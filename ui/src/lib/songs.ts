@@ -54,6 +54,15 @@ function artistLinks(singers: any[] | undefined): string {
   return (singers ?? []).map((a) => linkTo("singer", a, a?.name ?? "")).join(" / ");
 }
 
+/** 移除行后重排序号：编号必须跟 DOM 一致 —— 双击/菜单的序号以当时的 DOM 为准，
+ *  显示不跟着重排的话，用户「双击第 5 首」实际命中的还是删除前的第 5 行 */
+export function renumberRows(box: HTMLElement) {
+  [...box.querySelectorAll<HTMLElement>(".row[data-songkey]")].forEach((row, i) => {
+    const idx = row.querySelector<HTMLElement>(".idx");
+    if (idx) idx.textContent = String(i + 1);
+  });
+}
+
 export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks = {}) {
   box.innerHTML = "";
   for (const [i, s] of songs.entries()) {
@@ -84,7 +93,11 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
     });
     row.addEventListener("dblclick", (e) => {
       if ((e.target as HTMLElement).closest("[data-love],a")) return;
-      hooks.onPlay?.(s, i, songs);
+      // 序号/列表以**当时的 DOM**为准（右键菜单同规矩）：行被删过之后，闭包里的 i 与 songs
+      // 都是旧的，照着播会跳到错位的那首而不是双击的这首
+      const rows = [...box.querySelectorAll<HTMLElement>(".row[data-songkey]")];
+      const all = rows.map((el) => keyMap.get(el.dataset.songkey!)).filter((x) => !!x);
+      hooks.onPlay?.(s, rows.indexOf(row), all);
     });
     // 触屏/快速点按场景兜底：单击封面 = 选中 + 预加载（不直接起播，防误触；双击起播）
     row.querySelector(".rthumb")!.addEventListener("click", () => player.prefetchSong(s));
@@ -116,12 +129,15 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
       onRemoved: () => {
         // 行淡出移除（与「我喜欢」取消收藏同一套动作），随后交给视图改计数
         row.classList.add("leaving");
-        setTimeout(() => row.remove(), 220);
+        const parent = row.parentElement;
+        setTimeout(() => { row.remove(); if (parent) renumberRows(parent); }, 220);
         hooks.onRemoved?.(s);
       },
     }));
     box.append(row);
   }
+  // 双击重取列表要用：行渲染时按 songkey 建的映射（_key 在上面循环里已落到每个对象上）
+  const keyMap = new Map(songs.map((x) => [String(x._key ?? x.mid ?? ""), x]));
 }
 
 // 分页加载我喜欢（30/页），返回歌曲数组（供视图计数/播放）
