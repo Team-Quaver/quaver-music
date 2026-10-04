@@ -42,6 +42,7 @@ import {
 import {configInfo, resetConfig, revealConfig} from "./lib/config";
 import {vipCardHtml} from "./lib/vip";
 import {mountSparklePanel} from "./sparkle/settings";
+import {mountHotkeysPanel} from "./components/HotkeySettings";
 
 const h = (tag: string, cls: string, html = "") => {
   const el = document.createElement(tag);
@@ -926,6 +927,7 @@ async function settingsView(root: HTMLElement) {
     <button class="set-tab is-active" data-tab="appearance" type="button">外观</button>
     <button class="set-tab" data-tab="playback" type="button">播放</button>
     <button class="set-tab" data-tab="general" type="button">通用</button>
+    <button class="set-tab" data-tab="hotkeys" type="button">热键</button>
     <button class="set-tab" data-tab="plugins" type="button">Sparkle</button>`);
   root.append(tabs);
   const wrap = h("div", "set-view");
@@ -1062,7 +1064,9 @@ async function settingsView(root: HTMLElement) {
     </section>
     
     <!-- Sparkle 面板：内容由 ui/src/sparkle/settings.ts 填充（插件列表/插件设置区/Marketplace） -->
-    <section class="set-panel" data-panel="plugins" hidden></section>`;
+    <section class="set-panel" data-panel="plugins" hidden></section>
+    <!-- 热键面板：内容由 ui/src/components/HotkeySettings.ts 填充（全局/焦点内两组绑定） -->
+    <section class="set-panel" data-panel="hotkeys" hidden></section>`;
 
   root.append(wrap);
 
@@ -1253,7 +1257,11 @@ async function settingsView(root: HTMLElement) {
 
   // Sparkle 面板：切路由时清理插件设置区的订阅与 render 清理函数
   const sparklePanel = wrap.querySelector<HTMLElement>('[data-panel="plugins"]')!;
-  return mountSparklePanel(sparklePanel);
+  const offSparkle = mountSparklePanel(sparklePanel);
+  // 热键面板：录制态残留监听由其 cleanup 收尾
+  const hotkeysPanel = wrap.querySelector<HTMLElement>('[data-panel="hotkeys"]')!;
+  const offHotkeys = mountHotkeysPanel(hotkeysPanel);
+  return () => { offSparkle(); offHotkeys(); };
 }
 
 // —— 调试：日志页面（壳层 electron-dev.log 尾部；由 relay.ts /api/log 提供） ——

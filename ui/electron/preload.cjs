@@ -18,6 +18,18 @@ contextBridge.exposeInMainWorld("quaverCSD", {
     ipcRenderer.on("quaver:fullscreen-state", listener);
     return () => ipcRenderer.removeListener("quaver:fullscreen-state", listener);
   },
+  // 焦点内热键 Ctrl+Q：真退出（主进程 before-quit 已置位，不会撞「缩回托盘」的 close 拦截）
+  quit: () => ipcRenderer.send("quaver:quit"),
+});
+
+// 全局热键（主进程注册，动作转发回渲染层执行；Linux 走 XDG 门户，win/mac 走 globalShortcut）。
+// payload { t: "action", action } | { t: "failed", items } | { t: "status", state, reason }。
+contextBridge.exposeInMainWorld("quaverHotkeys", {
+  onEvent: (cb) =>
+    ipcRenderer.on("quaver:hotkey", (_e, payload) => {
+      try { cb(payload); } catch (err) { console.warn("hotkey event failed", err); }
+    }),
+  info: () => ipcRenderer.invoke("quaver:hotkeys-info"),
 });
 
 // MPRIS：渲染层 ↔ mpris daemon（经主进程中转，daemon 走 stdio NDJSON）。

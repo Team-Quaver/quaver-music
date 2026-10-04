@@ -1,7 +1,7 @@
 // Quaver — Electron 主进程（ESM）
 // 起一个进程内 vite preview（dist/ + /api 中继插件），窗口加载 http://127.0.0.1:<port>
 // frame:false：无原生标题栏——窗口右上角平铺三个窗口按钮（min/max/close）+抓握点，经 preload IPC 接管。
-import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, nativeTheme, safeStorage, shell } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, Tray, nativeImage, nativeTheme, safeStorage, shell } from "electron";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
@@ -15,6 +15,8 @@ import { audioEngine } from "./audio/engine.mjs";
 import { configDir, configFile, ensureConfigDir, logFile, readValues, resetConfig, writeValues } from "./config.mjs";
 // 系统深浅色探测（Linux 桌面各自的真相来源，见模块头）：「跟随系统」要靠它才真的跟得上
 import { readSystemTheme, watchSystemTheme } from "./systheme.mjs";
+// 全局热键（win/mac = Electron globalShortcut；Linux = XDG 门户 GlobalShortcuts，见模块头）
+import { createGlobalHotkeys, GLOBAL_CONF_KEYS } from "./global-hotkeys.mjs";
 // 凭证的密钥环存取（系统密钥管理器 + credential.enc 密文）与 sidecar 交接信封
 import {
   CredentialStore, credentialSummary, decodeHandoff, drainLines, encodeHandoff,
@@ -74,6 +76,17 @@ const bootDark = bootTheme === "dark"
 // 渲染层每次改主题都会经 quaver:config set 落盘，主进程在这里同步这一份。
 let themePref = bootTheme;
 
+// ——— 应用身份 ———
+// 名字必须是「Quaver Music」：一是 XDG 门户/桌面环境按 app ID（red.0w0.quaver）归档应用，
+// 二是不少软件会把「Quaver」错认成同名音游。SMTC（Windows 通知/任务栏分组）与 Linux
+// 桌面集成各吃一个：
+//   setAppUserModelId → Windows；setDesktopName → Linux 的 Wayland app_id / WM_CLASS，
+//   且是 xdg-desktop-portal 上报给 GlobalShortcuts 等后端的应用身份 —— 门户 1.21+ 对
+//   解析不到桌面文件的 app ID 直接拒会话，打包态必须与 electron-builder 产出的
+//   red.0w0.quaver.desktop 对齐（package.json 的 appId）。
+app.setAppUserModelId("red.0w0.quaver");
+if (process.platform === "linux") app.setDesktopName("red.0w0.quaver");
+
 // ——— 凭证存储：密钥管理器后端必须在 app ready 之前钉死 ———
 // Chromium 的 OSCrypt 只在初始化时读一次 --password-store，ready 之后再 appendSwitch 是空操作。
 // 不钉的代价在自建会话（Hyprland / sway…）上很实在：桌面认不出来 → 静默退到 basic_text，
@@ -124,6 +137,23 @@ let closeAction = bootConf["Window.CloseAction"] === "quit" ? "quit" : "tray";
 let quitting = false;
 app.on("before-quit", () => (quitting = true));
 
+// ——— 全局热键（系统级）———
+// 绑定值每次现读 quaver.conf（readValues 带默认值兜底 + 值域校验）；动作转发给渲染层执行
+// （播放器是唯一事实源，与 MPRIS 命令同一去向）。渲染层不在线（拆窗间隙）时消息自然丢弃。
+const hotkeys = createGlobalHotkeys({
+  log,
+  readBindings: () => {
+    const { values } = readValues();
+    const out = {};
+    for (const [action, confKey] of Object.entries(GLOBAL_CONF_KEYS)) out[action] = values[confKey] ?? "";
+    return out;
+  },
+  sendToRenderer: (payload) => {
+    if (win && !win.isDestroyed()) win.webContents.send("quaver:hotkey", payload);
+  },
+  globalShortcut,
+});
+
 // 菜单栏治理：CSD（frameless）下 Electron 会把默认菜单画成窗口顶部菜单条，直接摘掉；
 // SSD 还原默认菜单。不用 setMenuBarVisibility(false)——它不缩 Linux 的内容区（留一条空白）。
 function applyMenu() {
@@ -173,7 +203,7 @@ function startMpris() {
   log("[quaver] spawning mpris daemon:", script);
   // Electron 自带 node 跑 .cjs（ELECTRON_RUN_AS_NODE），打包态无需系统 node
   const child = spawn(process.execPath, [script], {
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", QUAVER_MPRIS_NAME: "quaver" },
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", QUAVER_MPRIS_NAME: "quaver", QUAVER_MPRIS_IDENTITY: "Quaver Music" },
     stdio: ["pipe", "pipe", "pipe"],
   });
   child.stdout.setEncoding("utf8");
@@ -245,9 +275,9 @@ function createTray() {
   let image = nativeImage.createFromPath(iconPath);
   if (image.isEmpty()) image = nativeImage.createEmpty(); // 图标缺失也别让 Tray 构造抛错
   tray = new Tray(image);
-  tray.setToolTip("Quaver");
+  tray.setToolTip("Quaver Music");
   const menu = Menu.buildFromTemplate([
-    { label: "显示/隐藏 Quaver", click: toggleWindow },
+    { label: "显示/隐藏 Quaver Music", click: toggleWindow },
     { type: "separator" },
     { label: "退出", click: () => app.quit() },
   ]);
@@ -433,7 +463,7 @@ async function createWindow() {
     minHeight: 520,   // 播放条为 .frame 流内固定行：任何高度下都占位可见
     frame: decorMode === "ssd", // CSD=无原生标题栏（右上角按钮簇）；SSD=系统标题栏
     backgroundColor: bootDark ? "#131417" : "#f7f7f8", // 同 style.css 的 --bg 明暗两值
-    title: "Quaver",
+    title: "Quaver Music",
     icon: buildRes("icon.png"), // 深色版应用图标（任务栏/窗口管理器等），与 AppImage desktop 图标一致
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
@@ -515,12 +545,16 @@ ipcMain.handle("quaver:config", (_e, msg) => {
         themePref = pref;
         applyThemeSource();
       }
+      // 全局热键绑定刚变：重注册（注意只看 Global 段 —— Focus 段由渲染层 keydown 实时读，
+      // 门户重绑会走「关旧会话再建」，GNOME 上还要重弹授权框，焦点键的改动犯不着）
+      if (written.some((k) => k.startsWith("Hotkeys.Global."))) hotkeys.apply();
       return { ok: true, written };
     }
     if (op === "reset") {
       const values = resetConfig();
       themePref = values["Style.Style"] ?? "dark";
       applyThemeSource();
+      hotkeys.apply(); // 绑定整体回到默认
       return { ok: true, values };
     }
     if (op === "reveal") {
@@ -620,6 +654,12 @@ ipcMain.on("quaver:close-action", (_e, action) => {  closeAction = action === "q
   writeValues({ "Window.CloseAction": closeAction }); // 幂等兜底：渲染层已写过，值相同不产生抖动
   log("[quaver] close-action ->", closeAction);
 });
+
+// 焦点内热键 Ctrl+Q（渲染层转发）：真退出，不走「缩回托盘」的 close 拦截（before-quit 已置位）
+ipcMain.on("quaver:quit", () => app.quit());
+
+// 设置页查询全局热键注册现状（Linux 门户状态 / win·mac 登记数）
+ipcMain.handle("quaver:hotkeys-info", () => hotkeys.info());
 
 ipcMain.on("quaver:win", (_e, action) => {
   if (!win) return;
@@ -746,6 +786,7 @@ app.whenReady().then(() => {
   });
   try { createTray(); } catch (e) { log("[quaver] tray init failed:", String(e)); }
   try { startMpris(); } catch (e) { log("[quaver] mpris init failed:", String(e)); }
+  try { hotkeys.apply(); } catch (e) { log("[quaver] hotkeys init failed:", String(e)); }
 });
 app.on("window-all-closed", () => { if (!rebuilding) app.quit(); });
 // 注销/登出：会话管理器对本进程发 SIGTERM（超时后 SIGKILL）。不接住的话默认行为是立刻死，
@@ -762,6 +803,7 @@ for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
   });
 }
 app.on("will-quit", () => {
+  try { hotkeys.destroy(); } catch {} // win/mac 反注册系统级热键；Linux 关门户会话
   try { sidecar?.kill(); } catch {}
   try { mprisDaemon?.kill(); } catch {}
   try { audioEngine.shutdown(); } catch {}

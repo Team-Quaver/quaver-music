@@ -172,6 +172,21 @@ const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 /** 主题：三档内置 + 未来自定义主题（kebab-case 名）。 */
 const isTheme = (v) => ["dark", "light", "follow-system"].includes(v) || KEBAB.test(v);
 
+// 热键值 = Electron accelerator 的规范化子集（设置页录制器只产出这种形态）：
+// 修饰键按 Ctrl+Alt+Shift+Super 固定序出现且不重复，末段是键名；空串 = 停用该热键（合法）。
+const HK_KEY = new RegExp(
+  "^(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Left|Right|Up|Down|Space|Tab|Enter|Escape|Backspace|Delete|Insert|Home|End|PageUp|PageDown|Minus|Equal|Comma|Period)$",
+);
+const HK_MOD = /^(Ctrl|Alt|Shift|Super)$/;
+const isHotkey = (v) => {
+  const s = String(v ?? "").trim();
+  if (!s) return true; // 空 = 停用
+  const parts = s.split("+");
+  if (parts.some((p) => p === "")) return false;
+  const key = parts.pop();
+  return HK_KEY.test(key) && parts.every((m) => HK_MOD.test(m)) && new Set(parts).size === parts.length;
+};
+
 // 字体值是直接塞进 CSS 变量的 font-family 列表：空值合法（= 不覆盖，走内置默认栈），
 // 但不接受能改 CSS 结构的字符（; { } 换行）或 url() —— 手改配置文件也注入不进别的东西。
 const isFontList = (v) => !/[;{}\r\n]|url\s*\(/i.test(v);
@@ -306,6 +321,87 @@ export const SCHEMA = [
         def: "False",
         doc: ["高档不可用时是否优先回退到臻品全景声：False=不优先（臻品母带优先，默认）｜True=按标准 rank 排序"],
         valid: (v) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
+      },
+    ],
+  },
+  {
+    section: "Hotkeys.Global",
+    keys: [
+      {
+        key: "Toggle",
+        def: "Ctrl+Alt+F5",
+        doc: [
+          "全局热键（系统级，窗口失焦也生效）：暂停/播放。空值=停用。",
+          "取值形态：修饰键 Ctrl/Alt/Shift/Super 按此顺序组合 + 键名（字母/数字/F1-F24/",
+          "Left Right Up Down/Space Tab Enter Escape Backspace Delete Insert Home End/",
+          "PageUp PageDown Minus Equal Comma Period），如 Ctrl+Alt+F5、Ctrl+P",
+        ],
+        valid: isHotkey,
+      },
+      {
+        key: "Prev",
+        def: "Ctrl+Alt+Left",
+        doc: ["全局热键：上一曲（遵循 [Playing] PrevReplay 逻辑）。空值=停用"],
+        valid: isHotkey,
+      },
+      {
+        key: "Next",
+        def: "Ctrl+Alt+Right",
+        doc: ["全局热键：下一曲。空值=停用"],
+        valid: isHotkey,
+      },
+      {
+        key: "VolUp",
+        def: "Ctrl+Alt+Up",
+        doc: ["全局热键：音量 +5%（到顶自动取消静音）。空值=停用"],
+        valid: isHotkey,
+      },
+      {
+        key: "VolDown",
+        def: "Ctrl+Alt+Down",
+        doc: ["全局热键：音量 -5%。空值=停用"],
+        valid: isHotkey,
+      },
+    ],
+  },
+  {
+    section: "Hotkeys.Focus",
+    keys: [
+      {
+        key: "Toggle",
+        def: "Ctrl+P",
+        doc: ["焦点内热键（仅窗口聚焦时生效）：暂停/播放。空值=停用"],
+        valid: isHotkey,
+      },
+      {
+        key: "Quit",
+        def: "Ctrl+Q",
+        doc: ["焦点内热键：退出程序（不走「缩回托盘」）。空值=停用"],
+        valid: isHotkey,
+      },
+      {
+        key: "Prev",
+        def: "Ctrl+Left",
+        doc: ["焦点内热键：上一曲（遵循 [Playing] PrevReplay 逻辑）；输入框内不触发（Ctrl+方向是文本编辑键）。空值=停用"],
+        valid: isHotkey,
+      },
+      {
+        key: "Next",
+        def: "Ctrl+Right",
+        doc: ["焦点内热键：下一曲；输入框内不触发。空值=停用"],
+        valid: isHotkey,
+      },
+      {
+        key: "VolUp",
+        def: "Ctrl+Up",
+        doc: ["焦点内热键：音量 +5%；输入框内不触发。空值=停用"],
+        valid: isHotkey,
+      },
+      {
+        key: "VolDown",
+        def: "Ctrl+Down",
+        doc: ["焦点内热键：音量 -5%；输入框内不触发。空值=停用"],
+        valid: isHotkey,
       },
     ],
   },
