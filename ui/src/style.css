@@ -624,6 +624,33 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
   opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity .16s, transform .16s;
 }
 .player.q-open .pb-qpop { opacity: 1; pointer-events: auto; transform: none; }
+/* 播放模式浮窗：循环三档 + 随机播放。与音质浮窗同一套玻璃语言，锚在循环按钮上方。
+   位置用 calc 表达：距右 = 循环按钮中心到 Bar 内侧的固定距离（音量钮 34 + 间隔 2 + 半宽 17），
+   不写死像素 —— 右侧按钮数会变（画质胶囊宽度随档名变），写死会在改版后错位。 */
+.pb-lpop {
+  position: absolute; right: calc(34px + 2px + 17px + 8px); bottom: calc(100% + 10px); z-index: 70;
+  display: flex; flex-direction: column; gap: 2px; padding: 6px; min-width: 208px;
+  max-height: 320px; overflow-y: auto;
+  background: var(--volpop); border: 1px solid var(--glass-line); border-radius: 12px;
+  box-shadow: 0 10px 32px rgba(15,20,30,.18);
+  backdrop-filter: blur(24px) saturate(1.5); -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity .16s, transform .16s;
+}
+.player.lp-open .pb-lpop { opacity: 1; pointer-events: auto; transform: none; }
+.lp-i {
+  display: flex; align-items: center; gap: 9px;
+  border: 0; background: transparent; color: var(--ink2); font-size: 12.5px; text-align: left;
+  padding: 7px 10px; border-radius: 8px; cursor: pointer;
+}
+.lp-i:hover { background: var(--press); color: var(--ink); }
+/* 选中态：前景锚亮度的 accent 混色（裸 accent 随封面主色漂，对比度会塌，见 .pb-q.active 注释），
+   靠左侧图标同步点亮做第二重信号，不只靠文字粗细。 */
+.lp-i.sel { color: color-mix(in srgb, var(--cvg-accent, var(--cyan)) 26%, var(--ink)); font-weight: 600; }
+.lp-ic { display: grid; place-items: center; width: 18px; height: 18px; flex: 0 0 auto; opacity: .9; }
+.lp-i.sel .lp-ic { opacity: 1; }
+.lp-tx { flex: 1 1 auto; min-width: 0; }
+.lp-i .muted { font-size: 11px; font-style: normal; opacity: .75; }
+.lp-sep { height: 1px; margin: 4px 6px; background: var(--glass-line); }
 .qp-q {
   display: flex; justify-content: space-between; align-items: center; gap: 10px;
   border: 0; background: transparent; color: var(--ink2); font-size: 12.5px; text-align: left;

@@ -13,6 +13,7 @@ import {
 } from "./lib/prefs";
 import { WebTransport, EngineTransport, type Transport, type TransportEvent, type AudioDeviceInfo } from "./lib/transport";
 import { loadSession, saveSession } from "./lib/session";
+import { dayKey, daySeed, shuffleOrder, step } from "./lib/shuffle";
 import { parseLrc, type LyricLine } from "./lyric";
 import type {SparkleKaraokeLine, SparkleKaraokeProvider} from "@quaver/sparkle";
 import { onSparkleChange, sparkleKaraokeProvider, sparkleStreamSources } from "./sparkle/registry";
@@ -72,6 +73,12 @@ class Player {
    *  免得每次位置广播都把整条队列拼成大字符串比对） */
   queueVersion = 0;
   mode: Mode = "all";
+  /** 随机播放（每日一套顺序，种子 = 本地日期，见 lib/shuffle.ts）。
+   *  会话存档字段：与 mode 同一个生命周期 —— 退出前开着，重进还是开着。 */
+  shuffle = false;
+  /** 当日随机顺序的缓存：{ 队列版本, 日期键, 下标序列 }。
+   *  队列变了（增删/换单/排序）或跨了本地零点即失效重建 —— 顺序必须与当下队列对得上。 */
+  private shuffleCache: { ver: number; day: string; order: number[] } | null = null;
   loved = new Set<string>(JSON.parse(localStorage.getItem(LS_KEY) ?? "[]"));
   /** 红心态版本号：每次变更 +1（UI 侧据此去重，避免 notify 空转重画几百行） */
   loveVersion = 0;
@@ -248,6 +255,7 @@ class Player {
     this.queue = snap.queue;
     this.index = snap.index;
     this.mode = snap.mode;
+    this.shuffle = !!snap.shuffle;
     this.queueVersion++;
     this.savedPos = snap.position;
     this.notify();
@@ -292,6 +300,7 @@ class Player {
     // 否则新页面的音质胶囊会跳回「自动」（这两个是内存态，只有这里能跨重建）
     saveSession({
       queue: this.queue, index: this.index, position: this.posForSave(), mode: this.mode,
+      shuffle: this.shuffle,
       quality: getSessionQuality(), lastStream: getLastStream(),
     });
   }
@@ -630,7 +639,9 @@ class Player {
   }
 
   /** 回退穷尽/取链失败 → 跳下一曲。failStreak 防全队列坏流/断网时无限快跳：连续失败满队列长度即停。
-   *  不用 next(true)（单曲循环语义是原地重播，坏流会死循环），直接顺序跳。 */
+   *  不用 next(true)（单曲循环语义是原地重播，坏流会死循环），也不走 stepInOrder 的
+   *  「顺序播放到末尾就停」—— 换曲是救济路径，必须一直有下一首可试；随机开着时同样沿
+   *  当日顺序走，免得坏流把当天的听感打乱。 */
   private skipSong(reason: string) {
     this.failStreak++;
     if (!this.queue.length || this.failStreak >= this.queue.length) {
@@ -639,7 +650,9 @@ class Player {
       this.notify();
       return;
     }
-    this.jump((this.index + 1) % this.queue.length);
+    const i = this.stepInOrder(1, true);
+    if (i < 0) { this.loading = false; this.notify(); return; }
+    this.jump(i);
   }
 
   // —— 单击预加载：行点击即后台协商播放链接（含上游取链+嗅探这两次慢 RTT），
@@ -753,6 +766,29 @@ class Player {
     else this.notify();
   }
 
+  /** 当日随机顺序（懒建 + 缓存）：种子取本地日期，所以同一天反复调用结果一致。
+   *  缓存键 = 队列版本 + 日期键：队列一改或跨了本地零点就重建，顺序必须与当下队列对得上。 */
+  private dailyOrder(): number[] {
+    const day = dayKey();
+    const c = this.shuffleCache;
+    if (c && c.ver === this.queueVersion && c.day === day) return c.order;
+    const order = shuffleOrder(this.queue.length, daySeed(day));
+    this.shuffleCache = { ver: this.queueVersion, day, order };
+    return order;
+  }
+
+  /** 按当前播放顺序走一步，返回目标队列下标；-1 = 已到序列末尾（该停）。
+   *  shuffle 开 → 当日洗牌顺序；关 → 队列原序。
+   *  wrap=false 用于「顺序播放」的自然结束：走到末尾就收尾，不回到队首。 */
+  private stepInOrder(dir: 1 | -1, wrap: boolean): number {
+    const n = this.queue.length;
+    if (!n) return -1;
+    if (this.shuffle) return step(this.dailyOrder(), this.index, dir, wrap);
+    const i = (this.index + dir + n) % n;
+    if (!wrap && ((dir > 0 && i <= this.index) || (dir < 0 && i >= this.index))) return -1;
+    return i;
+  }
+
   next(auto = false) {
     if (!this.queue.length) return;
     if (auto && this.mode === "one") {
@@ -760,7 +796,10 @@ class Player {
       if (this.transport.paused) void this.transport.play().catch(() => {});
       return;
     }
-    this.jump((this.index + 1) % this.queue.length);
+    // 手动点「下一首」永远能走（末位回绕到队首，与洗牌无关）；自然结束才受「顺序播放」收尾约束
+    const i = this.stepInOrder(1, !auto || this.mode !== "off");
+    if (i < 0) { this.notify(); return; }
+    this.jump(i);
   }
 
   prev() {
@@ -768,17 +807,32 @@ class Player {
     // 「上一首」逻辑（Playing.PrevReplay，设置页即时生效）：
     // replay=把当前曲从头重放；previous=直接切到队列里的上一首
     if (getPrevBehavior() === "replay") { this.transport.seek(0); return; }
-    this.jump((this.index - 1 + this.queue.length) % this.queue.length);
+    const i = this.stepInOrder(-1, true);
+    if (i < 0) return;
+    this.jump(i);
   }
 
   private onEnded() {
     this.error = "";
-    if (this.mode === "off" && this.index === this.queue.length - 1) { this.notify(); return; }
+    // 收尾判定收进 stepInOrder：随机模式下「末尾」是当日顺序的末尾，不是队列的末尾
     this.next(true);
   }
 
   cycleMode() {
-    this.mode = this.mode === "off" ? "all" : this.mode === "all" ? "one" : "off";
+    this.setMode(this.mode === "off" ? "all" : this.mode === "all" ? "one" : "off");
+  }
+
+  /** 播放模式菜单用：直接落某一档（不再靠 cycleMode 推进，菜单点哪档就是哪档） */
+  setMode(m: Mode) {
+    if (this.mode === m) return;
+    this.mode = m;
+    this.notify();
+  }
+
+  /** 随机播放开关。开着时按当日种子重排当日顺序 —— 因为种子只由日期决定，
+   *  当天反复开关得到的都是同一套顺序（不会每次开关都换一批歌）。 */
+  toggleShuffle() {
+    this.shuffle = !this.shuffle;
     this.notify();
   }
 

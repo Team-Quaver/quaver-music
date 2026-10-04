@@ -21,7 +21,11 @@ export interface SessionSnapshot {
   index: number;
   /** 当前曲目位置（秒） */
   position: number;
+  /** 播放模式：顺序 off / 列表循环 all / 单曲循环 one */
   mode: Mode;
+  /** 随机播放（每日一套顺序，种子=本地日期）：与 mode 同一生命周期，退出前开着则重进仍开着。
+   *  缺字段（旧存档）按 false 读，不阻断还原。 */
+  shuffle?: boolean;
   /** 播放条会话音质覆盖（Quality | "auto" | 未覆盖=null）。
    *  只在窗口重建接管时恢复 —— 冷启动仍回设置页默认（会话级语义不变） */
   quality?: string | null;
@@ -56,7 +60,7 @@ function slim(s: Song): Song | null {
 }
 
 export function saveSession(snap: {
-  queue: Song[]; index: number; position: number; mode: Mode;
+  queue: Song[]; index: number; position: number; mode: Mode; shuffle?: boolean;
   quality?: string | null;
   lastStream?: { tier: string; label: string; degraded: boolean } | null;
 }): void {
@@ -76,6 +80,7 @@ export function saveSession(snap: {
       index: Math.max(0, Math.min(index, kept.length - 1)),
       position: Number.isFinite(snap.position) && snap.position > 0 ? snap.position : 0,
       mode: snap.mode,
+      shuffle: !!snap.shuffle,
       quality: snap.quality ?? null,
       lastStream: snap.lastStream ?? null,
       at: Date.now(),
@@ -99,6 +104,7 @@ export function loadSession(): SessionSnapshot | null {
       index: Number.isFinite(d.index) ? Math.max(0, Math.min(d.index, queue.length - 1)) : 0,
       position: Number.isFinite(d.position) ? Math.max(0, d.position) : 0,
       mode,
+      shuffle: d.shuffle === true,
       quality: typeof d.quality === "string" ? d.quality : null,
       lastStream: ls && typeof ls === "object" && typeof ls.tier === "string" ? ls : null,
       at: Number(d.at) || 0,

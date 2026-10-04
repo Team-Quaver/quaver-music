@@ -45,7 +45,7 @@ function snapshot(seeked = false) {
     posUs: Math.floor((player.time || 0) * 1e6),
     volume: player.muted ? 0 : player.volume,
     loop: player.mode === "one" ? "Track" : player.mode === "all" ? "Playlist" : "None",
-    shuffle: false, // Quaver 无随机播放：显式上报 false，总线 Shuffle 反映真实能力
+    shuffle: player.shuffle, // 每日一套顺序（种子=本地日期，见 lib/shuffle.ts）：上报真实能力
     seeked,
     track: c
       ? {
@@ -85,6 +85,7 @@ function fingerprint(): string {
     currentKey(),
     player.playing ? "1" : "0",
     player.mode,
+    player.shuffle ? "s" : "n",
     player.muted ? "m" : "u",
     Math.round(player.volume * 50), // 音量分 2% 粒度，避免拖滑块刷爆 IPC
     player.queue.length,
@@ -215,12 +216,12 @@ export function startMprisBridge(): void {
       }
       case "setLoop": {
         const want = msg.loop;
-        const target = want === "Track" ? "one" : want === "Playlist" ? "all" : "off";
-        for (let i = 0; i < 3 && player.mode !== target; i++) player.cycleMode(); // 无 setter，靠循环推进
+        player.setMode(want === "Track" ? "one" : want === "Playlist" ? "all" : "off");
         break;
       }
       case "setShuffle":
-        break; // 无随机播放：忽略（daemon 端已上报 shuffle=false）
+        if (!!msg.on !== player.shuffle) player.toggleShuffle();
+        break;
       case "seek": {
         const delta = Number(msg.deltaUs) / 1e6;
         if (isFinite(delta)) player.seek(player.time + delta);

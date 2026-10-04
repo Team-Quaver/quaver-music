@@ -3,7 +3,7 @@
 // 中：上一首 · 播放/暂停 · 下一首；右：静音 · 循环 · 红心 · 队列 · 展开
 // 进度：整个 Bar 按下去即可拖拽 seek（拖中圆点/时间跟手，松手才真正提交），顶边细线只是视觉指示
 // 音量：浮窗形式 —— 悬停/点击静音按钮弹出玻璃小窗，静音图标 + 滑杆 + 读数一体
-import { player } from "../player";
+import { player, type Mode } from "../player";
 import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQuality, QUALITY_SHORT, QUALITIES, songTitle, type Quality } from "../lib/api";
 // getLastStream 仍由 paintQ 使用（胶囊显示实际已应用档位）
 import { fmtDur } from "../lyric";
@@ -33,7 +33,7 @@ export function PlayerBar(): HTMLElement {
     <div class="pb-right">
       <span class="pb-time" id="pb-time">0:00 / 0:00</span>
       <button class="pb-btn pb-ghost" id="pb-mute" aria-label="音量 / 静音"></button>
-      <button class="pb-btn pb-ghost" id="pb-loop" aria-label="循环模式"></button>
+      <button class="pb-btn pb-ghost" id="pb-loop" aria-label="播放模式" aria-haspopup="menu" aria-expanded="false"></button>
       <button class="pb-q" id="pb-quality" title="音质（本会话生效，不保存；高档自动回退可播档）"></button>
       <button class="pb-btn pb-ghost" id="pb-love" aria-label="收藏">${icons.heart}</button>
       <button class="pb-btn pb-ghost" id="pb-gallery" aria-label="画廊模式"></button>
@@ -45,6 +45,8 @@ export function PlayerBar(): HTMLElement {
       <input class="pb-vol" id="pb-vol" type="range" min="0" max="100" step="1" value="80" aria-label="音量" />
       <span class="pb-volnum" id="pb-volnum">80%</span>
     </div>
+    <!-- 播放模式浮窗：循环三档 + 随机播放（每日一套顺序） -->
+    <div class="pb-lpop" id="pb-lpop" role="menu" aria-label="播放模式"></div>
     <!-- 音质浮窗：会话级档位（不持久化），永远带 Fallback 协商 -->
     <div class="pb-qpop" id="pb-qpop" role="menu" aria-label="音质"></div>
   `;
@@ -69,7 +71,6 @@ export function PlayerBar(): HTMLElement {
   $("pb-prev").onclick = () => player.prev();
   play.onclick = () => player.toggle();
   $("pb-next").onclick = () => player.next(false);
-  loop.onclick = () => player.cycleMode();
   love.onclick = () => player.toggleLove(player.current);
   $("pb-queue").onclick = () => { player.queueOpen = !player.queueOpen; player.notifyPublic(); };
   // 画廊模式开关（运行时态）：开 = 展开正在播放页并进全屏；再点 = 收起并还原窗口。
@@ -83,6 +84,55 @@ export function PlayerBar(): HTMLElement {
   };
   mute.onclick = () => player.toggleMute();
   mute2.onclick = () => player.toggleMute();
+
+  // —— 播放模式菜单：循环三档 + 随机播放 ——
+  // 按钮不再自己轮转，改成开菜单（循环只有三档 + 随机一共四项，轮转要多点几次且看不出当前档）。
+  // 图标口径：随机开 → 画随机图标（一眼看出洗牌生效）；关 → 画当前循环档图标。
+  // 勾选态同时进 title/aria-label：四个选项里「列表循环/单曲循环」光看图标只差一个 9px 的「1」。
+  const lPop = $("pb-lpop");
+  const LOOP_MODES: { id: Mode; label: string; icon: string; note: string }[] = [
+    { id: "off", label: "顺序播放", icon: icons.loopOff, note: "播完即止" },
+    { id: "all", label: "列表循环", icon: icons.loopAll, note: "循环整列" },
+    { id: "one", label: "单曲循环", icon: icons.loopOne, note: "重复当前" },
+  ];
+  function buildLPop() {
+    lPop.innerHTML = "";
+    for (const m of LOOP_MODES) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "lp-i";
+      b.dataset.mode = m.id;
+      b.innerHTML = `<span class="lp-ic">${m.icon}</span><span class="lp-tx">${m.label}</span><i class="muted">${m.note}</i>`;
+      b.onclick = () => { player.setMode(m.id); closeLPop(); };
+      lPop.append(b);
+    }
+    const sep = document.createElement("div");
+    sep.className = "lp-sep";
+    lPop.append(sep);
+    const sh = document.createElement("button");
+    sh.type = "button";
+    sh.className = "lp-i";
+    sh.dataset.shuffle = "1";
+    sh.innerHTML = `<span class="lp-ic">${icons.shuffle}</span><span class="lp-tx">随机播放</span><i class="muted">每日一套顺序</i>`;
+    sh.onclick = () => { player.toggleShuffle(); closeLPop(); };
+    lPop.append(sh);
+  }
+  function syncLPop() {
+    lPop.querySelector<HTMLElement>('[data-mode="off"]')?.classList.toggle("sel", player.mode === "off");
+    lPop.querySelector<HTMLElement>('[data-mode="all"]')?.classList.toggle("sel", player.mode === "all");
+    lPop.querySelector<HTMLElement>('[data-mode="one"]')?.classList.toggle("sel", player.mode === "one");
+    lPop.querySelector<HTMLElement>('[data-shuffle]')?.classList.toggle("sel", player.shuffle);
+  }
+  const closeLPop = () => {
+    el.classList.remove("lp-open");
+    loop.setAttribute("aria-expanded", "false");
+  };
+  buildLPop();
+  loop.onclick = () => {
+    const open = el.classList.toggle("lp-open");
+    loop.setAttribute("aria-expanded", String(open));
+    if (open) syncLPop();
+  };
 
   // 音量滑杆（拖动即时生效；拉到 0 静音态，调回自动取消静音）
   vol.addEventListener("input", () => { paintVol(); player.setVolume(Number(vol.value) / 100); });
@@ -99,6 +149,7 @@ export function PlayerBar(): HTMLElement {
     const t = e.target as HTMLElement;
     if (!el.contains(t) || !t.closest("#pb-mute, #pb-volpop")) el.classList.remove("vol-open");
     if (!el.contains(t) || !t.closest("#pb-quality, #pb-qpop")) el.classList.remove("q-open");
+    if (!el.contains(t) || !t.closest("#pb-loop, #pb-lpop")) closeLPop();
   });
 
   // —— 音质切换（音频控制区右侧、收藏红心之前）——
@@ -170,14 +221,14 @@ export function PlayerBar(): HTMLElement {
   };
   void initQuality();
 
-  // 滚轮在 Bar 上 = 微调音量。音质控件例外：
+  // 滚轮在 Bar 上 = 微调音量。音质/播放模式浮窗例外：
   // 浮窗上把滚轮还给菜单自身的 overflow-y 滚动（这里 preventDefault 会杀掉原生滚动）；
-  // 胶囊上无内容可滚也不该动音量，吞掉即可（.frame overflow:hidden，吞掉不会漏滚页面）。
+  // 胶囊/按钮上无内容可滚也不该动音量，吞掉即可（.frame overflow:hidden，吞掉不会漏滚页面）。
   el.addEventListener("wheel", (e) => {
     const t = e.target as HTMLElement;
-    if (t.closest("#pb-qpop")) return;
+    if (t.closest("#pb-qpop, #pb-lpop")) return;
     e.preventDefault();
-    if (t.closest("#pb-quality")) return;
+    if (t.closest("#pb-quality, #pb-loop")) return;
     player.setVolume(player.volume - Math.sign(e.deltaY) * 0.04);
   }, { passive: false });
 
@@ -194,7 +245,7 @@ export function PlayerBar(): HTMLElement {
   };
   el.addEventListener("pointerdown", (e) => {
     const t = e.target as HTMLElement;
-    if (t.closest("button, input, .pb-volpop, .pb-qpop")) return; // 控件区不吞点击
+    if (t.closest("button, input, .pb-volpop, .pb-qpop, .pb-lpop")) return; // 控件区不吞点击
     if (!player.duration) return;
     dragging = true;
     el.classList.add("scrubbing");
@@ -283,15 +334,20 @@ export function PlayerBar(): HTMLElement {
       play.setAttribute("title", player.loading ? "加载中，点击取消" : player.error ? "加载失败，点击重试" : "播放/暂停");
     }
     paintQ();
-    if (player.mode !== lastLoop) {
-      lastLoop = player.mode;
-      loop.innerHTML = player.mode === "off" ? icons.loopOff : player.mode === "all" ? icons.loopAll : icons.loopOne;
-      loop.classList.toggle("on", player.mode !== "off");
-      // 「列表循环」与「单曲循环」的图形只差一个 9px 的「1」，光看图标分不出来 —— 把模式名挂到
-      // title / aria-label 上，悬停与读屏都能确认当前处于哪一档（顺序 → 列表 → 单曲 三态轮转）。
+    // 播放模式按钮：随机开 → 随机图标；关 → 当前循环档图标。
+    // 签名含 shuffle：只切随机不改循环时也得重画（图标换了）。
+    const loopSig = `${player.mode}|${player.shuffle}`;
+    if (loopSig !== lastLoop) {
+      lastLoop = loopSig;
       const loopName = player.mode === "off" ? "顺序播放" : player.mode === "all" ? "列表循环" : "单曲循环";
-      loop.title = `${loopName}（点击切换）`;
-      loop.setAttribute("aria-label", `循环模式：${loopName}`);
+      loop.innerHTML = player.shuffle ? icons.shuffle : player.mode === "off" ? icons.loopOff : player.mode === "all" ? icons.loopAll : icons.loopOne;
+      loop.classList.toggle("on", player.mode !== "off" || player.shuffle);
+      // 「列表循环」与「单曲循环」的图形只差一个 9px 的「1」，光看图标分不出来 —— 把模式名挂到
+      // title / aria-label 上，悬停与读屏都能确认当前处于哪一档（点按钮开菜单，四档里选一）。
+      const shufNote = player.shuffle ? "随机播放 开（每日一套顺序）" : "随机播放 关";
+      loop.title = `${loopName} · ${shufNote}（点击打开菜单）`;
+      loop.setAttribute("aria-label", `播放模式：${loopName}，${shufNote}`);
+      if (el.classList.contains("lp-open")) syncLPop();
     }
     const loveSig = (s?.mid ?? "") + (s && player.loved.has(s.mid) ? "1" : "0");
     if (loveSig !== lastLove) {
