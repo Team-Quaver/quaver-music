@@ -8,30 +8,38 @@ Quaver Music，是一款 QQ 音乐的第三方客户端，其目的是为了让 
 
 名字取自于八分音符，对应了音乐，“QQ” 的 Q 字母。
 
-#### 深浅模式/主页
-
-<p align="center">
-  <img src="img/1-1sc.webp" width="480">
-</p>
-
-#### 正在播放页
-
-<p align="center">
-  <img src="img/1-1player.webp" width="480">
-</p>
-
 > [!CAUTION]
 > 真爱音乐，尊重正版，音乐平台不易，该应用**不提供盗版 QQ 音乐曲目服务！**
 > 
 > 本软件系 Vibe Coding 的产物，虽然我会尽力尝试个人维护，但不提供可用性保证
 
+# 截图
+
+#### 深浅模式/主页
+
+<p align="center">
+  <img src="img/1-2.webp" width="480">
+</p>
+
+#### 正在播放页
+
+<p align="center">
+  <img src="img/nowplaying.webp" width="480">
+</p>
+
+#### 歌单
+
+<p align="center">
+  <img src="img/playlist.webp" width="480">
+</p>
+
 # 契机
 
 我一直是 QQ 音乐的用户，也用过 NCM 的第三方客户端（如 SPlayer），Spotify，Apple Music。
 
-然而 QQ 音乐一直没有什么好用的第三方客户端，而同 TME 系的有 [MoeKoe](https://music.moekoe.cn/) ，而转机是在 [Lyrune](https://github.com/amtoaer/lyrune)，一个挺好用的 Rust Q 音第三方客户端，但可惜 Rust 太重了，而且我 Rust 是真的菜。
+然而 QQ 音乐一直没有什么好用的第三方客户端，而同 TME 系的有 [MoeKoe](https://music.moekoe.cn/) ，而转机是在 [Lyrune](https://github.com/amtoaer/lyrune)，一个挺好用的 Rust Q 音第三方客户端，但可惜 Rust 开发起来太重了，而且我 Rust 是真菜。
 
-所以使用 Electron，对接入 NodeJS 的 API 而言也很方便，开发也很快，也可以避免我孱弱的 Rust 开发，与此同时，后端我也能玩 C++ 这一个我更熟悉的编程语言（虽然最后变成了 TypeScript + Python）。故此项目诞生，现正在 Prototype 阶段，逐步新增功能。
+所以使用 Electron，对接入 NodeJS 的 API 而言也很方便，开发也很快，也可以避免我孱弱的 Rust 开发，与此同时，后端我也能玩 C++ 这一个我更熟悉的编程语言（虽然最后变成了 TypeScript + Go）。故此项目诞生，现正在 Prototype 阶段，逐步新增功能。
 
 # 目标
 
@@ -41,34 +49,20 @@ x：每一个大版本均为 10 个小版本（典型情况），如遇到更改
 y：功能更新版本
 z：修补版本号
 
-| 版本号    | 主分支开发代号 | 副分支开发代号        | 隶属开发阶段           |
+| 版本号    | 主分支开发代号 | 副分支开发代号 | 隶属开发阶段   |
 | ------ | ------- | -------------- | ---------------- |
 | v0.x.x | Neon    | Prototype      | Prototype        |
 | v1.0.0 | Ellen   | Chisa          | Stable           |
-| v1.0.x | Ellen   | Chisa - PatchX | Stable - PatchX* |
+| v1.0.x | Ellen   | Chisa          | Stable - PatchX* |
 | v1.1.0 | Ellen   | Cyrene         | Stable - FEP1*   |
+| v1.2.0 | Ellen   | Phoebe         | Stable - FEP2*   |
+| v1.2.0 | Ellen   | Evanescia      | Stable - FEP3*   |
+| v1.4.0 | Ellen   | Aemeath        | Stable - FEP4*   |
+
 
 > PatchX：修复包版本 
 > 
-> FEP：功能启用包
-
-
-罗马不是一天建成的，为了防止墙被砌歪，在 Prototype 阶段，将完成以下工作
-
-- [x] 基础 UI 建设（播放页主页）
-- [x] 使用 WebAPI，完成基础的后端数据获取（换成 Python API 了）
-- [x] 打包 CI
-
-现在的基础 UI 设计使用了 Pixso，感谢万兴开发的 Pixso，我大学时期就在用的 UI/UX 设计工具（虽然当时是上课）！
-
-在这三个完成后，将进入 Stable 阶段的开发，在此阶段，我需要完成以下工作
-
-- [x] 代号为 `Typhoeus` 的统一后端（集合现在的 Quaver SAL，抽象部分 API 能力 + 自实现播放后端，使用 AGPLv3 协议开源，在考虑因此学习 Zig 还是重新开始 Rust 还是复习 C++ ）
-- [x] MPRIS 支持（使用 `Typhoeus` 后端实现）
-- [x] 使用 Go 重写后端 sidecar（`vendor/Typhoeus-go`：QQMusicApi 接口口径 + `Typhoeus` 档位协商/流中继语义，替代 Python 实现）
-- [x] 清理 Bugs
-
-并在未来的 FEP 版本中，加入呼声较高的功能，或未完成实现的功能。
+> FEP：功能包
 
 # 配置
 
@@ -99,8 +93,6 @@ CI（`.github/workflows/build.yml`）产出 x86_64 / aarch64 双架构 AppImage�
 
 # 协议
 
-该项目使用 AGPLv3 及其未来版本协议协议，其使用的 API 上游使用 GPLv3 及其未来版本协议
-
-[Python - GPLv3-or-later - l-1124/QQMusicApi](https://github.com/l-1124/QQMusicApi) <br>
+该项目使用 AGPLv3 及其未来版本协议协议
 
 与此同时，该项目依旧无法避免属于 QQ 音乐第三方客户端，请尊重 QQ 音乐的最终用户协议，禁止破解 QQ 音乐的曲库，本应用仅提供流媒体服务，不提供任何下载服务。
