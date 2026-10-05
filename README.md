@@ -2,7 +2,13 @@
   <img src="img/quaver-icon.svg" width="96">
 </p>
 
-# Quaver Music- 又一个第三方 QQ 音乐客户端
+# Quaver Music
+
+--- 
+
+<p align="center">现代、流畅、百变的第三方 QQ 音乐客户端</p>
+
+---
 
 Quaver Music，是一款 QQ 音乐的第三方客户端，其目的是为了让 Linux DE / Wayland WM 用户能够爽用，基于 Electron + Vite 实现
 
