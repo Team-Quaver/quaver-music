@@ -2,7 +2,8 @@
 //
 //   自建歌单：立即播放 / 插队播放 / 删除歌单
 //   收藏歌单：立即播放 / 插队播放 / 取消收藏
-//   双击（两类同）：立即播放该歌单
+//   系统虚拟歌单（每日 30 首 / 我喜欢，挂在导航区）：立即播放 / 插队播放
+//   双击（以上同类）：立即播放该歌单
 //
 // 面板机制复用 SongMenu（body 常驻层 / 视口钳制 / 关闭时机齐全），本文件只管
 // 菜单内容与歌单动作本身。收藏歌单取消后侧栏由 favs 订阅自动重画；
@@ -42,22 +43,61 @@ async function fetchPlaylistSongs(id: number | string): Promise<Song[]> {
   return songs;
 }
 
-/** 立即播放：整队列替换、从第一首起播（侧栏双击与菜单「立即播放」共用一条路） */
-export async function playPlaylistNow(pl: PlaylistMenuTarget) {
-  const songs = await fetchPlaylistSongs(pl.id);
+/** 取歌失败不静默：双击路径没有菜单 run() 的 catch 兜底（SongMenu 才包 toast）。
+ *  失败返回 null（这里已 toast），调用方据以区分「失败」与「空列表」两种提示。 */
+async function fetchSongsOrComplain(fetchSongs: () => Promise<Song[]>): Promise<Song[] | null> {
+  try {
+    return await fetchSongs();
+  } catch (e) {
+    toast(`取歌失败：${e instanceof Error ? e.message : String(e)}`, "err");
+    return null;
+  }
+}
+
+/** 立即播放：整队列替换、从第一首起播（侧栏双击与菜单「立即播放」共用一条路）。
+ *  普通歌单与系统虚拟歌单（每日 30 首 / 我喜欢）都落到这里，差别只在取歌函数。 */
+export async function playSongsNow(title: string, fetchSongs: () => Promise<Song[]>) {
+  const songs = await fetchSongsOrComplain(fetchSongs);
+  if (!songs) return; // 取歌失败已 toast
   if (!songs.length) { toast("歌单为空或不可见", "err"); return; }
   player.playList(songs, 0);
-  toast(`正在播放歌单「${pl.title}」`);
+  toast(`正在播放歌单「${title}」`);
 }
 
 /** 插队播放：整组按原序排到当前曲之后，不打断当前曲；队列空着没有「下一首」
  *  可言，enqueueNextMany 会退化成整列起播，文案跟着变。 */
-export async function playPlaylistNext(pl: PlaylistMenuTarget) {
-  const songs = await fetchPlaylistSongs(pl.id);
+export async function playSongsNext(title: string, fetchSongs: () => Promise<Song[]>) {
+  const songs = await fetchSongsOrComplain(fetchSongs);
+  if (!songs) return; // 取歌失败已 toast
   if (!songs.length) { toast("歌单为空或不可见", "err"); return; }
   const wasEmpty = player.index < 0 || !player.queue.length;
   player.enqueueNextMany(songs);
-  toast(wasEmpty ? `开始播放歌单「${pl.title}」` : `已插队：「${pl.title}」（${songs.length} 首排在当前曲之后）`);
+  toast(wasEmpty ? `开始播放歌单「${title}」` : `已插队：「${title}」（${songs.length} 首排在当前曲之后）`);
+}
+
+/** 立即播放（普通歌单入口）：按 disstid 翻页拉全歌后走 playSongsNow */
+export async function playPlaylistNow(pl: PlaylistMenuTarget) {
+  return playSongsNow(pl.title, () => fetchPlaylistSongs(pl.id));
+}
+
+/** 插队播放（普通歌单入口）：同上走 playSongsNext */
+export async function playPlaylistNext(pl: PlaylistMenuTarget) {
+  return playSongsNext(pl.title, () => fetchPlaylistSongs(pl.id));
+}
+
+/** 系统虚拟歌单（每日 30 首 / 我喜欢）的右键菜单：没有删除/取消收藏的尾巴，只有播放两兄弟。
+ *  虚拟歌单没有固定的 disstid 可翻页拉详情，取歌由调用方给专用接口的 fetchSongs。 */
+export function openVirtualPlaylistMenu(
+  x: number,
+  y: number,
+  title: string,
+  fetchSongs: () => Promise<Song[]>,
+  anchor?: HTMLElement,
+) {
+  openMenuAt(x, y, [
+    { label: "立即播放", note: "替换当前队列", run: () => playSongsNow(title, fetchSongs) },
+    { label: "插队播放", note: "排到当前曲之后", run: () => playSongsNext(title, fetchSongs) },
+  ], anchor);
 }
 
 /** 在 (x, y) 打开歌单菜单（坐标一般是鼠标位置）。anchor = 右键的那个歌单条目 */

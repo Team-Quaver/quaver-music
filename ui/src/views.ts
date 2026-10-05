@@ -926,8 +926,8 @@ async function settingsView(root: HTMLElement) {
   const tabs = h("div", "set-tabs", `
     <button class="set-tab is-active" data-tab="appearance" type="button">外观</button>
     <button class="set-tab" data-tab="playback" type="button">播放</button>
-    <button class="set-tab" data-tab="general" type="button">通用</button>
     <button class="set-tab" data-tab="hotkeys" type="button">热键</button>
+    <button class="set-tab" data-tab="general" type="button">通用</button>
     <button class="set-tab" data-tab="plugins" type="button">Sparkle</button>`);
   root.append(tabs);
   const wrap = h("div", "set-view");
@@ -1026,16 +1026,17 @@ async function settingsView(root: HTMLElement) {
       </div>
 
       <div class="set-group">
-        <div class="set-label">是否启用回退臻品全景声<span class="set-note-inline">臻品全景声（5.1 / 7.1）可能会影响部分歌曲视听体验，故默认关闭</span></div>
+        <div class="set-label">是否启用回退臻品全景声<span class="set-note-inline">臻品全景声可能会影响部分歌曲视听体验，故默认关闭</span></div>
         <div class="opt-cards" id="atmos-fallback-cards">
           <button class="opt-card" data-opt="no-atmos" type="button">关闭</button>
           <button class="opt-card" data-opt="rank" type="button">开启</button>
         </div>
-        <p class="muted set-hint">自动优先「臻品母带」，若音源无该音质则跳过「臻品全景声 5.1 / 7.1」；「开启」则保留全景声模式。</p>
-        <p class="muted set-hint">即时生效。仅限 QQ 音乐超级会员生效。</p>
+        <p class="muted set-hint">自动优先「臻品母带」，若音源无该音质则跳过「臻品全景声」；「开启」则保留全景声模式。</p>
+        <p class="muted set-hint">仅限 QQ 音乐超级会员生效。</p>
       </div>
     </section>
-
+    <!-- 热键面板：内容由 ui/src/components/HotkeySettings.ts 填充（全局/焦点内两组绑定） -->
+    <section class="set-panel" data-panel="hotkeys" hidden></section>
     <section class="set-panel" data-panel="general" hidden>
       <div class="set-group">
         <div class="set-label">配置文件</div>
@@ -1058,15 +1059,13 @@ async function settingsView(root: HTMLElement) {
       <div class="set-group set-about">
         <div class="about-img"><img class="ic-dark" src="/quaver-icon-dark.svg" width=60 alt="Quaver Icon"><img class="ic-light" src="/quaver-icon.svg" width=60 alt="Quaver Icon">
         <h3> Quaver Music </h3>
-        <h4> 又一个基于 Electron + Vite 前端 + TS/Py 混合后端的 QQ 音乐第三方客户端</h4>
+        <h4> 现代、流畅、百变的第三方 QQ 音乐客户端，基于 Electron + Vite + Golang </h4>
         <small> Version: ${__APP_VERSION__} </small>
       </div>
     </section>
     
     <!-- Sparkle 面板：内容由 ui/src/sparkle/settings.ts 填充（插件列表/插件设置区/Marketplace） -->
-    <section class="set-panel" data-panel="plugins" hidden></section>
-    <!-- 热键面板：内容由 ui/src/components/HotkeySettings.ts 填充（全局/焦点内两组绑定） -->
-    <section class="set-panel" data-panel="hotkeys" hidden></section>`;
+    <section class="set-panel" data-panel="plugins" hidden></section>`;
 
   root.append(wrap);
 

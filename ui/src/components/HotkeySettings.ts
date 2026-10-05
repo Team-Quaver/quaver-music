@@ -1,4 +1,4 @@
-// Quaver — 设置页「热键」面板（外观/播放/通用/Sparkle 之外的第五个选项卡）。
+// Quaver — 设置页「热键」面板（与外观/播放/通用/Sparkle 并列的选项卡，排在通用左边）。
 //
 // 两组清单：全局热键（系统级，窗口失焦也生效）与焦点内热键（仅窗口聚焦时生效）。
 // 每行一枚绑定按钮，点击进入录制态（捕获 keydown）；Esc 取消、退格/删除键清除（停用）。
@@ -44,12 +44,12 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
 
   const globalHint = conf.bridged
     ? isMac
-      ? "经系统 API 注册，与其他应用冲突时会注册失败并提示。空 = 停用。"
-      : "Windows / macOS 经系统 API 注册；Linux 经 XDG 桌面门户注册（应用 ID red.0w0.quaver，部分桌面会弹授权确认，改绑定可能要求再次确认）。空 = 停用。"
-    : "浏览器 dev 态没有壳层，全局热键不生效（焦点内热键可正常试用）。";
+      ? "由系统注册，当键位为空时，该功能不生效"
+      : "Linux 经 XDG 桌面门户注册"
+    : "浏览器开发态没有 shell 层，全局热键不生效";
 
   host.append(
-    group("Global", "全局热键", "系统级：窗口失焦也生效", GLOBAL_HOTKEY_ACTIONS, globalHint),
+    group("Global", "全局热键", "", GLOBAL_HOTKEY_ACTIONS, globalHint),
     group("Focus", "焦点内热键", "仅窗口聚焦时生效", FOCUS_HOTKEY_ACTIONS,
       "上一曲 / 下一曲 / 音量在输入框内不触发（避免与 Ctrl+方向 的文本编辑冲突）。空 = 停用。"),
   );

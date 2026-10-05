@@ -25,11 +25,11 @@ const step = async (name, fn) => {
 await page.goto(`${BASE}/index.html#/settings`, { waitUntil: "networkidle2" });
 await sleep(800);
 
-await step("热键选项卡存在且在通用之后", async () => {
+await step("热键选项卡存在且在通用左边", async () => {
   const order = await page.$$eval(".set-tab", (els) => els.map((e) => e.textContent.trim()));
   const at = order.indexOf("热键");
   if (at < 0) throw new Error("没有热键标签: " + order.join(","));
-  if (order[at - 1] !== "通用") throw new Error("不在通用旁边: " + order.join(","));
+  if (order[at + 1] !== "通用") throw new Error("不在通用左边: " + order.join(","));
   return order.join(" / ");
 });
 
@@ -45,10 +45,10 @@ await step("默认绑定文案", async () => {
   const got = await page.$eval('[data-panel="hotkeys"] .hk-btn[data-scope="Global"][data-action="toggle"]', (e) => e.textContent);
   const quit = await page.$eval('[data-panel="hotkeys"] .hk-btn[data-scope="Focus"][data-action="quit"]', (e) => e.textContent);
   const volup = await page.$eval('[data-panel="hotkeys"] .hk-btn[data-scope="Global"][data-action="volup"]', (e) => e.textContent);
-  if (got !== "Ctrl+Alt+F5") throw new Error("Global toggle = " + got);
+  if (got !== "Ctrl+Alt+P") throw new Error("Global toggle = " + got);
   if (quit !== "Ctrl+Q") throw new Error("Focus quit = " + quit);
   if (volup !== "Ctrl+Alt+Up") throw new Error("Global volup = " + volup);
-  return "toggle=F5, quit=Ctrl+Q, volup=Ctrl+Alt+Up";
+  return "toggle=Ctrl+Alt+P, quit=Ctrl+Q, volup=Ctrl+Alt+Up";
 });
 
 await step("录制组合键写入配置", async () => {
@@ -145,7 +145,7 @@ await step("输入框内方向热键让位（音量不变）", async () => {
 await step("浏览器 dev 无壳层：全局组有说明", async () => {
   await sleep(3500); // 等录制过程的临时提示（3.2s）恢复成默认说明
   const hint = await page.$eval('[data-panel="hotkeys"] .set-group:first-child [data-hint]', (e) => e.textContent);
-  if (!hint.includes("没有壳层") && !hint.includes("门户") && !hint.includes("系统 API")) throw new Error(hint);
+  if (!hint.includes("没有壳层") && !hint.includes("shell 层") && !hint.includes("门户") && !hint.includes("系统 API")) throw new Error(hint);
   return hint.slice(0, 40) + "…";
 });
 

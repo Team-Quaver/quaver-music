@@ -48,7 +48,7 @@ section("config.mjs isHotkey 值域");
   const dir = mkdtempSync(join(tmpdir(), "quaver-hk-conf-"));
   process.env.QUAVER_CONFIG_DIR = dir;
   writeFileSync(join(dir, "quaver.conf"), template());
-  eq("默认 Ctrl+Alt+F5", defaults()["Hotkeys.Global.Toggle"], "Ctrl+Alt+F5");
+  eq("默认 Ctrl+Alt+P", defaults()["Hotkeys.Global.Toggle"], "Ctrl+Alt+P");
   eq("默认焦点 Ctrl+Q", defaults()["Hotkeys.Focus.Quit"], "Ctrl+Q");
   eq("空串合法（停用）", writeValues({ "Hotkeys.Global.Toggle": "" }), ["Hotkeys.Global.Toggle"]);
   eq("合法组合写入", writeValues({ "Hotkeys.Global.Toggle": "Ctrl+Shift+9", "Hotkeys.Focus.Prev": "Ctrl+Left" }),

@@ -10,12 +10,12 @@ import { getSidebarCollapsed, setSidebarCollapsed, getSidebarWidth, setSidebarWi
 import { bindHResizer } from "./lib/resizer";
 import { sparkleViewAt, sparkleSonglistGroups } from "./sparkle/registry";
 import type { SparkleNavItem } from "@quaver/sparkle";
-import { player } from "./player";
+import { player, type Song } from "./player";
 import { PlayerBar } from "./components/PlayerBar";
 import { NowPlaying } from "./components/NowPlaying";
 import { QueuePanel } from "./components/QueuePanel";
 import { SearchBox } from "./components/SearchBox";
-import { playPlaylistNow, openPlaylistMenu, type PlaylistMenuOptions } from "./components/PlaylistMenu";
+import { playPlaylistNow, playSongsNow, openPlaylistMenu, openVirtualPlaylistMenu, type PlaylistMenuOptions } from "./components/PlaylistMenu";
 import { views, BACK_SVG } from "./views";
 import { extractCoverColor, toUiColors, type RGB } from "./lib/color";
 
@@ -274,6 +274,32 @@ export function bootShell() {  // 环境色层：当前封面高斯模糊铺满�
       else window.dispatchEvent(new CustomEvent("quaver:window", { detail: b.dataset.win }));
     }),
   );
+
+  // —— 每日 30 首 / 我喜欢：与侧栏歌单条目同一套交互 —— 双击立即播放，右键菜单含插队播放。
+  //    两者是系统虚拟歌单（没有固定 disstid 可翻页拉详情），取歌各走专用接口：
+  //    每日走 /recommend/daily（30 首一把拿全）；我喜欢走 player 的预载缓存（loadLoved
+  //    自带 TTL 对账，多数时候直接命中，不打网络）。 ——
+  const VIRTUAL_LISTS: Record<string, { title: string; fetch: () => Promise<Song[]> }> = {
+    "/daily": {
+      title: "每日 30 首",
+      fetch: async () => (await api<{ songs?: Song[] }>("/recommend/daily?page=1&num=100"))?.songs ?? [],
+    },
+    "/liked": {
+      title: "我喜欢",
+      fetch: async () => ((await player.loadLoved()) ? (player.likedCache ?? []) : []),
+    },
+  };
+  for (const a of frame.querySelectorAll<HTMLAnchorElement>(".nav a")) {
+    const v = VIRTUAL_LISTS[a.dataset.route ?? ""];
+    if (!v) continue;
+    // 双击 = 立即播放（单击仍导航进页面；两击的第一次导航先落地，双击随即开播）
+    a.addEventListener("dblclick", () => { void playSongsNow(v.title, v.fetch); });
+    a.addEventListener("contextmenu", (e) => {
+      e.preventDefault(); // 不弹系统菜单
+      e.stopPropagation();
+      openVirtualPlaylistMenu(e.clientX, e.clientY, v.title, v.fetch, a);
+    });
+  }
 
   // 侧栏缩回/展开：状态真相在 quaver.conf（Window.SidebarCollapsed），样式由 body.side-collapsed
   // 驱动（启动时的初始 class 已在 main.ts 的 applySidebar() 里挂好，这里只接管交互后同步）。

@@ -329,12 +329,12 @@ export const SCHEMA = [
     keys: [
       {
         key: "Toggle",
-        def: "Ctrl+Alt+F5",
+        def: "Ctrl+Alt+P",
         doc: [
           "全局热键（系统级，窗口失焦也生效）：暂停/播放。空值=停用。",
           "取值形态：修饰键 Ctrl/Alt/Shift/Super 按此顺序组合 + 键名（字母/数字/F1-F24/",
           "Left Right Up Down/Space Tab Enter Escape Backspace Delete Insert Home End/",
-          "PageUp PageDown Minus Equal Comma Period），如 Ctrl+Alt+F5、Ctrl+P",
+          "PageUp PageDown Minus Equal Comma Period），如 Ctrl+Alt+P、Ctrl+Q",
         ],
         valid: isHotkey,
       },

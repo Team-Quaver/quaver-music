@@ -31,7 +31,7 @@ const FALLBACK: ConfigSnapshot = {
   "Playing.Volume": "0.8",
   "Playing.Muted": "False",
   "Playing.PrevReplay": "True",
-  "Hotkeys.Global.Toggle": "Ctrl+Alt+F5",
+  "Hotkeys.Global.Toggle": "Ctrl+Alt+P",
   "Hotkeys.Global.Prev": "Ctrl+Alt+Left",
   "Hotkeys.Global.Next": "Ctrl+Alt+Right",
   "Hotkeys.Global.VolUp": "Ctrl+Alt+Up",
