@@ -1,11 +1,15 @@
 // Quaver — 热键链路单测（纯 Node，不需要 Electron / 真桌面环境）。
 //
-// 四层保障，按依赖方向排：
+// 五层保障，按依赖方向排：
 //   1. 配置值域（electron/config.mjs isHotkey）：合法/非法/停用（空串）
 //   2. accelerator 规范化（src/lib/prefs.ts）：KeyboardEvent 形态 → "Ctrl+Alt+F5" 串
 //      （vite build 现打包 prefs —— 同 verify-prefs-map 的做法）
 //   3. 门户触发串映射（electron/global-hotkeys.mjs）：Ctrl+P → CTRL+p（XKB 基础层小写！）
-//   4. D-Bus 线级（electron/xdg-portal.mjs）：
+//   4. shortcut 模式全流程（electron/global-hotkeys.mjs × mock globalShortcut）：
+//      win/mac 路径（Linux 上以 process.platform 假装 win32 走一遍）——注册/重绑/占用/
+//      非法格式/destroy。mock 只长真实 Electron 的 API 面，误调不存在的 API 当场 TypeError
+//      （globalShortcut.isAccelerator 的教训：Electron 没这个方法，门户路径又测不到它）。
+//   5. D-Bus 线级（electron/xdg-portal.mjs）：
 //      a. 编解码往返（大端/小端、a{sv}、a(sa{sv)}、o s t a{sv} 信号体）
 //      b. 规范算例：数组长度不含首元素垫片（dbus-broker 以 invalid body 踢线的教训）
 //      c. PortalShortcuts 对 mock 总线全流程：SASL → Hello → CreateSession → Bind →
@@ -20,7 +24,7 @@ import { build as viteBuild } from "vite";
 import {
   PortalShortcuts, buildMessage, parseMessage, encodeValue, parseBusAddress, sigEnd, Writer,
 } from "../electron/xdg-portal.mjs";
-import { acceleratorToPortalTrigger } from "../electron/global-hotkeys.mjs";
+import { acceleratorToPortalTrigger, createGlobalHotkeys } from "../electron/global-hotkeys.mjs";
 
 const UI_ROOT = fileURLToPath(new URL("..", import.meta.url));
 let pass = 0, fail = 0;
@@ -130,7 +134,82 @@ eq("PageUp → Page_Up", acceleratorToPortalTrigger("Ctrl+PageUp"), "CTRL+Page_U
 eq("空串/停用", acceleratorToPortalTrigger(""), "");
 eq("未知修饰键 → 空（跳过注册）", acceleratorToPortalTrigger("Fn+P"), "");
 
-// ——— 4. D-Bus 线级 ———
+// ——— 4. shortcut 模式（win/mac 路径）———
+section("createGlobalHotkeys × mock globalShortcut（shortcut 模式）");
+{
+  // mock 只长真实 Electron GlobalShortcut 的 API 面（register/registerAll/isRegistered/
+  // unregister/unregisterAll/isSuspended/setSuspended）—— 误调 Electron 上不存在的 API
+  // 会当场 TypeError 炸出来，这正是 globalShortcut.isAccelerator 那个 BUG 的回归锚：
+  // 该方法不存在，抛在第一个键注册之前，win/mac 上全部热键静默失效（门户路径测不到）。
+  function mockGlobalShortcut(taken = new Set()) {
+    const registered = new Map(); // accel → callback
+    const attempts = []; // register 被调用的键（含失败的），用于断言「该不该碰注册」
+    return {
+      registered, attempts,
+      isRegistered: (accel) => registered.has(accel),
+      register: (accel, cb) => { attempts.push(accel); if (taken.has(accel)) return false; registered.set(accel, cb); return true; },
+      registerAll: () => { throw new Error("registerAll 不应被用到"); },
+      unregister: (accel) => { registered.delete(accel); },
+      unregisterAll: () => registered.clear(),
+      isSuspended: () => false,
+      setSuspended: () => {},
+    };
+  }
+  const realPlatform = process.platform;
+  Object.defineProperty(process, "platform", { value: "win32" }); // Linux 开发机假装 Windows（同步段内，用完即还原）
+  try {
+    const notes = [];
+    let bindings = { toggle: "Ctrl+Alt+P", prev: "", next: "Ctrl+Alt+Right", volup: "Ctrl+Alt+Up", voldown: "Ctrl+Alt+Down" };
+    const ms = mockGlobalShortcut();
+    const hk = createGlobalHotkeys({
+      readBindings: () => bindings,
+      sendToRenderer: (p) => notes.push(p),
+      globalShortcut: ms,
+    });
+    check("win32 → shortcut 模式", hk.mode === "shortcut");
+    let threw = "";
+    try { hk.apply(); } catch (e) { threw = String(e); }
+    check("apply 不抛（isAccelerator 回归锚）", !threw, threw);
+    eq("空值停用，其余 4 键注册", [...ms.registered.keys()].sort(),
+      ["Ctrl+Alt+Down", "Ctrl+Alt+P", "Ctrl+Alt+Right", "Ctrl+Alt+Up"]);
+    eq("info 汇报 ready", hk.info().state, "ready");
+    ms.registered.get("Ctrl+Alt+P")();
+    eq("按键 → 渲染层动作", notes[0], { t: "action", action: "toggle" });
+
+    bindings = { ...bindings, toggle: "Ctrl+Alt+Q" };
+    hk.apply();
+    check("重绑：旧键退、新键上", !ms.registered.has("Ctrl+Alt+P") && !!ms.registered.get("Ctrl+Alt+Q"));
+
+    notes.length = 0;
+    const ms2 = mockGlobalShortcut(new Set(["Ctrl+Alt+P"]));
+    createGlobalHotkeys({
+      readBindings: () => ({ toggle: "Ctrl+Alt+P" }),
+      sendToRenderer: (p) => notes.push(p),
+      globalShortcut: ms2,
+    }).apply();
+    eq("被占用 → failed 汇报", notes[0],
+      { t: "failed", items: [{ action: "toggle", accel: "Ctrl+Alt+P", why: "可能已被其他应用占用" }] });
+
+    notes.length = 0;
+    const ms3 = mockGlobalShortcut();
+    createGlobalHotkeys({
+      readBindings: () => ({ toggle: "Ctrl+PrtSc" }),
+      sendToRenderer: (p) => notes.push(p),
+      globalShortcut: ms3,
+    }).apply();
+    check("非法格式不触注册", ms3.attempts.length === 0 && ms3.registered.size === 0);
+    eq("非法格式 → failed 汇报", notes[0],
+      { t: "failed", items: [{ action: "toggle", accel: "Ctrl+PrtSc", why: "格式不合法" }] });
+
+    hk.apply();
+    hk.destroy();
+    check("destroy 反注册全部", ms.registered.size === 0);
+  } finally {
+    Object.defineProperty(process, "platform", { value: realPlatform });
+  }
+}
+
+// ——— 5. D-Bus 线级 ———
 section("xdg-portal.mjs 编解码");
 {
   // 规范 worked example：大端、单个 u64 元素 5、8 字节对齐 → n=8 且垫片不计入
@@ -178,7 +257,7 @@ section("xdg-portal.mjs 编解码");
   eq("sigEnd 完整类型（含型闭区间）", [sigEnd("a{sv}a", 0), sigEnd("(ii)s", 0)], [4, 3]);
 }
 
-// ——— 5. mock 总线全流程 ———
+// ——— 6. mock 总线全流程 ———
 /** 最小门户 mock：SASL + Hello/AddMatch/CreateSession/BindShortcuts/Activated。
  *  bindMode: "v2"（正常）｜ "never"（v2 与 v1 都回 UnknownMethod → 客户端应判 unsupported）。 */
 function startMockBus({ bindMode = "v2" } = {}) {

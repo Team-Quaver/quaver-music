@@ -11,6 +11,7 @@
 // 配置变更由主进程在 quaver:config 落盘后调 apply() —— 门户重绑 = 关旧会话再建，
 // GNOME 上授权框会重弹一次，属门户语义。
 import { PortalShortcuts } from "./xdg-portal.mjs";
+import { isHotkey } from "./config.mjs";
 
 /** Global 段有份的动作（quit 只作为焦点内热键，不进系统级）。 */
 export const GLOBAL_ACTIONS = ["toggle", "prev", "next", "volup", "voldown"];
@@ -85,7 +86,9 @@ export function createGlobalHotkeys({ log = () => {}, readBindings = () => ({}),
     for (const [accel, action] of want) {
       if (registered.get(accel) === action) continue;
       if (registered.has(accel)) { try { globalShortcut.unregister(accel); } catch { /* 同上 */ } registered.delete(accel); }
-      if (!globalShortcut.isAccelerator(accel)) { failed.push({ action, accel, why: "格式不合法" }); continue; }
+      // 格式判定用 config.mjs 的 isHotkey（与 schema 值域同一语法）——
+      // Electron 的 globalShortcut 上没有 isAccelerator 这类探测 API，调了就是 TypeError。
+      if (!isHotkey(accel)) { failed.push({ action, accel, why: "格式不合法" }); continue; }
       let ok = false;
       try { ok = globalShortcut.register(accel, () => notify({ t: "action", action })); } catch (e) { log("[hotkeys] register threw:", String(e)); }
       if (ok) registered.set(accel, action);

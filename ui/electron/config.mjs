@@ -178,7 +178,9 @@ const HK_KEY = new RegExp(
   "^(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Left|Right|Up|Down|Space|Tab|Enter|Escape|Backspace|Delete|Insert|Home|End|PageUp|PageDown|Minus|Equal|Comma|Period)$",
 );
 const HK_MOD = /^(Ctrl|Alt|Shift|Super)$/;
-const isHotkey = (v) => {
+// 导出给 global-hotkeys.mjs：Electron 的 globalShortcut 没有注册前的格式探测 API，
+// shortcut 模式的「格式不合法」判定与 schema 值域用同一个函数，保证两侧不漂移。
+export const isHotkey = (v) => {
   const s = String(v ?? "").trim();
   if (!s) return true; // 空 = 停用
   const parts = s.split("+");
