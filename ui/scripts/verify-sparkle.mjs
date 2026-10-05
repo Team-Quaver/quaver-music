@@ -78,7 +78,7 @@ ok("css: .np-widgets 有样式且仅展开态显示", has(src.style, ".np-widget
 
 // ============ 4. 设置页与生命周期 ============
 ok("views: Sparkle tab 不再是 WIP 文案", !has(src.views, "working in progress") && !has(src.views, "Sparkle（WIP）"));
-ok("views: settingsView 返回 sparkle 清理函数", re(noComments(src.views), /return mountSparklePanel\(sparklePanel\)/));
+ok("views: settingsView 返回 sparkle 清理函数", re(noComments(src.views), /mountSparklePanel\(sparklePanel\)/) && re(noComments(src.views), /offSparkle\(\)/));
 ok("settings: 三分组齐备（已装/插件设置/Marketplace）", has(src.settings, "已装插件") && has(src.settings, "插件设置") && has(src.settings, "Marketplace"));
 ok("settings: 安装 ≠ 启用的警示文案", has(src.settings, "默认关闭") || has(src.settings, "默认不加载"));
 ok("host: enable 失败回滚 teardown", re(src.host, /for \(const fn of \[\.\.\.record\.teardown\]\.reverse\(\)/g) !== null);

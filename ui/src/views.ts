@@ -42,6 +42,8 @@ import {
 import {configInfo, resetConfig, revealConfig} from "./lib/config";
 import {vipCardHtml} from "./lib/vip";
 import {mountSparklePanel} from "./sparkle/settings";
+import {onSparkleChange, sparkleThemes} from "./sparkle/registry";
+import {sparkActivateTheme, sparkActiveThemeId} from "./sparkle/host";
 import {mountHotkeysPanel} from "./components/HotkeySettings";
 
 const h = (tag: string, cls: string, html = "") => {
@@ -942,6 +944,12 @@ async function settingsView(root: HTMLElement) {
         </div>
       </div>
 
+      <!-- Sparkle 主题：卡片由下方 renderSparkleThemes 动态填充（无插件主题时整组隐藏） -->
+      <div class="set-group" id="sparkle-theme-group" hidden>
+        <div class="set-label">Sparkle 主题 <span class="set-note-inline">来自插件；覆盖在上方模式之上，未覆盖的变量跟随明暗</span></div>
+        <div class="opt-cards" id="sparkle-theme-cards"></div>
+      </div>
+
       <div class="set-group">
         <div class="set-label">窗口装饰模式 <span class="set-note-inline">点击切换后立即重启</span></div>
         <div class="opt-cards" id="decor-cards">
@@ -1094,6 +1102,36 @@ async function settingsView(root: HTMLElement) {
 
   // 外观模式：跟随系统 / 明镜白 / 玄幻黑（prefs 写 html[data-theme]，style.css 响应）
   bindOptCards<ThemeMode>(wrap.querySelector<HTMLElement>("#theme-cards")!, getTheme, setTheme);
+  // Sparkle 主题：插件注册的自定义主题（覆盖在上方外观模式之上的变量层）。
+  // 列表随注册表动态变化（插件异步启用/停用），onSparkleChange 重画整组；
+  // 激活经 host 持久化并即时生效，停用激活主题所属插件时 host 自动回落默认。
+  const sparkleThemeGroup = wrap.querySelector<HTMLElement>("#sparkle-theme-group")!;
+  const sparkleThemeCards = wrap.querySelector<HTMLElement>("#sparkle-theme-cards")!;
+  const syncSparkleThemeSel = () => {
+    const activeId = sparkActiveThemeId();
+    // 持久化的 id 可能指向已消失的主题（如插件被禁用后残留）：UI 只认仍注册着的
+    const active = sparkleThemes().some((t) => t.id === activeId) ? (activeId ?? "") : "";
+    syncSel(sparkleThemeCards, "opt", active);
+  };
+  const renderSparkleThemes = () => {
+    const themes = sparkleThemes();
+    sparkleThemeGroup.hidden = themes.length === 0;
+    sparkleThemeCards.innerHTML = "";
+    const mkCard = (id: string, label: string) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "opt-card";
+      b.dataset.opt = id;
+      b.textContent = label;
+      b.onclick = () => { sparkActivateTheme(id || null); syncSparkleThemeSel(); };
+      return b;
+    };
+    sparkleThemeCards.append(mkCard("", "默认"));
+    for (const t of themes) sparkleThemeCards.append(mkCard(t.id, t.name));
+    syncSparkleThemeSel();
+  };
+  renderSparkleThemes();
+  const offSparkleThemes = onSparkleChange(renderSparkleThemes);
   // 窗口装饰：CSD（右上角自绘按钮簇）/ SSD（系统标题栏）。Electron 桥重建窗口；浏览器仅隐藏按钮簇。
   bindOptCards<DecorMode>(wrap.querySelector<HTMLElement>("#decor-cards")!, getDecor, setDecor);
   // 关闭按钮行为：缩放到托盘 / 退出程序（Electron 桥同步主进程；浏览器 dev 无效果）
@@ -1260,7 +1298,7 @@ async function settingsView(root: HTMLElement) {
   // 热键面板：录制态残留监听由其 cleanup 收尾
   const hotkeysPanel = wrap.querySelector<HTMLElement>('[data-panel="hotkeys"]')!;
   const offHotkeys = mountHotkeysPanel(hotkeysPanel);
-  return () => { offSparkle(); offHotkeys(); };
+  return () => { offSparkle(); offSparkleThemes(); offHotkeys(); };
 }
 
 // —— 调试：日志页面（壳层 electron-dev.log 尾部；由 relay.ts /api/log 提供） ——
