@@ -1,4 +1,10 @@
-# Third-party libraries used by Quaver
+# Third-party libraries used by Quaver Music
+
+## [amll-dev/applemusic-like-lyrics](https://github.com/amll-dev/applemusic-like-lyrics)
+
+This is used by Quaver to parse word-by-word (karaoke) lyrics (QRC/KRC/YRC/TTML) and align translations / render.
+
+The project is licensed under AGPL-3.0. Please checkout the project license.
 
 ## Electron
 
@@ -63,8 +69,8 @@ SOFTWARE.
 
 ## [L-1124/QQMusicApi](https://github.com/L-1124/QQMusicApi)
 
-接口语义来源：Go sidecar（vendor/Typhoeus-go，AGPL-v3-or-later）按该项目的接口口径重写，
-不再随包分发其 Python 代码，但派生关系在此致谢。
+
+0.0 - 1.1 used api. No longer use, But thx a lot
 
 The project is licensed under GPLv3-or-later.
 
@@ -744,10 +750,3 @@ the library.  If this is what you want to do, use the GNU Lesser General
 Public License instead of this License.  But first, please read
 <http://www.gnu.org/philosophy/why-not-lgpl.html>.
 ```
-
-
-## [amll-dev/applemusic-like-lyrics](https://github.com/amll-dev/applemusic-like-lyrics)
-
-This is used by Quaver to parse word-by-word (karaoke) lyrics (QRC/KRC/YRC/TTML) and align translations / render.
-
-The project is licensed under AGPL-3.0. Please under the project license.
