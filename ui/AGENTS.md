@@ -94,6 +94,34 @@ pnpm run dev -- --port 5173 --strictPort --host 127.0.0.1
   否则切回明/暗固定档后还挂着探测值。
 - 单测：`node scripts/verify-systheme.mjs`（INI 解析 / 亮度判据 / 来源优先级 / 变化监听，真文件真解析）。
 
+## 应用身份与图标（Linux 桌面集成）
+
+窗口身份 app_id / WM_CLASS = `red.0w0.quaver`，**唯一真相是 package.json 顶层的 `desktopName`**：
+Electron init 在任何用户代码之前读它并写进 `CHROME_DESKTOP`，X11 WM_CLASS 与 Wayland app_id 都取
+它去掉 `.desktop` 后缀的值。主进程**不得**再手工 `app.setDesktopName()`（两处赋值迟早写岔，
+`verify:icon` 有护栏）。`linux.executableName` 必须与 appId 一致——AppImage 内的二进制名、
+desktop 文件名、`Icon=`、hicolor 图标文件名全部取自它，四方只能同源。
+
+图标链：桌面环境按 app_id 反查 `<ID>.desktop` → `Icon=` → 图标主题。AppImage 裸跑与开发态没人
+代装桌面文件/图标，`electron/linux-desktop.mjs` 每次启动自装（幂等、失败只记账）：
+
+- hicolor `<size>x<size>/apps/<ID>.png`（素材 `build-res/icons`，随 extraResources 进包）：
+  内容一致就跳过；有实际写入后 best-effort 刷 `gtk-update-icon-cache`——有 icon-theme.cache 的
+  系统不会自动重扫新文件（实测新装图标 GtkIconTheme 查不到，刷完立刻能查到）。
+- `applications/<ID>.desktop` 三分策略：带 `X-Quaver-Managed` 标记 → 整份强制对齐；别人写的且
+  Icon 已指向我们**且条目可见** → 让位不碰（集成工具的可见条目以它为准，避免启动器重复）；其余
+  （含 `Icon=audio-x-generic` 这类通配名——Tela 下渲染成音符图标，Plasma 上看起来就是「图标坏了」）
+  → 收编成我们托管的条目。
+- **条目必须可见（禁用 NoDisplay/Hidden）**：Noctalia 解析 desktop 时整条丢弃隐藏条目
+  （noctalia-dev/noctalia#4626），app_id 反查不到自己就会退到 id 尾段模糊匹配、撞上集成工具的
+  旧条目，Dock/任务栏/切换器全丢图标。GNOME 的 `g_app_info_get_all` 连隐藏条目也索引且按精确 id
+  优先，所以同一份文件在 GNOME 上看不出问题——别据此认为 NoDisplay 无害。想从启动器藏应用，
+  用启动器自己的隐藏功能。
+- `quaver` 是词典词（八分音符）：**图标名绝不能用裸 `quaver`**，会撞图标主题里的音符图标。
+
+三平台打包图标：win/mac 的 `build.icon` 指向 build-res/icon.png（electron-builder 首次打包自动
+转 ico/icns）；linux 用 build-res/icons 多尺寸集（16–512）。验证：`pnpm run verify:icon`。
+
 ## Documentation
 
 Vite guide: https://vite.dev/guide/

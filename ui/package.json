@@ -1,6 +1,7 @@
 {
   "name": "red.0w0.quaver",
   "productName": "Quaver Music",
+  "desktopName": "red.0w0.quaver.desktop",
   "description": "又一个第三方 QQ 音乐客户端",
   "author": "ne0w0r1d",
   "repository": {
@@ -36,7 +37,7 @@
     "verify:daily": "node scripts/verify-daily.mjs",
     "verify:guess": "node scripts/verify-guess.mjs",
     "verify:sparkle": "node scripts/verify-sparkle.mjs",
-    "verify:static": "node scripts/verify-config.mjs && node scripts/verify-prefs-map.mjs && node scripts/verify-highlight-contrast.mjs && node scripts/verify-song-menu.mjs && node scripts/verify-list-tools.mjs && node scripts/verify-queue-panel-anim.mjs && node scripts/verify-queue-drag.mjs && node scripts/verify-noselect.mjs && node scripts/verify-user-vip.mjs && node scripts/verify-sidebar.mjs && node scripts/verify-playlist-menu.mjs && node scripts/verify-systheme.mjs && node scripts/verify-login.mjs && node scripts/verify-keyring.mjs && node scripts/verify-daily.mjs && node scripts/verify-guess.mjs && node scripts/verify-sparkle.mjs && node scripts/verify-input-policy.mjs && node scripts/verify-streaminfo.mjs && node scripts/verify-hotkeys.mjs && node scripts/verify-shuffle.mjs",
+    "verify:static": "node scripts/verify-config.mjs && node scripts/verify-prefs-map.mjs && node scripts/verify-highlight-contrast.mjs && node scripts/verify-song-menu.mjs && node scripts/verify-list-tools.mjs && node scripts/verify-queue-panel-anim.mjs && node scripts/verify-queue-drag.mjs && node scripts/verify-noselect.mjs && node scripts/verify-user-vip.mjs && node scripts/verify-sidebar.mjs && node scripts/verify-playlist-menu.mjs && node scripts/verify-systheme.mjs && node scripts/verify-login.mjs && node scripts/verify-keyring.mjs && node scripts/verify-daily.mjs && node scripts/verify-guess.mjs && node scripts/verify-sparkle.mjs && node scripts/verify-input-policy.mjs && node scripts/verify-streaminfo.mjs && node scripts/verify-hotkeys.mjs && node scripts/verify-shuffle.mjs && node scripts/verify-icon.mjs",
     "mpris:build": "pnpm --dir ../vendor/Typhoeus/mpris install && pnpm --dir ../vendor/Typhoeus/mpris run build",
     "dist": "pnpm run build && pnpm run mpris:build && electron-builder --linux AppImage",
     "verify:np-gallery": "node scripts/verify-np-gallery.mjs",
@@ -44,7 +45,8 @@
     "verify:loved-sync": "node scripts/verify-loved-sync.mjs",
     "verify:songlist-sync": "node scripts/verify-songlist-sync.mjs",
     "verify:hotkeys": "node scripts/verify-hotkeys.mjs",
-    "verify:shuffle": "node scripts/verify-shuffle.mjs"
+    "verify:shuffle": "node scripts/verify-shuffle.mjs",
+    "verify:icon": "node scripts/verify-icon.mjs"
   },
   "build": {
     "appId": "red.0w0.quaver",
@@ -75,6 +77,10 @@
         "to": "build-res/icon.png"
       },
       {
+        "from": "build-res/icons",
+        "to": "build-res/icons"
+      },
+      {
         "from": "build-res/tray.png",
         "to": "build-res/tray.png"
       },
@@ -93,19 +99,22 @@
         "AppImage"
       ],
       "category": "Audio",
-      "icon": "build-res/icon.png",
+      "executableName": "red.0w0.quaver",
+      "icon": "build-res/icons",
       "maintainer": "ne0w0r1d <ne0w0r1d@users.noreply.github.com>"
     },
     "win": {
       "target": [
         "nsis"
-      ]
+      ],
+      "icon": "build-res/icon.png"
     },
     "mac": {
       "target": [
         "dmg"
       ],
       "category": "public.app-category.music",
+      "icon": "build-res/icon.png",
       "identity": null
     }
   },

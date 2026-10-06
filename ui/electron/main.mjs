@@ -15,6 +15,9 @@ import { audioEngine } from "./audio/engine.mjs";
 import { configDir, configFile, ensureConfigDir, logFile, readValues, resetConfig, writeValues } from "./config.mjs";
 // 系统深浅色探测（Linux 桌面各自的真相来源，见模块头）：「跟随系统」要靠它才真的跟得上
 import { readSystemTheme, watchSystemTheme } from "./systheme.mjs";
+// Linux 桌面集成自装（<app_id>.desktop 身份文件 + hicolor 图标）：各桌面/门户按 app_id 反查
+// 桌面文件取图标，AppImage 裸跑与开发态都没人代劳，必须自己装（模块头有完整链路说明）
+import { DESKTOP_ID, installLinuxDesktopIntegration, quoteExecPath } from "./linux-desktop.mjs";
 // 全局热键（win/mac = Electron globalShortcut；Linux = XDG 门户 GlobalShortcuts，见模块头）
 import { createGlobalHotkeys, GLOBAL_CONF_KEYS } from "./global-hotkeys.mjs";
 // 凭证的密钥环存取（系统密钥管理器 + credential.enc 密文）与 sidecar 交接信封
@@ -28,6 +31,10 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const UI_ROOT = resolve(__dirname, "..");
 const DIST = join(UI_ROOT, "dist");
+// package.json 元数据（description 等给桌面集成用）：Electron 的 app 对象没有 getDescription（实测 44），
+// 直接读一份 —— 打包态命中 asar 内的 package.json，开发态命中 ui/package.json，同一份元数据。
+import { createRequire } from "node:module";
+const PKG_META = createRequire(import.meta.url)("../package.json");
 
 // ——— 配置根目录 ———
 // Linux ~/.config/quaver-music ｜ Windows %AppData%/Quaver Music ｜ macOS Application Support。
@@ -78,14 +85,14 @@ let themePref = bootTheme;
 
 // ——— 应用身份 ———
 // 名字必须是「Quaver Music」：一是 XDG 门户/桌面环境按 app ID（red.0w0.quaver）归档应用，
-// 二是不少软件会把「Quaver」错认成同名音游。SMTC（Windows 通知/任务栏分组）与 Linux
-// 桌面集成各吃一个：
-//   setAppUserModelId → Windows；setDesktopName → Linux 的 Wayland app_id / WM_CLASS，
-//   且是 xdg-desktop-portal 上报给 GlobalShortcuts 等后端的应用身份 —— 门户 1.21+ 对
-//   解析不到桌面文件的 app ID 直接拒会话，打包态必须与 electron-builder 产出的
-//   red.0w0.quaver.desktop 对齐（package.json 的 appId）。
+// 二是不少软件会把「Quaver」错认成同名音游。各平台身份的真相与来源：
+//   • Windows：setAppUserModelId（通知/任务栏分组/SMTC）。
+//   • Linux：package.json 顶层 desktopName（= "red.0w0.quaver.desktop"）——Electron init 在本模块
+//     之前就读它并设进 CHROME_DESKTOP，X11 WM_CLASS 与 Wayland app_id 都取它去掉 .desktop 后缀的值；
+//     xdg-desktop-portal（GlobalShortcuts）与各桌面反查的也是这个 ID（门户 1.21+ 对解析不到桌面
+//     文件的 app ID 直接拒会话）。这里**不要再 setDesktopName**：两个真相迟早写岔，桌面上就是
+//     「图标对不上」这类怪象。桌面文件与 hicolor 图标由 linux-desktop 自装（见 whenReady）。
 app.setAppUserModelId("red.0w0.quaver");
-if (process.platform === "linux") app.setDesktopName("red.0w0.quaver");
 
 // ——— 凭证存储：密钥管理器后端必须在 app ready 之前钉死 ———
 // Chromium 的 OSCrypt 只在初始化时读一次 --password-store，ready 之后再 appendSwitch 是空操作。
@@ -464,7 +471,7 @@ async function createWindow() {
     frame: decorMode === "ssd", // CSD=无原生标题栏（右上角按钮簇）；SSD=系统标题栏
     backgroundColor: bootDark ? "#131417" : "#f7f7f8", // 同 style.css 的 --bg 明暗两值
     title: "Quaver Music",
-    icon: buildRes("icon.png"), // 深色版应用图标（任务栏/窗口管理器等），与 AppImage desktop 图标一致
+    icon: buildRes("icon.png"), // X11 窗口图标（_NET_WM_ICON）；Wayland 的图标走 app_id → 桌面文件 → hicolor（见 linux-desktop 自装）
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -779,6 +786,34 @@ app.whenReady().then(() => {
     });
   } catch (e) {
     log("[quaver] system theme watch failed:", String(e));
+  }
+  // —— Linux 桌面集成自装（模块 linux-desktop.mjs）——
+  // app_id（red.0w0.quaver）→ applications/<ID>.desktop → hicolor 图标，是各桌面取窗口图标、
+  // 任务栏分组与门户鉴权的唯一链路。打包态只有被集成工具接管才有人装、开发态永远没人装。
+  // 异步放行不挡启动；失败只在日志记账（图标显示退化，不影响功能）。
+  if (process.platform === "linux") {
+    // Exec 指向「当前这份应用」：打包态 = AppImage 本体（$APPIMAGE 由运行时注入；从解包目录
+    // 直跑时退回 AppRun），开发态 = 当前 electron + 仓库 ui/ 目录
+    const exec = process.env.APPIMAGE
+      ? `${quoteExecPath(process.env.APPIMAGE)} --no-sandbox %U`
+      : app.isPackaged
+        ? `${quoteExecPath(join(dirname(process.execPath), "AppRun"))} --no-sandbox %U`
+        : `${quoteExecPath(process.execPath)} ${quoteExecPath(UI_ROOT)} %U`;
+    installLinuxDesktopIntegration({
+      desktopId: DESKTOP_ID,
+      name: app.getName(),
+      comment: PKG_META.description ?? "",
+      exec,
+      iconSourceDir: buildRes("icons"),
+      log,
+    }).then((r) => {
+      if (r.desktopAction === "written") log("[quaver] linux-desktop: 已写", r.desktopFile);
+      if (r.iconsWritten.length) log("[quaver] linux-desktop: hicolor 图标已同步:", r.iconsWritten.join(" "));
+    }).catch((e) => log("[quaver] linux-desktop failed:", String(e)));
+  }
+  // 开发态 macOS：Dock 显示的是 electron 壳的图标；打包态用 bundle 内嵌 icns，无需此步
+  if (process.platform === "darwin" && !app.isPackaged && app.dock) {
+    try { app.dock.setIcon(buildRes("icon.png")); } catch {}
   }
   createWindow().catch((e) => {
     log("[quaver] startup failed:", String(e && e.stack || e));
