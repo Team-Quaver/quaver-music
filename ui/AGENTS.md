@@ -109,9 +109,14 @@ desktop 文件名、`Icon=`、hicolor 图标文件名全部取自它，四方只
   内容一致就跳过；有实际写入后 best-effort 刷 `gtk-update-icon-cache`——有 icon-theme.cache 的
   系统不会自动重扫新文件（实测新装图标 GtkIconTheme 查不到，刷完立刻能查到）。
 - `applications/<ID>.desktop` 三分策略：带 `X-Quaver-Managed` 标记 → 整份强制对齐；别人写的且
-  Icon 已指向我们 → 让位不碰（集成工具的可见条目以它为准，避免启动器重复）；其余（含
-  `Icon=audio-x-generic` 这类通配名——Tela 下渲染成音符图标，Plasma 上看起来就是「图标坏了」）
-  → 收编成 NoDisplay 身份文件。
+  Icon 已指向我们**且条目可见** → 让位不碰（集成工具的可见条目以它为准，避免启动器重复）；其余
+  （含 `Icon=audio-x-generic` 这类通配名——Tela 下渲染成音符图标，Plasma 上看起来就是「图标坏了」）
+  → 收编成我们托管的条目。
+- **条目必须可见（禁用 NoDisplay/Hidden）**：Noctalia 解析 desktop 时整条丢弃隐藏条目
+  （noctalia-dev/noctalia#4626），app_id 反查不到自己就会退到 id 尾段模糊匹配、撞上集成工具的
+  旧条目，Dock/任务栏/切换器全丢图标。GNOME 的 `g_app_info_get_all` 连隐藏条目也索引且按精确 id
+  优先，所以同一份文件在 GNOME 上看不出问题——别据此认为 NoDisplay 无害。想从启动器藏应用，
+  用启动器自己的隐藏功能。
 - `quaver` 是词典词（八分音符）：**图标名绝不能用裸 `quaver`**，会撞图标主题里的音符图标。
 
 三平台打包图标：win/mac 的 `build.icon` 指向 build-res/icon.png（electron-builder 首次打包自动

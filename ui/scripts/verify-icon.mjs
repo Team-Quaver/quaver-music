@@ -12,7 +12,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  DESKTOP_ID, desktopEntryContent, installLinuxDesktopIntegration, quoteExecPath, readDesktopIcon, xdgDataHome,
+  DESKTOP_ID, desktopEntryContent, installLinuxDesktopIntegration, quoteExecPath,
+  readDesktopEntryValue, readDesktopHidden, readDesktopIcon, xdgDataHome,
 } from "../electron/linux-desktop.mjs";
 
 let pass = 0, fail = 0;
@@ -80,9 +81,10 @@ check("键序固定（幂等比对的确定性来源）",
     "Terminal=false",
     "Categories=AudioVideo;Audio;",
     "StartupWMClass=red.0w0.quaver",
-    "NoDisplay=true",
     "X-Quaver-Managed=true",
   ].join("\n") + "\n");
+check("条目必须可见（NoDisplay/Hidden 会让 Noctalia 整条丢弃 → app_id 丢图标，#4626）",
+  !/^\s*(NoDisplay|Hidden)\s*=/mi.test(entry));
 eq("带空格的路径被引号包住", quoteExecPath("/home/u/Applications/Quaver Music"), '"/home/u/Applications/Quaver Music"');
 eq("Exec 路径里的引号被转义", quoteExecPath('/a"b'), '"/a\\"b"');
 eq("值里的反斜杠按 spec 转义", desktopEntryContent({ desktopId: "x", name: "a\\b", exec: "e" }).includes("Name=a\\\\b"), true);
@@ -140,7 +142,23 @@ const integrated = "[Desktop Entry]\nType=Application\nName=Quaver Music\nExec=a
 writeFileSync(desktopFile, integrated);
 const r4 = await installLinuxDesktopIntegration(spec);
 eq("Icon 已正确的既有条目让位（kept）", r4.desktopAction, "kept");
-check("既有条目内容原样保留（NoDisplay 没被加上）", readFileSync(desktopFile, "utf8") === integrated);
+check("既有条目内容原样保留（没被加 NoDisplay）", readFileSync(desktopFile, "utf8") === integrated);
+
+// 隐藏条目不能让位：NoDisplay/Hidden 的条目 Noctalia 整条丢弃（#4626），Icon 对了也没用，必须收编成可见
+for (const [label, hideLine] of [["NoDisplay", "NoDisplay=true"], ["Hidden", "Hidden=true"]]) {
+  const hidden = `[Desktop Entry]\nType=Application\nName=Quaver Music\nExec=appimage %U\nIcon=red.0w0.quaver\n${hideLine}\n`;
+  writeFileSync(desktopFile, hidden);
+  const rh = await installLinuxDesktopIntegration(spec);
+  eq(`被 ${label} 藏起来的条目不被让位（收编改写）`, rh.desktopAction, "written");
+  check(`收编后条目可见（无 ${label}）`, !readDesktopHidden(readFileSync(desktopFile, "utf8")));
+  check("收编后 Icon 仍指向我们的图标名", readDesktopIcon(readFileSync(desktopFile, "utf8")) === DESKTOP_ID);
+}
+
+eq("readDesktopHidden 识别 NoDisplay=true", readDesktopHidden("[Desktop Entry]\nNoDisplay=true\n"), true);
+eq("readDesktopHidden 识别 Hidden=1", readDesktopHidden("[Desktop Entry]\nHidden=1\n"), true);
+eq("readDesktopHidden 识别 yes", readDesktopHidden("[Desktop Entry]\nHidden=yes\n"), true);
+eq("readDesktopHidden 对 NoDisplay=false 不误报", readDesktopHidden("[Desktop Entry]\nNoDisplay=false\n"), false);
+eq("readDesktopHidden 只认 Desktop Entry 段", readDesktopHidden("[Desktop Action X]\nNoDisplay=true\n"), false);
 
 // 托管文件漂移：带 X-Quaver-Managed 标记的文件整份强制对齐（Exec 被改坏也要修回来）
 const drifted = desktopEntryContent({

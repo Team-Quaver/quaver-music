@@ -8,6 +8,11 @@
 //     在 Tela 下渲染成「音符」）就直接显示错图；GNOME 会再退一步做basename模糊匹配，Noctalia/其它
 //     Quickshell 类壳走 Qt 的 icon theme 查找。所以「同一个应用在不同桌面图标不一样」的根因
 //     几乎总是 <ID>.desktop 缺失或内容不对，而不是图标本身。
+//   • 条目必须**可见**（不能带 NoDisplay/Hidden）：Noctalia 解析 desktop 时整条丢弃隐藏条目
+//     （noctalia-dev/noctalia#4626 同因），窗口 app_id 反查不到自己，退到 id 尾段模糊匹配就可能
+//     撞上集成工具留下的别的条目（如 quaver.desktop，Icon=quaver 在 Qt 图标链里查不到），表现就是
+//     Dock/任务栏无图标。GNOME 的 g_app_info_get_all 连隐藏条目也索引、又按精确 id 优先，所以同样
+//     的文件在 GNOME 上看不出问题——不要据此认为 NoDisplay 无害。
 //   • xdg-desktop-portal（GlobalShortcuts）同样按 ID 找桌面文件，1.21+ 解析不到直接拒会话。
 //   • AppImage 只有被集成工具（AppImageLauncher 等）接管时才把内部的 desktop 文件/图标装进用户
 //     目录；裸跑（直接执行 AppImage）时什么都没有。开发态更不会有任何东西替我们装。
@@ -16,10 +21,10 @@
 //   • hicolor/<size>/apps/<app_id>.png —— 每次启动都对齐（内容一致就跳过，不刷 mtime）；
 //   • applications/<app_id>.desktop —— 三种情况（幂等，失败不致命）：
 //       带我们 X-Quaver-Managed 标记 → 整份强制对齐（自己上次写的那份内容漂移也修回来）；
-//       别人写的且 Icon= 已指向我们的图标名 → 让位不碰（集成工具装的可见启动条目以它为准，
-//         避免启动器里出现重复项）；
-//       其余（缺失 / Icon 是通配名等坏值）→ 写/改写成 NoDisplay=true 的「身份文件」：
-//         它只负责让 app_id 能解析到正确的名字与图标，启动器条目仍归集成工具管。
+//       别人写的且 Icon= 已指向我们的图标名且条目可见 → 让位不碰（集成工具装的可见启动条目以它
+//         为准，避免启动器里出现重复项）；
+//       其余（缺失 / Icon 是通配名等坏值 / 被 Hidden 或 NoDisplay 藏起来了）→ 改写成**可见**条目：
+//         身份文件必须可见，否则 Noctalia 这类壳整条丢弃，app_id 反查不到就丢图标（见上）。
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { readdir as readdirAsync } from "node:fs/promises";
 import { spawn } from "node:child_process";
@@ -43,8 +48,9 @@ export function quoteExecPath(p) {
 }
 
 /**
- * 生成「身份文件」内容（键序固定，输出确定 → 可与磁盘内容逐字比对实现幂等）。
- * NoDisplay=true：不进启动器网格，只服务 app_id 解析（窗口图标/任务栏分组/门户）。
+ * 生成桌面条目内容（键序固定，输出确定 → 可与磁盘内容逐字比对实现幂等）。
+ * **必须可见**（不带 NoDisplay/Hidden）：Noctalia 整条丢弃隐藏条目，隐藏 = app_id 反查不到 =
+ * 窗口/Dock 没图标（noctalia-dev/noctalia#4626）。想从启动器藏应用得用启动器自己的隐藏功能。
  */
 export function desktopEntryContent({ desktopId, name, comment, exec, icon = desktopId, categories = "AudioVideo;Audio;" }) {
   const lines = [
@@ -57,7 +63,6 @@ export function desktopEntryContent({ desktopId, name, comment, exec, icon = des
     "Terminal=false",
     `Categories=${categories}`,
     `StartupWMClass=${escapeEntryValue(desktopId)}`,
-    "NoDisplay=true",
     "X-Quaver-Managed=true",
   ];
   return lines.join("\n") + "\n";
@@ -82,6 +87,16 @@ export function readDesktopEntryValue(text, key) {
     if (t.slice(0, eq).trim().toLowerCase() === want) return t.slice(eq + 1).trim();
   }
   return null;
+}
+
+const parseDesktopBool = (v) => ["true", "1", "yes"].includes(String(v ?? "").trim().toLowerCase());
+
+/**
+ * 该 desktop 文件是否被藏起来了（NoDisplay 或 Hidden）。两者语义不同但后果一样：
+ * Noctalia 解析时整条丢弃，app_id 反查不到就丢图标（noctalia-dev/noctalia#4626），必须改写可见。
+ */
+export function readDesktopHidden(text) {
+  return parseDesktopBool(readDesktopEntryValue(text, "NoDisplay")) || parseDesktopBool(readDesktopEntryValue(text, "Hidden"));
 }
 
 const SIZE_RE = /^(\d+)x\1\.png$/;
@@ -129,7 +144,7 @@ async function syncHicolorIcons({ iconSourceDir, dataHome, desktopId }) {
 }
 
 /**
- * 安装/升级桌面集成。policy：desktop 文件「Icon 已正确 → 让位，否则收编」，图标「对齐为准」。
+ * 安装/升级桌面集成。policy：desktop 文件「Icon 已正确且条目可见 → 让位，否则收编」，图标「对齐为准」。
  * 返回 { desktopFile, desktopAction: "kept"|"written"|"absent", iconsWritten }，全程不抛（失败靠日志观察）。
  */
 export async function installLinuxDesktopIntegration({
@@ -158,12 +173,14 @@ export async function installLinuxDesktopIntegration({
     const existing = existsSync(file) ? readFileSync(file, "utf8") : null;
     const existingIcon = existing == null ? null : readDesktopIcon(existing);
     // 三种情况：我们的托管文件（带 X-Quaver-Managed）→ 整份强制对齐（Exec 漂移也修回来）；
-    // 别人写的、Icon 已指向我们 → 让位（集成工具的可见条目以它为准，避免启动器重复项）；
-    // 别人写的、Icon 不对 → 收编改写。内容一字未变时一律 kept。
+    // 别人写的、Icon 已指向我们且**可见** → 让位（集成工具的可见条目以它为准，避免启动器重复项）；
+    // 其余（Icon 不对 / 条目被 NoDisplay、Hidden 藏起来）→ 改写成可见条目。内容一字未变时一律 kept。
+    // 隐藏条目必须收编：Noctalia 整条丢弃它们，app_id 反查不到就丢图标（#4626），Icon 再对也没用。
     const managed = existing != null && readDesktopEntryValue(existing, "X-Quaver-Managed") === "true";
+    const hidden = existing != null && readDesktopHidden(existing);
     if (existing === content) {
       result.desktopAction = "kept";
-    } else if (existing != null && !managed && existingIcon === desktopId) {
+    } else if (existing != null && !managed && !hidden && existingIcon === desktopId) {
       result.desktopAction = "kept"; // 集成工具（或用户手工）放好的正确条目：让位，不碰
     } else {
       mkdirSync(appsDir, { recursive: true, mode: 0o755 });
