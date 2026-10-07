@@ -4,6 +4,7 @@
 // 进度：整个 Bar 按下去即可拖拽 seek（拖中圆点/时间跟手，松手才真正提交），顶边细线只是视觉指示
 // 音量：浮窗形式 —— 悬停/点击静音按钮弹出玻璃小窗，静音图标 + 滑杆 + 读数一体
 import { player, type Mode } from "../player";
+import { getPrevBehavior } from "../lib/prefs";
 import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQuality, QUALITY_SHORT, QUALITIES, songTitle, type Quality } from "../lib/api";
 // getLastStream 仍由 paintQ 使用（胶囊显示实际已应用档位）
 import { fmtDur } from "../lyric";
@@ -69,6 +70,9 @@ export function PlayerBar(): HTMLElement {
   cover.onclick = toggleExpand;
 
   $("pb-prev").onclick = () => player.prev();
+  // replay 档：单击重放当前曲（click 已处理），双击跳到队列里的上一首 —— 双击的头一击已 seek(0)，跳走前听不出痕迹；
+  // previous 档单击本就是跳转、连点逐首回退（与连点下一首同语义），dblclick 再跳会多退一首，故只在 replay 档接管。
+  $("pb-prev").addEventListener("dblclick", () => { if (getPrevBehavior() === "replay") player.prev(true); });
   play.onclick = () => player.toggle();
   $("pb-next").onclick = () => player.next(false);
   love.onclick = () => player.toggleLove(player.current);
