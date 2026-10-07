@@ -174,7 +174,15 @@ ok("relay: /sparkle/ 在 sidecar 转发前截住", (() => {
   return a >= 0 && b > a;
 })());
 ok("双侧插件目录规则一致（QUAVER_SPARKLE_DIR || configDir/plugins）", has(src.relay, "QUAVER_SPARKLE_DIR") && has(src.mainMjs, "QUAVER_SPARKLE_DIR"));
-ok("native-server: 文件路径防穿越", has(src.nativeServer, 'file.includes("..")') && has(src.nativeServer, "startsWith(dir"));
+// 防穿越 + 跨平台：守卫必须用 relative() 判「落在插件目录之内」。
+// 回归点（2026-10-07）：原写法 `target.startsWith(dir + "/")` 在 Windows 上永远为假
+// —— normalize() 在 win32 产出反斜杠路径，而拼的是正斜杠 → 第三方插件请求一律 403
+// → 动态 import 失败，表现为 Flowscape 在 Windows 上加载不出来（Linux 上不复现）。
+for (const [label, s] of [["native-server", src.nativeServer], ["relay", src.relay]]) {
+  ok(`${label}: 插件文件路径防穿越`, has(s, 'file.includes("..")') && has(s, "relative(dir, target)"));
+  // 否定检查必须过 noComments：这条陷阱就写在上面那行修复注释里，原文比对会自己命中自己。
+  ok(`${label}: 路径守卫跨平台（不得用 dir + "/" 做前缀比较）`, !has(noComments(s), 'startsWith(dir + "/"'));
+}
 ok("globals: window.quaverSparkle 类型声明", has(src.globals, "quaverSparkle"));
 
 // ============ 6. 构建/别名/回归护栏 ============

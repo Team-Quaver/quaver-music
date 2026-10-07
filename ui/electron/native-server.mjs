@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { extname, join, normalize } from "node:path";
+import { extname, isAbsolute, join, normalize, relative } from "node:path";
 
 const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -23,7 +23,12 @@ function serveSparkle(sub, res, pluginsRoot) {
   }
   const dir = normalize(join(pluginsRoot, id));
   const target = normalize(join(dir, file));
-  if (!target.startsWith(dir + "/") || file.includes("..")) {
+  // 跨平台：Windows 的 normalize() 产出反斜杠路径，`target.startsWith(dir + "/")` 永不成立
+  // → 所有第三方插件请求 403（打包态下 import 失败 = Flowscape 在 Windows 加载不出来）。
+  // 改用 relative() 判「target 是否确实落在 dir 之内」，Windows/POSIX 同一套语义。
+  // 末尾分隔符一并挡掉：file 指向目录时 readFileSync 会抛 EISDIR（未捕获 = 主进程崩）。
+  const rel = relative(dir, target);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel) || /[\\/]$/.test(file) || file.includes("..")) {
     res.statusCode = 403;
     return res.end(JSON.stringify({ code: -1, msg: "sparkle: bad file" }));
   }
