@@ -6,7 +6,7 @@
 import type { Connect } from "vite";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { join, normalize } from "node:path";
+import { isAbsolute, join, normalize, relative } from "node:path";
 import { configDir } from "../electron/config.mjs";
 
 const SIDECAR = process.env.QUAVER_API ?? "http://127.0.0.1:3200";
@@ -30,7 +30,11 @@ export function serveSparkle(sub: string, res: ServerResponse) {
     return res.end(JSON.stringify({ code: -1, msg: "sparkle: bad id" }));
   }
   const target = normalize(join(dir, file));
-  if (!target.startsWith(dir + "/") || /[\\/]$/.test(file) || file.includes("..")) {
+  // 跨平台：Windows 的 normalize() 产出反斜杠路径，`target.startsWith(dir + "/")` 永不成立
+  // → 所有第三方插件请求 403（dev/preview 下 import 失败 = Flowscape 在 Windows 加载不出来）。
+  // 改用 relative() 判「target 是否确实落在 dir 之内」，Windows/POSIX 同一套语义。
+  const rel = relative(dir, target);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel) || /[\\/]$/.test(file) || file.includes("..")) {
     res.statusCode = 403;
     return res.end(JSON.stringify({ code: -1, msg: "sparkle: bad file" }));
   }
