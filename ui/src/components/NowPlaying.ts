@@ -29,8 +29,8 @@ import { icons } from "../lib/icons";
 import { getLyricScale, setLyricScale, LYRIC_SCALE_MAX, LYRIC_SCALE_MIN, LYRIC_SCALE_STEP } from "../lib/prefs";
 import { isFullscreen, setFullscreen, onFullscreenChange } from "../lib/fullscreen";
 import type { SparkleKaraokeProvider } from "@quaver/sparkle";
-import { sparkleKaraokeProvider } from "../sparkle/registry";
-
+import { sparkleKaraokeProvider, onSparkleChange } from "../sparkle/registry";
+import { syncNpView } from "../sparkle/np-view";
 export function NowPlaying(): HTMLElement {
   const el = document.createElement("div");
   el.className = "np";
@@ -58,12 +58,15 @@ export function NowPlaying(): HTMLElement {
     </div>
     <!-- Sparkle 插件小部件槽（左下角浮层；展开态才显示，不参与 np-inner 布局以免扰动歌词列） -->
     <div class="np-widgets" id="np-plugin-widgets"></div>
+    <!-- Sparkle 整页接管容器：默认空，插件 np 视图挂在这里（见 sparkle/np-view.ts） -->
+    <div class="np-view" id="np-view"></div>
   `;
 
   const $ = <T extends HTMLElement>(id: string) => el.querySelector<T>("#" + id)!;
   const lyrics = $("np-lyrics"), cover = $("np-cover");
   const bgA = $("np-bg"), bgB = $("np-bg2");
   const karaHost = $("np-karaoke");
+  const npViewHost = $("np-view");
 
   // 共享 marquee：容器宽 < 文本宽才启用滚动；--mx 行程在溢出量外再补偿两端渐隐遮罩 ±12px，
   // 保证每一字符都能完整滚进清晰区（右对齐文本溢出在左，故正向平移）。
@@ -518,6 +521,22 @@ export function NowPlaying(): HTMLElement {
       qPill.title = `音质：${qLabel}${player.current && ls ? "（实际档位）" : "（当前设置）"}；点看这条流的采样率/位深/编码/码率/声道`;
     }
     if (qinfoOpen()) void syncQInfo();
+
+    // —— Sparkle 整页接管（np-view.ts）：插件自绘整页，宿主默认布局整块让位。
+    //    必须**在**逐字/歌词/背景之前早退：接管态下这些 DOM 一个都不该再被碰。
+    //    倒逐字渲染是必须的 —— 否则 amll 的 rAF 循环会脱离 expanded 判定一直跑。
+    //    也必须在「无歌收起」早退**之前**算：body.np-takeover 是全局标记，
+    //    漏算一次就等于播放条再也回不来。
+    if (syncNpView(el, npViewHost)) {      disposeKara();
+      lastKaraMode = false;
+      lastLyricState = "";
+      lastMid = "";
+      lastIdx = -1;
+      bgWant = bgHold = bgFade = bgFailed = "";
+      bgA.classList.remove("show"); bgA.style.backgroundImage = "";
+      bgB.classList.remove("show"); bgB.style.backgroundImage = "";
+      return;
+    }
     if (!open && !s) return;
 
     // 背景：封面模糊放大（交叉淡化，见 applyBg）；侧栏封面同一张图。
@@ -555,6 +574,22 @@ export function NowPlaying(): HTMLElement {
       }
     }
   });
+
+  // —— 插件启用/停用的即时反映（不依赖「恰好在播放」）——
+  // syncNpView 平时挂在 player.on 上（4Hz 位置广播），但**没在播放时 player 不推事件**：
+  // 那样「装好 Flowscape → 打开正在播放页」会赶不上挂载（要等用户先播一首歌），
+  // 「停用插件」也摘不掉它已渲染的 DOM。注册表变化是准实时事件，这里补一刀。
+  // 收起状态下也要调：摘除得掉，且 active=false 保证不会误挂 np-takeover。
+  onSparkleChange(() => {
+    if (syncNpView(el, npViewHost)) {
+      disposeKara();
+      lastKaraMode = false;
+      lastLyricState = "";
+      lastMid = "";
+      lastIdx = -1;
+    }
+  });
+
   return el;
 }
 

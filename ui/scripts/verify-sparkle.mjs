@@ -41,6 +41,11 @@ const src = {
   vite: read("vite.config.ts"),
   pkg: read("package.json"),
   style: read("src/style.css"),
+  npView: read("src/sparkle/np-view.ts"),
+  styleLayer: read("src/sparkle/style-layer.ts"),
+  flowMeta: read("../vendor/Sparkle/marketplace/flowscape/plugin.json"),
+  flowIdx: read("../vendor/Sparkle/marketplace/flowscape/index.ts"),
+  guide: read("../vendor/Sparkle/docs/plugin-author-guide.md"),
 };
 
 let checks = 0;
@@ -90,10 +95,46 @@ ok("views: Sparkle tab 不再是 WIP 文案", !has(src.views, "working in progre
 ok("views: settingsView 返回 sparkle 清理函数", re(noComments(src.views), /mountSparklePanel\(sparklePanel\)/) && re(noComments(src.views), /offSparkle\(\)/));
 ok("settings: 四标签齐备且相互隔离（主题/插件/扩展/Marketplace）", ["theme", "plugin", "extension", "market"].every((c) => has(src.settings, `data-cat="${c}"`)) && has(src.settings, "catOf") && has(src.settings, "已装主题") && has(src.settings, "已装插件") && has(src.settings, "已装扩展"));
 ok("settings: 插件设置不常驻页面（收进齿轮弹窗）", !re(noComments(src.settings), /sparkle-sections/) && has(read("src/components/PluginSettingsDialog.ts"), "插件设置") && re(noComments(src.settings), /showPluginSettingsDialog/));
-ok("settings: 行内齿轮按钮（开关左边）", has(src.settings, "sparkle-gear") && has(src.style, ".sparkle-gear") && re(noComments(src.settings), /actions\.append\(gearBtn\(/));
+ok("settings: 行内齿轮按钮（动作区最左）", has(src.settings, "sparkle-gear") && has(src.style, ".sparkle-gear") && re(noComments(src.settings), /actions\.append\(gearBtn\(/));
 ok("settings: 主题行齿轮仅在提供设置区时出现", re(src.settings, /gearOnlyWithSections/));
+ok("settings: 动作区顺序 = 齿轮 → 卸载 → 开关（Tab 序同视觉序）", (() => {
+  // 取 manageRow 函数体：卸载插在中间，开关收尾（开关是行的视觉锚点，恒在最右）
+  const body = (noComments(src.settings).split("const manageRow = ")[1] ?? "").split("启停一个已装第三方插件")[0];
+  const at = (s) => body.indexOf(s);
+  const gear = at("actions.append(gearBtn("), un = at('className = "sparkle-uninstall"'), sw = at('className = "sparkle-switch"');
+  return gear >= 0 && gear < un && un < sw;
+})());
+ok("css: 动作区三列定宽且开关占最右列", re(src.style, /\.sparkle-actions \{[^}]*grid-template-columns: 26px 26px auto/)
+  && re(src.style, /\.sparkle-actions > \.sparkle-switch \{ grid-area: 1 \/ 3; \}/)
+  && re(src.style, /\.sparkle-actions > \.sparkle-uninstall \{ grid-area: 1 \/ 2; \}/)
+  && re(src.style, /\.sparkle-actions > \.sparkle-install \{ grid-area: 1 \/ 1 \/ 2 \/ -1;/));
+ok("settings: 卸载是垃圾桶图标按钮（title/aria-label 承载文字）", (() => {
+  const s = noComments(src.settings);
+  return has(src.settings, "const TRASH_SVG") && re(s, /btn\.innerHTML = TRASH_SVG/)
+    && re(s, /btn\.title = "卸载"/) && re(s, /setAttribute\("aria-label", `卸载 \$\{o\.name\}`\)/)
+    && !has(s, 'btn.textContent = "卸载"');
+})());
+ok("css: 垃圾桶与齿轮同一套图标按钮尺寸（26×26，13px 图标）", re(src.style, /\.sparkle-uninstall \{[^}]*width: 26px; height: 26px/)
+  && re(src.style, /\.sparkle-uninstall svg \{ width: 13px; height: 13px; \}/));
+ok("css: 两个图标按钮都是中性实底（不透），Tint 只上在 hover", re(src.style, /\.sparkle-gear \{[^}]*background: var\(--card\)/)
+  && re(src.style, /\.sparkle-uninstall \{[^}]*background: var\(--card\)/)
+  && !/\.sparkle-(gear|uninstall) \{[^}]*background: transparent/.test(src.style)
+  // hover 的底/边/字三处都得是 Tint —— 只查「规则里出现过 var(--cvg-accent)」会被 background
+  // 那一行兜住：字色退回 --acc 也照样绿（假断言，别退化回去）
+  && re(src.style, /\.sparkle-gear:hover \{[^}]*color: var\(--cvg-accent, var\(--acc\)\);[^}]*border-color: var\(--cvg-accent, var\(--acc\)\);[^}]*color-mix\(in srgb, var\(--cvg-accent, var\(--acc\)\) 16%, var\(--card\)\)/)
+  && re(src.style, /\.sparkle-uninstall:hover \{[^}]*color: #e8465a;[^}]*border-color: #e8465a;[^}]*color-mix\(in srgb, #e8465a 16%, var\(--card\)\)/));
+ok("css: 插件开关勾选色走 Tint（--cvg-accent 回落 --acc）", re(src.style, /\.sparkle-switch input \{ accent-color: var\(--cvg-accent, var\(--acc\)\)/));
 ok("settings: 索引源固定（默认 URL，UI 不可改）", has(src.settings, "DEFAULT_MARKET_URL") && !has(src.settings, "MARKET_URL_KEY") && !re(src.settings, /sparkle-market-bar[^`]*<input/));
 ok("settings: 分类徽标样式齐备", ["cat-theme", "cat-plugin", "cat-extension"].every((c) => has(src.style, `sparkle-badge.${c}`)));
+ok("settings: 徽标 = 预装 / 官方 / 第三方，不再带分类后缀", has(src.settings, 'text: "预装"')
+  && has(src.settings, 'text: "官方"') && has(src.settings, 'text: "第三方"')
+  && !/官方\$\{CAT_LABEL|第三方\$\{CAT_LABEL/.test(noComments(src.settings)));
+ok("settings: 已装条目按作者分官方/第三方（Team Quaver 大小写不敏感）", (() => {
+  const s = noComments(src.settings);
+  return re(s, /const isTeamQuaver =/) && /team quaver/.test(s.toLowerCase())
+    && has(s, '{ cls: "official", text: "官方" }') && has(s, '{ cls: "third-party", text: "第三方" }');
+})());
+ok("settings: 主题/插件/扩展三处已装行都走 sourceBadge", (noComments(src.settings).match(/sourceBadge\(inst\.manifest\?\.author\)/g) ?? []).length === 3);
 ok("settings: 本地安装按钮红色渐变", has(src.settings, "sparkle-local--danger") && re(src.style, /\.sparkle-local--danger[\s\S]*?linear-gradient/));
 ok("settings: Marketplace 内部分类筛选（全部/主题/插件/扩展）", ["all", "theme", "plugin", "extension"].every((c) => has(src.settings, `data-mcat="${c}"`)) && re(src.settings, /mcat === "all"/) && has(src.style, ".sparkle-mkt-chip"));
 ok("settings: 安装 ≠ 启用的警示文案", has(src.settings, "默认关闭") || has(src.settings, "默认不加载"));
@@ -142,6 +183,122 @@ ok("tsconfig: paths 覆盖 submodule", has(src.tsconfig, "../vendor/Sparkle/sdk/
 ok("package.json: verify:sparkle 已加入 verify:static", has(src.pkg, "verify:sparkle") && re(src.pkg, /verify:static": "[^"]*verify-sparkle/));
 // 回归：内置右键菜单硬编码项仍在（verify-song-menu 的字面量断言依赖这些）
 ok("回归: 内置菜单项字面量未被挪走", ["插队播放", "加入歌单", "从歌单删除", "更多操作"].every((s) => has(src.songmenu, s)));
+
+// ============ 7. 正在播放页整页接管（registerNowPlayingView） ============
+// 三方接线：SDK 契约 ↔ registry 存取 ↔ np-view 挂载 ↔ NowPlaying 让位 ↔ CSS 收播放条。
+ok("sdk: SparkleNpView 契约齐备（render + enabled + ctx）", ["interface SparkleNpView", "interface SparkleNpViewCtx", "interface SparkleLyricLine", "interface SparkleQualityTier"].every((t) => has(src.types, t)));
+ok("sdk: ctx 暴露传输控制与只读队列邻曲", ["seek(sec: number)", "next()", "prev()", "setVolume(v: number)", "switchQuality(id: string)", "prevSong()", "nextSong()", "songAt(offset: number)"].every((s) => has(src.types, s)));
+ok("sdk: SongSnapshot 带 album.pmid 与 interval（封面 URL 要 pmid 优先）", re(src.types, /album\?: \{ name\?: string; mid\?: string; pmid\?: string \}/) && has(src.types, "interval?: number"));
+ok("registry: npView 注册表 + getter 齐备且挂了 teardown", has(src.registry, "sparkRegisterNpView") && has(src.registry, "sparkleNpView"));
+ok("np-view: 邻曲走 player.songAtOffset（随机序下 index±1 会指错歌）", has(src.npView, "player.songAtOffset(offset)") && has(src.npView, "player.jumpToOffset(offset)"));
+ok("np-view: prev 走 force（封面点上一首是明确跳转，不被「重放当前曲」改写）", has(src.npView, "prev: () => player.prev(true)"));
+ok("np-view: 档位表异步到后主动 notify 一次（否则插件要等下一个播放事件）", re(src.npView, /tierCache\) player\.notifyPublic\(\)/));
+ok("np-view: render 抛错即退回默认布局（不留半截 DOM 把整页画死）", re(src.npView, /渲染失败[\s\S]{0,400}?box\.remove\(\)/));
+ok("np-view: 生效 = 挂载 且 np 展开（插件启用不该藏播放条）", re(noComments(src.npView), /const active = !!mounted && player\.expanded;/) && re(noComments(src.npView), /setBodyFlag\(active\)/));
+ok("np-view: render 返回 undefined 视为成功（无清理 ≠ 渲染失败）", re(noComments(src.npView), /const cleanup = want\.render\(box, npViewCtx\(\)\) \?\? null;[\s\S]{0,80}?mounted = \{ view: want, host: box, cleanup \};/));
+ok("player: neighbors/songAtOffset 复用 stepInOrder（与播放推进同一条路）", has(src.player, "neighbors(): { prev: number; next: number }") && has(src.player, "songAtOffset(offset: number)"));
+ok("player: songAtOffset 对非整数/越界有界（offset 很大时不该吐整队列）", re(src.player, /if \(!Number\.isInteger\(offset\)\) return undefined;/) && re(src.player, /step < this\.queue\.length/));
+ok("player: jumpToOffset 走 wrap（手动跳允许回绕，与 prev/next 语义一致）", re(src.player, /jumpToOffset[\s\S]{0,500}?this\.stepInOrder\(dir, true\)/) && re(src.player, /if \(!Number\.isInteger\(offset\) \|\| offset === 0\) return;/));
+ok("NowPlaying: 接管容器存在且在默认布局之前早退", has(src.np, "np-view") && re(noComments(src.np), /if \(syncNpView\(el, npViewHost\)\) \{[\s\S]{0,400}?disposeKara\(\)/));
+ok("NowPlaying: 接管判定早于「无歌收起」早退（body.np-takeover 是全局标记）", (() => {
+  const s = noComments(src.np);
+  return s.indexOf("if (syncNpView(el, npViewHost))") < s.indexOf("if (!open && !s) return;");
+})());
+ok("NowPlaying: 挂载/卸载由注册表变化驱动（不依赖「恰好在播放」）", has(src.np, "onSparkleChange(") && re(noComments(src.np), /onSparkleChange\(\(\) => \{[\s\S]{0,200}?syncNpView\(el, npViewHost\)/));
+ok("css: 接管容器铺满 .np 且默认布局与插件槽一并让位", has(src.style, ".np-view") && has(src.style, ".np.np-taken-over .np-inner") && has(src.style, ".np.np-taken-over .np-widgets"));
+ok("css: body.np-takeover 收起整条播放条（插件自绘控制）", has(src.style, "body.np-takeover #player-bar { display: none; }"));
+ok("host: registerNowPlayingView 接到 registry（不立即挂载）", has(src.host, "registerNowPlayingView") && has(src.host, "sparkRegisterNpView"));
+
+// ============ 8. 样式层 / 主题包 ============
+// 动机（实测）：style.css 里 var() 引用 405 处，但硬编码有 182 个色值字面量、
+// 73 处 border-radius、28 处 box-shadow —— 变量组覆盖不住「换一套设计语言」。
+ok("sdk: 样式层与主题包契约齐备", ["interface SparkleStyleLayer", "interface SparkleThemePack", "interface SparkleStyleVariant", "interface SparkleStyleFacade"].every((t) => has(src.types, t)));
+ok("sdk: ctx 暴露 registerStyleLayer / registerThemePack / style 门面", has(src.types, "registerStyleLayer(layer: SparkleStyleLayer)") && has(src.types, "registerThemePack(pack: SparkleThemePack)") && has(src.types, "style: SparkleStyleFacade"));
+ok("registry: 样式层 key 由本函数生成并回填（插件侧拼不出来，反注册会摘错）", re(src.registry, /function sparkRegisterStyleLayer\(pluginId: string, layer: SparkleStyleLayer\): string/) && re(src.registry, /const key = `\$\{pluginId\}:\$\{layer\.id\}#\$\{\+\+layerSeq\}`/));
+ok("style-layer: 层序 = order 升序 + 同序按登记序", re(noComments(src.styleLayer), /sort\(\(a, b\) => a\.order - b\.order \|\| a\.seq - b\.seq\)/));
+ok("style-layer: 主题风格 order 缺省抬到常驻层之上（+1000）", has(src.styleLayer, "const VARIANT_ORDER_BASE = 1000") && re(noComments(src.styleLayer), /order: v\.order \?\? VARIANT_ORDER_BASE/));
+ok("style-layer: 切走 = 整张摘掉（漏 .remove() 就是换主题后旧样式残留）", re(noComments(src.styleLayer), /if \(!wantKeys\.has\(key\)\) dropStyle\(key\);/) && re(noComments(src.styleLayer), /const dropStyle = \(key: string\) => \{[\s\S]{0,200}?\.remove\(\);[\s\S]{0,120}?injected\.delete\(key\);/));
+ok("style-layer: 孤儿自动回落（选中包的插件停用后清持久化指向）", re(noComments(src.styleLayer), /if \(st\.packId && !sparkleThemePacks\(\)\.some\(\(e\) => e\.pack\.id === st\.packId\)\)/));
+ok("style-layer: 挂在注册表变化上（停用是运行时事件，不只是启动时）", re(noComments(src.styleLayer), /onSparkleChange\(\(\) => \{[\s\S]{0,400}?apply\(\);/));
+ok("style-layer: activate 目标不存在时静默返回当前态（不抛）", re(noComments(src.styleLayer), /if \(!entry\) return state\(\);/));
+ok("style-layer: 总闸 suspended 是唯一不依赖插件的逃生通道", has(src.styleLayer, "SUSPEND_KEY") && has(src.styleLayer, "setStyleSuspended"));
+ok("init: initStyleLayer 早于插件启用（否则首张主题要等下一次注册表变化）", (() => { const s = noComments(src.init); return s.indexOf("initStyleLayer()") >= 0 && s.indexOf("initStyleLayer()") < s.indexOf("enableSparklePlugin("); })());
+ok("host: style 门面按插件现构造（单例会串味：register 要用 pluginId）", re(noComments(src.host), /style: \{\s*register: \(layer\) => mountStyleLayer\(pluginId, layer\)/));
+ok("settings: 主题包选择区 + 「默认外观」出口 + 总闸", has(src.settings, "renderPacks") && re(noComments(src.settings), /packChip\("默认外观"/) && has(src.settings, "setStyleSuspended(input.checked)"));
+ok("css: 色板 chip 选中态用描边不加底；color-scheme 只在 data-sparkle-scheme 上", has(src.style, ".sparkle-pack.is-on") && has(src.style, 'html[data-sparkle-scheme="dark"] { color-scheme: dark; }'));
+ok("docs: 作者指南覆盖 np 视图接管 + 样式层/主题包", ["registerNowPlayingView", "songAt", "registerStyleLayer", "registerThemePack", "overflow"].some((s) => has(src.guide, s)));
+
+// ============ 9. Flowscape 流境（Marketplace 收录插件） ============
+// 设计基线（2026-10-07 定稿）：三张卡（-1/0/+1）、封面在中间、**歌词只有单行**、
+// 切歌 = 整排换槽一格。下面的断言守这四条不变量。
+ok("flowscape: plugin.json 元数据齐备", has(src.flowMeta, '"id": "flowscape"') && has(src.flowMeta, '"name": "Flowscape 流境"') && has(src.flowMeta, '"category": "plugin"'));
+ok("flowscape: 走 registerNowPlayingView 且尊重 enabled() 总开关", has(src.flowIdx, "registerNowPlayingView") && has(src.flowIdx, "enabled: on"));
+ok("flowscape: 恰好三张卡 -1/0/+1（DOM 顺序即 offset 升序）", re(src.flowIdx, /const CARD_OFFSETS = \[-1, 0, 1\] as const;/) && re(src.flowIdx, /CARD_OFFSETS\.map\(cardHtml\)\.join\(""\)/));
+ok("flowscape: 侧封面按 offset 跳（点第几张跳第几首，不全是 next/prev）", re(noComments(src.flowIdx), /if \(o === 0\) ctx\.toggle\(\); else ctx\.jumpTo\(o\);/));
+// 散架回归点：静态槽位必须正好是一个 --fs-gap。
+// 负向检查只看 .fs-card[data-off=…] 那三行 —— 动画槽位 [data-to] 里本来就有
+// ×2.1（转出到容器外），不该被这条误伤。
+ok("flowscape: 静态槽位正好一个 --fs-gap（散架回归点；动画槽位另算）", (() => {
+  const s = src.flowIdx;
+  const line = s.split("\n").find((l) => l.includes('[data-off="-1"]{'));
+  if (!line) return false;
+  return /--slot:calc\(-1 \* var\(--fs-gap\)\);/.test(line) && !/--slot:calc\([^)]*\* *[0-9.]/.test(line);
+})());
+// 散架的根因：flex + 负 margin 会**累加**，多张卡越算越散（截图里最外侧那张飞出几百 px）。
+ok("flowscape: 封面用绝对定位 + --slot 摆位（负 margin 会累加导致散架）", re(src.flowIdx, /\.fs-card\{\s*position:absolute; left:50%; top:50%;/) && re(src.flowIdx, /translate\(-50%,-50%\) translateX\(var\(--slot,0px\)\) scale\(var\(--slot-scale,1\)\)/) && !re(src.flowIdx, /\.fs-card\.left\{ margin-right:/));
+ok("flowscape: perspective 写在变换元素自身（挂容器上对孙节点无效 = 平铺的根因）", !re(noComments(src.flowIdx), /\.fs-covers\{[^}]*perspective/) && re(src.flowIdx, /transform:perspective\(1500px\) rotateY\(calc\(var\(--fs-dir\) \* -48deg\)\)/) && !re(src.flowIdx, /perspective\(1400px\)/));
+ok("flowscape: 外翻方向由单个 --fs-dir 驱动（-1 左 / 0 中 / +1 右，不写左右两套镜像规则）", re(src.flowIdx, /\.fs-card\[data-off="0"\]\{ --slot:0px; --slot-scale:1; --fs-dir:0; z-index:3; \}/) && re(src.flowIdx, /\.fs-card\[data-off="-1"\]\{ --slot:calc\(-1 \* var\(--fs-gap\)\); --slot-scale:\.82; --fs-dir:-1; z-index:2; \}/) && re(src.flowIdx, /\.fs-card\[data-off="1"\]\{ --slot:var\(--fs-gap\); --slot-scale:\.82; --fs-dir:1; z-index:2; \}/) && re(src.flowIdx, /transform-origin:calc\(\(1 - var\(--fs-dir,0\)\) \* 50%\) center/));
+ok("flowscape: 侧封面角度够大且不是全黑（20° 看不出旋转；.74 透明度在暗底上要看得见）", re(src.flowIdx, /rotateY\(calc\(var\(--fs-dir\) \* -48deg\)\)/) && re(src.flowIdx, /\.fs-card\[data-off="-1"\] \.fs-art,[\s\S]{0,200}?opacity:\.74;/));
+ok("flowscape: 中间封面不透明不旋转（主卡不得沾 .left/.right —— 那会连 opacity:.74 一起吃进去）", re(noComments(src.flowIdx), /const side = isMain \? " main" : ` side \$\{o < 0 \? "left" : "right"\}`;/) && re(src.flowIdx, /\.fs-card\[data-off="0"\] \.fs-art\{ transform:none; opacity:1; filter:none; \}/) && !re(noComments(src.flowIdx), /fs-card\$\{isMain \? " main" : " side"\} \$\{o < 0 \? "left" : "right"\}/));
+ok("flowscape: 占位符与 <img> 都绝对定位（普通流下占位符会占满封面盒、把图挤出裁剪区 → 封面只剩半透明底）", re(src.flowIdx, /\.fs-card \.fs-art img, \.fs-card \.fs-ph\{ position:absolute; inset:0; \}/));
+ok("flowscape: overflow 不做裁剪花活（常驻 overflow 会 flatten 掉 preserve-3d，也切掉阴影）", !re(noComments(src.flowIdx), /\.fs-covers\{[^}]*overflow:hidden/) && !re(noComments(src.flowIdx), /transform-style:preserve-3d/) && re(noComments(src.flowIdx), /\.fs-root\{[\s\S]{0,400}?overflow:hidden;/));
+ok("flowscape: 邻曲不存在时整卡隐掉并禁用（不留空壳占槽位）", re(noComments(src.flowIdx), /el\.classList\.toggle\("empty", !s\);\s*el\.disabled = !s;/) && re(src.flowIdx, /\.fs-card\.empty\{ opacity:0; pointer-events:none; \}/));
+ok("flowscape: 封面 404 兜底回占位符 + 尺寸吸附 CDN 合法档位", re(noComments(src.flowIdx), /img\.onerror = \(\) => \{ img\.removeAttribute\("src"\); img\.style\.display = "none"; ph\.style\.display = ""; \};/) && re(src.flowIdx, /const COVER_SIZES = \[90, 120, 150, 180, 300, 500, 800\]/));
+ok("flowscape: 封面像素量 offsetWidth 而非 rect（旋转压缩会让 rect 低估）", has(src.flowIdx, "art.offsetWidth") && re(noComments(src.flowIdx), /const shown = Math\.max\(64, Math\.round\(art\.offsetWidth/));
+ok("flowscape: 歌词只有单行版式（不建整首列表，无版式切换残留）", re(noComments(src.flowIdx), /const paintCurrentLine = \(idx: number\) => \{[\s\S]{0,700}?lyricsBox\.innerHTML = `<div class="fs-ll cur"/) && !re(src.flowIdx, /lyricMode|data-lyric/) && !re(noComments(src.flowIdx), /enterBrowse|browsing|followCurrent|browseTimer/));
+ok("flowscape: 换句由 rAF 的行号比对触发（不逐帧重填）", re(noComments(src.flowIdx), /if \(idx !== lastIdx\) \{ lastIdx = idx; paintCurrentLine\(idx\); \}/));
+ok("flowscape: 歌词容器不滚、无渐隐遮罩（只有一句，遮罩会像被裁掉）", re(src.flowIdx, /\.fs-lyrics\{[\s\S]{0,600}?min-height:4\.3em; max-height:8\.6em; overflow:hidden;/) && !re(src.flowIdx, /\.fs-lyrics\{[^}]*mask-image/) && !re(src.flowIdx, /\.fs-lyrics\{[^}]*overflow-y:auto/));
+ok("flowscape: 歌词块预留固定高度（不给高度的话翻译出现/长句折行会把上面的封面顶着上下跳 = 挤）", re(src.flowIdx, /\.fs-lyrics\{[\s\S]{0,600}?min-height:4\.3em/) && has(src.flowIdx, "--fs-ly-scale"));
+ok("flowscape: 切歌动画把目标槽位写进 data-to（JS 不量坐标，全交给 CSS 变量）", re(noComments(src.flowIdx), /for \(const el of cardEls\) el\.dataset\.to = String\(Number\(el\.dataset\.off\) - direction\);/) && !re(noComments(src.flowIdx), /getBoundingClientRect\(\)[\s\S]{0,80}?dataset\.to/) && re(src.flowIdx, /\.fs-card\[data-to="0"\]\{ --slot:0px; --slot-scale:1; --fs-dir:0; z-index:3; \}/));
+ok("flowscape: 目标槽位 = 当前槽位**减**方向（点右边那张 → 整排往左挪一格，滚进来的正是他点的那张）", re(noComments(src.flowIdx), /String\(Number\(el\.dataset\.off\) - direction\)/) && !re(noComments(src.flowIdx), /dataset\.to = String\(o \+ direction\)/));
+ok("flowscape: 三段式槽位对称（±2 出画淡出、±1 侧槽、0 转正；±方向共用同一套规则，不写两份镜像）", re(src.flowIdx, /\.fs-card\[data-to="-2"\]\{ --slot:calc\(-2\.1 \* var\(--fs-gap\)\); --slot-scale:\.64; --fs-dir:-1; z-index:1; opacity:0; pointer-events:none; \}/) && re(src.flowIdx, /\.fs-card\[data-to="2"\]\{ --slot:calc\(2\.1 \* var\(--fs-gap\)\); --slot-scale:\.64; --fs-dir:1; z-index:1; opacity:0; pointer-events:none; \}/) && re(src.flowIdx, /\.fs-card\[data-to="0"\] \.fs-art\{ transform:none; opacity:1; filter:none; \}/) && !re(src.flowIdx, /fs-anim-next \.fs-card\[data-to/));
+ok("flowscape: 动画中主封面不被 hover 抢走 transform（它正在转正；hover 规则必须被 :not(.fs-anim-*) 挡在动画之外）", re(src.flowIdx, /\.fs-covers:not\(\.fs-anim-next\):not\(\.fs-anim-prev\) \.fs-card\[data-off="-1"\]:hover \.fs-art\{/) && re(src.flowIdx, /\.fs-covers:not\(\.fs-anim-next\):not\(\.fs-anim-prev\) \.fs-card\[data-off="1"\]:hover \.fs-art\{/) && !re(noComments(src.flowIdx), /\.fs-card\.left:hover \.fs-art/));
+ok("flowscape: 动画 class 进出都做 + 定时器可重入（连点不叠 setTimeout）", re(noComments(src.flowIdx), /covers\.classList\.remove\("fs-anim-next", "fs-anim-prev"\);\s*void covers\.offsetWidth;/) && re(noComments(src.flowIdx), /window\.clearTimeout\(animTimer\);\s*animTimer = window\.setTimeout/));
+ok("flowscape: 收尾整排身份转一格（data-off 也跟着减，否则清掉 data-to 的瞬间整排会弹回原槽）", re(noComments(src.flowIdx), /if \(n < -1\) \{ el\.dataset\.off = "1"; hopper = el; \}\s*else if \(n > 1\) \{ el\.dataset\.off = "-1"; hopper = el; \}\s*else el\.dataset\.off = String\(n\);/) && re(noComments(src.flowIdx), /const n = Number\(el\.dataset\.off\) - direction;/) && re(noComments(src.flowIdx), /el\.removeAttribute\("data-to"\);/) && re(noComments(src.flowIdx), /indexCards\(\);\s*adoptMain\(\);\s*sigs\.clear\(\);[^\n]*\n\s*animating = false;\s*paintMeta\(\);/));
+ok("flowscape: 出画那张的瞬移要关掉位移过渡（否则会横穿整排飞回右边），只留淡入", re(src.flowIdx, /\.fs-card\.fs-hop\{ transition:opacity \.3s ease; \}/) && re(noComments(src.flowIdx), /hp\.classList\.add\("fs-hop"\)/) && re(noComments(src.flowIdx), /classList\.remove\("fs-hop"\)/));
+ok("flowscape: 方向判定用**上一帧**的邻居表（拿新曲反查 songAt 必然落空 —— 新曲已经是 current，±1 早就换人了）", re(noComments(src.flowIdx), /if \(cur\.mid === lastNextMid\) playSwitchAnim\(1\);/) && re(noComments(src.flowIdx), /else if \(cur\.mid === lastPrevMid\) playSwitchAnim\(-1\);/) && re(noComments(src.flowIdx), /lastNextMid = ctx\.songAt\(1\)\?\.mid \?\? "";/) && !re(noComments(src.flowIdx), /ctx\.songAt\(1\)\?\.mid === cur\.mid/));
+ok("flowscape: 动画期间不刷卡面数据 + 动画期间挡掉点击（视觉位置与 data-off 已错开一格）", re(noComments(src.flowIdx), /if \(!animating\) \{[\s\S]{0,900}?for \(const el of cardEls\) \{\s*const o = Number\(el\.dataset\.off\);/) && re(noComments(src.flowIdx), /if \(animating\) return;/) && re(noComments(src.flowIdx), /if \(cur && !animating && lastMid && cur\.mid !== lastMid\)/));
+ok("flowscape: 封面尺寸留出下方空间 + 歌词/控制带不被挤出可视区", re(src.flowIdx, /--fs-cover:min\(28vh, 24vw, 300px\);/) && re(src.flowIdx, /--fs-gap:calc\(var\(--fs-cover\) \* \.66\);/) && re(src.flowIdx, /\.fs-stage\{\s*flex:1 1 auto; min-height:0;/) && re(src.flowIdx, /\.fs-bar\{ flex:0 0 auto; min-height:60px;/));
+ok("flowscape: 三张卡共用一个基准尺寸（不存在第二套 --fs-side，尺寸才是统一的）", has(src.flowIdx, "width:var(--fs-cover); aspect-ratio:1") && !re(noComments(src.flowIdx), /--fs-side/));
+ok("flowscape: 接管态自带出口（收起 + 更多选项）—— 播放条与 .np-inner 都被宿主收走了，不给按钮就只能按 ESC", has(src.flowIdx, 'id="fs-collapse"') && has(src.flowIdx, 'id="fs-more"') && re(noComments(src.flowIdx), /collapseBtn\.onclick = \(\) => ctx\.collapse\(\);/));
+
+// —— 逐字歌词（复用宿主已激活的提供器）/ 跳转三项 / 封面预载 / 控制带染色 ——
+ok("sdk: np 视图 ctx 暴露逐字歌词（复用提供器解析结果，插件不必自己解 QRC/TTML）", re(src.types, /karaoke\(\): SparkleKaraokeLine\[\];/) && re(src.types, /karaokeActive\(\): boolean;/));
+ok("sdk: 曲目快照带 singer.mid（「跳转歌手」要路由参数，只给名字拼不出 URL）", re(src.types, /singer\?: \{ name: string; mid\?: string \}\[\];/));
+ok("np-view: karaoke() 不复制词级数组（4Hz 每次 notify 重建上千个词是白烧）", re(noComments(src.npView), /karaoke: \(\) => player\.karaoke,/) && re(noComments(src.npView), /player\.karaoke\.length > 0 && !!provider && \(provider\.enabled\?\.\(\) \?\? true\)/));
+ok("np-view: 快照把 singer.mid 透传给插件", re(noComments(src.npView), /singer: \(s\.singer \?\? \[\]\)\.map\(\(x\) => \(\{ name: stripEm\(x\.name \?\? ""\), mid: x\.mid \}\)\)/));
+ok("guide: 文档写了「复用逐字提供器」与「跳转前先 np.collapse()」", has(src.guide, "karaokeActive()") && has(src.guide, "`np.collapse()`"));
+ok("flowscape: 逐字模式复用宿主提供器（开=单行逐字，关=回退行级）", re(noComments(src.flowIdx), /const kara = ctx\.karaokeActive\(\);/) && has(noComments(src.flowIdx), "karaLines = kara ? ctx.karaoke() : [];") && has(noComments(src.flowIdx), "lyricLines = kara ? [] : ctx.lyrics();") && has(noComments(src.flowIdx), '|${kara ? "k" : "l"}`') && re(noComments(src.flowIdx), /karaOn = kara;/));
+ok("flowscape: 逐字行按行号重填、词进度按变化写（稳态几乎零写入）", re(noComments(src.flowIdx), /if \(idx !== lastIdx\) \{ lastIdx = idx; paintKaraLine\(idx\); \}/) && re(noComments(src.flowIdx), /if \(idx >= 0\) paintKaraWords\(karaLines\[idx\], ms\);/) && re(noComments(src.flowIdx), /if \(el\.dataset\.p === String\(q\)\) continue;/));
+ok("flowscape: 逐词染色靠 clip-path + --p（不量坐标、不逐词换 color）", re(src.flowIdx, /clip-path:inset\(0 calc\(\(1 - var\(--p,0\)\) \* 100%\) 0 0\);/) && has(src.flowIdx, "content:attr(data-t)") && re(noComments(src.flowIdx), /el\.dataset\.t = w\.word;/));
+ok("flowscape: 更多选项补跳转三项（同名搜索 / 跳转歌手 / 跳转专辑，hash 口径同宿主 np 菜单）", has(src.flowIdx, "#/search?keyword=") && has(src.flowIdx, "#/singer?mid=") && has(src.flowIdx, "#/album?mid=") && has(noComments(src.flowIdx), "const hasAlb = !!(alb?.mid || alb?.pmid);") && has(noComments(src.flowIdx), 'if (!singers.length) jumpBox.append(jumpRow("跳转歌手", true));'));
+ok("flowscape: 跳转前先收起正在播放页（np 是铺满全窗的悬浮层，只换路由用户看不到变化）", has(noComments(src.flowIdx), "window.setTimeout(() => { ctx.collapse(); location.hash = hash; }, JUMP_MS);"));
+ok("flowscape: 跳转项每次开菜单按当前曲现算（不残留上一首的歌手/专辑）", has(noComments(src.flowIdx), "moreBtn.onclick = () => { renderJumpRows(); togglePop(moreBtn, mMenu); };") && re(noComments(src.flowIdx), /const renderJumpRows = \(\) => \{\s*const s = ctx\.current\(\);\s*jumpBox\.innerHTML = "";/));
+ok("flowscape: 封面预载跟随播放顺序（稳态预载 ±1/±2，不等点下去才请求）", re(noComments(src.flowIdx), /for \(const off of \[-1, 1, -2, 2\]\) preloadCover\(ctx\.songAt\(off\), off\);/) && has(noComments(src.flowIdx), "preloadCover(ctx.songAt(1), 1);") && has(noComments(src.flowIdx), "const warmed = new Set<string>();"));
+ok("flowscape: 控制带染色直连宿主 --cvg-accent（白拿宿主的 .45s 扫色；不再 JS 抄一次停在旧色上）", has(src.flowIdx, "--fs-acc:var(--cvg-accent, var(--cyan, #7fd7ff));") && !re(noComments(src.flowIdx), /getComputedStyle\(document\.documentElement\)/) && has(src.flowIdx, "background:var(--fs-acc)"));
+ok("flowscape: 封面色当前景色时用 color-mix 锚亮度（原色当字色在浅色封面上会糊）", has(src.flowIdx, "--fs-acc-ink:color-mix(in srgb, var(--fs-acc) 42%, #fff);") && has(src.flowIdx, "color:var(--fs-acc-ink)"));
+ok("flowscape: 进度/旋钮/音量/开关/选中项都吃封面染色（不是只有进度条一处）", has(src.flowIdx, "background:color-mix(in srgb, var(--fs-acc) 58%, #fff)") && has(src.flowIdx, "background:color-mix(in srgb, var(--fs-acc) 30%, transparent)") && has(src.flowIdx, "background:color-mix(in srgb, var(--fs-acc) 55%, #0b0e19)"));
+ok("flowscape: 底部自绘进度条/音量/音质三件套", has(src.flowIdx, "fs-track") && has(src.flowIdx, "fs-vol") && has(src.flowIdx, "fs-qbtn") && re(noComments(src.flowIdx), /ctx\.seek\(scrub \* ctx\.duration\(\)\)/) && re(noComments(src.flowIdx), /ctx\.setVolume\(volDrag\)/) && re(noComments(src.flowIdx), /ctx\.switchQuality\(id\)/));
+ok("flowscape: 绘制分两层（4Hz 元数据 / 每帧传输）", re(noComments(src.flowIdx), /const paintMeta = \(\) => \{/) && re(noComments(src.flowIdx), /const paintTransport = \(\) => \{/));
+ok("flowscape: rAF 收起自停 + onNotify 唤醒", re(noComments(src.flowIdx), /if \(!ctx\.expanded\(\) \|\| !host\.isConnected\) \{ running = false; return; \}/) && re(noComments(src.flowIdx), /const syncRunning = \(\) => \{/));
+ok("flowscape: dispose 退订 + 撤 rAF/定时器/监听/样式", re(noComments(src.flowIdx), /offNotify\(\);/) && re(noComments(src.flowIdx), /window\.cancelAnimationFrame\(raf\)/) && re(noComments(src.flowIdx), /window\.clearTimeout\(animTimer\)/) && re(noComments(src.flowIdx), /ro\.disconnect\(\)/) && re(noComments(src.flowIdx), /window\.removeEventListener\("pointermove", onScrubMove\)/) && re(noComments(src.flowIdx), /window\.removeEventListener\("pointermove", onVolMove\)/) && has(noComments(src.flowIdx), "?.remove();"));
+ok("flowscape: 拖拽挂 window 且松手才提交 + 拖拽中不被 4Hz 覆盖", re(noComments(src.flowIdx), /window\.addEventListener\("pointermove", onScrubMove\)/) && re(noComments(src.flowIdx), /if \(!track\.classList\.contains\("scrub"\)\)/) && re(noComments(src.flowIdx), /if \(!volDragging\)/));
+ok("flowscape: 换封面按 src 签名守卫（4Hz 无条件重建 <img> 会反复重解码）", re(noComments(src.flowIdx), /if \(img\.getAttribute\("src"\) !== url\) \{ img\.src = url;/));
+ok("flowscape: 暂停时 veil 显示播放图标（点了是继续播，别反）", re(noComments(src.flowIdx), /playSig === "paused" \? ICON\.play : ICON\.pause/));
+ok("flowscape: 设置区只留总开关（版式已固定单行）", re(src.flowIdx, /registerSettingsSection/) && re(src.flowIdx, /data-opt="on"/) && !re(src.flowIdx, /data-lyric-mode/));
+ok("flowscape: storage 走 setup 捕获的模块级引用 + dispose 置 null", re(src.flowIdx, /let store: \{ get\(k: string\): string \| null/) && re(src.flowIdx, /store = ctx\.storage;/) && re(src.flowIdx, /return \(\) => \{\s*store = null;/));
+ok("flowscape: prefers-reduced-motion 关掉全部动效", re(src.flowIdx, /@media \(prefers-reduced-motion: reduce\)/) && re(src.flowIdx, /\.fs-card, \.fs-card \.fs-art, \.fs-card::after\{ transition:none; \}/));
+ok("flowscape: 禁选中 + 纵向溢出裁剪", re(src.flowIdx, /\.fs-root, \.fs-root \*\{[^}]*user-select:none/) && re(noComments(src.flowIdx), /\.fs-root\{[\s\S]{0,400}?min-height:0; overflow:hidden;/));
 
 console.log(`\n${checks - fails}/${checks} passed`);
 process.exit(fails ? 1 : 0);

@@ -9,10 +9,13 @@ import { OFFICIAL_META } from "./loader";
 import { player } from "../player";
 import { addNavItem, repaintSidebarPlaylists } from "../shell";
 import {
+  activateStyle, mountStyleLayer, onStyleChange, resetStyle, stylePacks, styleState,
+} from "./style-layer";
+import {
   sparkRecordDrop, sparkRecordInit, sparkRecordOf,
-  sparkRegisterKaraokeProvider, sparkRegisterNav, sparkRegisterNpWidget,
+  sparkRegisterKaraokeProvider, sparkRegisterNav, sparkRegisterNpView, sparkRegisterNpWidget,
   sparkRegisterSettingsSection, sparkRegisterSongMenuItem, sparkRegisterSonglistGroup,
-  sparkRegisterStreamSource, sparkRegisterTheme, sparkRegisterView,
+  sparkRegisterStreamSource, sparkRegisterTheme, sparkRegisterThemePack, sparkRegisterView,
   sparklePluginRoutes, sparkleThemes,
   type SparklePluginRecord,
 } from "./registry";
@@ -73,7 +76,7 @@ function injectThemeStyle(t: SparkleTheme) {
 const playerFacade: SparklePlayerFacade = {
   get current() {
     const s = player.current;
-    return s ? { mid: s.mid, name: s.name, singer: s.singer, album: s.album } : null;
+    return s ? { mid: s.mid, name: s.name, singer: s.singer, album: s.album, interval: s.interval } : null;
   },
   get time() { return player.time; },
   get paused() { return player.paused; },
@@ -82,6 +85,13 @@ const playerFacade: SparklePlayerFacade = {
 
 // —— SparkleContext 工厂 ——
 
+/**
+ * 每个插件一份 ctx。样式门面在此**按插件现构造**（不能做成模块级单例：
+ * register 要用 pluginId 登记层，单例会串味）。门面只给三件事 ——
+ * 追加自己的层、读已注册的主题包、请求切换（由宿主裁决：目标不存在则静默
+ * 返回当前态，不抛 —— 插件常基于上一帧状态做后续判断，activate 失败不该
+ * 把它的 setup 炸掉）。插件**不能**直接操作别人注入的 <style>。
+ */
 function makeContext(pluginId: string): SparkleContext {
   const log = {
     info: (...a: unknown[]) => console.info(`[sparkle:${pluginId}]`, ...a),
@@ -114,6 +124,11 @@ function makeContext(pluginId: string): SparkleContext {
         else applySparkleTheme();
       });
     },
+    registerStyleLayer: (layer) => {
+      // 登记 + 注入由 style-layer 统一管（层序/生命周期只有一处真相）
+      sparkRecordOf(pluginId)?.teardown.push(mountStyleLayer(pluginId, layer));
+    },
+    registerThemePack: (pack) => sparkRegisterThemePack(pluginId, pack),
     registerNowPlayingWidget: (widget) => {
       const mount = (w: SparkleNpWidget) => {
         const slot = document.getElementById("np-plugin-widgets");
@@ -130,6 +145,8 @@ function makeContext(pluginId: string): SparkleContext {
       };
       sparkRegisterNpWidget(pluginId, widget, mount);
     },
+    // 整页接管：不立即挂载 —— 由 np-view.ts 在正在播放页的 notify 里按 enabled() 决定
+    registerNowPlayingView: (view) => sparkRegisterNpView(pluginId, view),
     registerSongMenuItem: (item) => sparkRegisterSongMenuItem(pluginId, item),
     registerStreamSource: (source) => sparkRegisterStreamSource(pluginId, source),
     registerKaraokeProvider: (provider) => sparkRegisterKaraokeProvider(pluginId, provider),
@@ -149,6 +166,15 @@ function makeContext(pluginId: string): SparkleContext {
     toast: (msg, kind) => toast(msg, kind),
     log,
     player: playerFacade,
+    // 样式门面按插件现构造（register 要用 pluginId 去登记层；单例会串味）
+    style: {
+      register: (layer) => mountStyleLayer(pluginId, layer),
+      packs: () => stylePacks().map((e) => e.pack),
+      state: () => styleState(),
+      activate: (packId, variantId) => activateStyle(packId, variantId),
+      reset: () => resetStyle(),
+      onChange: (cb) => onStyleChange(cb),
+    },
   };
 }
 

@@ -10,12 +10,15 @@ import type {
   SparkleKaraokeProvider,
   SparkleMenuItem,
   SparkleNavItem,
+  SparkleNpView,
   SparkleNpWidget,
   SparkleSettingsSection,
   SparkleSongMenuCtx,
   SparkleSonglistGroup,
   SparkleStreamSource,
+  SparkleStyleLayer,
   SparkleTheme,
+  SparkleThemePack,
   SparkleView,
 } from "@quaver/sparkle";
 
@@ -36,7 +39,11 @@ interface SettingsSectionEntry {
   cleanup?: (() => void) | null;
 }
 interface ThemeEntry extends SparkleTheme { pluginId: string }
+/** 常驻样式层：插件启用即生效，与主题包选择无关（层序由 order 定） */
+export interface StyleLayerEntry { pluginId: string; layer: SparkleStyleLayer; key: string }
+interface ThemePackEntry { pluginId: string; pack: SparkleThemePack }
 interface NpWidgetEntry { pluginId: string; widget: SparkleNpWidget; cleanup: (() => void) | null }
+interface NpViewEntry { pluginId: string; view: SparkleNpView }
 interface MenuItemEntry {
   pluginId: string;
   item: SparkleMenuItem | ((ctx: SparkleSongMenuCtx) => SparkleMenuItem);
@@ -49,7 +56,10 @@ const navItems: NavEntry[] = [];
 const songlistGroups: SonglistGroupEntry[] = [];
 const settingsSections: SettingsSectionEntry[] = [];
 const themes: ThemeEntry[] = [];
+const styleLayers: StyleLayerEntry[] = [];
+const themePacks: ThemePackEntry[] = [];
 const npWidgets: NpWidgetEntry[] = [];
+const npViews: NpViewEntry[] = [];
 const menuItems: MenuItemEntry[] = [];
 const streamSources: StreamSourceEntry[] = [];
 const karaokeProviders: KaraokeProviderEntry[] = [];
@@ -122,6 +132,50 @@ export function sparkRegisterTheme(pluginId: string, theme: SparkleTheme) {
   emitChange();
 }
 
+// —— 样式层 / 主题包 ——
+//
+// 这里只做**登记**：真正的 <style> 注入与层序排布在 sparkle/style-layer.ts（要碰
+// document.head）。teardown 里只摘登记，具体清理由 style-layer 订阅注册表变化后
+// 自己完成（它已经知道自己注入了什么，无需宿主再传一遍回调）。
+//
+// key 用「pluginId + 层 id + 递增序号」：同一插件可以注册多张同 id 的层（比如按变体
+// 各一张），序号兜住重复注册，不让后一张顶掉前一张的登记。**key 必须由本函数生成并
+// 回填给调用方**（registerStyleLayer 返回它）—— 反注册时 style-layer 靠它精确摘
+// 那一张，自己按 `${pluginId}:${id}` 拼是拼不出来的（少了序号）。
+
+let layerSeq = 0;
+
+export function sparkRegisterStyleLayer(pluginId: string, layer: SparkleStyleLayer): string {
+  const key = `${pluginId}:${layer.id}#${++layerSeq}`;
+  const entry: StyleLayerEntry = { pluginId, layer, key };
+  styleLayers.push(entry);
+  teardownOf(pluginId).push(() => {
+    const at = styleLayers.indexOf(entry);
+    if (at >= 0) styleLayers.splice(at, 1);
+  });
+  emitChange();
+  return key;
+}
+
+export function sparkRegisterThemePack(pluginId: string, pack: SparkleThemePack) {
+  const entry: ThemePackEntry = { pluginId, pack };
+  themePacks.push(entry);
+  teardownOf(pluginId).push(() => {
+    const at = themePacks.indexOf(entry);
+    if (at >= 0) themePacks.splice(at, 1);
+  });
+  emitChange();
+}
+
+/** 按 key 摘掉一张样式层的登记（插件运行中主动反注册用；停用路径走 teardown） */
+export function sparkUnregisterStyleLayer(key: string): boolean {
+  const at = styleLayers.findIndex((e) => e.key === key);
+  if (at < 0) return false;
+  styleLayers.splice(at, 1);
+  emitChange();
+  return true;
+}
+
 export function sparkRegisterNpWidget(pluginId: string, widget: SparkleNpWidget, mount: (w: SparkleNpWidget) => (() => void) | null) {
   const entry: NpWidgetEntry = { pluginId, widget, cleanup: mount(widget) };
   npWidgets.push(entry);
@@ -130,6 +184,17 @@ export function sparkRegisterNpWidget(pluginId: string, widget: SparkleNpWidget,
     if (at >= 0) npWidgets.splice(at, 1);
     entry.cleanup?.();
     entry.cleanup = null;
+  });
+  emitChange();
+}
+
+/** 正在播放页整页接管视图：先注册先得（与逐字提供器同一口径，先到先接管） */
+export function sparkRegisterNpView(pluginId: string, view: SparkleNpView) {
+  const entry: NpViewEntry = { pluginId, view };
+  npViews.push(entry);
+  teardownOf(pluginId).push(() => {
+    const at = npViews.indexOf(entry);
+    if (at >= 0) npViews.splice(at, 1);
   });
   emitChange();
 }
@@ -177,7 +242,14 @@ export const sparkleNavItems = (): SparkleNavItem[] => navItems;
 export const sparkleSonglistGroups = (): SparkleSonglistGroup[] => songlistGroups.map((e) => e.group);
 export const sparkleSettingsSections = (): SettingsSectionEntry[] => settingsSections;
 export const sparkleThemes = (): ThemeEntry[] => themes;
+/** 已登记的常驻样式层（style-layer.ts 订阅本表并注入 <style>） */
+export const sparkleStyleLayers = (): StyleLayerEntry[] => styleLayers;
+/** 已登记的主题包（按注册序） */
+export const sparkleThemePacks = (): ThemePackEntry[] => themePacks;
 export const sparkleNpWidgets = (): NpWidgetEntry[] => npWidgets;
+/** 正在播放页接管视图（首个注册者；无 = 宿主走默认 np 布局）。
+ *  enabled() 由消费方（np-view.ts）每次 notify 重读，不在这里判。 */
+export const sparkleNpView = (): SparkleNpView | null => npViews[0]?.view ?? null;
 export const sparkleStreamSources = (): SparkleStreamSource[] => streamSources.map((e) => e.source);
 /** 逐字歌词提供器（首个注册者；无 = 宿主走纯 LRC 行级歌词） */
 export const sparkleKaraokeProvider = (): SparkleKaraokeProvider | null => karaokeProviders[0]?.provider ?? null;

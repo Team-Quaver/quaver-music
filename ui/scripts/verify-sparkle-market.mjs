@@ -42,7 +42,7 @@ await page.evaluateOnNewDocument((fakeB64) => {
     uninstall: async (m) => { window.__installed = window.__installed.filter((x) => x.id !== m.id); return { ok: true }; },
     market: async () => ({ ok: true, index: { version: 1, plugins: [
       { id: "t1", name: "主题一号", version: "1.0.0", author: "Q", description: "冒烟主题", category: "theme", download: "http://x/t1.js" },
-      { id: "p1", name: "插件一号", version: "1.0.0", author: "Q", description: "冒烟插件", download: "http://x/p1.js" },
+      { id: "p1", name: "插件一号", version: "1.0.0", author: "Team Quaver", description: "冒烟插件", download: "http://x/p1.js" },
       { id: "e1", name: "扩展一号", version: "1.0.0", author: "Q", description: "冒烟扩展", category: "extension", download: "http://x/e1.js" },
     ] } }),
     pickLocal: async () => window.__pickResult,
@@ -107,15 +107,60 @@ const rowInfo = (panelSel, keyword) => page.$$eval(`${panelSel} .sparkle-row`, (
 }, keyword);
 await click(catTab("theme"));
 const t1 = await rowInfo('[data-cat="theme"]', "主题一号");
-check("主题装进「主题」标签（徽标=主题，默认停用，未启用无齿轮）", t1?.badge === "主题" && t1?.switchText === "已停用" && t1?.gear === false, JSON.stringify(t1));
+check("主题装进「主题」标签（非 Team Quaver → 第三方，默认停用，未启用无齿轮）", t1?.badge === "第三方" && t1?.switchText === "已停用" && t1?.gear === false, JSON.stringify(t1));
 check("主题不混进「插件」标签", !(await rowInfo('[data-cat="plugin"]', "主题一号")));
 await click(catTab("plugin"));
 const p1 = await rowInfo('[data-cat="plugin"]', "插件一号");
-check("插件装进「插件」标签（第三方徽标，恒有齿轮）", p1?.badge === "第三方" && p1?.gear === true && p1?.switchText === "已停用", JSON.stringify(p1));
+check("插件装进「插件」标签（Team Quaver → 官方徽标，恒有齿轮）", p1?.badge === "官方" && p1?.gear === true && p1?.switchText === "已停用", JSON.stringify(p1));
+const pre = await rowInfo('[data-cat="plugin"]', "Die For You");
+check("宿主内置插件徽标=预装", pre?.badge === "预装", JSON.stringify(pre));
+
+// 对齐：同一面板里「有卸载」（插件一号）与「无卸载」（预装 Die For You）两行，齿轮与开关
+// 必须落在同一条竖线上 —— 卸载插在齿轮与开关之间、且动作区三列定宽，就是为了这个
+// （开关是行的视觉锚点，不能被整行的按钮数推走）。这是行布局唯一的真回归测试，别删。
+const colLeft = (kw, sel) => page.evaluate((k, s) => {
+  const row = [...document.querySelectorAll('[data-cat="plugin"] .sparkle-row')].find((r) => r.textContent.includes(k));
+  const el = row?.querySelector(s);
+  return el ? Math.round(el.getBoundingClientRect().left) : null;
+}, kw, sel);
+const actsOrder = (kw) => page.evaluate((k) => {
+  const row = [...document.querySelectorAll('[data-cat="plugin"] .sparkle-row')].find((r) => r.textContent.includes(k));
+  return [...(row?.querySelectorAll(".sparkle-actions > *") ?? [])].map((e) => e.className.split(" ")[0]);
+}, kw);
+const p1Gear = await colLeft("插件一号", ".sparkle-gear"), p1Sw = await colLeft("插件一号", ".sparkle-switch");
+const preGear = await colLeft("Die For You", ".sparkle-gear"), preSw = await colLeft("Die For You", ".sparkle-switch");
+check("有/无卸载两行的齿轮对齐", p1Gear !== null && p1Gear === preGear, `${p1Gear} vs ${preGear}`);
+check("有/无卸载两行的开关对齐（开关是行锚点）", p1Sw !== null && p1Sw === preSw, `${p1Sw} vs ${preSw}`);
+const p1Order = await actsOrder("插件一号");
+check("动作区 DOM 顺序 = 齿轮 → 卸载 → 开关", JSON.stringify(p1Order) === JSON.stringify(["sparkle-gear", "sparkle-uninstall", "sparkle-switch"]), JSON.stringify(p1Order));
+// 卸载 = 垃圾桶图标按钮：与齿轮同尺寸，文字语义走 title/aria-label
+const btnBox = await page.evaluate(() => {
+  const row = [...document.querySelectorAll('[data-cat="plugin"] .sparkle-row')].find((r) => r.textContent.includes("插件一号"));
+  const box = (sel) => { const el = row?.querySelector(sel); const r = el?.getBoundingClientRect(); return el && r ? { w: Math.round(r.width), h: Math.round(r.height) } : null; };
+  const b = row?.querySelector(".sparkle-uninstall");
+  return { gear: box(".sparkle-gear"), trash: box(".sparkle-uninstall"), text: b?.textContent.trim() ?? null, title: b?.title ?? null, aria: b?.getAttribute("aria-label") ?? null, svg: !!b?.querySelector("svg") };
+});
+check("卸载 = 垃圾桶图标按钮（无文字，语义在 title/aria-label）", btnBox.text === "" && btnBox.title === "卸载" && btnBox.aria === "卸载 插件一号" && btnBox.svg === true, JSON.stringify(btnBox));
+check("垃圾桶与齿轮同尺寸", JSON.stringify(btnBox.trash) === JSON.stringify(btnBox.gear), JSON.stringify(btnBox));
+const preHasTrash = await page.evaluate(() => !!([...document.querySelectorAll('[data-cat="plugin"] .sparkle-row')].find((r) => r.textContent.includes("Die For You")))?.querySelector(".sparkle-uninstall"));
+check("预装行没有垃圾桶（不能卸载）", preHasTrash === false);
+
+// 勾选色口径：探针元素读同一个表达式，避免手写 #2f7d5c 这类字面量在换主题/换曲后变假红
+const swAccent = await page.$eval('[data-cat="plugin"] .sparkle-switch input', (e) => getComputedStyle(e).accentColor);
+const tintAccent = await page.evaluate(() => {
+  const d = document.createElement("div");
+  d.style.color = "var(--cvg-accent, var(--acc))";
+  document.body.append(d);
+  const c = getComputedStyle(d).color;
+  d.remove();
+  return c;
+});
+check("开关勾选色 = Tint（--cvg-accent）", swAccent === tintAccent, `${swAccent} vs ${tintAccent}`);
+
 check("插件不混进「扩展」标签", !(await rowInfo('[data-cat="extension"]', "插件一号")));
 await click(catTab("extension"));
 const e1 = await rowInfo('[data-cat="extension"]', "扩展一号");
-check("扩展装进「扩展」标签（徽标=扩展，恒有齿轮）", e1?.badge === "扩展" && e1?.gear === true, JSON.stringify(e1));
+check("扩展装进「扩展」标签（非 Team Quaver → 第三方，恒有齿轮）", e1?.badge === "第三方" && e1?.gear === true, JSON.stringify(e1));
 
 // —— 3. 插件设置收进齿轮弹窗（die-for-you 默认启用、提供设置区） ——
 await click(catTab("plugin"));
@@ -163,7 +208,7 @@ check("installLocal 收到本体与元数据（id 取自插件）", msg?.meta?.i
 await click(catTab("plugin"));
 await page.waitForFunction(() => [...document.querySelectorAll('[data-cat="plugin"] .sparkle-name')].some((e) => e.textContent.includes("冒烟本地插件")), { timeout: 8000 });
 const local = await rowInfo('[data-cat="plugin"]', "冒烟本地插件");
-check("本地装的插件进「插件」标签（第三方徽标，默认停用）", local?.badge === "第三方" && local?.switchText === "已停用", JSON.stringify(local));
+check("本地装的插件进「插件」标签（无 author → 第三方，默认停用）", local?.badge === "第三方" && local?.switchText === "已停用", JSON.stringify(local));
 
 // —— 6. 形状不合法的本地文件被原地拒绝 ——
 const BAD_B64 = Buffer.from("export default { name: 42 }", "utf8").toString("base64");

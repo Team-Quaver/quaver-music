@@ -18,6 +18,9 @@ import {
   type InstalledPlugin,
 } from "./loader";
 import { onSparkleChange, sparkRecordOf, sparkleSettingsSections } from "./registry";
+import {
+  activateStyle, onStyleChange, resetStyle, setStyleSuspended, stylePacks, styleState,
+} from "./style-layer";
 
 interface MarketEntry {
   id: string; name: string; version: string; author?: string; description?: string;
@@ -29,12 +32,28 @@ type MarketCategory = "theme" | "plugin" | "extension";
 const catOf = (c: string | undefined): MarketCategory => (c === "theme" || c === "extension" ? c : "plugin");
 const CAT_LABEL: Record<MarketCategory, string> = { theme: "主题", plugin: "插件", extension: "扩展" };
 
+// —— 徽标口径 ——
+// ① 宿主内置（OFFICIAL_META）恒为「预装」；
+// ② Marketplace 装进来的按 author 分：Team Quaver → 「官方」，其余 → 「第三方」。
+// 徽标只回答「谁发布的」：来源决定配色（官方蓝 / 第三方紫），分类交给所在标签页
+// （待在「插件」标签里的当然是插件），不在文字里重复。Marketplace 目录那几行反过来 ——
+// 它回答的是「这是什么」，所以仍只打分类徽标。
+const OFFICIAL_AUTHOR = "team quaver";
+const isTeamQuaver = (author: unknown) => String(author ?? "").trim().toLowerCase() === OFFICIAL_AUTHOR;
+
+const sourceBadge = (author: unknown): { cls: string; text: string } =>
+  isTeamQuaver(author) ? { cls: "official", text: "官方" } : { cls: "third-party", text: "第三方" };
+
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 const base64ToBytes = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 
 const GEAR_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.2.61.77 1.03 1.51 1H21a2 2 0 1 1 0 4h-.09c-.74-.03-1.31.39-1.51 1z"/></svg>`;
+
+// 卸载 = 垃圾桶（与齿轮同一套图标按钮尺寸）。破坏性动作靠 hover 转红提示，
+// 文字信息交给 title/aria-label —— 行内动作区三个控件等宽，列才对得齐。
+const TRASH_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>`;
 
 export function mountSparklePanel(section: HTMLElement): () => void {
   section.innerHTML = "";
@@ -72,8 +91,10 @@ export function mountSparklePanel(section: HTMLElement): () => void {
   themeGroup.className = "set-group";
   themeGroup.innerHTML = `
     <div class="set-label">已装主题 <span class="set-note-inline">开关只启停提供它的插件；切换主题直接去 设置 → 外观</span></div>
-    <div class="sparkle-list sparkle-theme-rows"></div>`;
+    <div class="sparkle-list sparkle-theme-rows"></div>
+    <div class="sparkle-packs"></div>`;
   const themeRows = themeGroup.querySelector<HTMLElement>(".sparkle-theme-rows")!;
+  const packsBox = themeGroup.querySelector<HTMLElement>(".sparkle-packs")!;
 
   // —— ② 插件：已装插件 ——
   const pluginGroup = document.createElement("div");
@@ -178,7 +199,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     return b;
   };
 
-  /** 已装内容行（主题/插件/扩展 三个标签共用）：[齿轮] [启用开关] [卸载] */
+  /** 已装内容行（主题/插件/扩展 三个标签共用）：[齿轮] [垃圾桶=卸载] [启用开关] */
   const manageRow = (o: {
     id: string; name: string; version: string; author?: string; description?: string;
     badge: { cls: string; text: string };
@@ -198,7 +219,20 @@ export function mountSparklePanel(section: HTMLElement): () => void {
       </div>
       <div class="sparkle-actions"></div>`;
     const actions = el.querySelector<HTMLElement>(".sparkle-actions")!;
+    // 追加顺序 = 视觉顺序 = Tab 顺序：齿轮 → 卸载 → 开关。
+    // 卸载插在中间而不是末尾：开关是行的视觉锚点（恒在最右），而卸载只有部分行有
+    // （预装没有），放末尾会把开关这一列整排推走（.sparkle-actions 的三列定宽兜住这点）。
     if (o.showGear) actions.append(gearBtn(o.pluginId, o.name));
+    if (o.onUninstall) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "sparkle-uninstall";
+      btn.title = "卸载";
+      btn.setAttribute("aria-label", `卸载 ${o.name}`);
+      btn.innerHTML = TRASH_SVG;
+      btn.onclick = () => o.onUninstall!();
+      actions.append(btn);
+    }
     if (!o.broken) {
       const sw = document.createElement("label");
       sw.className = "sparkle-switch";
@@ -210,14 +244,6 @@ export function mountSparklePanel(section: HTMLElement): () => void {
         o.onToggle(input.checked);
       };
       actions.append(sw);
-    }
-    if (o.onUninstall) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "sparkle-uninstall";
-      btn.textContent = "卸载";
-      btn.onclick = () => o.onUninstall!();
-      actions.append(btn);
     }
     return el;
   };
@@ -265,6 +291,72 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     });
   };
 
+  // —— 主题包（registerThemePack）：每个包一行，内联各风格的色板按钮 + 一个「恢复默认」。
+  //    放在「已装主题」下面而不是混进行内：包的启用状态归上面的开关管，这里只管
+  //    「当前生效哪一套」，两件事分开摆，用户不会以为切了色板就等于启用了插件。
+  const packChip = (label: string, on: boolean, swatches: string[], onClick: () => void, title?: string) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "sparkle-pack" + (on ? " is-on" : "");
+    b.title = title ?? label;
+    const dots = swatches.length
+      ? `<span class="sparkle-pack-dots">${swatches.slice(0, 5).map((c) => `<i style="background:${esc(c)}"></i>`).join("")}</span>`
+      : "";
+    b.innerHTML = `${dots}<span>${esc(label)}</span>`;
+    b.onclick = onClick;
+    return b;
+  };
+
+  const renderPacks = () => {
+    packsBox.innerHTML = "";
+    const packs = stylePacks();
+    if (!packs.length) return; // 没有主题包：整块不出现，不占视觉空间
+    const st = styleState();
+
+    const head = document.createElement("div");
+    head.className = "set-label";
+    head.innerHTML = `主题风格 <span class="set-note-inline">整页生效（可重画圆角、阴影、组件形态），由启用中的插件提供</span>`;
+    packsBox.append(head);
+
+    const row = document.createElement("div");
+    row.className = "sparkle-pack-row";
+    row.append(packChip("默认外观", !st.packId, [], () => { resetStyle(); renderPacks(); }, "宿主内置外观（不加载任何插件样式）"));
+    for (const { pack } of packs) {
+      for (const v of pack.variants) {
+        const on = st.packId === pack.id && (st.variantId ?? pack.variants[0]?.id) === v.id;
+        row.append(packChip(
+          on && !st.suspended ? v.name : `${pack.name} · ${v.name}`,
+          on && !st.suspended,
+          v.preview ?? pack.preview ?? [],
+          () => { activateStyle(pack.id, v.id); renderPacks(); },
+          `${pack.name} · ${v.name}${v.scheme ? `（${v.scheme === "dark" ? "暗底" : "亮底"}）` : ""}`,
+        ));
+      }
+    }
+    packsBox.append(row);
+
+    // 总闸：样式把界面搞得没法用时的救命出口。必须显眼 —— 它是唯一不依赖任何
+    // 插件就能回到可用界面的路径（插件自己出事时，它给的 reset() 未必还灵）。
+    if (packs.some((p) => p.pack.variants.length)) {
+      const sw = document.createElement("label");
+      sw.className = "sparkle-switch";
+      sw.innerHTML = `<input type="checkbox"${st.suspended ? " checked" : ""}/> ${st.suspended ? "已暂停全部插件样式" : "暂停全部插件样式"}`;
+      const input = sw.querySelector<HTMLInputElement>("input")!;
+      input.onchange = () => {
+        setStyleSuspended(input.checked);
+        renderPacks();
+      };
+      const danger = document.createElement("div");
+      danger.className = "sparkle-pack-danger";
+      danger.append(sw);
+      const hint = document.createElement("p");
+      hint.className = "muted set-hint";
+      hint.textContent = "第三方样式可以改写整个界面。若某个主题让应用难以使用，打开这个总闸即可全部停用（无需先停用插件）。";
+      danger.append(hint);
+      packsBox.append(danger);
+    }
+  };
+
   const renderRows = () => {
     // ① 主题：category=theme 的已装插件（齿轮仅在该插件提供设置区时出现）
     themeRows.innerHTML = "";
@@ -272,7 +364,8 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     if (!themeInst.length) {
       themeRows.innerHTML = `<div class="sparkle-empty">没有已安装的主题 —— 从 Marketplace 安装；提供主题的插件启用后，到 设置 → 外观 切换</div>`;
     }
-    for (const inst of themeInst) themeRows.append(thirdRow(inst, { cls: "cat-theme", text: "主题" }, { gearOnlyWithSections: true }));
+    for (const inst of themeInst) themeRows.append(thirdRow(inst, sourceBadge(inst.manifest?.author), { gearOnlyWithSections: true }));
+    renderPacks();
 
     // ② 插件：官方 + 非 theme/extension 的第三方
     pluginRows.innerHTML = "";
@@ -280,7 +373,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     for (const meta of OFFICIAL_META) {
       const broken = sparkIsBroken(meta.id) && !sparkRecordOf(meta.id);
       pluginRows.append(manageRow({
-        ...meta, badge: { cls: "official", text: "官方" },
+        ...meta, badge: { cls: "official", text: "预装" },
         enabled: enabled.has(meta.id), broken,
         showGear: !broken,
         pluginId: meta.id,
@@ -303,7 +396,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
       empty.textContent = "没有已安装的第三方插件（可用 QUAVER_SPARKLE_DIR 指定开发目录，从 Marketplace 安装，或点「添加本地插件」）";
       pluginRows.append(empty);
     }
-    for (const inst of plainThird) pluginRows.append(thirdRow(inst, { cls: "third-party", text: "第三方" }));
+    for (const inst of plainThird) pluginRows.append(thirdRow(inst, sourceBadge(inst.manifest?.author)));
 
     // ③ 扩展：category=extension 的已装插件
     extRows.innerHTML = "";
@@ -311,7 +404,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     if (!extInst.length) {
       extRows.innerHTML = `<div class="sparkle-empty">没有已安装的扩展 —— 从 Marketplace 安装</div>`;
     }
-    for (const inst of extInst) extRows.append(thirdRow(inst, { cls: "cat-extension", text: "扩展" }));
+    for (const inst of extInst) extRows.append(thirdRow(inst, sourceBadge(inst.manifest?.author)));
   };
 
   // —— Marketplace：一份索引一个列表，条目按 category 打徽标 ——
@@ -467,6 +560,9 @@ export function mountSparklePanel(section: HTMLElement): () => void {
   // 初始化：立即画一次（官方列表不等桥），索引与第三方列表随后补
   let alive = true;
   const unsubChange = onSparkleChange(() => { if (alive) renderRows(); });
+  // 样式态变化（含插件侧 ctx.style.activate）也要重画：色板选中态与总闸是本地状态，
+  // 只靠 onSparkleChange（插件注册变化）会漏掉纯切换。
+  const unsubStyle = onStyleChange(() => { if (alive) renderPacks(); });
   renderRows();
   renderMarket();
   void refreshAll();
@@ -474,5 +570,6 @@ export function mountSparklePanel(section: HTMLElement): () => void {
   return () => {
     alive = false;
     unsubChange();
+    unsubStyle();
   };
 }

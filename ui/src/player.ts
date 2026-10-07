@@ -790,6 +790,49 @@ class Player {
     return i;
   }
 
+  /** 播放顺序上的相邻下标（-1 = 没有）：随机播放时按当日洗牌序，与 stepInOrder 同源。
+   *  正在播放页的封面流用它取左右邻曲 —— 别自己写 index±1（随机序下会指错歌）。 */
+  neighbors(): { prev: number; next: number } {
+    return { prev: this.stepInOrder(-1, true), next: this.stepInOrder(1, true) };
+  }
+
+  /**
+   * 以当前曲为原点、按**播放顺序**偏移 offset 首（0 = 当前，1 = 下一首，-1 = 上一首，
+   * 2 = 下下首）。随机播放时走当日洗牌序 —— 与 stepInOrder 同源，插件别自己算。
+   *
+   * 给「封面流」这类需要一整列邻曲的视图用：只有 prev/next 各一首时，
+   * 切歌动画做不出「中间转出去 → 右边顶上 → 新的从右边转进来」的三段式
+   * （第三张没有数据源，DOM 只能停在两张）。越界返回 undefined。
+   */
+  songAtOffset(offset: number): Song | undefined {
+    if (!this.queue.length) return undefined;
+    if (offset === 0) return this.current;
+    if (!Number.isInteger(offset)) return undefined;
+    const dir: 1 | -1 = offset > 0 ? 1 : -1;
+    let i = this.index;
+    // 上限 = 队列长度：绕回一圈就是同一首，再往外没有意义
+    for (let step = 0; step < this.queue.length; step++) {
+      const at = this.stepInOrder(dir, false);
+      if (at < 0) return undefined;
+      i = at;
+      if (step === Math.abs(offset) - 1) return this.queue[i];
+    }
+    return undefined;
+  }
+
+  /** 跳到播放顺序上偏移 offset 首（0 = 当前即原地重播）。给封面流「点第几张跳第几首」用。 */
+  jumpToOffset(offset: number) {
+    if (!Number.isInteger(offset) || offset === 0) return;
+    let i = this.index;
+    const dir: 1 | -1 = offset > 0 ? 1 : -1;
+    for (let n = 0; n < Math.abs(offset); n++) {
+      const at = this.stepInOrder(dir, true); // wrap：手动跳允许回绕（与 prev/next 一致）
+      if (at < 0) return;
+      i = at;
+    }
+    this.jump(i);
+  }
+
   next(auto = false) {
     if (!this.queue.length) return;
     if (auto && this.mode === "one") {

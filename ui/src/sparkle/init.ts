@@ -3,6 +3,7 @@
 // 用 void 不阻塞首帧 —— 插件的视图/侧栏项/设置区在首帧后补挂，属渐进增强。
 import { applySparkleTheme, disableSparklePlugin, enableSparklePlugin, sparkEnabledIds, sparkOfficialOffIds } from "./host";
 import { listInstalledThirdParty, loadOfficial, loadThirdParty, OFFICIAL_META } from "./loader";
+import { initStyleLayer } from "./style-layer";
 
 /** 官方插件默认启用：启用集合里没有、用户也没显式停用过（official-off 标记）的
  *  官方插件并入启用集合。known 记「见过的官方插件 id」——此后每个新官方插件
@@ -28,6 +29,9 @@ function seedOfficialDefaults() {
 
 export async function initSparkle(): Promise<void> {
   seedOfficialDefaults();
+  // 样式层要先于插件启用：否则首个主题包注册时 onSparkleChange 还没订阅上，
+  // 那张 style 会一直缺席到下一次注册表变化（表现为「重启后第一张主题没生效」）。
+  initStyleLayer();
   const enabled = new Set(sparkEnabledIds());
 
   // 官方插件：meta 表是展示真相，加载表有对应 loader 才能启

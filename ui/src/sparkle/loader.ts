@@ -81,9 +81,24 @@ export async function loadOfficial(id: string): Promise<SparklePlugin> {
   return plugin;
 }
 
+/**
+ * 动态 import 的 cache-bust 计数。
+ *
+ * 为什么需要（热重载）：`?v=` 原本只跟 installedAt 走，而停用→启用时 installedAt
+ * **不变** → 浏览器 ES 模块缓存命中 → 拿到的是**上一次的模块实例**。于是「停用再
+ * 启用」等于什么都没发生：插件顶层代码不重跑，setup 拿到的还是旧闭包（旧 DOM 引用、
+ * 旧设置快照），表现为「重载了但功能失常」。
+ *
+ * 每次真正加载第三方插件都 +1，URL 必变 → 强制重新取模块。官方插件走 vite 静态
+ * import（开发期 HMR 自带），不走这条。
+ */
+let loadSeq = 0;
+
 export async function loadThirdParty(inst: InstalledPlugin): Promise<SparklePlugin> {
   const main = inst.manifest?.main || "main.js";
-  const url = `/api/sparkle/plugin/${encodeURIComponent(inst.id)}/${main}?v=${encodeURIComponent(String(inst.installedAt ?? 0))}`;
+  // v = 安装时刻 + 加载序号：前者覆盖「重装同版本」，后者覆盖「停用后重启用同一份文件」
+  const v = `${inst.installedAt ?? 0}-${++loadSeq}`;
+  const url = `/api/sparkle/plugin/${encodeURIComponent(inst.id)}/${main}?v=${encodeURIComponent(v)}`;
   const mod = await import(/* @vite-ignore */ url);
   const plugin = validatePlugin(mod?.default ?? mod?.plugin, inst.id);
   if (!plugin) throw new Error(`第三方插件 ${inst.id} 形状不合法（default export 需为 SparklePlugin）`);

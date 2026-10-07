@@ -1381,7 +1381,50 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 .np.open .np-widgets { display: flex; }
 .np-widget { min-width: 0; }
 
-/* 设置页 · 已装插件行：徽标 + 名称/版本/作者/描述 | 开关 | 卸载 */
+/* 正在播放页整页接管（Sparkle registerNowPlayingView）：
+   容器铺满 .np（自己的层，不进 .np-inner 网格），默认布局与插件槽整块让位。
+   接管态由插件自绘全部内容（含播放控制），所以 body 上挂 np-takeover ——
+   底部播放条（#player-bar，常驻 flex 子项）整条收起，不给它留高度。 */
+.np-view { position: absolute; inset: 0; z-index: 2; display: none; }
+.np.open.np-taken-over .np-view { display: block; }
+.np.np-taken-over .np-inner,
+.np.np-taken-over .np-widgets { display: none; }
+/* 背景两层继续铺（模糊封面 + 压暗）—— 接管视图通常直接借它当底色，
+   插件想自己铺可以在 .np-view-root 里给不透明底。 */
+.np.np-taken-over .np-scrim { background: linear-gradient(180deg, #0c0f186b, #0b0e197d 55%, #0b0e1996); }
+body.np-takeover #player-bar { display: none; }
+
+/* 设置页 · 主题风格（registerThemePack）：一排色板 chip，点一下整页换风格。
+   chip 是「包 + 风格」的组合（一个包给多套时每个风格各一枚），左边四个色点是
+   包的 preview（纯展示，宿主不解析语义）。当前选中态用 --cvg-accent 描边，
+   不加底色 —— 选中态和 hover 态要能一眼分开。 */
+.sparkle-packs:empty { display: none; }
+.sparkle-packs { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.sparkle-pack-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.sparkle-pack{
+  display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+  padding: 6px 11px 6px 8px; border-radius: 999px; font: inherit; font-size: 12.5px;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink2);
+  transition: border-color .14s ease, color .14s ease;
+}
+.sparkle-pack:hover { color: var(--ink); border-color: var(--sparkle-pack-ink, var(--idx)); }
+.sparkle-pack.is-on {
+  color: var(--ink); font-weight: 600;
+  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 62%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cvg-accent, var(--acc)) 26%, transparent);
+}
+.sparkle-pack-dots { display: inline-flex; gap: 2px; flex: none; }
+.sparkle-pack-dots i { width: 11px; height: 11px; border-radius: 50%; display: block; box-shadow: 0 0 0 .5px #0002 inset; }
+.sparkle-pack-danger { margin-top: 12px; }
+.sparkle-pack-danger .set-hint { margin: 6px 0 0; }
+
+/* 主题风格声明的明暗（html[data-sparkle-scheme]）：只管原生控件/滚动条的配色，
+   页面背景仍由 style.css 的 html[data-theme] 变量组负责 —— 两者分工不同，
+   别在这里去覆盖 --bg 之类。 */
+html[data-sparkle-scheme="light"] { color-scheme: light; }
+html[data-sparkle-scheme="dark"] { color-scheme: dark; }
+
+/* 设置页 · 已装插件行：徽标 + 名称/版本/作者/描述 | 齿轮 | 卸载 | 开关 */
 .sparkle-row {
   display: flex; align-items: center; gap: 10px; padding: 9px 2px;
 }
@@ -1397,15 +1440,35 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 .sparkle-name { font-size: 13px; font-weight: 600; color: var(--ink); }
 .sparkle-name .ver { font-weight: 400; color: var(--idx); font-size: 11.5px; margin-left: 6px; }
 .sparkle-desc { font-size: 11.5px; color: var(--ink2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sparkle-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
-/* 开关：与全站「次级开关」同语言（accent 洗底 + 描边），checkbox 只做语义 */
-.sparkle-switch { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--ink2); }
-.sparkle-switch input { accent-color: var(--acc); width: 15px; height: 15px; cursor: pointer; }
-.sparkle-uninstall {
-  border: 1px solid var(--line); background: transparent; color: var(--ink2);
-  font-size: 11.5px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
+/* 行尾动作区：三列定宽（齿轮 | 卸载 | 开关）。
+   开关恒在最右是刻意的 —— 它是行的视觉锚点，而卸载只有部分行有（预装没有）；两列都定宽，
+   行与行之间才不会因为某行多一个按钮而整排跳格。DOM 顺序与这里一致（齿轮→卸载→开关），
+   所以 Tab 顺序也就是眼睛看到的顺序。
+   Marketplace 条目行没有开关、只有安装按钮：横跨整块、靠右收。 */
+.sparkle-actions {
+  flex: 0 0 auto; display: grid; align-items: center; gap: 8px;
+  grid-template-columns: 26px 26px auto;
 }
-.sparkle-uninstall:hover { color: #e8465a; border-color: #e8465a; }
+.sparkle-actions > .sparkle-gear { grid-area: 1 / 1; }
+.sparkle-actions > .sparkle-uninstall { grid-area: 1 / 2; }
+.sparkle-actions > .sparkle-switch { grid-area: 1 / 3; }
+.sparkle-actions > .sparkle-install { grid-area: 1 / 1 / 2 / -1; justify-self: end; }
+/* 开关：与全站「次级开关」同语言（accent 洗底 + 描边），checkbox 只做语义。
+   勾选色跟设置页其它交互元素同口径 —— 封面染色 Tint（未播放时回落主题强调色）。 */
+.sparkle-switch { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--ink2); }
+.sparkle-switch input { accent-color: var(--cvg-accent, var(--acc)); width: 15px; height: 15px; cursor: pointer; }
+/* 行内垃圾桶（卸载）：与齿轮同尺寸的图标按钮，同样是**中性实底**（不透明，与「只改前景
+   不加底」的次级按钮区分开）。hover 转红是破坏性动作的固定提示色 —— 语义色优先于 Tint 高亮。 */
+.sparkle-uninstall {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 8px; flex: 0 0 auto;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink2); cursor: pointer;
+}
+.sparkle-uninstall:hover {
+  color: #e8465a; border-color: #e8465a;
+  background: color-mix(in srgb, #e8465a 16%, var(--card));
+}
+.sparkle-uninstall svg { width: 13px; height: 13px; }
 /* Marketplace 条目（未安装态没有开关） */
 .sparkle-install { padding: 4px 12px; font-size: 12px; }
 .sparkle-empty { color: var(--idx); font-size: 12px; padding: 6px 2px; }
@@ -1437,14 +1500,20 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 }
 .sparkle-local--danger:hover:not(:disabled) { filter: brightness(1.1); }
 .sparkle-local--danger:disabled { opacity: .5; cursor: not-allowed; }
-/* 行内齿轮：打开该插件的设置弹窗（设置区不再常驻设置页） */
+/* 行内齿轮：打开该插件的设置弹窗（设置区不再常驻设置页）。
+   与垃圾桶同一套图标按钮：中性实底（--card，不透明）。高亮一律走 Tint —— 底/边/字一起上，
+   别写死 --acc（那样播放中就停在主题色不动了）。 */
 .sparkle-gear {
   display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; border-radius: 8px; flex: 0 0 auto;
   border: 1px solid var(--line); background: var(--card); color: var(--ink2);
   cursor: pointer;
 }
-.sparkle-gear:hover { color: var(--acc); border-color: var(--acc); }
+.sparkle-gear:hover {
+  color: var(--cvg-accent, var(--acc));
+  border-color: var(--cvg-accent, var(--acc));
+  background: color-mix(in srgb, var(--cvg-accent, var(--acc)) 16%, var(--card));
+}
 .sparkle-gear svg { width: 13px; height: 13px; }
 /* 插件设置弹窗（components/PluginSettingsDialog.ts）：层与动画复用 .upd-* */
 .sparkle-settings-dialog { width: min(520px, 92vw); }
