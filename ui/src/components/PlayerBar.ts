@@ -5,7 +5,7 @@
 // 音量：浮窗形式 —— 悬停/点击静音按钮弹出玻璃小窗，静音图标 + 滑杆 + 读数一体
 import { player, type Mode } from "../player";
 import { getPrevBehavior } from "../lib/prefs";
-import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQuality, QUALITY_SHORT, QUALITIES, songTitle, type Quality } from "../lib/api";
+import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQuality, QUALITY_SHORT, QUALITIES, songMissingTiers, songTitle, type Quality } from "../lib/api";
 // getLastStream 仍由 paintQ 使用（胶囊显示实际已应用档位）
 import { fmtDur } from "../lyric";
 import { icons } from "../lib/icons";
@@ -158,6 +158,7 @@ export function PlayerBar(): HTMLElement {
 
   // —— 音质切换（音频控制区右侧、收藏红心之前）——
   // 先拉 /stream/tiers 拿到会员可及档位，再渲染胶囊与浮窗（未就绪时画占位，避免闪出错误档位）。
+  // 浮窗列表按当前曲过滤：这首歌没有的档位直接隐藏（songMissingTiers），换曲即重建。
   const qBtn = $<HTMLButtonElement>("pb-quality"), qPop = $("pb-qpop");
   let tierList: { id: string; label: string; locked?: number | boolean }[] = [];
   let qReady = false;
@@ -203,7 +204,12 @@ export function PlayerBar(): HTMLElement {
       qPop.append(b);
     };
     item("auto", "自动", "最高可播");
-    for (const t of tierList) item(t.id, t.label, t.locked ? "🔒 自动回退" : "");
+    // 只列这首歌实际有源的档位（上游 file 元数据判定；元数据缺失回退全量）。
+    // 会员锁定的档不算「无源」：照常展示并标 🔒（选择后走自动回退）。
+    const missing = songMissingTiers(player.current);
+    for (const t of missing ? tierList.filter((x) => !missing.has(x.id as Quality)) : tierList)
+      item(t.id, t.label, t.locked ? "🔒 自动回退" : "");
+    if (el.classList.contains("q-open")) syncSel();
   }
   async function initQuality() {
     try {
@@ -369,8 +375,9 @@ export function PlayerBar(): HTMLElement {
     }
     if (document.activeElement !== vol) vol.value = String(Math.round((player.muted ? 0 : player.volume) * 100));
     paintVol();
-    // 行高亮只需在换曲时重扫（视图重画处会显式调 markActive，见 views/songs）
-    if (s?.mid !== lastMarkKey) { lastMarkKey = s?.mid; player.markActive(); }
+    // 行高亮只需在换曲时重扫（视图重画处会显式调 markActive，见 views/songs）；
+    // 音质浮窗同刻重建：列表只含新歌有源的档位（见 buildQPop）
+    if (s?.mid !== lastMarkKey) { lastMarkKey = s?.mid; player.markActive(); buildQPop(); }
   });
   return el;
 }

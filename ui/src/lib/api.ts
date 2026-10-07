@@ -2,6 +2,7 @@
 // 响应信封：{code:0,msg:"ok",data:...}；错误 {code:-1,msg:...} + HTTP 状态。
 import { getFallbackSort } from "./prefs";
 import { cfg, cfgSet } from "./config";
+import { missingTiersOf } from "./songtiers";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -151,6 +152,13 @@ export const QUALITY_SHORT: Record<string, string> = {
   auto: "自动", "128": "标准", "320": "HQ", "320ogg": "HQ·Ogg", flac: "SQ", "640ogg": "SQ·Ogg",
   atmos2: "臻品", atmos51: "全景", atmos71: "全景7.1", master: "母带",
 };
+
+// —— 单曲档位存在性（播放条音质选择器隐藏无源档）——
+// 判定逻辑与 size_new 位置语义在 lib/songtiers.ts（零依赖纯模块，verify-songtiers 有真单测）；
+// 这里只做档位全集的对接。
+export function songMissingTiers(song: any): Set<Quality> | null {
+  return missingTiersOf(Object.keys(QUALITIES), song?.file) as Set<Quality> | null;
+}
 
 // —— Typhoeus 播放流：resolve 协商（会员门控 403 / 加密档 451 / 回退降级 degraded）→ token 中继 ——
 interface StreamResolved { token: string; path: string; tier: string; tier_label: string; degraded: boolean; mime: string; size: number }

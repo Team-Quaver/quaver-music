@@ -157,7 +157,7 @@ const slimBody = src.session.split("function slim")[1]?.split("export function s
 ok("session: 瘦身掉不必要的大字段（vs/vi/vf/pay 不进存档）",
   !/\bvs:|\bvi:|\bvf:|\bpay:/.test(slimBody));
 ok("session: 但 file.media_mid 必须留（高档位取链用它，常与 mid 不同）",
-  /file: mediaMid \? \{ media_mid: mediaMid \} : undefined/.test(slimBody));
+  /.media_mid = mediaMid/.test(slimBody));
 ok("session: 读档做结构校验（脏数据不炸启动）",
   re(src.session, /export function loadSession[\s\S]{0,500}JSON\.parse\(raw\)/) && has(src.session, "typeof s.mid === \"string\""));
 ok("player: 启动还原在 backendInit 之后", re(src.player, /this\.backendInit\.then\(\(\) => this\.restoreSession\(\)\)/));

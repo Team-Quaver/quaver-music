@@ -11,6 +11,7 @@
 // 队列要瘦身：上游的 song 对象带 file/vs/vi/vf/pay 等大数组（单首几百字节到几 KB），
 // 整队列原样序列化会顶到 localStorage 配额。只留渲染与重放需要的字段。
 import type { Mode, Song } from "../player";
+import { SONG_TIER_SIZE_KEYS } from "./songtiers";
 
 const KEY = "quaver.session.v1";
 /** 队列存档上限：超长队列只留指针附近的一段，避免单条记录撑爆配额 */
@@ -38,10 +39,18 @@ export interface SessionSnapshot {
 /** 队列里的歌瘦身成「够渲染 + 够取链」的最小集。
  *  注意 file.media_mid 必须留：高档位取链用的是 media_mid，很多歌它与 mid 不同
  *  （实测「半梦」两首：media_mid=003QHjC33I7gpx / mid=004XX53V27j2m9），
- *  丢了它重挂流会拿错误的文件名去请求。file 里其余 size_* 数组才是要扔的大头。 */
+ *  丢了它重挂流会拿错误的文件名去请求。file 里其余 size_* 数组才是要扔的大头 ——
+ *  但档位存在性判定消费的几个要留（键名清单见 lib/songtiers.ts），否则还原的会话
+ *  在音质选择器里只能回退全量列表。 */
 function slim(s: Song): Song | null {
   if (!s?.mid) return null;
-  const mediaMid = (s as any).file?.media_mid;
+  const f = (s as any).file;
+  const mediaMid = f?.media_mid;
+  let file = f
+    ? Object.fromEntries(SONG_TIER_SIZE_KEYS.filter((k) => f[k] !== undefined).map((k) => [k, f[k]]))
+    : undefined;
+  if (mediaMid) (file ??= {}).media_mid = mediaMid;
+  const keepFile = file && Object.keys(file).length ? file : undefined;
   return {
     mid: s.mid,
     id: s.id,
@@ -51,7 +60,7 @@ function slim(s: Song): Song | null {
     subtitle: (s as any).subtitle,
     interval: s.interval,
     _key: s._key,
-    file: mediaMid ? { media_mid: mediaMid } : undefined,
+    file: keepFile,
     singer: (s.singer ?? []).map((x: any) => ({ mid: x?.mid, name: x?.name, pmid: x?.pmid })),
     album: s.album
       ? { mid: (s.album as any).mid, pmid: (s.album as any).pmid, name: (s.album as any).name }
