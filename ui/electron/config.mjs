@@ -304,7 +304,7 @@ export const SCHEMA = [
       {
         key: "PrevReplay",
         def: "True",
-        doc: ["「上一首」按钮逻辑：True=点击先把当前曲从头重放（默认）｜False=直接跳到队列里的上一首"],
+        doc: ["「上一首」按钮逻辑：True=单击重放当前曲、双击跳到队列里的上一首（默认）｜False=单击直接跳到队列里的上一首"],
         valid: (v) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
       },
     ],

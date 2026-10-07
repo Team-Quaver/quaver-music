@@ -802,11 +802,12 @@ class Player {
     this.jump(i);
   }
 
-  prev() {
+  prev(force = false) {
     if (!this.queue.length) return;
     // 「上一首」逻辑（Playing.PrevReplay，设置页即时生效）：
-    // replay=把当前曲从头重放；previous=直接切到队列里的上一首
-    if (getPrevBehavior() === "replay") { this.transport.seek(0); return; }
+    // replay=把当前曲从头重放（播放条双击走 force 直接切上一首）；previous=直接切到队列里的上一首。
+    // force 只由播放条双击传：媒体键/热键没有双击语义，永远按单击逻辑走
+    if (!force && getPrevBehavior() === "replay") { this.transport.seek(0); return; }
     const i = this.stepInOrder(-1, true);
     if (i < 0) return;
     this.jump(i);
