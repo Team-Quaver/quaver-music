@@ -30,8 +30,8 @@ import {
   getUiFontList,
   getUpdateChannel,
   normalizeFontList,
-  setCloseAction,
   setAutoCheck,
+  setCloseAction,
   setDecor,
   setFallbackSort,
   setInhibitSleep,
@@ -44,9 +44,10 @@ import {
   setUpdateChannel,
   type PrevBehavior,
   type ThemeMode,
+  type UpdateChannel,
 } from "./lib/prefs";
-import { checkAndPrompt } from "./lib/updater";
-import { normalizeVersion } from "./lib/update-core";
+import { checkAndPrompt, getPlatformInfo } from "./lib/updater";
+import { buildChannel, describeBuild, parseVersion } from "./lib/update-core";
 import { syncInhibit } from "./lib/inhibit";
 import {configInfo, resetConfig, revealConfig} from "./lib/config";
 import {vipCardHtml} from "./lib/vip";
@@ -1079,7 +1080,8 @@ async function settingsView(root: HTMLElement) {
           <button class="opt-card" data-opt="stable" type="button">Stable</button>
           <button class="opt-card" data-opt="nightly" type="button">Nightly</button>
         </div>
-        <p class="muted set-hint">Stable：正式发布版；Nightly：main 分支的每夜滚动构建，功能更新但可能不稳定。</p>
+        <p class="muted set-hint">Stable：正式发布版；Nightly：main 分支的每夜滚动构建，功能更新但可能不稳定。两个渠道可以互相切换：选完会自动检查一次，即使版本号相同也会提示换上对应渠道的构建。</p>
+        <p class="muted set-hint" id="upd-channel-note"></p>
         <div class="set-debug">
           <button class="ghost-btn" id="check-update" type="button">检查更新</button>
           <span class="muted set-hint" id="upd-status"></span>
@@ -1192,19 +1194,48 @@ async function settingsView(root: HTMLElement) {
     () => (getAutoCheck() ? "on" : "off"),
     (v) => setAutoCheck(v === "on"),
   );
-  // 更新渠道（[Update] Channel）：stable=latest release ｜ nightly=滚动 Release「nightly」
-  bindOptCards(wrap.querySelector<HTMLElement>("#upd-channel-cards")!, getUpdateChannel, setUpdateChannel);
-  // 手动检查：状态行就地回报；发现更新（含已跳过的）都弹提醒弹窗
+  // 更新渠道（[Update] Channel）：stable=latest release ｜ nightly=滚动 Release「nightly」。
+  // 两个渠道可以互相切换 —— 判定不靠「谁版本号更大」，而靠「设置里的渠道 ≠ 当前构建所属渠道」
+  // （buildChannel 认版本串里的短 commit id），所以同版号甚至回退都要能提示，否则切到 nightly
+  // 就再也回不来（正式版不会为了某份 nightly 抬高版本号）。
+  let buildVer = __APP_VERSION__;
+  const channelCards = wrap.querySelector<HTMLElement>("#upd-channel-cards")!;
+  const channelNote = wrap.querySelector<HTMLElement>("#upd-channel-note")!;
+  const syncChannel = () => {
+    const sel = getUpdateChannel();
+    const built = buildChannel(buildVer);
+    syncSel(channelCards, "opt", sel);
+    channelNote.classList.toggle("is-switch", sel !== built);
+    channelNote.textContent = sel === built
+      ? `当前运行 ${describeBuild(buildVer)}`
+      : `当前运行 ${describeBuild(buildVer)} · 已选 ${sel === "nightly" ? "Nightly" : "Stable"}，点下方「检查更新」完成切换`;
+  };
+  channelCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
+    b.onclick = () => {
+      const next = b.dataset.opt as UpdateChannel;
+      const was = getUpdateChannel();
+      setUpdateChannel(next);
+      syncChannel();
+      // 明确点了「另一个渠道」= 要换一份构建：立刻查一次并按切换语义弹提醒
+      // （失败也不打扰 —— 状态行与渠道说明都在，用户可再点「检查更新」）
+      if (next !== was && next !== buildChannel(buildVer)) {
+        void checkAndPrompt(next).catch(() => { /* 网络失败：状态行会显示检查失败 */ });
+      }
+    };
+  });
+  syncChannel();
+  // 手动检查：状态行就地回报；发现更新 / 待切换（含已跳过、已暂不切换的）都弹提醒弹窗
   const checkBtn = wrap.querySelector<HTMLButtonElement>("#check-update")!;
   const updStatus = wrap.querySelector<HTMLElement>("#upd-status")!;
-  updStatus.textContent = `当前版本 v${normalizeVersion(__APP_VERSION__)}`;
+  updStatus.textContent = `当前 ${describeBuild(buildVer)}`;
   checkBtn.onclick = async () => {
     checkBtn.disabled = true;
     updStatus.textContent = "检查中…";
     try {
       const r = await checkAndPrompt(getUpdateChannel());
       if (r.status === "error") updStatus.textContent = `检查失败：${r.error}`;
-      else if (r.status === "up-to-date") updStatus.textContent = "已是最新版本";
+      else if (r.status === "up-to-date") updStatus.textContent = `${r.channel === "nightly" ? "Nightly" : "Stable"} 渠道已是最新`;
+      else if (r.info.switching) updStatus.textContent = `可切换到 ${r.info.decision.targetLabel}${r.info.skipped ? "（你已暂不切换）" : ""}`;
       else if (r.info.channel === "nightly") updStatus.textContent = `发现新的 Nightly 构建${r.info.skipped ? "（你已跳过此构建）" : ""}`;
       else updStatus.textContent = `发现新版本 ${r.info.decision.latestDisplay}${r.info.skipped ? "（你已跳过此版本）" : ""}`;
     } catch (e) {
@@ -1213,6 +1244,14 @@ async function settingsView(root: HTMLElement) {
       checkBtn.disabled = false;
     }
   };
+  // 当前构建版本以打包态的 app.getVersion() 为准（构建期注入的 __APP_VERSION__ 在 dev 下
+  // 落在 git tag 上，不是「正在跑的这份」）。拿到后刷新渠道说明；状态行正忙就让位给检查结果。
+  void getPlatformInfo().then((pf) => {
+    if (!pf?.version || !parseVersion(pf.version)) return;
+    buildVer = pf.version;
+    syncChannel();
+    if (!checkBtn.disabled) updStatus.textContent = `当前 ${describeBuild(buildVer)}`;
+  });
   // 淡入淡出预设：持久化 + 立即下发时长（引擎侧做振幅包络；Blink 后端无此项）
   bindOptCards<FadePreset>(
     wrap.querySelector<HTMLElement>("#fade-cards")!,

@@ -1,13 +1,16 @@
 // Quaver — 更新提醒弹窗（模态，body 常驻层）。
 //
-// 「更新前先提醒」的载体：启动自动检查 / 设置页手动检查发现新版本后，弹这里展示
-// GitHub release notes（update-core.renderNotes 渲染），用户点「立即更新」才开始下载。
+// 「更新前先提醒」的载体：启动自动检查 / 设置页手动检查发现新版本（或待切换的渠道）后，
+// 弹这里展示 GitHub release notes（update-core.renderNotes 渲染），用户点「立即更新」才开始下载。
+// 两种意图共用本弹窗，措辞由 info.switching / info.decision.relation 决定：
+//   同渠道升级 = 「发现新版本」+「立即更新」；换渠道 = 「切换到 …」+「立即切换」，
+//   回退还要多一句版本号会变小的提示（配置/凭证/缓存不受影响）。
 // 阶段机：confirm → downloading → ready（重启 / 退出安装 / 已打开安装包）；交给
 // Gear Lever / AppManager 的路径不走下载（管理器自己拉取），点完给 toast 即收。
 //
 // 关闭语义：Esc / 点遮罩 = 「以后再说」，下载中先取消下载（AppImage 临时文件由主进程清理）。
 import { toast } from "./SongMenu";
-import { normalizeVersion, renderNotes } from "../lib/update-core";
+import { describeBuild, renderNotes } from "../lib/update-core";
 import {
   type UpdateInfo, type DownloadHandle, downloadUpdate, finalizeInstall,
   quitAndInstallWindows, relaunchApp, openReleases, fetchManagers, runManagerUpdate,
@@ -33,16 +36,30 @@ export function showUpdateDialog(info: UpdateInfo): void {
 
   // Nightly 是滚动构建，没有「版本号」可言：标题认渠道，构建时间放 meta 行（stable 同位置是发布时间）
   const dateText = info.release.publishedAt ? new Date(info.release.publishedAt).toLocaleString() : "";
-  const titleHtml = info.channel === "nightly"
-    ? `发现新的 <b>Nightly</b> 构建`
-    : `发现新版本 <b>${esc(info.decision.latestDisplay)}</b>`;
-  const metaText = `当前 v${esc(normalizeVersion(info.current))}${asset ? ` · ${fmtSize(asset.size)}` : ""}`
-    + (dateText ? ` · ${info.channel === "nightly" ? "构建于" : "发布于"} ${dateText}` : "");
+  const nightly = info.channel === "nightly";
+  // 换渠道（设置里选的渠道 ≠ 当前构建所属渠道）与同渠道升级是两种事：前者说「切换」，
+  // 标题/按钮照此措辞 —— 版本号可能不升反降，别写成「发现新版本」骗人。
+  const titleHtml = info.switching
+    ? (nightly ? `切换到 <b>Nightly</b> 构建` : `切换到正式版 <b>${esc(info.decision.latestDisplay)}</b>`)
+    : (nightly ? `发现新的 <b>Nightly</b> 构建` : `发现新版本 <b>${esc(info.decision.latestDisplay)}</b>`);
+  const metaText = `当前 ${esc(describeBuild(info.current))} → ${esc(info.decision.targetLabel)}`
+    + (asset ? ` · ${fmtSize(asset.size)}` : "")
+    + (dateText ? ` · ${nightly ? "构建于" : "发布于"} ${dateText}` : "");
+  // 换渠道的关系说明：回退要说清「版本号会变小」，同版号要说清「只是换一份构建」
+  const switchNote = !info.switching ? ""
+    : info.decision.relation === "downgrade"
+      ? "目标版本比当前更低，切换后版本号会回退；配置、登录凭证与播放缓存都不受影响。"
+      : info.decision.relation === "same"
+        ? `版本号与当前相同，只是换成 ${nightly ? "Nightly 滚动" : "Stable 正式"}构建。`
+        : "";
+  const mainLabel = info.switching ? "立即切换" : "立即更新";
+  const skipLabel = info.switching ? "暂不切换" : "跳过此版本";
+  const dangerNote = info.switching && info.decision.relation === "downgrade";
 
   layer = document.createElement("div");
   layer.className = "upd-overlay";
   layer.innerHTML = `
-    <div class="upd-dialog" role="dialog" aria-modal="true" aria-label="发现新版本">
+    <div class="upd-dialog" role="dialog" aria-modal="true" aria-label="${info.switching ? "切换更新渠道" : "发现新版本"}">
       <div class="upd-head">
         <h3>${titleHtml} <span class="upd-badge ${info.channel}">${info.channel === "nightly" ? "Nightly" : "Stable"}</span></h3>
         <span class="muted upd-meta">${metaText}</span>
@@ -50,14 +67,15 @@ export function showUpdateDialog(info: UpdateInfo): void {
       ${!info.picked ? `<p class="muted upd-warn">未找到适用于当前平台与架构的安装包，请到发布页手动下载。</p>` : ""}
       ${info.picked && kind === "appimage" && !info.canReplaceAppimage
         ? `<p class="muted upd-warn">当前不是 AppImage 运行方式，无法应用内替换更新，请到发布页下载。</p>` : ""}
+      ${switchNote ? `<p class="upd-warn upd-switch${dangerNote ? " is-risk" : ""}">${switchNote}</p>` : ""}
       <div class="upd-notes">${renderNotes(info.release.body)}</div>
       <div class="upd-bar" hidden><i></i><span class="muted"></span></div>
       <div class="upd-foot">
-        <button class="ghost-btn" data-act="skip" type="button">跳过此版本</button>
+        <button class="ghost-btn" data-act="skip" type="button">${skipLabel}</button>
         <button class="ghost-btn" data-act="later" type="button">以后再说</button>
         <span class="upd-managers"></span>
         <span class="upd-spacer"></span>
-        <button class="upd-primary" data-act="main" type="button">立即更新</button>
+        <button class="upd-primary" data-act="main" type="button">${mainLabel}</button>
       </div>
     </div>`;
 
@@ -105,7 +123,7 @@ export function showUpdateDialog(info: UpdateInfo): void {
   if (!selfInstallable) {
     setMain("打开发布页", true, () => { void openReleases(info.channel).catch(() => {}); close(); });
   } else {
-    setMain("立即更新", true, startInstall);
+    setMain(mainLabel, true, startInstall);
   }
 
   async function startInstall() {
@@ -158,7 +176,7 @@ export function showUpdateDialog(info: UpdateInfo): void {
       laterBtn.hidden = false;
       laterBtn.textContent = "以后再说";
       warnBox.forEach((w) => (w.hidden = false));
-      setMain(selfInstallable ? "立即更新" : "打开发布页", true, selfInstallable ? startInstall : () => close());
+      setMain(selfInstallable ? mainLabel : "打开发布页", true, selfInstallable ? startInstall : () => close());
     }
   }
 

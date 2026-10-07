@@ -97,6 +97,21 @@ CI（`.github/workflows/build.yml`）产出 x86_64 / aarch64 双架构 AppImage�
 版本号不能写成裸的 `<commit id>-nightly`：electron-builder 会对 `version` 做 semver 校验，
 非 semver 直接构建失败，所以 commit id 只能放在 prerelease 段里。
 
+# 应用内更新
+
+应用自己检查 GitHub Releases 并就地更新，入口在「设置 → 通用 → 应用更新」：
+
+- **自动检查**（默认开）：启动后延迟检查一次，发现新版本**先弹窗展示更新日志**，点确认才开始下载
+  安装，绝不静默更新。关掉后仍可手动「检查更新」。
+- **渠道 Stable / Nightly 可以互相切换**。换渠道不按「谁版本号更大」判 —— 选完会自动检查一次，
+  即使版本号相同也会提示换上对应渠道的构建（Nightly 构建切回 Stable 时版本号可能回退，弹窗会写明
+  这一点）。构建属于哪个渠道只看版本串里的短 commit id，不额外记录状态，所以换版本、重装都不会失配。
+- 找不到当前平台/架构的安装包时，弹窗只给「打开发布页」的出口。
+
+安装收尾按平台：**AppImage** 原位替换（文件名保持不变，桌面项与 Gear Lever/AppManager 的记录继续有效；
+被 Gear Lever / AppManager 接管时也可以把更新交给它们）｜ **Windows** 拉起 NSIS 静默安装并退出应用 ｜
+**macOS dmg / Linux deb** 交给系统打开，剩下的手动完成。
+
 # 协议
 
 由于项目传染，该项目使用 AGPLv3 协议

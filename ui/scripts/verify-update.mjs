@@ -1,8 +1,10 @@
 // Quaver — 应用自更新纯逻辑单测（纯 Node，不需要浏览器/Electron）。
 // ui/src/lib/update-core.ts 是版本解析/比较、安装包匹配、release notes 渲染的唯一真相，
 // 这里用 vite build 打包后直接跑断言 —— 改比较规则先来这补用例。
+// 末尾还有一段**源码级接线断言**：渠道切换这条链（updater 判定 → 弹窗措辞 → 设置页入口）
+// 拆在三个文件里，纯逻辑单测覆盖不到「有没有接上」。
 // 跑： node scripts/verify-update.mjs
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,6 +35,17 @@ let failed = 0;
 const section = (t) => console.log(`\n=== ${t} ===`);
 const check = (name, ok, extra = "") => { console.log(`${ok ? "✓" : "✗"} ${name}${!ok && extra ? ` — ${extra}` : ""}`); if (!ok) failed++; };
 const eq = (name, got, want) => check(name, JSON.stringify(got) === JSON.stringify(want), `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
+const has = (src, n) => src.includes(n);
+const re = (src, rx) => rx.test(src);
+// 注释里提到某个标识符会被 includes 命中（踩过），源码级断言一律先剥注释
+const noComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+const readSrc = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+/** 取 A 到 B 之间的源码（跨函数断言用，避免命中同名的别处） */
+const slice = (src, a, b) => {
+  const i = src.indexOf(a);
+  const j = i < 0 ? -1 : src.indexOf(b, i);
+  return i < 0 || j < 0 ? "" : src.slice(i, j);
+};
 
 /** release fixture：assets 传 [文件名, 大小] */
 const rel = (tag, assets = [], extra = {}) => ({
@@ -60,7 +73,7 @@ section("stable 渠道判定");
   check("同版本 → 无更新", C.decideUpdate("1.2.3", "stable", C.normalizeRelease({ tag_name: "v1.2.3" })).available === false);
   check("回滚（当前更高）→ 无更新", C.decideUpdate("1.2.4", "stable", C.normalizeRelease({ tag_name: "v1.2.3" })).available === false);
   check("nightly 构建切回 stable：更高正式版仍提示", C.decideUpdate("1.2.4-abc1234-nightly", "stable", C.normalizeRelease({ tag_name: "v1.3.0" })).available === true);
-  check("nightly 构建 ≥ 同版号正式版 → 不提示", C.decideUpdate("1.2.4-abc1234-nightly", "stable", C.normalizeRelease({ tag_name: "v1.2.4" })).available === false);
+  check("nightly 构建 ≥ 同版号正式版 → 同渠道升级不提示（换渠道另判，见「渠道切换判定」）", C.decideUpdate("1.2.4-abc1234-nightly", "stable", C.normalizeRelease({ tag_name: "v1.2.4" })).available === false);
   check("坏 tag → error", "error" in C.decideUpdate("1.2.0", "stable", C.normalizeRelease({ tag_name: "not-a-version" })));
 }
 
@@ -149,6 +162,83 @@ section("更新日志渲染");
     check("引用后接段落", q.trimEnd().endsWith("<p>正文</p>"), q);
   }
   check("空 body 有占位", C.renderNotes("").includes("没有填写更新说明"));
+}
+
+// ——— 构建渠道判定（当前构建属于哪个渠道）———
+section("构建渠道判定");
+check("纯 semver → stable（含 v 前缀）", C.buildChannel("1.2.3") === "stable" && C.buildChannel("v1.2.3") === "stable");
+check("带短 sha → nightly（两种写法都认）", C.buildChannel("1.2.0-abc1234-nightly") === "nightly" && C.buildChannel("1.2.0-abc1234") === "nightly");
+check("解析不出的脏串保守按 stable（例如 dev 的 git describe 残次品）", C.buildChannel("nightly") === "stable" && C.buildChannel("") === "stable");
+eq("构建描述：正式版", C.describeBuild("v1.2.3"), "Stable v1.2.3");
+eq("构建描述：nightly 带短 sha", C.describeBuild("1.2.0-abc1234-nightly"), "Nightly 1.2.0-abc1234");
+
+// ——— 渠道切换判定（decideUpdate opts.switch）———
+// 与同渠道升级是两套判据：换渠道只排除「同一份构建」，同版号 / 回退都要能提示。
+section("渠道切换判定");
+{
+  const nightlyRel = C.normalizeRelease({
+    tag_name: "nightly", prerelease: true, published_at: "2026-10-07T02:00:00Z",
+    assets: [{ name: "Quaver-1.2.0-bbb2222-x86_64.AppImage", size: 100, browser_download_url: "https://x/1" }],
+  });
+  const st = (v) => C.normalizeRelease({ tag_name: v });
+
+  // 核心回归：nightly 构建同版号切回 stable。不 switch 时按同渠道升级语义（不提示），
+  // 带 switch 必须提示 —— 否则切到 nightly 之后永远回不到 stable（正式版不会为了某份 nightly 抬版本号）。
+  const plain = C.decideUpdate("1.2.0-abc1234-nightly", "stable", st("v1.2.0"));
+  check("同版号回 stable：默认（同渠道升级）不提示", plain.available === false && plain.switching === false, JSON.stringify(plain));
+  const back = C.decideUpdate("1.2.0-abc1234-nightly", "stable", st("v1.2.0"), { switch: true });
+  check("同版号回 stable：切换模式提示", back.available === true && back.switching === true && back.relation === "same", JSON.stringify(back));
+  eq("切换目标标识", back.targetLabel, "v1.2.0");
+  eq("切换键带 switch 前缀（与升级键互不吞提醒）", back.key, "switch:v1.2.0");
+
+  const down = C.decideUpdate("1.3.0-abc1234-nightly", "stable", st("v1.2.0"), { switch: true });
+  check("nightly 版号更高 → 回 stable 标回退，但仍允许（用户明确要 Stable）", down.available === true && down.relation === "downgrade");
+  const up = C.decideUpdate("1.2.0-bbb2222-nightly", "stable", st("v1.3.0"), { switch: true });
+  check("正式版更高 → 回 stable 顺带升版", up.available === true && up.relation === "upgrade");
+
+  const toN = C.decideUpdate("1.2.0", "nightly", nightlyRel, { switch: true });
+  check("stable 同版号 → 切到 nightly：提示", toN.available === true && toN.switching === true && toN.relation === "same");
+  eq("nightly 目标标识带短 sha", toN.targetLabel, "1.2.0-bbb2222");
+  eq("nightly 切换键", toN.key, "switch:1.2.0-bbb2222");
+  const dn = C.decideUpdate("1.5.0", "nightly", nightlyRel, { switch: true });
+  check("stable 版号更高 → 切到 nightly 标回退", dn.available === true && dn.relation === "downgrade");
+
+  const same = C.decideUpdate("1.2.0-bbb2222-nightly", "nightly", nightlyRel, { switch: true });
+  check("同一份 nightly 构建（同版号同 sha）→ 切换模式也不提示", same.available === false && same.relation === "same");
+
+  const upg = C.decideUpdate("1.2.0", "stable", st("v1.2.3"), { switch: false });
+  check("switch:false 与不传等价（同渠道升级路径不变）", upg.available === true && upg.switching === false && upg.relation === "upgrade");
+  check("坏版本号在切换模式下仍然报错", "error" in C.decideUpdate("nope", "nightly", nightlyRel, { switch: true }));
+  check("坏 tag 在切换模式下仍然报错", "error" in C.decideUpdate("1.2.0-abc1234-nightly", "stable", st("not-a-version"), { switch: true }));
+}
+
+// ——— 接线（源码级）：渠道切换这条链拆在三个文件里，纯逻辑单测覆盖不到「有没有接上」———
+section("渠道切换接线");
+{
+  const updater = noComments(readSrc("src/lib/updater.ts"));
+  const dialog = noComments(readSrc("src/components/UpdateDialog.ts"));
+  const views = readSrc("src/views.ts");
+  const settings = noComments(slice(views, "async function settingsView", "async function logView"));
+  check("抠到 settingsView 源码", settings.length > 2000, `${settings.length} 字符`);
+
+  check("updater: 当前构建渠道由版本串判定（不额外落盘）", has(updater, "const installedChannel = buildChannel(current)"));
+  check("updater: 选中渠道 ≠ 构建渠道 即切换", has(updater, "const switching = channel !== installedChannel"));
+  check("updater: 判定把 switching 传进 decideUpdate", has(updater, "decideUpdate(current, channel, release, { switch: switching })"));
+  check("updater: 启动自动检查不弹换渠道提醒（仅打包态弹）",
+    has(updater, "opts?.auto && (r.info.skipped || (r.info.switching && !r.info.packaged))"));
+
+  check("弹窗: 切换态换标题", has(dialog, "切换到 <b>Nightly</b> 构建") && has(dialog, "切换到正式版 <b>"));
+  check("弹窗: 切换态换主按钮措辞", has(dialog, 'const mainLabel = info.switching ? "立即切换" : "立即更新"'));
+  check("弹窗: 切换态换跳过措辞", has(dialog, 'const skipLabel = info.switching ? "暂不切换" : "跳过此版本"'));
+  check("弹窗: 回退关系单独标 is-risk", has(dialog, "目标版本比当前更低") && has(dialog, 'dangerNote ? " is-risk" : ""'));
+  check("弹窗: 目标按钮标签也走 mainLabel（失败回退时别写死「立即更新」）",
+    re(dialog, /setMain\(mainLabel, true, startInstall\)/) && re(dialog, /setMain\(selfInstallable \? mainLabel : "打开发布页"/));
+
+  check("设置页: 渠道卡片选了另一个渠道就立刻按切换语义查一次",
+    has(settings, "if (next !== was && next !== buildChannel(buildVer))") && re(settings, /checkAndPrompt\(next\)/));
+  check("设置页: 渠道说明行（当前运行 / 已选 渠道）", has(views, 'id="upd-channel-note"') && re(settings, /const syncChannel = \(\) => \{/));
+  check("设置页: 当前构建版本优先取打包态 app.getVersion()",
+    re(settings, /getPlatformInfo\(\)\.then\(\(pf\) => \{[\s\S]{0,200}buildVer = pf\.version/));
 }
 
 console.log(failed ? `\n${failed} 项断言失败` : "\n全部通过");

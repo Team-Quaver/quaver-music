@@ -8,6 +8,14 @@
 //   - 产物名 Quaver-<version>-<arch>.<ext>；nightly 版本 = <package.json 版本>-<短sha>-nightly
 //   - Stable 渠道 = latest release（v* tag，draft/prerelease 自动排除）
 //   - Nightly 渠道 = 滚动 Release「nightly」（prerelease），版本号从产物名解析
+//
+// 判定分两种意图，别混（decideUpdate 的 opts.switch）：
+//   1. 同渠道升级 —— 目标必须**比当前新**才提示；同版号/回退一律安静。
+//   2. 渠道切换 —— 设置里选的渠道 ≠ 当前构建所属渠道（buildChannel）。此时用户要的是
+//      「换上那个渠道的构建」，与谁新谁旧无关：同版号（nightly 1.2.3-abc → stable v1.2.3）
+//      乃至回退（1.3.0-abc-nightly → v1.2.3）都要提示，否则一旦切到 nightly 就再也切不回
+//      stable —— 正式版不会为了「某份 nightly」抬高版本号。
+//   两条路的去重键也分开（`stable:` / `nightly:` vs `switch:` 前缀），互相不吞提醒。
 
 export const GITHUB_REPO = "team-quaver/quaver-music";
 
@@ -46,6 +54,23 @@ export function cmpSemver(a: [number, number, number], b: [number, number, numbe
 /** nightly 产物名 → 版本：Quaver-1.2.3-abc1234-x86_64.AppImage（deb 的 arch 段多词也认）。 */
 export function versionFromAssetName(name: string): ParsedVersion | null {
   return parseVersion(/(\d+\.\d+\.\d+-[0-9a-f]{7,10})/i.exec(name ?? "")?.[1] ?? "");
+}
+
+/**
+ * 一个版本串属于哪个渠道 —— **构建身份**，与设置里「选中的渠道」是两码事。
+ * 判据只有短 commit id：stable 构建的版本串是纯 semver（v1.2.3 / 1.2.3），
+ * nightly 带 prerelease（1.2.3-abc1234-nightly）。解析不出来（dev 的脏串）保守按 stable 算。
+ */
+export function buildChannel(version: string): "stable" | "nightly" {
+  return parseVersion(version)?.nightly ? "nightly" : "stable";
+}
+
+/** 构建的展示描述（渠道 + 版本，nightly 带短 sha）—— 设置页状态行与更新弹窗共用。 */
+export function describeBuild(version: string): string {
+  const p = parseVersion(version);
+  if (!p) return normalizeVersion(version);
+  const v = p.semver.join(".");
+  return p.nightly ? `Nightly ${v}-${p.sha}` : `Stable v${v}`;
 }
 
 // ——— GitHub Release 归一化 ———
@@ -88,43 +113,81 @@ export interface UpdateDecision {
    * 构建时间走 latestDate，UI 组合成「发现新的 Nightly 构建」）。
    */
   latestDisplay: string;
-  /** 「跳过此版本」/ 去重键：渠道:版本标识 */
+  /** 「跳过此版本」/ 去重键：`渠道:版本标识`（切换走 `switch:` 前缀，与升级互不吞提醒） */
   key: string;
   /** 构建时间（nightly 渠道；ISO 字符串，来自 release published_at） */
   latestDate?: string;
+  /** 本次判定是「换渠道」而不是同渠道升级（opts.switch=true 时为 true） */
+  switching: boolean;
+  /** 目标构建相对当前构建：更新 / 同版号 / 回退（切换渠道时三种都要给出，UI 据此措辞） */
+  relation: UpdateRelation;
+  /** 目标构建的精确标识（stable=`v1.2.3`，nightly=`1.2.3-abc1234`） */
+  targetLabel: string;
+}
+
+/** 目标构建与当前构建的先后关系。 */
+export type UpdateRelation = "upgrade" | "same" | "downgrade";
+
+function relationOf(a: [number, number, number], b: [number, number, number]): UpdateRelation {
+  const c = cmpSemver(a, b);
+  return c > 0 ? "upgrade" : c < 0 ? "downgrade" : "same";
 }
 
 /**
- * 渠道判定。current 传 __APP_VERSION__（容忍 v 前缀）。
+ * 渠道判定。current 传当前构建的版本串（__APP_VERSION__ 或打包态的 app.getVersion()，容忍 v 前缀）。
+ *
+ * opts.switch=true = 「用户要换到 channel 这个渠道」，可用性判据换成「目标构建 ≠ 当前构建」，
+ * 不再要求更新（见文件头注）。同一份构建（正式版同版号；nightly 同版号 + 同 sha）才判不可用。
+ *
+ * 不带 opts（默认，同渠道升级）：
  * - stable：latest tag 的 semver > 当前 semver 才算更新（nightly 构建切回 stable 时，
  *   版本号更高的正式版同样会提示）。
  * - nightly：同 semver 但 sha 不同也算更新（滚动构建）；semver 更低视为回滚，不提示。
  *   当前是 stable 构建（无 sha）跑 nightly 渠道时，同版号 nightly 也提示。
  */
-export function decideUpdate(current: string, channel: "stable" | "nightly", release: ReleaseInfo): UpdateDecision | { error: string } {
+export function decideUpdate(
+  current: string,
+  channel: "stable" | "nightly",
+  release: ReleaseInfo,
+  opts?: { switch?: boolean },
+): UpdateDecision | { error: string } {
   const cur = parseVersion(current);
   if (!cur) return { error: `无法解析当前版本号「${current}」` };
+  const switching = !!opts?.switch;
 
   if (channel === "stable") {
     const latest = parseVersion(release.tag);
     if (!latest) return { error: `无法解析发布版本号「${release.tag}」` };
+    const rel = relationOf(latest.semver, cur.semver);
+    const label = `v${latest.semver.join(".")}`;
+    // 换渠道时当前是 nightly 构建（版本串带 sha）→ 任何正式版都是「另一份构建」，照提示
+    const crossChannel = switching && cur.nightly;
     return {
-      available: cmpSemver(latest.semver, cur.semver) > 0,
-      latestDisplay: `v${latest.semver.join(".")}`,
-      key: `stable:${release.tag}`,
+      available: crossChannel || rel === "upgrade",
+      latestDisplay: label,
+      key: `${switching ? "switch" : "stable"}:${release.tag}`,
+      switching,
+      relation: rel,
+      targetLabel: label,
     };
   }
 
   // nightly：Release 名是恒定的「nightly」，构建身份（pkg 版本 + 短 sha）埋在产物名里
   const latest = release.assets.map((a) => versionFromAssetName(a.name)).find(Boolean) ?? null;
   if (!latest) return { error: "未能从 Nightly 产物文件名解析出构建标识" };
-  const c = cmpSemver(latest.semver, cur.semver);
-  const available = c > 0 || (c === 0 && !!latest.sha && latest.sha !== cur.sha);
+  const rel = relationOf(latest.semver, cur.semver);
+  // 同一份 nightly 构建 = 版号与短 sha 都相同（换渠道时当前是正式版，没有 sha → 恒不同）
+  const sameBuild = rel === "same" && !!latest.sha && latest.sha === cur.sha;
+  const newer = rel === "upgrade" || (rel === "same" && !!latest.sha && latest.sha !== cur.sha);
+  const id = `${latest.semver.join(".")}-${latest.sha}`;
   return {
-    available,
+    available: switching && !cur.nightly ? !sameBuild : newer,
     latestDisplay: "Nightly",
     latestDate: release.publishedAt,
-    key: `nightly:${latest.semver.join(".")}-${latest.sha}`,
+    key: `${switching ? "switch" : "nightly"}:${id}`,
+    switching,
+    relation: rel,
+    targetLabel: id,
   };
 }
 

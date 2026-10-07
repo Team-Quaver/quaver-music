@@ -3,10 +3,18 @@
 // 分工：纯逻辑（版本比较/安装包挑选/notes 渲染）在 update-core.ts；执行端（GitHub API 代理/
 // 流式下载/AppImage 原位替换/管理器联动）在主进程 electron/update.mjs；本文件只串流程。
 //
-// 渠道口径见 update-core.ts 头注。自动检查「默认开」指自动**检查**，绝不静默安装 ——
-// 有新版本先弹窗展示更新日志，用户点「立即更新」才动文件；「跳过此版本」记进 Update.LastNotified。
+// 渠道口径见 update-core.ts 头注。两种意图分开：
+//   - 同渠道升级：目标必须比当前新（自动检查默认开，绝不静默安装 —— 先弹窗展示更新日志，
+//     用户点「立即更新」才动文件；「跳过此版本」记进 Update.LastNotified）。
+//   - 渠道切换：设置里选的渠道 ≠ 当前构建所属渠道（buildChannel）→ 按「换一份构建」判定，
+//     同版号乃至回退都提示，用户点的按钮也从「立即更新」变成「立即切换」。
+// 「当前构建所属渠道」由当前构建的版本串判定（打包态版本带短 sha = nightly），不额外落盘，
+// 所以换版本/重装都不会失配。
+// 边角：手动下载 nightly 覆盖安装、但设置里始终是默认的 Stable 时，启动会被提醒一次
+// 「切换到正式版」—— 这是刻意的（「选中的渠道」就是唯一的意图信号，而它说 Stable），
+// 点「暂不切换」即记进 Update.LastNotified，不再打扰。
 import {
-  GITHUB_REPO, decideUpdate, normalizeRelease, pickAsset,
+  GITHUB_REPO, buildChannel, decideUpdate, normalizeRelease, parseVersion, pickAsset,
   type AssetKind, type ReleaseAsset, type ReleaseInfo, type UpdateDecision,
 } from "./update-core";
 import { getAutoCheck, getUpdateChannel, getLastNotified, type UpdateChannel } from "./prefs";
@@ -42,6 +50,11 @@ function guessPlatform(): { platform: string; arch: string } {
 
 export interface UpdateInfo {
   channel: UpdateChannel;
+  /** 当前正在运行的构建所属渠道（由版本串判定，不是设置里选的那个） */
+  installedChannel: UpdateChannel;
+  /** installedChannel ≠ channel → 本次是「换渠道」而非同渠道升级 */
+  switching: boolean;
+  /** 当前构建的版本串（打包态取 app.getVersion()，否则 __APP_VERSION__） */
   current: string;
   decision: UpdateDecision;
   release: ReleaseInfo;
@@ -50,6 +63,8 @@ export interface UpdateInfo {
   skipped: boolean;
   /** 当前是 AppImage 运行方式（AppImage 产物可原位替换的前提） */
   canReplaceAppimage: boolean;
+  /** 打包态（dev / 浏览器为 false）—— 换渠道提醒只在真装出来的构建上自动弹 */
+  packaged: boolean;
 }
 
 export type CheckResult =
@@ -60,6 +75,8 @@ export type CheckResult =
 export async function checkUpdate(channel: UpdateChannel = getUpdateChannel()): Promise<CheckResult> {
   try {
     const b = bridge();
+    // 平台档案与 release 请求互不依赖，并发发出去（平台档案还要定「当前构建渠道」）
+    const pfP: Promise<PlatformInfo | null> = b?.invoke ? getPlatformInfo() : Promise.resolve(null);
     let raw: any;
     if (b?.invoke) {
       const r = await b.invoke({ op: "fetch-release", channel });
@@ -77,23 +94,32 @@ export async function checkUpdate(channel: UpdateChannel = getUpdateChannel()): 
       raw = await res.json();
     }
 
+    const pf = await pfP;
+    const { platform, arch } = pf ?? guessPlatform();
+    // 版本真相优先取打包态的 app.getVersion()（CI 用 extraMetadata 写进去的就是同一个版本号）：
+    // __APP_VERSION__ 是构建期注入的，dev 下落在 git tag 上，两者都可能不是「正在跑的这份」。
+    const current = pf?.version && parseVersion(pf.version) ? pf.version : __APP_VERSION__;
+    const installedChannel = buildChannel(current);
+    const switching = channel !== installedChannel;
+
     const release = normalizeRelease(raw);
-    const decision = decideUpdate(__APP_VERSION__, channel, release);
+    const decision = decideUpdate(current, channel, release, { switch: switching });
     if ("error" in decision) return { status: "error", channel, error: decision.error };
 
-    const pf = b?.invoke ? await getPlatformInfo() : null;
-    const { platform, arch } = pf ?? guessPlatform();
     return {
       status: decision.available ? "available" : "up-to-date",
       channel,
       info: {
         channel,
-        current: __APP_VERSION__,
+        installedChannel,
+        switching,
+        current,
         decision,
         release,
         picked: decision.available ? pickAsset(platform, arch, release.assets) : null,
         skipped: decision.key === getLastNotified(),
         canReplaceAppimage: !!pf?.appimage,
+        packaged: !!pf?.packaged,
       },
     };
   } catch (e) {
@@ -203,12 +229,19 @@ export async function runManagerUpdate(manager: "gearlever" | "appmanager"): Pro
 // ——— 启动自动检查 ———
 
 /**
- * 检查并提醒：发现新版本就弹更新日志弹窗（「更新前先提醒」的统一入口）。
- * skipSkipped=true 时，命中「跳过此版本」的不弹（启动自动检查用；手动检查总是弹）。
+ * 检查并提醒：发现新版本 / 待切换的渠道就弹弹窗（「更新前先提醒」的统一入口）。
+ * auto=true（启动自动检查）= 尊重「跳过此版本」，且**换渠道的提醒只在打包态弹** ——
+ * dev / 浏览器里「当前构建属于哪个渠道」没有意义（版本串是 git tag 或包里的 0.0.x），
+ * 不该在启动时弹一个切换提示；手动检查（设置页按钮 / 点渠道卡片）不带 auto，一律弹。
  */
-export async function checkAndPrompt(channel: UpdateChannel = getUpdateChannel(), opts?: { skipSkipped?: boolean }): Promise<CheckResult> {
+export async function checkAndPrompt(
+  channel: UpdateChannel = getUpdateChannel(),
+  opts?: { auto?: boolean },
+): Promise<CheckResult> {
   const r = await checkUpdate(channel);
-  if (r.status === "available" && !(opts?.skipSkipped && r.info.skipped)) showUpdateDialog(r.info);
+  if (r.status !== "available") return r;
+  if (opts?.auto && (r.info.skipped || (r.info.switching && !r.info.packaged))) return r;
+  showUpdateDialog(r.info);
   return r;
 }
 
@@ -217,6 +250,6 @@ export async function checkAndPrompt(channel: UpdateChannel = getUpdateChannel()
 export function startAutoUpdateCheck(): void {
   window.setTimeout(() => {
     if (!getAutoCheck()) return;
-    void checkAndPrompt(undefined, { skipSkipped: true }).catch(() => { /* 检查失败不打扰启动 */ });
+    void checkAndPrompt(undefined, { auto: true }).catch(() => { /* 检查失败不打扰启动 */ });
   }, 3000);
 }

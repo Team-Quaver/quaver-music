@@ -1568,6 +1568,12 @@ html[data-sparkle-scheme="dark"] { color-scheme: dark; }
 .upd-badge.nightly { color: var(--acc); border-color: color-mix(in srgb, var(--acc) 45%, var(--line)); }
 .upd-meta { font-size: 12.5px; }
 .upd-warn { margin: 0 0 8px; font-size: 12.5px; }
+/* 换渠道弹窗的关系说明（同版号换一份构建 / 版本号回退）。回退那档标红 —— 与退出登录、
+   已过期行列同一套 danger 色（浅色 #c62828 / 深色 #e66），不另造 token。 */
+.upd-warn.upd-switch.is-risk { color: #c62828; }
+html[data-theme="dark"] .upd-warn.upd-switch.is-risk { color: #e66; }
+/* 设置页渠道说明：选中的渠道与当前构建不是一个 → 点亮，提示还差一次「检查更新」 */
+#upd-channel-note.is-switch { color: var(--acc); }
 .upd-notes {
   flex: 1; min-height: 0; overflow: auto;
   border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
