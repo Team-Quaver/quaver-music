@@ -1,13 +1,13 @@
 // Quaver — Electron 主进程（ESM）
 // 起一个进程内 vite preview（dist/ + /api 中继插件），窗口加载 http://127.0.0.1:<port>
 // frame:false：无原生标题栏——窗口右上角平铺三个窗口按钮（min/max/close）+抓握点，经 preload IPC 接管。
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, Tray, nativeImage, nativeTheme, safeStorage, shell } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Tray, nativeImage, nativeTheme, safeStorage, shell } from "electron";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { extname, join, resolve, dirname } from "node:path";
+import { basename, extname, join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 // 音频引擎（mpv 后端）：窗口 URL 确定后 init（需要 baseUrl 绝对化 /api/stream 中继地址）
 import { audioEngine } from "./audio/engine.mjs";
@@ -64,6 +64,25 @@ const log = (...a) => { const s = a.map((x) => (typeof x === "string" ? x : Stri
 // 否则配置目录下 plugins/。native-server（文件服务）与 quaver:sparkle IPC 共用这一份。
 const SPARKLE_PLUGINS_ROOT = String(process.env.QUAVER_SPARKLE_DIR ?? "").trim() || join(CONFIG_DIR, "plugins");
 const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+// 落盘一个第三方插件（market 下载与本地手装共用同一布局）：plugins/<id>/main.js + plugin.json
+const sparkleInstall = async (id, buf, meta) => {
+  const dir = join(SPARKLE_PLUGINS_ROOT, id);
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  await writeFile(join(dir, "main.js"), buf, { mode: 0o600 });
+  // category（theme/plugin/extension）随索引元数据持久化：设置页据此把已装内容归入 主题/插件/扩展
+  const category = ["theme", "plugin", "extension"].includes(meta?.category) ? String(meta.category) : undefined;
+  const manifest = {
+    id,
+    name: String(meta?.name ?? id),
+    version: String(meta?.version ?? "0.0.0"),
+    author: meta?.author ? String(meta.author) : undefined,
+    description: meta?.description ? String(meta.description) : undefined,
+    category,
+    main: "main.js",
+  };
+  await writeFile(join(dir, "plugin.json"), JSON.stringify(manifest, null, 2), { mode: 0o600 });
+};
 
 // 启动即按磁盘配置定初值：窗口装饰只在构造时能给定 frame，晚一步就得拆窗重建（用户会看到闪一下）。
 let bootConf = {};
@@ -642,7 +661,8 @@ ipcMain.handle("quaver:config", (_e, msg) => {
 });
 
 // Sparkle 插件管理桥：list = 扫描已装插件；install = 主进程代下载（规避渲染层 CORS）+ 可选
-// sha256 校验 + 落盘；uninstall = 删目录；market = 主进程代取索引 JSON。
+// sha256 校验 + 落盘；pick-local / install-local = 「添加本地插件」两步（选文件读回 → 校验后落盘）；
+// uninstall = 删目录；market = 主进程代取索引 JSON。
 // 安全边界：插件 id 一律过 ^[a-z0-9][a-z0-9-]*$（同时是目录名，防穿越）；
 // 安装 ≠ 启用 —— 渲染层默认不加载新装的插件，需用户手动开开关。
 ipcMain.handle("quaver:sparkle", async (_e, msg) => {
@@ -677,19 +697,31 @@ ipcMain.handle("quaver:sparkle", async (_e, msg) => {
         const got = createHash("sha256").update(buf).digest("hex");
         if (want && want !== got) return { ok: false, error: `sha256 校验失败（期望 ${want.slice(0, 12)}…，实际 ${got.slice(0, 12)}…）` };
       }
-      const dir = join(SPARKLE_PLUGINS_ROOT, id);
-      await mkdir(dir, { recursive: true, mode: 0o700 });
-      await writeFile(join(dir, "main.js"), buf, { mode: 0o600 });
-      const manifest = {
-        id,
-        name: String(meta?.name ?? id),
-        version: String(meta?.version ?? "0.0.0"),
-        author: meta?.author ? String(meta.author) : undefined,
-        description: meta?.description ? String(meta.description) : undefined,
-        main: "main.js",
-      };
-      await writeFile(join(dir, "plugin.json"), JSON.stringify(manifest, null, 2), { mode: 0o600 });
+      await sparkleInstall(id, buf, meta);
       log("[quaver] sparkle: installed", id, `(${buf.length} bytes)`);
+      return { ok: true, id };
+    }
+    if (op === "pick-local") {
+      // 「添加本地插件」第一步：native 文件选择器 + 读文件。内容 base64 交渲染层做形状校验
+      // （default export 需为 SparklePlugin），元数据从插件本体读出后再走 install-local。
+      const r = await dialog.showOpenDialog(win ?? undefined, {
+        title: "选择 Sparkle 插件文件",
+        filters: [{ name: "Sparkle 插件（单文件 ESM）", extensions: ["js", "mjs"] }],
+        properties: ["openFile"],
+      });
+      if (r.canceled || !r.filePaths[0]) return { ok: true, canceled: true };
+      const buf = await readFile(r.filePaths[0]);
+      return { ok: true, name: basename(r.filePaths[0]), dataBase64: buf.toString("base64") };
+    }
+    if (op === "install-local") {
+      // 第二步：渲染层已校验插件形状并回传本体与元数据；这里只负责落盘（与 market install 同布局）
+      const meta = msg?.meta ?? {};
+      const id = String(meta?.id ?? "").trim();
+      if (!SPARKLE_ID_RE.test(id)) return { ok: false, error: "插件 id 不合法" };
+      const buf = Buffer.from(String(msg?.dataBase64 ?? ""), "base64");
+      if (!buf.length) return { ok: false, error: "插件内容为空" };
+      await sparkleInstall(id, buf, meta);
+      log("[quaver] sparkle: installed (local)", id, `(${buf.length} bytes)`);
       return { ok: true, id };
     }
     if (op === "uninstall") {

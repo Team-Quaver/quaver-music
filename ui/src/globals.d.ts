@@ -35,5 +35,9 @@ interface Window {
     install(msg: { url: string; sha256?: string; meta?: Record<string, unknown> }): Promise<{ ok: boolean; id?: string; error?: string }>;
     uninstall(msg: { id: string }): Promise<{ ok: boolean; error?: string }>;
     market(msg: { url: string }): Promise<{ ok: boolean; index?: unknown; error?: string }>;
+    /** 「添加本地插件」第一步：native 文件选择器 + 读文件（base64；用户取消时 canceled=true） */
+    pickLocal(): Promise<{ ok: boolean; canceled?: boolean; name?: string; dataBase64?: string; error?: string }>;
+    /** 第二步：渲染层校验插件形状后回传本体（base64）与元数据，主进程落盘 */
+    installLocal(msg: { dataBase64: string; meta?: Record<string, unknown> }): Promise<{ ok: boolean; id?: string; error?: string }>;
   };
 }

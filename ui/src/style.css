@@ -1411,10 +1411,55 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 .sparkle-empty { color: var(--idx); font-size: 12px; padding: 6px 2px; }
 .sparkle-warn { margin: 6px 0 0; font-size: 11.5px; line-height: 1.5; }
 .sparkle-market-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-.sparkle-market-bar input {
-  flex: 1; min-width: 220px; height: 30px; padding: 0 12px; border-radius: 9px;
-  border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; font-size: 12.5px;
+/* 固定索引源：只读展示（UI 内不可改），等宽字 + 弱化底色 */
+.sparkle-src {
+  flex: 1; min-width: 200px; padding: 5px 12px; border-radius: 9px;
+  border: 1px solid var(--line); background: var(--hover); color: var(--ink2);
+  font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text;
 }
+.sparkle-local { padding: 5px 12px; font-size: 12px; }
+/* Marketplace 内部分类筛选 chips（全部/主题/插件/扩展；与 .hk-btn 同胶囊语言） */
+.sparkle-mkt-cats { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 2px 0 8px; }
+.sparkle-mkt-chip {
+  padding: 3px 12px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--card); color: var(--ink2); font: inherit; font-size: 12px; cursor: pointer;
+}
+.sparkle-mkt-chip:hover { color: var(--ink); border-color: var(--ink2); }
+.sparkle-mkt-chip.is-active {
+  color: var(--cvg-accent, var(--acc));
+  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 45%, var(--line));
+}
+/* 添加本地插件 = 危险入口：按钮本体就上红色渐变（与警告弹窗同一套危险语义） */
+.sparkle-local--danger {
+  border: none; color: #fff; font-weight: 600;
+  background: linear-gradient(135deg, #e5484d 0%, #b42e33 55%, #8f1d22 100%);
+}
+.sparkle-local--danger:hover:not(:disabled) { filter: brightness(1.1); }
+.sparkle-local--danger:disabled { opacity: .5; cursor: not-allowed; }
+/* 行内齿轮：打开该插件的设置弹窗（设置区不再常驻设置页） */
+.sparkle-gear {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 8px; flex: 0 0 auto;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink2);
+  cursor: pointer;
+}
+.sparkle-gear:hover { color: var(--acc); border-color: var(--acc); }
+.sparkle-gear svg { width: 13px; height: 13px; }
+/* 插件设置弹窗（components/PluginSettingsDialog.ts）：层与动画复用 .upd-* */
+.sparkle-settings-dialog { width: min(520px, 92vw); }
+.sparkle-settings-body {
+  flex: 1; min-height: 0; overflow: auto; font-size: 13px;
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  padding: 12px 2px;
+}
+/* Sparkle 面板内的分类 tabs 与三个分类面板（复用 .set-tabs/.set-tab 形态） */
+.sparkle-cats { margin: 2px 0 10px; }
+.sparkle-catpanel[hidden] { display: none; }
+/* Marketplace 分类徽标（索引条目 category：主题/插件/扩展） */
+.sparkle-badge.cat-theme { background: #b85cc4; }
+.sparkle-badge.cat-plugin { background: #8a6cff; }
+.sparkle-badge.cat-extension { background: #4aa3a3; }
 
 
 
@@ -1515,3 +1560,25 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .upd-overlay, .upd-dialog, .upd-overlay.leaving, .upd-overlay.leaving .upd-dialog { animation: none; }
 }
+
+/* —— 本地插件警告弹窗（components/LocalPluginDialog.ts）——
+   层与开闭动画整套复用上面的 .upd-*（含 .leaving 门闩），只有外观换成红色渐变警示：
+   自持深红底 + 浅字，明暗两态下都可读，不随主题变量走（危险语义不参与换肤）。 */
+.upd-dialog.danger {
+  background: linear-gradient(160deg, #5a1015 0%, #2b0609 52%, #47101a 100%);
+  border-color: rgb(229 72 77 / .45);
+}
+.upd-dialog.danger h3 { color: #ffe9e9; }
+.upd-dialog.danger .upd-badge.danger { color: #ff9b9e; border-color: rgb(255 155 158 / .5); }
+.upd-dialog.danger .danger-muted { color: rgb(255 233 233 / .62); }
+.local-warn-text {
+  font-size: 13px; line-height: 1.7; color: #ffdede;
+  border-top: 1px solid rgb(255 255 255 / .12); border-bottom: 1px solid rgb(255 255 255 / .12);
+  padding: 12px 2px; margin-bottom: 4px;
+}
+.upd-danger {
+  padding: 8px 18px; border-radius: 9px; border: 1px solid transparent;
+  background: #e5484d; color: #fff; cursor: pointer; font-weight: 600;
+}
+.upd-danger:hover:not(:disabled) { filter: brightness(1.08); }
+.upd-danger:disabled { opacity: .55; cursor: not-allowed; }

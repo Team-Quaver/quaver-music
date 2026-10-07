@@ -42,7 +42,7 @@ const OFFICIAL_LOADERS: Record<string, () => Promise<{ default: SparklePlugin }>
 export interface InstalledPlugin {
   id: string;
   dir: string;
-  manifest: { id?: string; name?: string; version?: string; author?: string; description?: string; main?: string };
+  manifest: { id?: string; name?: string; version?: string; author?: string; description?: string; category?: string; main?: string };
   installedAt: number;
 }
 

@@ -1,116 +1,204 @@
 // Sparkle — 设置页 Sparkle tab 的面板（ui/src/views.ts 的 settingsView 填充）
 //
-// 三个分组：① 已装插件（官方 + 第三方，开关/卸载）② 各插件的设置区
-// ③ Marketplace（索引源 + 浏览/安装）。DOM 销毁（切路由）时统一清理订阅与
-// 插件 render 返回的清理函数。
-import type { SparkleSettingsSection } from "@quaver/sparkle";
+// 四个相互隔离的标签：① 主题（已装主题，开关=启停提供它的插件；切换去 设置→外观）
+// ② 插件（已装插件）③ 扩展（已装扩展）④ Marketplace（固定索引源 + 浏览/安装 +
+// 红色渐变的「添加本地插件」）。行内齿轮按钮就地弹窗渲染该插件的设置区
+// （components/PluginSettingsDialog.ts），设置不再常驻页面。
+// 索引条目 category: "theme" | "plugin" | "extension"，缺省按 plugin；安装时把
+// category 写进 plugin.json，已装列表据此归入 主题/插件/扩展 三个标签。
 import { DEFAULT_MARKET_URL } from "@quaver/sparkle/market/default-index";
+import { showPluginSettingsDialog } from "../components/PluginSettingsDialog";
+import { showLocalPluginDialog } from "../components/LocalPluginDialog";
 import { toast } from "../components/SongMenu";
 import {
   disableSparklePlugin, enableSparklePlugin, sparkEnabledIds, sparkIsBroken,
 } from "./host";
-import { listInstalledThirdParty, loadOfficial, loadThirdParty, OFFICIAL_META, type InstalledPlugin } from "./loader";
+import {
+  listInstalledThirdParty, loadOfficial, loadThirdParty, OFFICIAL_META, validatePlugin,
+  type InstalledPlugin,
+} from "./loader";
 import { onSparkleChange, sparkRecordOf, sparkleSettingsSections } from "./registry";
-
-const MARKET_URL_KEY = "quaver.sparkle.market.url.v1";
-const marketUrl = () => localStorage.getItem(MARKET_URL_KEY) ?? DEFAULT_MARKET_URL;
 
 interface MarketEntry {
   id: string; name: string; version: string; author?: string; description?: string;
-  download: string; homepage?: string; hash?: string;
+  category?: string; download: string; homepage?: string; hash?: string;
 }
+
+/** 索引条目分类；未知/缺省一律按 plugin（主题/扩展是显式声明才有的分类） */
+type MarketCategory = "theme" | "plugin" | "extension";
+const catOf = (c: string | undefined): MarketCategory => (c === "theme" || c === "extension" ? c : "plugin");
+const CAT_LABEL: Record<MarketCategory, string> = { theme: "主题", plugin: "插件", extension: "扩展" };
 
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
+const base64ToBytes = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+
+const GEAR_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.2.61.77 1.03 1.51 1H21a2 2 0 1 1 0 4h-.09c-.74-.03-1.31.39-1.51 1z"/></svg>`;
+
 export function mountSparklePanel(section: HTMLElement): () => void {
   section.innerHTML = "";
 
-  // —— ① 已装插件 ——
-  const installedGroup = document.createElement("div");
-  installedGroup.className = "set-group";
-  installedGroup.innerHTML = `
-    <div class="set-label">已装插件 <span class="set-note-inline">第三方插件将在本地运行任意代码，请只安装信任来源</span></div>
-    <div class="sparkle-list"></div>`;
-  const installedList = installedGroup.querySelector<HTMLElement>(".sparkle-list")!;
+  // —— 四个分类标签（与设置页大 tab 同一套 .set-tab 形态，只管面板内显隐） ——
+  const cats = document.createElement("div");
+  cats.className = "set-tabs sparkle-cats";
+  cats.innerHTML = `
+    <button class="set-tab is-active" data-cat="theme" type="button">主题</button>
+    <button class="set-tab" data-cat="plugin" type="button">插件</button>
+    <button class="set-tab" data-cat="extension" type="button">扩展</button>
+    <button class="set-tab" data-cat="market" type="button">Marketplace</button>`;
 
-  // —— ② 插件设置区 ——
-  const sectionsGroup = document.createElement("div");
-  sectionsGroup.className = "set-group";
-  sectionsGroup.innerHTML = `<div class="set-label">插件设置</div><div class="sparkle-sections"></div>`;
-  const sectionsHost = sectionsGroup.querySelector<HTMLElement>(".sparkle-sections")!;
-  let sectionCleanups: (() => void)[] = [];
-
-  const renderSections = () => {
-    for (const fn of sectionCleanups) { try { fn(); } catch { /* 尽力 */ } }
-    sectionCleanups = [];
-    sectionsHost.innerHTML = "";
-    const entries = sparkleSettingsSections();
-    if (!entries.length) {
-      const empty = document.createElement("div");
-      empty.className = "sparkle-empty";
-      empty.textContent = "启用的插件没有提供设置项";
-      sectionsHost.append(empty);
-      return;
-    }
-    for (const entry of entries) {
-      const box = document.createElement("div");
-      box.style.marginBottom = "12px";
-      const title = document.createElement("div");
-      title.className = "set-label";
-      title.textContent = entry.section.title;
-      const body = document.createElement("div");
-      box.append(title, body);
-      try {
-        entry.cleanup = entry.section.render(body) ?? null;
-        sectionCleanups.push(() => { entry.cleanup?.(); entry.cleanup = null; });
-      } catch (e) {
-        body.innerHTML = `<div class="sparkle-empty">设置区渲染失败（见控制台）</div>`;
-        console.warn(`[sparkle:${entry.pluginId}] 设置区渲染失败`, e);
-      }
-      sectionsHost.append(box);
-    }
+  const mkPanel = (cat: string) => {
+    const d = document.createElement("div");
+    d.className = "sparkle-catpanel";
+    d.dataset.cat = cat;
+    d.hidden = cat !== "theme";
+    return d;
   };
+  const themePanel = mkPanel("theme");
+  const pluginPanel = mkPanel("plugin");
+  const extPanel = mkPanel("extension");
+  const marketPanel = mkPanel("market");
+  cats.querySelectorAll<HTMLButtonElement>(".set-tab").forEach((t) => {
+    t.onclick = () => {
+      if (t.classList.contains("is-active")) return;
+      cats.querySelectorAll(".set-tab").forEach((x) => x.classList.toggle("is-active", x === t));
+      [themePanel, pluginPanel, extPanel, marketPanel].forEach((p) => { p.hidden = p.dataset.cat !== t.dataset.cat; });
+    };
+  });
 
-  // —— ③ Marketplace ——
+  // —— ① 主题：已装主题（开关启停提供它的插件；切换在 设置→外观） ——
+  const themeGroup = document.createElement("div");
+  themeGroup.className = "set-group";
+  themeGroup.innerHTML = `
+    <div class="set-label">已装主题 <span class="set-note-inline">开关只启停提供它的插件；切换主题直接去 设置 → 外观</span></div>
+    <div class="sparkle-list sparkle-theme-rows"></div>`;
+  const themeRows = themeGroup.querySelector<HTMLElement>(".sparkle-theme-rows")!;
+
+  // —— ② 插件：已装插件 ——
+  const pluginGroup = document.createElement("div");
+  pluginGroup.className = "set-group";
+  pluginGroup.innerHTML = `
+    <div class="set-label">已装插件 <span class="set-note-inline">第三方插件将在本地运行任意代码，请只安装信任来源</span></div>
+    <div class="sparkle-list sparkle-plugin-rows"></div>`;
+  const pluginRows = pluginGroup.querySelector<HTMLElement>(".sparkle-plugin-rows")!;
+
+  // —— ③ 扩展：已装扩展 ——
+  const extGroup = document.createElement("div");
+  extGroup.className = "set-group";
+  extGroup.innerHTML = `
+    <div class="set-label">已装扩展 <span class="set-note-inline">第三方扩展将在本地运行任意代码，请只安装信任来源</span></div>
+    <div class="sparkle-list sparkle-ext-rows"></div>`;
+  const extRows = extGroup.querySelector<HTMLElement>(".sparkle-ext-rows")!;
+
+  // —— ④ Marketplace：固定索引源 + 本地安装 + 全量列表（与上面三个标签隔离） ——
   const marketGroup = document.createElement("div");
   marketGroup.className = "set-group";
   marketGroup.innerHTML = `
-    <div class="set-label">Marketplace</div>
+    <div class="set-label">Marketplace <span class="set-note-inline">索引源由官方固定提供，无法更改</span></div>
     <div class="sparkle-market-bar">
-      <input type="text" spellcheck="false" autocomplete="off" aria-label="索引源 URL" placeholder="索引源 URL（JSON）"/>
+      <code class="sparkle-src">${esc(DEFAULT_MARKET_URL)}</code>
       <button class="ghost-btn ghost-btn--quiet sparkle-market-refresh" type="button">刷新</button>
+      <button class="ghost-btn sparkle-local sparkle-local--danger" type="button">添加本地插件</button>
     </div>
     <p class="muted sparkle-warn">插件安装后默认关闭，请手动开启。插件可以访问页面数据，请只安装信任来源。</p>
+    <div class="sparkle-mkt-cats">
+      <button class="sparkle-mkt-chip is-active" data-mcat="all" type="button">全部</button>
+      <button class="sparkle-mkt-chip" data-mcat="theme" type="button">主题</button>
+      <button class="sparkle-mkt-chip" data-mcat="plugin" type="button">插件</button>
+      <button class="sparkle-mkt-chip" data-mcat="extension" type="button">扩展</button>
+    </div>
     <div class="sparkle-market-list"></div>`;
-  const marketInput = marketGroup.querySelector<HTMLInputElement>("input")!;
   const marketRefresh = marketGroup.querySelector<HTMLButtonElement>(".sparkle-market-refresh")!;
+  const localBtn = marketGroup.querySelector<HTMLButtonElement>(".sparkle-local")!;
   const marketList = marketGroup.querySelector<HTMLElement>(".sparkle-market-list")!;
-  marketInput.value = marketUrl();
 
-  section.append(installedGroup, sectionsGroup, marketGroup);
+  themePanel.append(themeGroup);
+  pluginPanel.append(pluginGroup);
+  extPanel.append(extGroup);
+  marketPanel.append(marketGroup);
+  section.append(cats, themePanel, pluginPanel, extPanel, marketPanel);
 
   // —— 渲染逻辑 ——
 
   let installedThird: InstalledPlugin[] = [];
+  /** 一次索引拉取一处消费：loading（拉取中）/ error（拉取失败原因）/ entries */
+  let market: { loading: boolean; error: string | null; entries: MarketEntry[] } = { loading: true, error: null, entries: [] };
+  /** Marketplace 标签内部的分类筛选（all = 全量；条目本身始终带分类徽标） */
+  let mcat: "all" | MarketCategory = "all";
 
-  const row = (o: {
+  const installedCategory = (inst: InstalledPlugin): MarketCategory => catOf(
+    typeof inst.manifest?.category === "string" ? inst.manifest.category : undefined,
+  );
+
+  /** 打开某插件的设置弹窗：把该插件注册的设置区渲染进弹窗（关闭时统一清理） */
+  const openSettings = (pluginId: string, name: string) => {
+    showPluginSettingsDialog({
+      name,
+      render: (box) => {
+        const entries = sparkleSettingsSections().filter((e) => e.pluginId === pluginId);
+        if (!entries.length) {
+          const empty = document.createElement("div");
+          empty.className = "sparkle-empty";
+          empty.textContent = sparkRecordOf(pluginId) ? "该插件没有提供设置项" : "插件未启用，启用后可在这里配置";
+          box.append(empty);
+          return;
+        }
+        const cleanups: (() => void)[] = [];
+        for (const entry of entries) {
+          const wrap = document.createElement("div");
+          wrap.style.marginBottom = "12px";
+          const title = document.createElement("div");
+          title.className = "set-label";
+          title.textContent = entry.section.title;
+          const body = document.createElement("div");
+          wrap.append(title, body);
+          try {
+            entry.cleanup = entry.section.render(body) ?? null;
+            cleanups.push(() => { entry.cleanup?.(); entry.cleanup = null; });
+          } catch (e) {
+            body.innerHTML = `<div class="sparkle-empty">设置区渲染失败（见控制台）</div>`;
+            console.warn(`[sparkle:${entry.pluginId}] 设置区渲染失败`, e);
+          }
+          box.append(wrap);
+        }
+        return () => { for (const fn of [...cleanups].reverse()) { try { fn(); } catch { /* 尽力 */ } } };
+      },
+    });
+  };
+
+  const gearBtn = (pluginId: string, name: string) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "sparkle-gear";
+    b.title = "插件设置";
+    b.setAttribute("aria-label", `${name} 设置`);
+    b.innerHTML = GEAR_SVG;
+    b.onclick = () => openSettings(pluginId, name);
+    return b;
+  };
+
+  /** 已装内容行（主题/插件/扩展 三个标签共用）：[齿轮] [启用开关] [卸载] */
+  const manageRow = (o: {
     id: string; name: string; version: string; author?: string; description?: string;
-    kind: "official" | "third-party"; enabled: boolean; broken: boolean;
+    badge: { cls: string; text: string };
+    enabled: boolean; broken: boolean;
+    /** 主题行只在插件真的提供设置区（高级选项）时显示齿轮；插件/扩展行恒显 */
+    showGear: boolean;
+    pluginId: string;
     onToggle: (on: boolean) => void; onUninstall?: () => void;
   }) => {
     const el = document.createElement("div");
     el.className = "sparkle-row";
-    const badge = o.broken ? "broken" : o.kind;
-    const badgeText = o.broken ? "启动失败" : o.kind === "official" ? "官方" : "第三方";
     el.innerHTML = `
-      <i class="sparkle-badge ${badge}">${badgeText}</i>
+      <i class="sparkle-badge ${o.badge.cls}">${o.badge.text}</i>
       <div class="sparkle-main">
         <div class="sparkle-name">${esc(o.name)}<span class="ver">v${esc(o.version)}${o.author ? " · " + esc(o.author) : ""}</span></div>
         ${o.description ? `<div class="sparkle-desc">${esc(o.description)}</div>` : ""}
       </div>
       <div class="sparkle-actions"></div>`;
     const actions = el.querySelector<HTMLElement>(".sparkle-actions")!;
+    if (o.showGear) actions.append(gearBtn(o.pluginId, o.name));
     if (!o.broken) {
       const sw = document.createElement("label");
       sw.className = "sparkle-switch";
@@ -134,14 +222,68 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     return el;
   };
 
-  const renderInstalled = () => {
-    installedList.innerHTML = "";
+  /** 启停一个已装第三方插件（主题/插件/扩展三处标签共用同一套语义） */
+  const toggleThird = async (inst: InstalledPlugin, on: boolean) => {
+    try {
+      if (on) await enableSparklePlugin(await loadThirdParty(inst));
+      else disableSparklePlugin(inst.id);
+    } catch (e) {
+      toast(`插件 ${inst.id} 切换失败`, "err");
+      console.warn(e);
+    }
+    renderRows();
+  };
+
+  const uninstallThird = async (inst: InstalledPlugin) => {
+    const bridge = window.quaverSparkle;
+    if (!bridge) return;
+    disableSparklePlugin(inst.id); // 未启用时是幂等 no-op
+    const r = await bridge.uninstall({ id: inst.id });
+    if (!r?.ok) toast(r?.error || "卸载失败", "err");
+    installedThird = await listInstalledThirdParty();
+    renderRows();
+    renderMarket();
+  };
+
+  const thirdRow = (inst: InstalledPlugin, badge: { cls: string; text: string }, opts?: { gearOnlyWithSections?: boolean }) => {
+    const enabled = sparkEnabledIds().includes(inst.id);
+    const broken = sparkIsBroken(inst.id) && !sparkRecordOf(inst.id);
+    const pluginLive = !!sparkRecordOf(inst.id);
+    const hasSections = sparkleSettingsSections().some((e) => e.pluginId === inst.id);
+    return manageRow({
+      id: inst.id,
+      name: String(inst.manifest?.name ?? inst.id),
+      version: String(inst.manifest?.version ?? "?"),
+      author: inst.manifest?.author ? String(inst.manifest.author) : undefined,
+      description: inst.manifest?.description ? String(inst.manifest.description) : undefined,
+      badge,
+      enabled, broken,
+      showGear: !broken && (opts?.gearOnlyWithSections ? pluginLive && hasSections : true),
+      pluginId: inst.id,
+      onToggle: (on) => { void toggleThird(inst, on); },
+      onUninstall: () => { void uninstallThird(inst); },
+    });
+  };
+
+  const renderRows = () => {
+    // ① 主题：category=theme 的已装插件（齿轮仅在该插件提供设置区时出现）
+    themeRows.innerHTML = "";
+    const themeInst = installedThird.filter((i) => installedCategory(i) === "theme");
+    if (!themeInst.length) {
+      themeRows.innerHTML = `<div class="sparkle-empty">没有已安装的主题 —— 从 Marketplace 安装；提供主题的插件启用后，到 设置 → 外观 切换</div>`;
+    }
+    for (const inst of themeInst) themeRows.append(thirdRow(inst, { cls: "cat-theme", text: "主题" }, { gearOnlyWithSections: true }));
+
+    // ② 插件：官方 + 非 theme/extension 的第三方
+    pluginRows.innerHTML = "";
     const enabled = new Set(sparkEnabledIds());
     for (const meta of OFFICIAL_META) {
-      installedList.append(row({
-        ...meta, kind: "official",
-        enabled: enabled.has(meta.id),
-        broken: sparkIsBroken(meta.id) && !sparkRecordOf(meta.id),
+      const broken = sparkIsBroken(meta.id) && !sparkRecordOf(meta.id);
+      pluginRows.append(manageRow({
+        ...meta, badge: { cls: "official", text: "官方" },
+        enabled: enabled.has(meta.id), broken,
+        showGear: !broken,
+        pluginId: meta.id,
         onToggle: async (on) => {
           try {
             if (on) await enableSparklePlugin(await loadOfficial(meta.id));
@@ -150,146 +292,187 @@ export function mountSparklePanel(section: HTMLElement): () => void {
             toast(`插件 ${meta.name} 切换失败`, "err");
             console.warn(e);
           }
-          renderInstalled();
+          renderRows();
         },
       }));
     }
-    if (!installedThird.length) {
+    const plainThird = installedThird.filter((i) => installedCategory(i) !== "theme" && installedCategory(i) !== "extension");
+    if (!plainThird.length && !installedThird.length) {
       const empty = document.createElement("div");
       empty.className = "sparkle-empty";
-      empty.textContent = "没有已安装的第三方插件（可用 QUAVER_SPARKLE_DIR 指定开发目录，或从 Marketplace 安装）";
-      installedList.append(empty);
+      empty.textContent = "没有已安装的第三方插件（可用 QUAVER_SPARKLE_DIR 指定开发目录，从 Marketplace 安装，或点「添加本地插件」）";
+      pluginRows.append(empty);
     }
-    for (const inst of installedThird) {
-      installedList.append(row({
-        id: inst.id,
-        name: String(inst.manifest?.name ?? inst.id),
-        version: String(inst.manifest?.version ?? "?"),
-        author: inst.manifest?.author ? String(inst.manifest.author) : undefined,
-        description: inst.manifest?.description ? String(inst.manifest.description) : undefined,
-        kind: "third-party",
-        enabled: enabled.has(inst.id),
-        broken: sparkIsBroken(inst.id) && !sparkRecordOf(inst.id),
-        onToggle: async (on) => {
-          try {
-            if (on) await enableSparklePlugin(await loadThirdParty(inst));
-            else disableSparklePlugin(inst.id);
-          } catch (e) {
-            toast(`插件 ${inst.id} 切换失败`, "err");
-            console.warn(e);
-          }
-          renderInstalled();
-        },
-        onUninstall: async () => {
-          const bridge = window.quaverSparkle;
-          if (!bridge) return;
-          disableSparklePlugin(inst.id); // 未启用时是幂等 no-op
-          const r = await bridge.uninstall({ id: inst.id });
-          if (!r?.ok) toast(r?.error || "卸载失败", "err");
-          installedThird = await listInstalledThirdParty();
-          renderInstalled();
-          renderMarket();
-        },
-      }));
+    for (const inst of plainThird) pluginRows.append(thirdRow(inst, { cls: "third-party", text: "第三方" }));
+
+    // ③ 扩展：category=extension 的已装插件
+    extRows.innerHTML = "";
+    const extInst = installedThird.filter((i) => installedCategory(i) === "extension");
+    if (!extInst.length) {
+      extRows.innerHTML = `<div class="sparkle-empty">没有已安装的扩展 —— 从 Marketplace 安装</div>`;
     }
+    for (const inst of extInst) extRows.append(thirdRow(inst, { cls: "cat-extension", text: "扩展" }));
+  };
+
+  // —— Marketplace：一份索引一个列表，条目按 category 打徽标 ——
+
+  const marketRow = (entry: MarketEntry, isInstalled: boolean) => {
+    const cat = catOf(entry.category);
+    const el = document.createElement("div");
+    el.className = "sparkle-row";
+    el.innerHTML = `
+      <i class="sparkle-badge cat-${cat}">${CAT_LABEL[cat]}</i>
+      <div class="sparkle-main">
+        <div class="sparkle-name">${esc(entry.name || entry.id)}<span class="ver">v${esc(entry.version)}${entry.author ? " · " + esc(entry.author) : ""}</span></div>
+        ${entry.description ? `<div class="sparkle-desc">${esc(entry.description)}</div>` : ""}
+      </div>
+      <div class="sparkle-actions"></div>`;
+    const actions = el.querySelector<HTMLElement>(".sparkle-actions")!;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ghost-btn ghost-btn--quiet sparkle-install";
+    btn.textContent = isInstalled ? "重新安装" : "安装";
+    btn.onclick = async () => {
+      const bridge = window.quaverSparkle;
+      if (!bridge) return;
+      btn.disabled = true;
+      btn.textContent = "下载中…";
+      try {
+        const res = await bridge.install({
+          url: entry.download,
+          sha256: entry.hash,
+          meta: { id: entry.id, name: entry.name, version: entry.version, author: entry.author, description: entry.description, category: cat },
+        });
+        if (!res?.ok) toast(res?.error || "安装失败", "err");
+        else toast(`已安装 ${entry.name || entry.id}（默认关闭，请在「${CAT_LABEL[cat]}」标签启用）`);
+      } catch (e) {
+        toast("安装失败", "err");
+        console.warn(e);
+      }
+      await refreshAll();
+    };
+    actions.append(btn);
+    return el;
   };
 
   const renderMarket = () => {
-    marketList.innerHTML = "";
     const bridge = window.quaverSparkle;
+    marketList.innerHTML = "";
     if (!bridge) {
       marketList.innerHTML = `<div class="sparkle-empty">当前环境没有 Sparkle 桥（浏览器 dev / 未升级的 Electron 壳层），Marketplace 不可用</div>`;
       return;
     }
-    if (!marketUrl().trim()) {
-      marketList.innerHTML = `<div class="sparkle-empty">未配置索引源。填入 Marketplace 索引 JSON 的 URL 后点「刷新」</div>`;
+    if (market.loading) {
+      marketList.innerHTML = `<div class="sparkle-empty">读取索引中…</div>`;
       return;
     }
-    marketList.innerHTML = `<div class="sparkle-empty">读取索引中…</div>`;
-    void bridge.market({ url: marketUrl().trim() }).then((r) => {
-      marketList.innerHTML = "";
-      if (!r?.ok) {
-        marketList.innerHTML = `<div class="sparkle-empty">索引读取失败：${esc(r?.error ?? "未知错误")}</div>`;
-        return;
-      }
-      const entries = (r.index as { plugins?: MarketEntry[] } | undefined)?.plugins ?? [];
-      const installedIds = new Set(installedThird.map((x) => x.id));
-      if (!entries.length) {
-        marketList.innerHTML = `<div class="sparkle-empty">索引里还没有插件</div>`;
-        return;
-      }
-      for (const entry of entries) {
-        const el = document.createElement("div");
-        el.className = "sparkle-row";
-        el.innerHTML = `
-          <i class="sparkle-badge third-party">插件</i>
-          <div class="sparkle-main">
-            <div class="sparkle-name">${esc(entry.name || entry.id)}<span class="ver">v${esc(entry.version)}${entry.author ? " · " + esc(entry.author) : ""}</span></div>
-            ${entry.description ? `<div class="sparkle-desc">${esc(entry.description)}</div>` : ""}
-          </div>
-          <div class="sparkle-actions"></div>`;
-        const actions = el.querySelector<HTMLElement>(".sparkle-actions")!;
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "ghost-btn ghost-btn--quiet sparkle-install";
-        const isInstalled = installedIds.has(entry.id);
-        btn.textContent = isInstalled ? "重新安装" : "安装";
-        btn.onclick = async () => {
-          btn.disabled = true;
-          btn.textContent = "下载中…";
-          try {
-            const res = await bridge.install({
-              url: entry.download,
-              sha256: entry.hash,
-              meta: { id: entry.id, name: entry.name, version: entry.version, author: entry.author, description: entry.description },
-            });
-            if (!res?.ok) toast(res?.error || "安装失败", "err");
-            else toast(`已安装 ${entry.name || entry.id}（默认关闭，请在上方启用）`);
-          } catch (e) {
-            toast("安装失败", "err");
-            console.warn(e);
-          }
-          installedThird = await listInstalledThirdParty();
-          renderInstalled();
-          renderMarket();
-        };
-        actions.append(btn);
-        marketList.append(el);
-      }
-    }).catch((e) => {
-      marketList.innerHTML = `<div class="sparkle-empty">索引读取失败：${esc(String(e))}</div>`;
-    });
+    if (market.error) {
+      marketList.innerHTML = `<div class="sparkle-empty">索引读取失败：${esc(market.error)}</div>`;
+      return;
+    }
+    const entries = market.entries.filter((e) => mcat === "all" || catOf(e.category) === mcat);
+    if (!entries.length) {
+      marketList.innerHTML = `<div class="sparkle-empty">${mcat === "all" ? "索引里还没有内容" : `「${CAT_LABEL[mcat]}」分类暂无内容`}</div>`;
+      return;
+    }
+    const installedIds = new Set(installedThird.map((x) => x.id));
+    for (const entry of entries) marketList.append(marketRow(entry, installedIds.has(entry.id)));
   };
 
-  marketRefresh.onclick = () => {
-    localStorage.setItem(MARKET_URL_KEY, marketInput.value.trim());
-    installedThird = [];
-    void listInstalledThirdParty().then((list) => {
-      installedThird = list;
-      renderInstalled();
+  const refreshMarket = async () => {
+    const bridge = window.quaverSparkle;
+    if (!bridge) {
+      market = { loading: false, error: null, entries: [] };
       renderMarket();
-    });
+      return;
+    }
+    market = { loading: true, error: null, entries: [] };
+    renderMarket();
+    try {
+      const r = await bridge.market({ url: DEFAULT_MARKET_URL });
+      const entries = (r?.index as { plugins?: MarketEntry[] } | undefined)?.plugins ?? [];
+      market = r?.ok
+        ? { loading: false, error: null, entries }
+        : { loading: false, error: r?.error ?? "未知错误", entries: [] };
+    } catch (e) {
+      market = { loading: false, error: String(e), entries: [] };
+    }
+    renderMarket();
   };
 
-  // 初始化：先拉第三方安装列表，再画全部
-  let alive = true;
-  const unsubChange = onSparkleChange(() => { if (alive) renderSections(); });
-  void listInstalledThirdParty().then((list) => {
-    if (!alive) return;
-    installedThird = list;
-    renderInstalled();
-    renderSections();
-    renderMarket();
+  const refreshAll = async () => {
+    installedThird = await listInstalledThirdParty();
+    renderRows();
+    await refreshMarket();
+  };
+
+  // —— 添加本地插件：红色 5 秒警告弹窗守门 → 选文件 → 校验形状 → 落盘 ——
+
+  const installLocalFlow = async () => {
+    const bridge = window.quaverSparkle;
+    if (!bridge) return;
+    showLocalPluginDialog(async () => {
+      const picked = await bridge.pickLocal().catch((e) => {
+        console.warn("[sparkle] 本地插件读取失败", e);
+        return null;
+      });
+      if (!picked?.ok) { toast(picked?.error || "读取插件文件失败", "err"); return; }
+      if (picked.canceled || !picked.dataBase64) return;
+      // 元数据取自插件本体（default export）：经 blob URL 动态 import 读出并做形状校验，
+      // 不合法就原地拒绝（不落任何盘）。注意 import 会执行插件顶层代码 —— 这正是警告弹窗存在的意义。
+      const url = URL.createObjectURL(new Blob([base64ToBytes(picked.dataBase64)], { type: "text/javascript" }));
+      let meta: Record<string, unknown>;
+      try {
+        const mod = await import(/* @vite-ignore */ url);
+        const plugin = validatePlugin(mod?.default ?? mod?.plugin);
+        if (!plugin) {
+          toast("插件形状不合法（default export 需为 SparklePlugin）", "err");
+          return;
+        }
+        meta = { id: plugin.id, name: plugin.name, version: plugin.version, author: plugin.author, description: plugin.description };
+      } catch (e) {
+        toast("插件加载失败（不是合法的 ESM 单文件插件？）", "err");
+        console.warn(e);
+        return;
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+      try {
+        const res = await bridge.installLocal({ dataBase64: picked.dataBase64, meta });
+        if (!res?.ok) toast(res?.error || "安装失败", "err");
+        else toast(`已安装 ${String(meta.name)}（默认关闭，请在「插件」标签启用）`);
+      } catch (e) {
+        toast("安装失败", "err");
+        console.warn(e);
+      }
+      await refreshAll();
+    });
+  };
+  localBtn.onclick = () => { void installLocalFlow(); };
+  if (!window.quaverSparkle) {
+    localBtn.disabled = true;
+    localBtn.title = "浏览器 dev 环境没有 Sparkle 桥";
+  }
+  marketRefresh.onclick = () => { void refreshAll(); };
+  // Marketplace 内部分类筛选：chips 只过滤列表，不改变「一份索引一处拉取」的结构
+  marketGroup.querySelectorAll<HTMLButtonElement>(".sparkle-mkt-chip").forEach((chip) => {
+    chip.onclick = () => {
+      if (chip.classList.contains("is-active")) return;
+      mcat = chip.dataset.mcat as "all" | MarketCategory;
+      marketGroup.querySelectorAll(".sparkle-mkt-chip").forEach((x) => x.classList.toggle("is-active", x === chip));
+      renderMarket();
+    };
   });
-  // 立即画一次（官方列表 / 已启用的插件设置区不等桥）
-  renderInstalled();
-  renderSections();
+
+  // 初始化：立即画一次（官方列表不等桥），索引与第三方列表随后补
+  let alive = true;
+  const unsubChange = onSparkleChange(() => { if (alive) renderRows(); });
+  renderRows();
   renderMarket();
+  void refreshAll();
 
   return () => {
     alive = false;
     unsubChange();
-    for (const fn of sectionCleanups) { try { fn(); } catch { /* 尽力 */ } }
-    sectionCleanups = [];
   };
 }

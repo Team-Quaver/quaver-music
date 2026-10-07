@@ -41,6 +41,7 @@
     "mpris:build": "pnpm --dir ../vendor/Typhoeus/mpris install && pnpm --dir ../vendor/Typhoeus/mpris run build",
     "dist": "pnpm run build && pnpm run mpris:build && electron-builder --linux AppImage",
     "verify:np-gallery": "node scripts/verify-np-gallery.mjs",
+    "verify:sparkle-market": "node scripts/verify-sparkle-market.mjs",
     "verify:streaminfo": "node scripts/verify-streaminfo.mjs",
     "verify:loved-sync": "node scripts/verify-loved-sync.mjs",
     "verify:songlist-sync": "node scripts/verify-songlist-sync.mjs",

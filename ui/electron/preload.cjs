@@ -61,13 +61,15 @@ contextBridge.exposeInMainWorld("quaverSecurity", {
   info: () => ipcRenderer.invoke("quaver:credential-info"),
 });
 
-// Sparkle 插件系统（第三方插件管理）：list/install/uninstall/market 均由主进程执行，
-// 渲染层只拿结果。安装 ≠ 启用：装完默认不加载，需用户在设置页手动开启。
+// Sparkle 插件系统（第三方插件管理）：list/install/uninstall/market/pick-local/install-local
+// 均由主进程执行，渲染层只拿结果。安装 ≠ 启用：装完默认不加载，需用户在设置页手动开启。
 contextBridge.exposeInMainWorld("quaverSparkle", {
   list: () => ipcRenderer.invoke("quaver:sparkle", { op: "list" }),
   install: (msg) => ipcRenderer.invoke("quaver:sparkle", { op: "install", ...msg }),
   uninstall: (msg) => ipcRenderer.invoke("quaver:sparkle", { op: "uninstall", ...msg }),
   market: (msg) => ipcRenderer.invoke("quaver:sparkle", { op: "market", ...msg }),
+  pickLocal: () => ipcRenderer.invoke("quaver:sparkle", { op: "pick-local" }),
+  installLocal: (msg) => ipcRenderer.invoke("quaver:sparkle", { op: "install-local", ...msg }),
 });
 
 // 应用自更新（设置-通用）：检查/下载/安装编排见 src/lib/updater.ts。

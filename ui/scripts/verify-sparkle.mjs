@@ -34,6 +34,9 @@ const src = {
   nativeServer: read("electron/native-server.mjs"),
   mainMjs: read("electron/main.mjs"),
   preload: read("electron/preload.cjs"),
+  mkBuild: read("../vendor/Sparkle/scripts/build-marketplace.mjs"),
+  mkCI: read("../vendor/Sparkle/.github/workflows/marketplace.yml"),
+  mkDocs: read("../vendor/Sparkle/docs/marketplace.md"),
   tsconfig: read("tsconfig.json"),
   vite: read("vite.config.ts"),
   pkg: read("package.json"),
@@ -55,6 +58,12 @@ ok("sdk: definePlugin 存在", has(src.index, "definePlugin"));
 ok("sdk: die-for-you 走 registerSettingsSection", has(src.dfy, "registerSettingsSection") && has(src.dfy, "die-for-you"));
 ok("sdk: 作者指南存在且覆盖扩展点", has(src.guide, "registerStreamSource") && has(src.guide, "Marketplace") === false || true);
 ok("sdk: marketplace 文档固化索引格式", has(read("../vendor/Sparkle/docs/marketplace.md"), "download"));
+ok("sparkle 仓库: marketplace 构建脚本 + CI（json 交 quaver-doc）齐备", (() => {
+  const buildOk = has(src.mkBuild, "marketplace.json") && has(src.mkBuild, "sha256") && has(src.mkBuild, "category");
+  const ciOk = has(src.mkCI, "quaver-website") && has(src.mkCI, "public/marketplace.json") && has(src.mkCI, "pnpm");
+  const docOk = has(src.mkDocs, "category") && has(src.mkDocs, "quaver.0w0.red/marketplace.json");
+  return buildOk && ciOk && docOk;
+})());
 
 // ============ 2. 注册表零环约束 ============
 ok("registry: 不 import 任何 ui 模块", !/@?("|')\.\.?\/(lib|components|player|shell|views)/.test(noComments(src.registry)), "registry 只准 import @quaver/sparkle 类型");
@@ -79,19 +88,38 @@ ok("css: .np-widgets 有样式且仅展开态显示", has(src.style, ".np-widget
 // ============ 4. 设置页与生命周期 ============
 ok("views: Sparkle tab 不再是 WIP 文案", !has(src.views, "working in progress") && !has(src.views, "Sparkle（WIP）"));
 ok("views: settingsView 返回 sparkle 清理函数", re(noComments(src.views), /mountSparklePanel\(sparklePanel\)/) && re(noComments(src.views), /offSparkle\(\)/));
-ok("settings: 三分组齐备（已装/插件设置/Marketplace）", has(src.settings, "已装插件") && has(src.settings, "插件设置") && has(src.settings, "Marketplace"));
+ok("settings: 四标签齐备且相互隔离（主题/插件/扩展/Marketplace）", ["theme", "plugin", "extension", "market"].every((c) => has(src.settings, `data-cat="${c}"`)) && has(src.settings, "catOf") && has(src.settings, "已装主题") && has(src.settings, "已装插件") && has(src.settings, "已装扩展"));
+ok("settings: 插件设置不常驻页面（收进齿轮弹窗）", !re(noComments(src.settings), /sparkle-sections/) && has(read("src/components/PluginSettingsDialog.ts"), "插件设置") && re(noComments(src.settings), /showPluginSettingsDialog/));
+ok("settings: 行内齿轮按钮（开关左边）", has(src.settings, "sparkle-gear") && has(src.style, ".sparkle-gear") && re(noComments(src.settings), /actions\.append\(gearBtn\(/));
+ok("settings: 主题行齿轮仅在提供设置区时出现", re(src.settings, /gearOnlyWithSections/));
+ok("settings: 索引源固定（默认 URL，UI 不可改）", has(src.settings, "DEFAULT_MARKET_URL") && !has(src.settings, "MARKET_URL_KEY") && !re(src.settings, /sparkle-market-bar[^`]*<input/));
+ok("settings: 分类徽标样式齐备", ["cat-theme", "cat-plugin", "cat-extension"].every((c) => has(src.style, `sparkle-badge.${c}`)));
+ok("settings: 本地安装按钮红色渐变", has(src.settings, "sparkle-local--danger") && re(src.style, /\.sparkle-local--danger[\s\S]*?linear-gradient/));
+ok("settings: Marketplace 内部分类筛选（全部/主题/插件/扩展）", ["all", "theme", "plugin", "extension"].every((c) => has(src.settings, `data-mcat="${c}"`)) && re(src.settings, /mcat === "all"/) && has(src.style, ".sparkle-mkt-chip"));
 ok("settings: 安装 ≠ 启用的警示文案", has(src.settings, "默认关闭") || has(src.settings, "默认不加载"));
+ok("settings: 安装时把 category 写进元数据", re(noComments(src.settings), /category: cat\s*[,}]/));
 ok("host: enable 失败回滚 teardown", re(src.host, /for \(const fn of \[\.\.\.record\.teardown\]\.reverse\(\)/g) !== null);
 ok("init: 启用集合持久化键", has(src.init, "quaver.sparkle.enabled.v1") || has(src.host, "quaver.sparkle.enabled.v1"));
 ok("loader: 第三方动态 import 带 @vite-ignore", has(src.loader, "/* @vite-ignore */"));
 ok("loader: 第三方形状校验 + id 一致性", has(src.loader, "validatePlugin") && has(src.loader, "v.id !== expectId"));
 
+// ============ 4.5 本地插件安装（添加本地插件 + 红色 5s 警告弹窗） ============
+ok("settings: 添加本地插件按钮 + 警告弹窗接线", has(src.settings, "sparkle-local") && has(src.settings, "showLocalPluginDialog"));
+ok("localDialog: 复用更新弹窗层与动画类", re(noComments(read("src/components/LocalPluginDialog.ts")), /upd-overlay/) && re(noComments(read("src/components/LocalPluginDialog.ts")), /upd-dialog danger/));
+ok("localDialog: 5 秒倒计时解锁确认", re(noComments(read("src/components/LocalPluginDialog.ts")), /let left = 5/) && re(noComments(read("src/components/LocalPluginDialog.ts")), /setInterval/));
+ok("localDialog: 离场走 .leaving 门闩 + 超时兜底", re(noComments(read("src/components/LocalPluginDialog.ts")), /classList\.add\("leaving"\)/) && re(noComments(read("src/components/LocalPluginDialog.ts")), /setTimeout\(fin, 240\)/));
+ok("localDialog: 本体文本逐字保留", has(read("src/components/LocalPluginDialog.ts"), "Quaver Music 无法保证 Marketplace 插件的可用性和安全性"));
+ok("settings: 本地安装走 blob import 校验形状", re(noComments(src.settings), /createObjectURL/) && re(noComments(src.settings), /validatePlugin\(mod/));
+ok("css: 危险弹窗红色渐变自持配色", has(src.style, ".upd-dialog.danger") && has(src.style, "linear-gradient"));
+
 // ============ 5. Electron 侧（IPC + 双侧 HTTP 路由） ============
-ok("main.mjs: quaver:sparkle IPC 四 op 齐备", ["list", "install", "uninstall", "market"].every((op) => re(src.mainMjs, new RegExp(`op === "${op}"`))));
+ok("main.mjs: quaver:sparkle IPC 六 op 齐备", ["list", "install", "pick-local", "install-local", "uninstall", "market"].every((op) => re(src.mainMjs, new RegExp(`op === "${op}"`))));
 ok("main.mjs: install 有 id 正则校验（防目录穿越）", re(src.mainMjs, /SPARKLE_ID_RE\.test\(id\)/));
 ok("main.mjs: install 支持 sha256 校验", has(src.mainMjs, "createHash(\"sha256\")"));
+ok("main.mjs: 落盘收口 sparkleInstall（market 与本地同布局）", re(src.mainMjs, /const sparkleInstall = async/) && re(noComments(src.mainMjs), /await sparkleInstall\(id, buf, meta\)/g) !== null && (noComments(src.mainMjs).match(/await sparkleInstall\(id, buf, meta\)/g) ?? []).length === 2);
 ok("main.mjs: pluginsRoot 传给 native-server", has(src.mainMjs, "pluginsRoot: SPARKLE_PLUGINS_ROOT"));
-ok("preload: quaverSparkle 桥四方法齐备", ["list", "install", "uninstall", "market"].every((m) => re(src.preload, new RegExp(`${m}: `))));
+ok("preload: quaverSparkle 桥六方法齐备", ["list", "install", "uninstall", "market", "pickLocal", "installLocal"].every((m) => re(src.preload, new RegExp(`${m}: `))));
+ok("globals: pickLocal/installLocal 类型声明", has(src.globals, "pickLocal") && has(src.globals, "installLocal"));
 ok("native-server: /sparkle/ 在 sidecar 转发前截住", (() => {
   // 用原文比对（不过 noComments）：上面 `// —— /api/*：中继 ——` 这类行注释里的 `/*`
   // 会被朴素块注释剥离当成定界符，把整个 handler 吞掉 —— 两个 needle 都是代码，无需剥注释。
