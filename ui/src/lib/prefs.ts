@@ -196,6 +196,18 @@ export function setPrevBehavior(v: PrevBehavior) {
   cfgSet({ "Playing.PrevReplay": v === "replay" ? "True" : "False" });
 }
 
+// —— 播放音频时睡眠禁止（默认开）：仅阻止系统睡眠，屏幕熄灭/锁屏策略不受影响。
+//    执行端在 Go sidecar（vendor/Typhoeus-go/inhibit）：Linux=xdg 门户 Suspend 位、
+//    门户假成功走 Logind 直连；Windows=PowerRequestSystemRequired；
+//    macOS=IOKit PreventUserIdleSystemSleep。渲染层经 src/lib/inhibit.ts 驱动。 ——
+export function getInhibitSleep(): boolean {
+  // 默认开：只有明确写 False 档才关闭，手误写进来的值回落默认
+  return !/^(false|0|no)$/i.test(cfg("Playing.InhibitSleep", "True"));
+}
+export function setInhibitSleep(v: boolean) {
+  cfgSet({ "Playing.InhibitSleep": v ? "True" : "False" });
+}
+
 // —— 歌词翻译行开关（默认开） ——
 export function getShowTrans(): boolean {
   return !/^(false|0|no)$/i.test(cfg("Style.ShowTranslation", "True"));

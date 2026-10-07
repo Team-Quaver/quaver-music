@@ -91,6 +91,7 @@ eq("音质 fallback 默认 no-atmos", P.getFallbackSort(), "no-atmos");
 eq("淡入淡出默认 normal", P.getFade(), "normal");
 eq("音频设备默认 auto", P.getAudioDevice(), "auto");
 eq("上一首逻辑默认 replay（重放）", P.getPrevBehavior(), "replay");
+eq("睡眠禁止默认开", P.getInhibitSleep(), true);
 eq("字体默认（族列表 ⇒ 认成系统默认）", [P.getUiFont(), P.getLyricFont()], ["custom", "custom"]);
 check("内置字体列表能被反查成预设", P.fontKeyOf('"Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", SimSun, serif') === "serif");
 check("空字体值 = 系统默认", P.fontKeyOf("") === "system");
@@ -111,12 +112,14 @@ P.setAudioDevice("pipewire"); eq("AudioDevice 键名", conf()["Playing.AudioDevi
 P.setFade("long");      eq("Fade 键名", conf()["Playing.Fade"], "long");
 P.setPrevBehavior("previous"); eq("previous → PrevReplay=False", conf()["Playing.PrevReplay"], "False");
 P.setPrevBehavior("replay");   eq("replay → True", conf()["Playing.PrevReplay"], "True");
+P.setInhibitSleep(false); eq("睡眠禁止关 → InhibitSleep=False", conf()["Playing.InhibitSleep"], "False");
+P.setInhibitSleep(true);  eq("睡眠禁止开 → True", conf()["Playing.InhibitSleep"], "True");
 // 浏览器兜底模式存的是整份内存快照（键名应与 conf 的 Section.Key 完全一致，不能混进旧的 localStorage 键）
 const keys = Object.keys(conf());
 check("写盘键名齐全（Section.Key 风格）", [
   "Style.Style", "Style.DefaultUIFonts", "Style.DefaultLyricsFonts",
   "Window.Decor", "Window.CloseAction",
-  "Playing.Backend", "Playing.AudioDevice", "Playing.Fade", "Playing.PrevReplay",
+  "Playing.Backend", "Playing.AudioDevice", "Playing.Fade", "Playing.PrevReplay", "Playing.InhibitSleep",
   "Quality.DefaultQuality", "Quality.FallbackToQMAtmos",
 ].every((k) => keys.includes(k)), keys.join(","));
 check("没有旧 localStorage 键残留", !keys.some((k) => /^quaver\./.test(k)), keys.join(","));
