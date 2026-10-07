@@ -6,6 +6,7 @@ import { bootShell } from "./shell";
 import { startMprisBridge } from "./mpris";
 import { startInhibitBridge } from "./lib/inhibit";
 import { startHotkeysBridge } from "./lib/hotkeys";
+import { startAutoUpdateCheck } from "./lib/updater";
 import { initSparkle } from "./sparkle/init";
 
 applyTheme();
@@ -58,6 +59,7 @@ void initSparkle();
 startMprisBridge(); // Electron 壳层才有桥；浏览器 dev 下为 no-op
 startHotkeysBridge(); // 全局热键回程 + 焦点内热键 keydown（后者浏览器 dev 也生效）
 startInhibitBridge(); // 播放音频时睡眠禁止（[Playing] InhibitSleep；播放态 → sidecar /api/inhibit）
+startAutoUpdateCheck(); // 启动延迟检查更新（[Update] AutoCheck 默认开；发现新版先弹窗提醒，绝不静默安装）
 
 // dev 钩子：e2e/调试可直接驱动播放器状态（生产构建不含）
 if (import.meta.env.DEV) (window as any).__player = player;

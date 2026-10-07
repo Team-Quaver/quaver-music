@@ -20,6 +20,8 @@ import { readSystemTheme, watchSystemTheme } from "./systheme.mjs";
 import { DESKTOP_ID, installLinuxDesktopIntegration, quoteExecPath } from "./linux-desktop.mjs";
 // 全局热键（win/mac = Electron globalShortcut；Linux = XDG 门户 GlobalShortcuts，见模块头）
 import { createGlobalHotkeys, GLOBAL_CONF_KEYS } from "./global-hotkeys.mjs";
+// 应用自更新（GitHub Releases 代理 / 流式下载 / AppImage 原位替换 / Gear Lever·AppManager 联动）
+import { setupUpdaterIPC } from "./update.mjs";
 // 凭证的密钥环存取（系统密钥管理器 + credential.enc 密文）与 sidecar 交接信封
 import {
   CredentialStore, credentialSummary, decodeHandoff, drainLines, encodeHandoff,
@@ -711,6 +713,9 @@ ipcMain.handle("quaver:sparkle", async (_e, msg) => {
     return { ok: false, error: String(e) };
   }
 });
+
+// 应用自更新（设置-通用）：检查/下载/安装的执行端在 update.mjs，渲染层负责编排与提醒
+setupUpdaterIPC({ log });
 
 // 凭证存储状态（**不含凭证本体**）：确认这次到底走的是密钥环还是 0600 明文，排查用。
 // 只读，不提供「读取凭证」的入口 —— 凭证永不进渲染层。

@@ -70,6 +70,16 @@ contextBridge.exposeInMainWorld("quaverSparkle", {
   market: (msg) => ipcRenderer.invoke("quaver:sparkle", { op: "market", ...msg }),
 });
 
+// 应用自更新（设置-通用）：检查/下载/安装编排见 src/lib/updater.ts。
+// 进度为主进程主动推（quaver:update-progress，按整百分比节流）。
+contextBridge.exposeInMainWorld("quaverUpdate", {
+  invoke: (msg) => ipcRenderer.invoke("quaver:update", msg),
+  onProgress: (cb) =>
+    ipcRenderer.on("quaver:update-progress", (_e, p) => {
+      try { cb(p); } catch (err) { console.warn("update progress failed", err); }
+    }),
+});
+
 // 音频引擎（mpv 后端）：invoke 走请求/应答（handle 返回值可序列化），事件为主进程主动推。
 // 渲染层 Transport 抽象（src/lib/transport.ts）据此实现 EngineTransport；
 // 浏览器 dev（无 preload）下 window.quaverAudio 不存在 → 自动落到 <audio> WebTransport。

@@ -77,10 +77,10 @@ eq("注释行不会被当成键", IniDoc.parse("[A]\n; c=1\n# d=2\nZ=3\n").value
 // ——— 首次运行 ———
 section("首次运行");
 check("模板随读取落地", (readValues(), existsSync(FILE)));
-check("模板含全部段", ["[Style]", "[Window]", "[Playing]", "[Quality]", "[Security]"].every((s) => template().includes(s)));
+check("模板含全部段", ["[Style]", "[Window]", "[Playing]", "[Quality]", "[Security]", "[Update]"].every((s) => template().includes(s)));
 check("模板注释来自 schema", template().includes("可选 dark,light,follow-system"));
 eq("默认值与模板占位一致", (() => { const v = readValues().values; return v["Style.Style"] === "dark" && v["Playing.Backend"] === "MPV" && v["Quality.DefaultQuality"] === "Auto" && v["Quality.FallbackToQMAtmos"] === "False"; })(), true);
-eq("schema 默认值表条数", Object.keys(defaults()).length, 32); // WordByWord 移入 amll 插件设置；LyricScale 为行级歌词缩放；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键
+eq("schema 默认值表条数", Object.keys(defaults()).length, 35); // WordByWord 移入 amll 插件设置；LyricScale 为行级歌词缩放；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
 check("模板含热键两段", ["[Hotkeys.Global]", "[Hotkeys.Focus]"].every((s) => template().includes(s)));
 eq("全局热键默认 Ctrl+Alt+P", defaults()["Hotkeys.Global.Toggle"], "Ctrl+Alt+P");
 eq("焦点退出默认 Ctrl+Q", defaults()["Hotkeys.Focus.Quit"], "Ctrl+Q");
@@ -105,6 +105,12 @@ eq("合法布尔值写入（上一首逻辑）", writeValues({ "Playing.PrevRepl
 writeValues({ "Playing.PrevReplay": "True" }); // 后续断言不受影响，回到默认
 eq("非法布尔值被拒绝（睡眠禁止）", writeValues({ "Playing.InhibitSleep": "maybe" }), []);
 eq("合法布尔值写入（睡眠禁止）", writeValues({ "Playing.InhibitSleep": "False" }), ["Playing.InhibitSleep"]);
+eq("自动检查默认开", defaults()["Update.AutoCheck"], "True");
+eq("更新渠道默认 stable", defaults()["Update.Channel"], "stable");
+eq("已提醒版本标识默认空", defaults()["Update.LastNotified"], "");
+eq("非法更新渠道被拒绝", writeValues({ "Update.Channel": "beta" }), []);
+eq("合法更新渠道写入", writeValues({ "Update.Channel": "nightly" }), ["Update.Channel"]);
+writeValues({ "Update.Channel": "stable" }); // 后续断言不受影响，回到默认
 writeValues({ "Playing.InhibitSleep": "True" }); // 后续断言不受影响，回到默认
 
 // ——— 权限 ———

@@ -18,6 +18,7 @@ import {
   FONT_PRESETS,
   fontKeyOf,
   getCloseAction,
+  getAutoCheck,
   getDecode,
   getDecor,
   getFade,
@@ -27,8 +28,10 @@ import {
   getPrevBehavior,
   getTheme,
   getUiFontList,
+  getUpdateChannel,
   normalizeFontList,
   setCloseAction,
+  setAutoCheck,
   setDecor,
   setFallbackSort,
   setInhibitSleep,
@@ -38,9 +41,12 @@ import {
   setTheme,
   setUiFontList,
   setUiFontPreset,
+  setUpdateChannel,
   type PrevBehavior,
   type ThemeMode,
 } from "./lib/prefs";
+import { checkAndPrompt } from "./lib/updater";
+import { normalizeVersion } from "./lib/update-core";
 import { syncInhibit } from "./lib/inhibit";
 import {configInfo, resetConfig, revealConfig} from "./lib/config";
 import {vipCardHtml} from "./lib/vip";
@@ -1059,6 +1065,28 @@ async function settingsView(root: HTMLElement) {
     <section class="set-panel" data-panel="hotkeys" hidden></section>
     <section class="set-panel" data-panel="general" hidden>
       <div class="set-group">
+        <div class="set-label">应用更新 <span class="set-note-inline">更新前会先提醒并展示更新日志</span></div>
+        <div class="opt-cards" id="upd-auto-cards">
+          <button class="opt-card" data-opt="on" type="button">自动检查</button>
+          <button class="opt-card" data-opt="off" type="button">关闭</button>
+        </div>
+        <p class="muted set-hint">启动后自动检查新版本（默认开启）；发现更新先弹窗展示 GitHub 更新日志，经你确认才开始下载安装，绝不静默更新。关闭后仍可在此手动检查。</p>
+      </div>
+
+      <div class="set-group">
+        <div class="set-label">更新渠道</div>
+        <div class="opt-cards" id="upd-channel-cards">
+          <button class="opt-card" data-opt="stable" type="button">Stable</button>
+          <button class="opt-card" data-opt="nightly" type="button">Nightly</button>
+        </div>
+        <p class="muted set-hint">Stable：正式发布版；Nightly：main 分支的每夜滚动构建，功能更新但可能不稳定。</p>
+        <div class="set-debug">
+          <button class="ghost-btn" id="check-update" type="button">检查更新</button>
+          <span class="muted set-hint" id="upd-status"></span>
+        </div>
+      </div>
+
+      <div class="set-group">
         <div class="set-label">配置文件</div>
         <p class="muted set-hint">以下设置全部持久化在系统标准配置目录的 <code>quaver.conf</code>里，可自定义</p>
         <div class="set-row"><span class="set-row__label">路径</span>
@@ -1158,6 +1186,33 @@ async function settingsView(root: HTMLElement) {
     () => (getInhibitSleep() ? "on" : "off"),
     (v) => { setInhibitSleep(v === "on"); syncInhibit(); },
   );
+  // 应用更新：自动检查开关（[Update] AutoCheck，默认开）
+  bindOptCards<"on" | "off">(
+    wrap.querySelector<HTMLElement>("#upd-auto-cards")!,
+    () => (getAutoCheck() ? "on" : "off"),
+    (v) => setAutoCheck(v === "on"),
+  );
+  // 更新渠道（[Update] Channel）：stable=latest release ｜ nightly=滚动 Release「nightly」
+  bindOptCards(wrap.querySelector<HTMLElement>("#upd-channel-cards")!, getUpdateChannel, setUpdateChannel);
+  // 手动检查：状态行就地回报；发现更新（含已跳过的）都弹提醒弹窗
+  const checkBtn = wrap.querySelector<HTMLButtonElement>("#check-update")!;
+  const updStatus = wrap.querySelector<HTMLElement>("#upd-status")!;
+  updStatus.textContent = `当前版本 v${normalizeVersion(__APP_VERSION__)}`;
+  checkBtn.onclick = async () => {
+    checkBtn.disabled = true;
+    updStatus.textContent = "检查中…";
+    try {
+      const r = await checkAndPrompt(getUpdateChannel());
+      if (r.status === "error") updStatus.textContent = `检查失败：${r.error}`;
+      else if (r.status === "up-to-date") updStatus.textContent = "已是最新版本";
+      else if (r.info.channel === "nightly") updStatus.textContent = `发现新的 Nightly 构建${r.info.skipped ? "（你已跳过此构建）" : ""}`;
+      else updStatus.textContent = `发现新版本 ${r.info.decision.latestDisplay}${r.info.skipped ? "（你已跳过此版本）" : ""}`;
+    } catch (e) {
+      updStatus.textContent = `检查失败：${errText(e)}`;
+    } finally {
+      checkBtn.disabled = false;
+    }
+  };
   // 淡入淡出预设：持久化 + 立即下发时长（引擎侧做振幅包络；Blink 后端无此项）
   bindOptCards<FadePreset>(
     wrap.querySelector<HTMLElement>("#fade-cards")!,

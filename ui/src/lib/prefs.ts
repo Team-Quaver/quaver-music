@@ -359,3 +359,30 @@ export const HOTKEY_LABELS: Record<HotkeyAction, string> = {
 };
 export const GLOBAL_HOTKEY_ACTIONS: HotkeyAction[] = ["toggle", "prev", "next", "volup", "voldown"];
 export const FOCUS_HOTKEY_ACTIONS: HotkeyAction[] = ["toggle", "quit", "prev", "next", "volup", "voldown"];
+
+// —— 应用更新（设置-通用）：自动检查开关 / 渠道（stable｜nightly）/ 已提醒版本标识。 ——
+// 检查与安装的执行端在主进程（electron/update.mjs），编排见 src/lib/updater.ts。
+export type UpdateChannel = "stable" | "nightly";
+
+export function getAutoCheck(): boolean {
+  // 默认开：只有明确写 False 档才关闭，手误写进来的值回落默认
+  return !/^(false|0|no)$/i.test(cfg("Update.AutoCheck", "True"));
+}
+export function setAutoCheck(v: boolean) {
+  cfgSet({ "Update.AutoCheck": v ? "True" : "False" });
+}
+
+export function getUpdateChannel(): UpdateChannel {
+  return cfg("Update.Channel") === "nightly" ? "nightly" : "stable";
+}
+export function setUpdateChannel(v: UpdateChannel) {
+  cfgSet({ "Update.Channel": v === "nightly" ? "nightly" : "stable" });
+}
+
+/** 上次已提醒/被「跳过此版本」的版本标识（`渠道:版本`）：命中时启动检查不再弹窗，手动检查不受影响。 */
+export function getLastNotified(): string {
+  return cfg("Update.LastNotified");
+}
+export function setLastNotified(v: string) {
+  cfgSet({ "Update.LastNotified": v.slice(0, 128) });
+}

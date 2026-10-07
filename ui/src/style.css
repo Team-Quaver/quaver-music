@@ -1429,3 +1429,89 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 .hk-btn:hover { border-color: var(--ink2); }
 .hk-btn.empty { color: var(--idx); }
 .hk-btn.capturing { border-style: dashed; border-color: var(--acc); color: var(--acc); cursor: progress; }
+
+/* —— 更新提醒弹窗（components/UpdateDialog.ts）——
+   body 常驻遮罩层（z 85：高于右键菜单 80、低于 toast 88 —— 下载中 toast 要浮在最上）。
+   日志区可滚动、宽高都设上限，长 release 不撑爆窗口。 */
+.upd-overlay {
+  position: fixed; inset: 0; z-index: 85;
+  background: rgb(0 0 0 / .45);
+  display: flex; align-items: center; justify-content: center;
+}
+.upd-dialog {
+  width: min(580px, 92vw); max-height: 82vh;
+  display: flex; flex-direction: column;
+  background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+  padding: 18px 20px 14px;
+  box-shadow: 0 18px 60px rgb(0 0 0 / .35);
+}
+.upd-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.upd-head h3 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.upd-badge {
+  font-size: 11px; font-weight: 600; letter-spacing: .4px;
+  padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--ink2);
+}
+.upd-badge.nightly { color: var(--acc); border-color: color-mix(in srgb, var(--acc) 45%, var(--line)); }
+.upd-meta { font-size: 12.5px; }
+.upd-warn { margin: 0 0 8px; font-size: 12.5px; }
+.upd-notes {
+  flex: 1; min-height: 0; overflow: auto;
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  padding: 12px 2px; font-size: 13px; line-height: 1.6;
+}
+.upd-notes p { margin: 0 0 8px; }
+.upd-notes h4 { margin: 12px 0 6px; font-size: 13.5px; }
+.upd-notes ul { margin: 0 0 8px; padding-left: 20px; }
+.upd-notes li { margin: 2px 0; }
+.upd-notes code {
+  font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 12px;
+  background: var(--hover); border-radius: 4px; padding: 1px 5px;
+}
+.upd-notes pre {
+  background: var(--hover); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; overflow: auto; font-size: 12px;
+}
+.upd-notes pre code { background: none; padding: 0; }
+.upd-notes a { color: var(--acc); text-decoration: none; }
+.upd-notes a:hover { text-decoration: underline; }
+.upd-bar { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; }
+.upd-bar i {
+  flex: 1; height: 6px; border-radius: 99px; background: var(--hover);
+  position: relative; overflow: hidden;
+}
+.upd-bar i::after {
+  content: ""; position: absolute; inset: 0 auto 0 0; width: var(--w, 0%);
+  background: var(--acc); border-radius: 99px; transition: width .2s ease;
+}
+.upd-bar span { font-size: 12px; white-space: nowrap; }
+.upd-foot { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.upd-foot .upd-spacer { flex: 1; }
+.upd-managers { display: flex; gap: 6px; }
+.upd-managers:empty { display: none; }
+.upd-managers .ghost-btn { padding: 6px 10px; font-size: 12px; }
+.upd-primary {
+  padding: 8px 18px; border-radius: 9px; border: 1px solid transparent;
+  background: var(--acc); color: #fff; cursor: pointer; font-weight: 600;
+}
+.upd-primary:hover { filter: brightness(1.08); }
+.upd-notes img { max-width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); }
+.upd-notes blockquote {
+  margin: 8px 0; padding: 2px 12px;
+  border-left: 3px solid color-mix(in srgb, var(--acc) 55%, var(--line));
+  color: var(--ink2);
+}
+.upd-notes blockquote p { margin: 6px 0; }
+
+/* 进场：遮罩淡入 + 面板上浮轻弹（观感层；减弱动效时直接呈现）。
+   离场：整体下沉淡出（.leaving 由 UpdateDialog 的关闭门闩挂上，播完摘节点）。 */
+@keyframes upd-fade { from { opacity: 0; } }
+@keyframes upd-pop { from { opacity: 0; transform: translateY(16px) scale(.97); } }
+@keyframes upd-out { to { opacity: 0; } }
+@keyframes upd-pop-out { to { opacity: 0; transform: translateY(12px) scale(.97); } }
+.upd-overlay { animation: upd-fade .16s ease; }
+.upd-dialog { animation: upd-pop .24s cubic-bezier(0.16, 1, 0.3, 1); }
+.upd-overlay.leaving { animation: upd-out .18s ease forwards; pointer-events: none; }
+.upd-overlay.leaving .upd-dialog { animation: upd-pop-out .18s ease forwards; }
+@media (prefers-reduced-motion: reduce) {
+  .upd-overlay, .upd-dialog, .upd-overlay.leaving, .upd-overlay.leaving .upd-dialog { animation: none; }
+}

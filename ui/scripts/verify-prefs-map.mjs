@@ -92,6 +92,9 @@ eq("淡入淡出默认 normal", P.getFade(), "normal");
 eq("音频设备默认 auto", P.getAudioDevice(), "auto");
 eq("上一首逻辑默认 replay（重放）", P.getPrevBehavior(), "replay");
 eq("睡眠禁止默认开", P.getInhibitSleep(), true);
+eq("自动检查更新默认开", P.getAutoCheck(), true);
+eq("更新渠道默认 stable", P.getUpdateChannel(), "stable");
+eq("已提醒版本标识默认空", P.getLastNotified(), "");
 eq("字体默认（族列表 ⇒ 认成系统默认）", [P.getUiFont(), P.getLyricFont()], ["custom", "custom"]);
 check("内置字体列表能被反查成预设", P.fontKeyOf('"Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", SimSun, serif') === "serif");
 check("空字体值 = 系统默认", P.fontKeyOf("") === "system");
@@ -114,6 +117,13 @@ P.setPrevBehavior("previous"); eq("previous → PrevReplay=False", conf()["Playi
 P.setPrevBehavior("replay");   eq("replay → True", conf()["Playing.PrevReplay"], "True");
 P.setInhibitSleep(false); eq("睡眠禁止关 → InhibitSleep=False", conf()["Playing.InhibitSleep"], "False");
 P.setInhibitSleep(true);  eq("睡眠禁止开 → True", conf()["Playing.InhibitSleep"], "True");
+P.setAutoCheck(false);        eq("自动检查关 → Update.AutoCheck=False", conf()["Update.AutoCheck"], "False");
+P.setAutoCheck(true);         eq("自动检查开 → True", conf()["Update.AutoCheck"], "True");
+P.setUpdateChannel("nightly"); eq("渠道 nightly → Update.Channel", conf()["Update.Channel"], "nightly");
+P.setUpdateChannel("stable");  eq("渠道 stable → Update.Channel", conf()["Update.Channel"], "stable");
+P.setLastNotified("nightly:1.2.0-abc1234");
+eq("跳过版本标识原样存取", P.getLastNotified(), "nightly:1.2.0-abc1234");
+P.setLastNotified("");
 // 浏览器兜底模式存的是整份内存快照（键名应与 conf 的 Section.Key 完全一致，不能混进旧的 localStorage 键）
 const keys = Object.keys(conf());
 check("写盘键名齐全（Section.Key 风格）", [
@@ -121,6 +131,7 @@ check("写盘键名齐全（Section.Key 风格）", [
   "Window.Decor", "Window.CloseAction",
   "Playing.Backend", "Playing.AudioDevice", "Playing.Fade", "Playing.PrevReplay", "Playing.InhibitSleep",
   "Quality.DefaultQuality", "Quality.FallbackToQMAtmos",
+  "Update.AutoCheck", "Update.Channel", "Update.LastNotified",
 ].every((k) => keys.includes(k)), keys.join(","));
 check("没有旧 localStorage 键残留", !keys.some((k) => /^quaver\./.test(k)), keys.join(","));
 

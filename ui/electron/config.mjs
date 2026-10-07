@@ -441,6 +441,39 @@ export const SCHEMA = [
       },
     ],
   },
+  {
+    section: "Update",
+    keys: [
+      {
+        key: "AutoCheck",
+        def: "True",
+        doc: [
+          "启动后自动检查更新（设置-通用）：True（默认）｜False。",
+          "发现新版本会先弹窗展示更新日志（GitHub Releases 提取），经你确认后才开始下载安装；",
+          "关闭后仍可在设置页手动「检查更新」",
+        ],
+        valid: (v) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
+      },
+      {
+        key: "Channel",
+        def: "stable",
+        doc: [
+          "更新渠道：stable=正式发布版（默认）｜nightly=每夜构建",
+          "（main 分支滚动 Release「nightly」，功能更新但可能不稳定）",
+        ],
+        valid: (v) => ["stable", "nightly"].includes(v),
+      },
+      {
+        key: "LastNotified",
+        def: "",
+        doc: [
+          "内部状态：已提醒过/被「跳过此版本」的版本标识（渠道:版本），避免每次启动重复弹窗。",
+          "留空即可，勿手改；删除该键或清空值会恢复对新版本的提醒",
+        ],
+        valid: (v) => v.length <= 128,
+      },
+    ],
+  },
 ];
 
 /** 拍平为 { "Section.Key": { def, valid, doc } }。 */
