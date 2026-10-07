@@ -23,7 +23,7 @@ const isEditable = (t: EventTarget | null) =>
 export function applyHotkeyAction(action: HotkeyAction): void {
   switch (action) {
     case "toggle": player.toggle(); break;
-    case "prev": player.prev(); break;
+    case "prev": player.prevPress(); break; // 与 MPRIS/系统媒体键同一语义：单按遵循 PrevReplay 设置，快速连按两次=跳上一首
     case "next": player.next(); break; // 与 MPRIS/系统媒体键同一语义（不跳过单曲循环）
     case "volup": {
       player.setVolume(player.volume + VOLUME_STEP);

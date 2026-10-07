@@ -1015,7 +1015,7 @@ async function settingsView(root: HTMLElement) {
           <button class="opt-card" data-opt="replay" type="button">重放当前曲</button>
           <button class="opt-card" data-opt="previous" type="button">跳到上一首</button>
         </div>
-        <p class="muted set-hint">「重放当前曲」：单击把当前曲从头再放、双击跳到队列里的上一首（默认）；「跳到上一首」：单击直接切到队列里的上一首。即时生效，媒体键与热键同样遵循（无双击，一律按单击走）。</p>
+        <p class="muted set-hint">「重放当前曲」：单击把当前曲从头再放、双击跳到队列里的上一首（默认）；「跳到上一首」：单击直接切到队列里的上一首（连按逐首回退）。即时生效；媒体键/热键同逻辑，快速连按两次等同双击。</p>
       </div>
 
       <div class="set-group">
