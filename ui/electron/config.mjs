@@ -307,6 +307,16 @@ export const SCHEMA = [
         doc: ["「上一首」按钮逻辑：True=单击重放当前曲、双击跳到队列里的上一首（默认）｜False=单击直接跳到队列里的上一首"],
         valid: (v) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
       },
+      {
+        key: "InhibitSleep",
+        def: "True",
+        doc: [
+          "播放音频时禁止系统睡眠（sidecar 执行端：Linux=xdg 门户 Suspend 位、门户假成功走 Logind 直连；",
+          "Windows=PowerRequestSystemRequired；macOS=IOKit PreventUserIdleSystemSleep）。True（默认）｜False。",
+          "只阻止睡眠，屏幕熄灭/锁屏策略不受影响；仅音频播放期间持有",
+        ],
+        valid: (v) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
+      },
     ],
   },
   {

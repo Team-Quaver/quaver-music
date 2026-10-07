@@ -22,6 +22,7 @@ import {
   getDecor,
   getFade,
   getFallbackSort,
+  getInhibitSleep,
   getLyricFontList,
   getPrevBehavior,
   getTheme,
@@ -30,6 +31,7 @@ import {
   setCloseAction,
   setDecor,
   setFallbackSort,
+  setInhibitSleep,
   setLyricFontList,
   setLyricFontPreset,
   setPrevBehavior,
@@ -39,6 +41,7 @@ import {
   type PrevBehavior,
   type ThemeMode,
 } from "./lib/prefs";
+import { syncInhibit } from "./lib/inhibit";
 import {configInfo, resetConfig, revealConfig} from "./lib/config";
 import {vipCardHtml} from "./lib/vip";
 import {mountSparklePanel} from "./sparkle/settings";
@@ -1027,6 +1030,15 @@ async function settingsView(root: HTMLElement) {
       </div>
 
       <div class="set-group">
+        <div class="set-label">播放音频时睡眠禁止 <span class="set-note-inline">默认开启</span></div>
+        <div class="opt-cards" id="inhibit-sleep-cards">
+          <button class="opt-card" data-opt="on" type="button">开启</button>
+          <button class="opt-card" data-opt="off" type="button">关闭</button>
+        </div>
+        <p class="muted set-hint">播放音频期间阻止系统进入睡眠/待机；屏幕的熄灭与锁屏照常生效，暂停或停止即恢复原睡眠策略。</p>
+      </div>
+
+      <div class="set-group">
         <div class="set-label">默认音质 <span class="set-note-inline" id="q-member-note"></span></div>
         <div class="opt-cards" id="quality-grid">
           <button class="opt-card q" data-q="auto" type="button">自动</button>
@@ -1140,6 +1152,12 @@ async function settingsView(root: HTMLElement) {
   bindOptCards<FallbackSort>(wrap.querySelector<HTMLElement>("#atmos-fallback-cards")!, getFallbackSort, setFallbackSort);
   // 上一首按钮行为：重放当前曲（默认）/ 直接跳到队列里的上一首（播放条按钮与媒体键共用，即时生效）
   bindOptCards<PrevBehavior>(wrap.querySelector<HTMLElement>("#prev-behavior-cards")!, getPrevBehavior, setPrevBehavior);
+  // 播放音频时睡眠禁止（[Playing] InhibitSleep，默认开）：开关即时对齐 sidecar 持有态
+  bindOptCards<"on" | "off">(
+    wrap.querySelector<HTMLElement>("#inhibit-sleep-cards")!,
+    () => (getInhibitSleep() ? "on" : "off"),
+    (v) => { setInhibitSleep(v === "on"); syncInhibit(); },
+  );
   // 淡入淡出预设：持久化 + 立即下发时长（引擎侧做振幅包络；Blink 后端无此项）
   bindOptCards<FadePreset>(
     wrap.querySelector<HTMLElement>("#fade-cards")!,
