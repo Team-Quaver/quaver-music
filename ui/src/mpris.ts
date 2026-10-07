@@ -111,7 +111,7 @@ function makeMediaSessionPush(): ((s: ReturnType<typeof snapshot>) => void) | nu
     ms.setActionHandler("pause", () => {
       if (!player.paused) player.pause();
     });
-    ms.setActionHandler("previoustrack", () => player.prev());
+    ms.setActionHandler("previoustrack", () => player.prevPress()); // 单按遵循 PrevReplay 设置，快速连按两次=跳上一首
     ms.setActionHandler("nexttrack", () => player.next());
     ms.setActionHandler("seekto", (d) => {
       const pos = d.seekTime;
@@ -207,7 +207,7 @@ export function startMprisBridge(): void {
         player.next();
         break;
       case "prev":
-        player.prev();
+        player.prevPress(); // 与 mediaSession/热键同一语义：单按遵循 PrevReplay，快速连按两次=跳上一首
         break;
       case "volume": {
         const v = Number(msg.value);

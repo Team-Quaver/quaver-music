@@ -135,6 +135,7 @@ class Player {
   private fallbackTried = new Set<string>(); // 该曲已失败的档位：请求档与实际档都记（auto 降级下发它档时不绕回）
   private failStreak = 0;                    // 自动跳曲连续失败数（真出声即清零；达队列长度停止跳，防断网时无限快跳）
   private lastAutoplay = true;               // 最近一轮 startCurrent 的 autoplay（error 分类：还原挂流失败不自动重试）
+  private lastPrevPressAt = 0;               // 媒体键/热键「上一曲」连按判定时刻（prevPress 专用；播放条双击走原生 dblclick，不共用计时器）
   private prefetch = new Map<string, Promise<StreamResult>>(); // mid+档 → 已协商流（单击预热，双击秒起播）
   private pendingSeek = 0; // 换音质续播：新流时长就绪后跳到旧进度
   /** 启动还原的续播点：流还没就绪时保住它，别让存档被 0 覆盖 */
@@ -806,11 +807,21 @@ class Player {
     if (!this.queue.length) return;
     // 「上一首」逻辑（Playing.PrevReplay，设置页即时生效）：
     // replay=把当前曲从头重放（播放条双击走 force 直接切上一首）；previous=直接切到队列里的上一首。
-    // force 只由播放条双击传：媒体键/热键没有双击语义，永远按单击逻辑走
+    // force 只由播放条双击与媒体键/热键的连按判定传：单次动作永远按单击逻辑走
     if (!force && getPrevBehavior() === "replay") { this.transport.seek(0); return; }
     const i = this.stepInOrder(-1, true);
     if (i < 0) return;
     this.jump(i);
+  }
+
+  /** 媒体键/热键的「上一曲」入口：快速连按两次（≤400ms，系统双击时长同级）视为双击 ——
+   *  跳到队列里的上一首（force），单按仍遵循 PrevReplay 设置；三连按链式回退两首。
+   *  播放条按钮不走这里：它有原生 dblclick（用系统双击时长），共用计时器会跨输入互相误触。 */
+  prevPress() {
+    const now = Date.now();
+    const dbl = now - this.lastPrevPressAt <= 400;
+    this.lastPrevPressAt = now;
+    this.prev(dbl);
   }
 
   private onEnded() {

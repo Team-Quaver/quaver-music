@@ -185,8 +185,9 @@ export function setMuted(m: boolean) {
   cfgSet({ "Playing.Muted": m ? "True" : "False" });
 }
 
-// —— 「上一首」按钮逻辑：replay=单击先把当前曲从头重放、播放条双击跳到队列里的上一首（默认）；previous=单击直接跳到队列里的上一首。
-//    播放条按钮与 MPRIS/媒体键共用 player.prev() 一个入口，每次点击现读内存快照 → 设置页改完即时生效；双击只存在于播放条（媒体键/热键没有双击语义）。 ——
+// —— 「上一首」按钮逻辑：replay=单击先把当前曲从头重放、双击跳到队列里的上一首（默认）；previous=单击直接跳到队列里的上一首。
+//    播放条按钮与 MPRIS/媒体键共用 player.prev() 一个入口，每次点击现读内存快照 → 设置页改完即时生效；
+//    双击=播放条原生 dblclick；媒体键/热键走 player.prevPress() 的时间窗连按判定（400ms）。 ——
 export type PrevBehavior = "replay" | "previous";
 export function getPrevBehavior(): PrevBehavior {
   // 默认开（重放）：只有明确写 False 档才关闭，手误写进来的值回落默认
