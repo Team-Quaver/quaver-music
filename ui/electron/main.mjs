@@ -266,9 +266,13 @@ function mprisWrite(state) {
 }
 
 // 渲染层快照（preload quaverMpris.send）→ 直写 daemon stdin（win/mac 无 daemon，
-// 系统媒体控件由渲染层 navigator.mediaSession 直驱，不经主进程）
+// 系统媒体控件由渲染层 navigator.mediaSession 直驱，不经主进程）；
+// 同一份快照顺带喂托盘菜单（曲目行/播放态/循环档/随机勾选）
 ipcMain.on("quaver:mpris", (_e, state) => {
-  if (state && state.t === "state") mprisWrite(state);
+  if (state && state.t === "state") {
+    updateTrayMenu(state);
+    mprisWrite(state);
+  }
 });
 
 // build-res 资源定位：打包态在 <resources>/build-res，开发态在 ui/build-res。
@@ -283,13 +287,71 @@ function createTray() {
   if (image.isEmpty()) image = nativeImage.createEmpty(); // 图标缺失也别让 Tray 构造抛错
   tray = new Tray(image);
   tray.setToolTip("Quaver Music");
-  const menu = Menu.buildFromTemplate([
+  // 首帧兜底菜单：渲染层快照到达后由 updateTrayMenu 整体替换
+  tray.setContextMenu(buildTrayMenu());
+  tray.on("click", () => toggleWindow()); // 左键 = 显示/隐藏（SNI Activate → click）
+}
+
+// ——— 托盘菜单扩展：播放控制块 ———
+// 状态来自渲染层快照（quaver:mpris → updateTrayMenu），命令回发 quaver:mpris-cmd ——
+// 与 MPRIS daemon 命令同一通道，播放器仍是唯一事实源，主进程只转发不动播放状态。
+// 渲染层不在线（窗口未起/拆窗间隙）时快照缺位 → 控制项按兜底灰置，点击自然丢弃（同热键语义）。
+let trayState = null;
+let trayMenuSig = "";
+
+// 值来自 src/mpris.ts snapshot 的 loop 映射（player.mode），文案与播放条播放模式菜单一致
+const TRAY_LOOP_LABELS = { None: "顺序播放", Playlist: "列表循环", Track: "单曲循环" };
+
+function trayCmd(cmd, extra = {}) {
+  if (win && !win.isDestroyed()) win.webContents.send("quaver:mpris-cmd", { cmd, ...extra });
+}
+
+function buildTrayMenu() {
+  const s = trayState;
+  const t = s?.track ?? null;
+  const playing = s?.status === "Playing";
+  const loop = TRAY_LOOP_LABELS[s?.loop] ? s.loop : "None";
+  // 曲目行：歌名（title=主名+版本后缀，不含说明文字）- 歌手（" / " 连接，与界面同款）
+  const songLine = t ? t.name + (t.artists?.length ? ` - ${t.artists.join(" / ")}` : "") : "未在播放";
+  return Menu.buildFromTemplate([
+    { label: songLine, enabled: false }, // 纯展示项
+    { label: "上一曲", enabled: !!s?.can?.prev, click: () => trayCmd("prev") }, // 渲染层 prevPress：单按遵循 PrevReplay，快速连按=跳上一首
+    { label: playing ? "暂停" : "播放", enabled: !!(playing ? s?.can?.pause : s?.can?.play), click: () => trayCmd(playing ? "pause" : "play") },
+    { label: "下一曲", enabled: !!s?.can?.next, click: () => trayCmd("next") },
+    {
+      // 与播放条的播放模式菜单同构：循环三档 + 随机（每日一套顺序）
+      label: "循环模式",
+      submenu: [
+        { label: "顺序播放", type: "radio", checked: loop === "None", click: () => trayCmd("setLoop", { loop: "None" }) },
+        { label: "列表循环", type: "radio", checked: loop === "Playlist", click: () => trayCmd("setLoop", { loop: "Playlist" }) },
+        { label: "单曲循环", type: "radio", checked: loop === "Track", click: () => trayCmd("setLoop", { loop: "Track" }) },
+        { type: "separator" },
+        { label: "随机播放", type: "checkbox", checked: !!s?.shuffle, click: () => trayCmd("setShuffle", { on: !s?.shuffle }) },
+      ],
+    },
+    { type: "separator" },
     { label: "显示/隐藏 Quaver Music", click: toggleWindow },
     { type: "separator" },
     { label: "退出", click: () => app.quit() },
   ]);
-  tray.setContextMenu(menu);
-  tray.on("click", () => toggleWindow()); // 左键 = 显示/隐藏（SNI Activate → click）
+}
+
+// 快照持续到达（离散变化 + 5s 心跳）：签名不变不重建，免得空刷 DBus 菜单
+function updateTrayMenu(state) {
+  trayState = state;
+  const t = state?.track;
+  const sig = [
+    state?.status ?? "",
+    t?.key ?? "",
+    t?.name ?? "",
+    (t?.artists ?? []).join("/"),
+    state?.loop ?? "",
+    state?.shuffle ? "s" : "n",
+    state?.can ? [state.can.prev, state.can.next, state.can.play, state.can.pause].map(Number).join("") : "",
+  ].join("|");
+  if (sig === trayMenuSig) return;
+  trayMenuSig = sig;
+  try { tray?.setContextMenu(buildTrayMenu()); } catch (e) { log("[quaver] tray menu update failed:", String(e)); }
 }
 
 /** sidecar 交回新凭证（登录 DONE / 令牌刷新）或登出（null）→ 加密落盘 / 清存档。 */
