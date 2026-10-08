@@ -75,3 +75,28 @@ export function step(order: number[], cur: number, dir: 1 | -1, wrap: boolean): 
   if (!wrap) return -1;
   return dir > 0 ? order[0] : order[order.length - 1];
 }
+
+/**
+ * 沿 `order` 从 `from` 出发连走 `steps` 步，返回落点下标；-1 = 中途越界（wrap=false 时）。
+ *
+ * **每一步都从上一步的落点继续** —— 这是多步前进唯一正确的走法。
+ * 反例（曾经的宿主实现）：循环调用「从当前曲走一步」的 stepInOrder，而它每次都以
+ * this.index 为起点 → 循环 N 次仍然只走一步，`songAtOffset(-2)` 取回的是 -1 那首，
+ * 封面流两侧于是各出现一对重复封面（`jumpToOffset(±2)` 也只跳一首）。
+ */
+export function walk(order: number[], from: number, steps: number, dir: 1 | -1, wrap: boolean): number {
+  const n = order.length;
+  if (!n) return -1;
+  // 步数先夹紧：**这不是优化，是防呆** —— 调用方可能传个天文数字（插件里 offset 来自
+  // 用户/路由），线性空转会把主线程转死。语义上夹紧是等价的：
+  //   · wrap=true  走满一圈回到原处 → 取模；
+  //   · wrap=false 从任意点出发最多 n 步必然越界返回 -1。
+  const left0 = wrap ? ((steps % n) + n) % n : Math.min(steps, n);
+  let left = left0;
+  let cur = from;
+  while (left-- > 0) {
+    cur = step(order, cur, dir, wrap);
+    if (cur < 0) return -1;
+  }
+  return cur;
+}

@@ -13,7 +13,7 @@ import {
 } from "./lib/prefs";
 import { WebTransport, EngineTransport, type Transport, type TransportEvent, type AudioDeviceInfo } from "./lib/transport";
 import { loadSession, saveSession } from "./lib/session";
-import { dayKey, daySeed, shuffleOrder, step } from "./lib/shuffle";
+import { dayKey, daySeed, shuffleOrder, step, walk } from "./lib/shuffle";
 import { parseLrc, type LyricLine } from "./lyric";
 import type {SparkleKaraokeLine, SparkleKaraokeProvider} from "@quaver/sparkle";
 import { onSparkleChange, sparkleKaraokeProvider, sparkleStreamSources } from "./sparkle/registry";
@@ -769,6 +769,7 @@ class Player {
 
   /** 当日随机顺序（懒建 + 缓存）：种子取本地日期，所以同一天反复调用结果一致。
    *  缓存键 = 队列版本 + 日期键：队列一改或跨了本地零点就重建，顺序必须与当下队列对得上。 */
+  /** 当日洗牌序（缓存键 = 队列版本 + 日期键） */
   private dailyOrder(): number[] {
     const day = dayKey();
     const c = this.shuffleCache;
@@ -778,16 +779,23 @@ class Player {
     return order;
   }
 
-  /** 按当前播放顺序走一步，返回目标队列下标；-1 = 已到序列末尾（该停）。
+  /** 恒等顺序（0..n-1，缓存到队列长度变化为止）：顺序播放时它就是「播放顺序数组」，
+   *  这样「走一步 / 走 N 步」两种模式共用同一套 step/walk，不必各写一份下标算术。 */
+  private identityOrder: number[] = [];
+  private orderOf(): number[] {
+    if (this.shuffle) return this.dailyOrder();
+    if (this.identityOrder.length !== this.queue.length) {
+      this.identityOrder = Array.from({ length: this.queue.length }, (_, i) => i);
+    }
+    return this.identityOrder;
+  }
+
+  /** 按当前播放顺序走一步（从当前曲出发），返回目标下标；-1 = 已到序列末尾（该停）。
    *  shuffle 开 → 当日洗牌顺序；关 → 队列原序。
    *  wrap=false 用于「顺序播放」的自然结束：走到末尾就收尾，不回到队首。 */
   private stepInOrder(dir: 1 | -1, wrap: boolean): number {
-    const n = this.queue.length;
-    if (!n) return -1;
-    if (this.shuffle) return step(this.dailyOrder(), this.index, dir, wrap);
-    const i = (this.index + dir + n) % n;
-    if (!wrap && ((dir > 0 && i <= this.index) || (dir < 0 && i >= this.index))) return -1;
-    return i;
+    if (!this.queue.length) return -1;
+    return step(this.orderOf(), this.index, dir, wrap);
   }
 
   /** 播放顺序上的相邻下标（-1 = 没有）：随机播放时按当日洗牌序，与 stepInOrder 同源。
@@ -809,27 +817,19 @@ class Player {
     if (offset === 0) return this.current;
     if (!Number.isInteger(offset)) return undefined;
     const dir: 1 | -1 = offset > 0 ? 1 : -1;
-    let i = this.index;
-    // 上限 = 队列长度：绕回一圈就是同一首，再往外没有意义
-    for (let step = 0; step < this.queue.length; step++) {
-      const at = this.stepInOrder(dir, false);
-      if (at < 0) return undefined;
-      i = at;
-      if (step === Math.abs(offset) - 1) return this.queue[i];
-    }
-    return undefined;
+    // walk 逐首前进、每步从上一步的落点继续。**别改成循环调 stepInOrder** ——
+    // 它每次都从 this.index 出发，循环 N 次也只走一步，±2 会取回 ±1 那首
+    // （封面流两侧各出现一对重复封面的根因，见 lib/shuffle.ts:walk 的注释）。
+    const i = walk(this.orderOf(), this.index, Math.abs(offset), dir, false);
+    return i < 0 ? undefined : this.queue[i]; // 越界（顺序播放到头）→ 该槽位没有曲子
   }
 
   /** 跳到播放顺序上偏移 offset 首（0 = 当前即原地重播）。给封面流「点第几张跳第几首」用。 */
   jumpToOffset(offset: number) {
     if (!Number.isInteger(offset) || offset === 0) return;
-    let i = this.index;
     const dir: 1 | -1 = offset > 0 ? 1 : -1;
-    for (let n = 0; n < Math.abs(offset); n++) {
-      const at = this.stepInOrder(dir, true); // wrap：手动跳允许回绕（与 prev/next 一致）
-      if (at < 0) return;
-      i = at;
-    }
+    const i = walk(this.orderOf(), this.index, Math.abs(offset), dir, true); // wrap：手动跳允许回绕
+    if (i < 0) return;
     this.jump(i);
   }
 

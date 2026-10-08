@@ -43,6 +43,7 @@ const src = {
   style: read("src/style.css"),
   npView: read("src/sparkle/np-view.ts"),
   styleLayer: read("src/sparkle/style-layer.ts"),
+  shuffle: read("src/lib/shuffle.ts"),
   flowMeta: read("../vendor/Sparkle/marketplace/flowscape/plugin.json"),
   flowIdx: read("../vendor/Sparkle/marketplace/flowscape/index.ts"),
   guide: read("../vendor/Sparkle/docs/plugin-author-guide.md"),
@@ -198,15 +199,15 @@ ok("sdk: SparkleNpView 契约齐备（render + enabled + ctx）", ["interface Sp
 ok("sdk: ctx 暴露传输控制与只读队列邻曲", ["seek(sec: number)", "next()", "prev()", "setVolume(v: number)", "switchQuality(id: string)", "prevSong()", "nextSong()", "songAt(offset: number)"].every((s) => has(src.types, s)));
 ok("sdk: SongSnapshot 带 album.pmid 与 interval（封面 URL 要 pmid 优先）", re(src.types, /album\?: \{ name\?: string; mid\?: string; pmid\?: string \}/) && has(src.types, "interval?: number"));
 ok("registry: npView 注册表 + getter 齐备且挂了 teardown", has(src.registry, "sparkRegisterNpView") && has(src.registry, "sparkleNpView"));
-ok("np-view: 邻曲走 player.songAtOffset（随机序下 index±1 会指错歌）", has(src.npView, "player.songAtOffset(offset)") && has(src.npView, "player.jumpToOffset(offset)"));
+ok("np-view: 邻曲走 player.songAtOffset/jumpToOffset（随机序下 index±1 会指错歌；±2 还要求内部 walk 逐步前进，用例在 verify-shuffle）", has(src.npView, "player.songAtOffset(offset)") && has(src.npView, "player.jumpToOffset(offset)") && has(src.player, "walk(this.orderOf(), this.index, Math.abs(offset), dir, false)"));
 ok("np-view: prev 走 force（封面点上一首是明确跳转，不被「重放当前曲」改写）", has(src.npView, "prev: () => player.prev(true)"));
 ok("np-view: 档位表异步到后主动 notify 一次（否则插件要等下一个播放事件）", re(src.npView, /tierCache\) player\.notifyPublic\(\)/));
 ok("np-view: render 抛错即退回默认布局（不留半截 DOM 把整页画死）", re(src.npView, /渲染失败[\s\S]{0,400}?box\.remove\(\)/));
 ok("np-view: 生效 = 挂载 且 np 展开（插件启用不该藏播放条）", re(noComments(src.npView), /const active = !!mounted && player\.expanded;/) && re(noComments(src.npView), /setBodyFlag\(active\)/));
 ok("np-view: render 返回 undefined 视为成功（无清理 ≠ 渲染失败）", re(noComments(src.npView), /const cleanup = want\.render\(box, npViewCtx\(\)\) \?\? null;[\s\S]{0,80}?mounted = \{ view: want, host: box, cleanup \};/));
-ok("player: neighbors/songAtOffset 复用 stepInOrder（与播放推进同一条路）", has(src.player, "neighbors(): { prev: number; next: number }") && has(src.player, "songAtOffset(offset: number)"));
-ok("player: songAtOffset 对非整数/越界有界（offset 很大时不该吐整队列）", re(src.player, /if \(!Number\.isInteger\(offset\)\) return undefined;/) && re(src.player, /step < this\.queue\.length/));
-ok("player: jumpToOffset 走 wrap（手动跳允许回绕，与 prev/next 语义一致）", re(src.player, /jumpToOffset[\s\S]{0,500}?this\.stepInOrder\(dir, true\)/) && re(src.player, /if \(!Number\.isInteger\(offset\) \|\| offset === 0\) return;/));
+ok("player: neighbors/songAtOffset/jumpToOffset 与播放推进同源（neighbors 走 stepInOrder；±N 走 walk，见 verify-shuffle）", has(src.player, "neighbors(): { prev: number; next: number }") && has(src.player, "songAtOffset(offset: number)") && has(src.player, "return step(this.orderOf(), this.index, dir, wrap);"));
+ok("player: songAtOffset 对非整数/越界有界（offset 很大时不该吐整队列，也不许空转）", re(src.player, /if \(!Number\.isInteger\(offset\)\) return undefined;/) && has(src.player, "return i < 0 ? undefined : this.queue[i];") && re(src.shuffle, /Math\.min\(steps, n\)/));
+ok("player: jumpToOffset 走 wrap（手动跳允许回绕，与 prev/next 语义一致）", re(noComments(src.player), /jumpToOffset[\s\S]{0,400}?walk\(this\.orderOf\(\), this\.index, Math\.abs\(offset\), dir, true\)/) && re(src.player, /if \(!Number\.isInteger\(offset\) \|\| offset === 0\) return;/));
 ok("NowPlaying: 接管容器存在且在默认布局之前早退", has(src.np, "np-view") && re(noComments(src.np), /if \(syncNpView\(el, npViewHost\)\) \{[\s\S]{0,400}?disposeKara\(\)/));
 ok("NowPlaying: 接管判定早于「无歌收起」早退（body.np-takeover 是全局标记）", (() => {
   const s = noComments(src.np);
@@ -241,22 +242,31 @@ ok("docs: 作者指南覆盖 np 视图接管 + 样式层/主题包", ["registerN
 // 切歌 = 整排换槽一格。下面的断言守这四条不变量。
 ok("flowscape: plugin.json 元数据齐备", has(src.flowMeta, '"id": "flowscape"') && has(src.flowMeta, '"name": "Flowscape 流境"') && has(src.flowMeta, '"category": "plugin"'));
 ok("flowscape: 走 registerNowPlayingView 且尊重 enabled() 总开关", has(src.flowIdx, "registerNowPlayingView") && has(src.flowIdx, "enabled: on"));
-ok("flowscape: 恰好三张卡 -1/0/+1（DOM 顺序即 offset 升序）", re(src.flowIdx, /const CARD_OFFSETS = \[-1, 0, 1\] as const;/) && re(src.flowIdx, /CARD_OFFSETS\.map\(cardHtml\)\.join\(""\)/));
+ok("flowscape: 恰好五张卡 -2/-1/0/+1/+2（DOM 顺序即 offset 升序）", re(src.flowIdx, /const CARD_OFFSETS = \[-2, -1, 0, 1, 2\] as const;/) && re(src.flowIdx, /CARD_OFFSETS\.map\(cardHtml\)\.join\(""\)/));
 ok("flowscape: 侧封面按 offset 跳（点第几张跳第几首，不全是 next/prev）", re(noComments(src.flowIdx), /if \(o === 0\) ctx\.toggle\(\); else ctx\.jumpTo\(o\);/));
-// 散架回归点：静态槽位必须正好是一个 --fs-gap。
-// 负向检查只看 .fs-card[data-off=…] 那三行 —— 动画槽位 [data-to] 里本来就有
-// ×2.1（转出到容器外），不该被这条误伤。
-ok("flowscape: 静态槽位正好一个 --fs-gap（散架回归点；动画槽位另算）", (() => {
+// 散架回归点：静态槽位必须是「一个 --fs-gap / 一个 --fs-gap2」，不许出现系数相乘
+// （间距与尺寸同源，缩放时才整体等比）。
+// 负向检查只看 .fs-card[data-off=…] 那几行 —— 动画槽位 [data-to] 里本来就有
+// ×1.6（转出到容器外），不该被这条误伤。
+ok("flowscape: 静态槽位正好一个 --fs-gap(2)（散架回归点；动画槽位另算）", (() => {
   const s = src.flowIdx;
-  const line = s.split("\n").find((l) => l.includes('[data-off="-1"]{'));
-  if (!line) return false;
-  return /--slot:calc\(-1 \* var\(--fs-gap\)\);/.test(line) && !/--slot:calc\([^)]*\* *[0-9.]/.test(line);
+  const lines = s.split("\n");
+  const at = (key: string) => lines.find((l) => l.includes(`[data-off="${key}"]{`));
+  const slot = (key: string) => {
+    const l = at(key);
+    return !!l && !/--slot:calc\([^)]*\* *[0-9.]/.test(l);
+  };
+  return slot("-1") && slot("1") && slot("-2") && slot("2")
+    && /--slot:calc\(-1 \* var\(--fs-gap\)\);/.test(at("-1") ?? "")
+    && /--slot:var\(--fs-gap\);/.test(at("1") ?? "")
+    && /--slot:calc\(-1 \* var\(--fs-gap2\)\);/.test(at("-2") ?? "")
+    && /--slot:var\(--fs-gap2\);/.test(at("2") ?? "");
 })());
 // 散架的根因：flex + 负 margin 会**累加**，多张卡越算越散（截图里最外侧那张飞出几百 px）。
 ok("flowscape: 封面用绝对定位 + --slot 摆位（负 margin 会累加导致散架）", re(src.flowIdx, /\.fs-card\{\s*position:absolute; left:50%; top:50%;/) && re(src.flowIdx, /translate\(-50%,-50%\) translateX\(var\(--slot,0px\)\) scale\(var\(--slot-scale,1\)\)/) && !re(src.flowIdx, /\.fs-card\.left\{ margin-right:/));
-ok("flowscape: perspective 写在变换元素自身（挂容器上对孙节点无效 = 平铺的根因）", !re(noComments(src.flowIdx), /\.fs-covers\{[^}]*perspective/) && re(src.flowIdx, /transform:perspective\(1500px\) rotateY\(calc\(var\(--fs-dir\) \* -48deg\)\)/) && !re(src.flowIdx, /perspective\(1400px\)/));
-ok("flowscape: 外翻方向由单个 --fs-dir 驱动（-1 左 / 0 中 / +1 右，不写左右两套镜像规则）", re(src.flowIdx, /\.fs-card\[data-off="0"\]\{ --slot:0px; --slot-scale:1; --fs-dir:0; z-index:3; \}/) && re(src.flowIdx, /\.fs-card\[data-off="-1"\]\{ --slot:calc\(-1 \* var\(--fs-gap\)\); --slot-scale:\.82; --fs-dir:-1; z-index:2; \}/) && re(src.flowIdx, /\.fs-card\[data-off="1"\]\{ --slot:var\(--fs-gap\); --slot-scale:\.82; --fs-dir:1; z-index:2; \}/) && re(src.flowIdx, /transform-origin:calc\(\(1 - var\(--fs-dir,0\)\) \* 50%\) center/));
-ok("flowscape: 侧封面角度够大且不是全黑（20° 看不出旋转；.74 透明度在暗底上要看得见）", re(src.flowIdx, /rotateY\(calc\(var\(--fs-dir\) \* -48deg\)\)/) && re(src.flowIdx, /\.fs-card\[data-off="-1"\] \.fs-art,[\s\S]{0,200}?opacity:\.74;/));
+ok("flowscape: perspective 写在变换元素自身（挂容器上对孙节点无效 = 平铺的根因）", !re(noComments(src.flowIdx), /\.fs-covers\{[^}]*perspective/) && re(src.flowIdx, /transform:perspective\(1500px\) rotateY\(calc\(var\(--fs-dir\) \* -46deg\)\)/) && re(src.flowIdx, /rotateY\(calc\(var\(--fs-dir\) \* -56deg\)\)/) && !re(src.flowIdx, /perspective\(1400px\)/));
+ok("flowscape: 外翻方向由单个 --fs-dir 驱动（-1 左 / 0 中 / +1 右，不写左右两套镜像规则）", re(src.flowIdx, /\.fs-card\[data-off="0"\]\{ --slot:0px; --slot-scale:1; --fs-dir:0; z-index:5; \}/) && re(src.flowIdx, /\.fs-card\[data-off="-1"\]\{ --slot:calc\(-1 \* var\(--fs-gap\)\); --slot-scale:\.82; --fs-dir:-1; z-index:4; \}/) && re(src.flowIdx, /\.fs-card\[data-off="1"\]\{ --slot:var\(--fs-gap\); --slot-scale:\.82; --fs-dir:1; z-index:4; \}/) && re(src.flowIdx, /\.fs-card\[data-off="-2"\]\{ --slot:calc\(-1 \* var\(--fs-gap2\)\); --slot-scale:\.62; --fs-dir:-1; z-index:3; \}/) && re(src.flowIdx, /transform-origin:calc\(\(1 - var\(--fs-dir,0\)\) \* 50%\) center/));
+ok("flowscape: 侧一角度够大且不是全黑（20° 看不出旋转；.74 透明度在暗底上要看得见），侧二更转更暗拉开纵深", re(src.flowIdx, /rotateY\(calc\(var\(--fs-dir\) \* -46deg\)\) translateZ\(-50px\);/) && re(src.flowIdx, /\.fs-card\[data-off="-1"\] \.fs-art,[\s\S]{0,200}?opacity:\.74;/) && re(src.flowIdx, /rotateY\(calc\(var\(--fs-dir\) \* -56deg\)\) translateZ\(-90px\);/) && re(src.flowIdx, /\.fs-card\[data-off="-2"\] \.fs-art,[\s\S]{0,200}?opacity:\.58;/));
 ok("flowscape: 中间封面不透明不旋转（主卡不得沾 .left/.right —— 那会连 opacity:.74 一起吃进去）", re(noComments(src.flowIdx), /const side = isMain \? " main" : ` side \$\{o < 0 \? "left" : "right"\}`;/) && re(src.flowIdx, /\.fs-card\[data-off="0"\] \.fs-art\{ transform:none; opacity:1; filter:none; \}/) && !re(noComments(src.flowIdx), /fs-card\$\{isMain \? " main" : " side"\} \$\{o < 0 \? "left" : "right"\}/));
 ok("flowscape: 占位符与 <img> 都绝对定位（普通流下占位符会占满封面盒、把图挤出裁剪区 → 封面只剩半透明底）", re(src.flowIdx, /\.fs-card \.fs-art img, \.fs-card \.fs-ph\{ position:absolute; inset:0; \}/));
 ok("flowscape: overflow 不做裁剪花活（常驻 overflow 会 flatten 掉 preserve-3d，也切掉阴影）", !re(noComments(src.flowIdx), /\.fs-covers\{[^}]*overflow:hidden/) && !re(noComments(src.flowIdx), /transform-style:preserve-3d/) && re(noComments(src.flowIdx), /\.fs-root\{[\s\S]{0,400}?overflow:hidden;/));
@@ -267,17 +277,26 @@ ok("flowscape: 歌词只有单行版式（不建整首列表，无版式切换�
 ok("flowscape: 换句由 rAF 的行号比对触发（不逐帧重填）", re(noComments(src.flowIdx), /if \(idx !== lastIdx\) \{ lastIdx = idx; paintCurrentLine\(idx\); \}/));
 ok("flowscape: 歌词容器不滚、无渐隐遮罩（只有一句，遮罩会像被裁掉）", re(src.flowIdx, /\.fs-lyrics\{[\s\S]{0,600}?min-height:4\.3em; max-height:8\.6em; overflow:hidden;/) && !re(src.flowIdx, /\.fs-lyrics\{[^}]*mask-image/) && !re(src.flowIdx, /\.fs-lyrics\{[^}]*overflow-y:auto/));
 ok("flowscape: 歌词块预留固定高度（不给高度的话翻译出现/长句折行会把上面的封面顶着上下跳 = 挤）", re(src.flowIdx, /\.fs-lyrics\{[\s\S]{0,600}?min-height:4\.3em/) && has(src.flowIdx, "--fs-ly-scale"));
-ok("flowscape: 切歌动画把目标槽位写进 data-to（JS 不量坐标，全交给 CSS 变量）", re(noComments(src.flowIdx), /for \(const el of cardEls\) el\.dataset\.to = String\(Number\(el\.dataset\.off\) - direction\);/) && !re(noComments(src.flowIdx), /getBoundingClientRect\(\)[\s\S]{0,80}?dataset\.to/) && re(src.flowIdx, /\.fs-card\[data-to="0"\]\{ --slot:0px; --slot-scale:1; --fs-dir:0; z-index:3; \}/));
+ok("flowscape: 切歌动画把目标槽位写进 data-to（JS 不量坐标，全交给 CSS 变量）", re(noComments(src.flowIdx), /for \(const el of cardEls\) el\.dataset\.to = String\(Number\(el\.dataset\.off\) - direction\);/) && !re(noComments(src.flowIdx), /getBoundingClientRect\(\)[\s\S]{0,80}?dataset\.to/) && re(src.flowIdx, /\.fs-card\[data-to="0"\]\{ --slot:0px; --slot-scale:1; --fs-dir:0; z-index:5; \}/));
 ok("flowscape: 目标槽位 = 当前槽位**减**方向（点右边那张 → 整排往左挪一格，滚进来的正是他点的那张）", re(noComments(src.flowIdx), /String\(Number\(el\.dataset\.off\) - direction\)/) && !re(noComments(src.flowIdx), /dataset\.to = String\(o \+ direction\)/));
-ok("flowscape: 三段式槽位对称（±2 出画淡出、±1 侧槽、0 转正；±方向共用同一套规则，不写两份镜像）", re(src.flowIdx, /\.fs-card\[data-to="-2"\]\{ --slot:calc\(-2\.1 \* var\(--fs-gap\)\); --slot-scale:\.64; --fs-dir:-1; z-index:1; opacity:0; pointer-events:none; \}/) && re(src.flowIdx, /\.fs-card\[data-to="2"\]\{ --slot:calc\(2\.1 \* var\(--fs-gap\)\); --slot-scale:\.64; --fs-dir:1; z-index:1; opacity:0; pointer-events:none; \}/) && re(src.flowIdx, /\.fs-card\[data-to="0"\] \.fs-art\{ transform:none; opacity:1; filter:none; \}/) && !re(src.flowIdx, /fs-anim-next \.fs-card\[data-to/));
+ok("flowscape: 五槽目标表对称（0 转正 / ±1 侧一 / ±2 侧二 / ±3 出画淡出；±方向共用同一套规则，不写两份镜像）", re(src.flowIdx, /\.fs-card\[data-to="-1"\]\{ --slot:calc\(-1 \* var\(--fs-gap\)\); --slot-scale:\.82; --fs-dir:-1; z-index:4; \}/) && re(src.flowIdx, /\.fs-card\[data-to="-2"\]\{ --slot:calc\(-1 \* var\(--fs-gap2\)\); --slot-scale:\.62; --fs-dir:-1; z-index:3; \}/) && re(src.flowIdx, /\.fs-card\[data-to="-3"\]\{ --slot:calc\(-1\.6 \* var\(--fs-gap2\)\); --slot-scale:\.5; --fs-dir:-1; z-index:2; opacity:0; pointer-events:none; \}/) && re(src.flowIdx, /\.fs-card\[data-to="3"\]\{ --slot:calc\(1\.6 \* var\(--fs-gap2\)\); --slot-scale:\.5; --fs-dir:1; z-index:2; opacity:0; pointer-events:none; \}/) && re(src.flowIdx, /\.fs-card\[data-to="0"\] \.fs-art\{ transform:none; opacity:1; filter:none; \}/) && !re(src.flowIdx, /fs-anim-next \.fs-card\[data-to/));
 ok("flowscape: 动画中主封面不被 hover 抢走 transform（它正在转正；hover 规则必须被 :not(.fs-anim-*) 挡在动画之外）", re(src.flowIdx, /\.fs-covers:not\(\.fs-anim-next\):not\(\.fs-anim-prev\) \.fs-card\[data-off="-1"\]:hover \.fs-art\{/) && re(src.flowIdx, /\.fs-covers:not\(\.fs-anim-next\):not\(\.fs-anim-prev\) \.fs-card\[data-off="1"\]:hover \.fs-art\{/) && !re(noComments(src.flowIdx), /\.fs-card\.left:hover \.fs-art/));
 ok("flowscape: 动画 class 进出都做 + 定时器可重入（连点不叠 setTimeout）", re(noComments(src.flowIdx), /covers\.classList\.remove\("fs-anim-next", "fs-anim-prev"\);\s*void covers\.offsetWidth;/) && re(noComments(src.flowIdx), /window\.clearTimeout\(animTimer\);\s*animTimer = window\.setTimeout/));
-ok("flowscape: 收尾整排身份转一格（data-off 也跟着减，否则清掉 data-to 的瞬间整排会弹回原槽）", re(noComments(src.flowIdx), /if \(n < -1\) \{ el\.dataset\.off = "1"; hopper = el; \}\s*else if \(n > 1\) \{ el\.dataset\.off = "-1"; hopper = el; \}\s*else el\.dataset\.off = String\(n\);/) && re(noComments(src.flowIdx), /const n = Number\(el\.dataset\.off\) - direction;/) && re(noComments(src.flowIdx), /el\.removeAttribute\("data-to"\);/) && re(noComments(src.flowIdx), /indexCards\(\);\s*adoptMain\(\);\s*sigs\.clear\(\);[^\n]*\n\s*animating = false;\s*paintMeta\(\);/));
+ok("flowscape: 收尾整排身份转一格（data-off 也跟着减，否则清掉 data-to 的瞬间整排会弹回原槽）", re(noComments(src.flowIdx), /if \(n < -2\) \{ el\.dataset\.off = "2"; hopper = el; \}\s*else if \(n > 2\) \{ el\.dataset\.off = "-2"; hopper = el; \}\s*else el\.dataset\.off = String\(n\);/) && re(noComments(src.flowIdx), /const n = Number\(el\.dataset\.off\) - direction;/) && re(noComments(src.flowIdx), /el\.removeAttribute\("data-to"\);/) && re(noComments(src.flowIdx), /indexCards\(\);\s*adoptMain\(\);\s*sigs\.clear\(\);[^\n]*\n\s*animating = false;/));
+
+// —— 点 ±2（上上/下下曲）= 连滚两格 ——
+// 单格动画的位移对不上「一次跳两首」：收尾把整排摆好之后数据才对，中间槽会当场换脸
+// （用户看到的「直接闪」）。所以要连滚两格，且第一格收尾必须刷**差一格**的过渡态。
+ok("flowscape: 方向判定认 ±2 邻居 → 连滚两格（±1 仍是单格；判定顺序保证单步优先）", re(noComments(src.flowIdx), /else if \(cur\.mid === lastNextMid2\) \{ queuedRolls = 1; queuedDir = 1; playSwitchAnim\(1, ANIM_QUICK_MS\); \}/) && re(noComments(src.flowIdx), /else if \(cur\.mid === lastPrevMid2\) \{ queuedRolls = 1; queuedDir = -1; playSwitchAnim\(-1, ANIM_QUICK_MS\); \}/) && re(noComments(src.flowIdx), /lastNextMid2 = ctx\.songAt\(2\)\?\.mid \?\? "";/) && re(noComments(src.flowIdx), /lastPrevMid2 = ctx\.songAt\(-2\)\?\.mid \?\? "";/));
+ok("flowscape: 第一格收尾刷「差一格」中间态、再接力第二格（差集没刷对 = 收尾当场换脸）", re(noComments(src.flowIdx), /if \(queuedRolls > 0\) \{\s*paintShift = direction;\s*paintMeta\(\);\s*queuedRolls--;\s*playSwitchAnim\(queuedDir, ANIM_QUICK_MS\);\s*return;\s*\}\s*paintShift = 0;/) && re(noComments(src.flowIdx), /covers\.classList\.remove\("fs-quick"\); \/\/ 连滚结束，时长回到常速/));
+ok("flowscape: 槽位→曲子按 paintShift 取（中间态整排偏一格；写死 o 就会把目标曲填进中间槽）", re(noComments(src.flowIdx), /const off = o - paintShift;/) && re(noComments(src.flowIdx), /const s = off === 0 \? cur : ctx\.songAt\(off\);/));
+ok("flowscape: 连滚用短时长，且与 CSS 同源（JS 定时器 ↔ .fs-quick 的 --fs-roll/.26s）", re(src.flowIdx, /const ANIM_QUICK_MS = 260;/) && re(src.flowIdx, /\.fs-covers\.fs-quick\{ --fs-roll:\.26s; --fs-fade:\.2s; \}/) && re(noComments(src.flowIdx), /const playSwitchAnim = \(direction: 1 \| -1, ms: number = ANIM_MS\) => \{/) && re(noComments(src.flowIdx), /covers\.classList\.toggle\("fs-quick", ms < ANIM_MS\);/) && re(noComments(src.flowIdx), /settleSwitch\(pendingDir\);\s*\}, ms\);/) && !re(noComments(src.flowIdx), /settleSwitch\(pendingDir\);\s*\}, ANIM_MS\);/));
+ok("flowscape: 换槽时长走 CSS 变量（快/常速只切一个变量，不复制整套 transition 规则）", re(src.flowIdx, /--fs-roll:\.44s; --fs-fade:\.3s;/) && re(src.flowIdx, /transition:transform var\(--fs-roll,\.44s\) cubic-bezier/) && !re(noComments(src.flowIdx), /transition:transform \.44s/));
 ok("flowscape: 出画那张的瞬移要关掉位移过渡（否则会横穿整排飞回右边），只留淡入", re(src.flowIdx, /\.fs-card\.fs-hop\{ transition:opacity \.3s ease; \}/) && re(noComments(src.flowIdx), /hp\.classList\.add\("fs-hop"\)/) && re(noComments(src.flowIdx), /classList\.remove\("fs-hop"\)/));
 ok("flowscape: 方向判定用**上一帧**的邻居表（拿新曲反查 songAt 必然落空 —— 新曲已经是 current，±1 早就换人了）", re(noComments(src.flowIdx), /if \(cur\.mid === lastNextMid\) playSwitchAnim\(1\);/) && re(noComments(src.flowIdx), /else if \(cur\.mid === lastPrevMid\) playSwitchAnim\(-1\);/) && re(noComments(src.flowIdx), /lastNextMid = ctx\.songAt\(1\)\?\.mid \?\? "";/) && !re(noComments(src.flowIdx), /ctx\.songAt\(1\)\?\.mid === cur\.mid/));
 ok("flowscape: 动画期间不刷卡面数据 + 动画期间挡掉点击（视觉位置与 data-off 已错开一格）", re(noComments(src.flowIdx), /if \(!animating\) \{[\s\S]{0,900}?for \(const el of cardEls\) \{\s*const o = Number\(el\.dataset\.off\);/) && re(noComments(src.flowIdx), /if \(animating\) return;/) && re(noComments(src.flowIdx), /if \(cur && !animating && lastMid && cur\.mid !== lastMid\)/));
-ok("flowscape: 封面尺寸留出下方空间 + 歌词/控制带不被挤出可视区", re(src.flowIdx, /--fs-cover:min\(28vh, 24vw, 300px\);/) && re(src.flowIdx, /--fs-gap:calc\(var\(--fs-cover\) \* \.66\);/) && re(src.flowIdx, /\.fs-stage\{\s*flex:1 1 auto; min-height:0;/) && re(src.flowIdx, /\.fs-bar\{ flex:0 0 auto; min-height:60px;/));
-ok("flowscape: 三张卡共用一个基准尺寸（不存在第二套 --fs-side，尺寸才是统一的）", has(src.flowIdx, "width:var(--fs-cover); aspect-ratio:1") && !re(noComments(src.flowIdx), /--fs-side/));
+ok("flowscape: 封面尺寸留出下方空间 + 歌词/控制带不被挤出可视区", re(src.flowIdx, /--fs-cover:min\(28vh, 24vw, 300px\);/) && re(src.flowIdx, /--fs-gap:calc\(var\(--fs-cover\) \* \.58\);/) && re(src.flowIdx, /--fs-gap2:calc\(var\(--fs-cover\) \* \.96\);/) && re(src.flowIdx, /\.fs-stage\{\s*flex:1 1 auto; min-height:0;/) && re(src.flowIdx, /\.fs-bar\{ flex:0 0 auto; min-height:60px;/));
+ok("flowscape: 五张卡共用一个基准尺寸（不存在第二套 --fs-side，尺寸才是统一的）", has(src.flowIdx, "width:var(--fs-cover); aspect-ratio:1") && !re(noComments(src.flowIdx), /--fs-side/));
 ok("flowscape: 接管态自带出口（收起 + 更多选项）—— 播放条与 .np-inner 都被宿主收走了，不给按钮就只能按 ESC", has(src.flowIdx, 'id="fs-collapse"') && has(src.flowIdx, 'id="fs-more"') && re(noComments(src.flowIdx), /collapseBtn\.onclick = \(\) => ctx\.collapse\(\);/));
 
 // —— 逐字歌词（复用宿主已激活的提供器）/ 跳转三项 / 封面预载 / 控制带染色 ——
@@ -292,7 +311,14 @@ ok("flowscape: 逐词染色靠 clip-path + --p（不量坐标、不逐词换 col
 ok("flowscape: 更多选项补跳转三项（同名搜索 / 跳转歌手 / 跳转专辑，hash 口径同宿主 np 菜单）", has(src.flowIdx, "#/search?keyword=") && has(src.flowIdx, "#/singer?mid=") && has(src.flowIdx, "#/album?mid=") && has(noComments(src.flowIdx), "const hasAlb = !!(alb?.mid || alb?.pmid);") && has(noComments(src.flowIdx), 'if (!singers.length) jumpBox.append(jumpRow("跳转歌手", true));'));
 ok("flowscape: 跳转前先收起正在播放页（np 是铺满全窗的悬浮层，只换路由用户看不到变化）", has(noComments(src.flowIdx), "window.setTimeout(() => { ctx.collapse(); location.hash = hash; }, JUMP_MS);"));
 ok("flowscape: 跳转项每次开菜单按当前曲现算（不残留上一首的歌手/专辑）", has(noComments(src.flowIdx), "moreBtn.onclick = () => { renderJumpRows(); togglePop(moreBtn, mMenu); };") && re(noComments(src.flowIdx), /const renderJumpRows = \(\) => \{\s*const s = ctx\.current\(\);\s*jumpBox\.innerHTML = "";/));
-ok("flowscape: 封面预载跟随播放顺序（稳态预载 ±1/±2，不等点下去才请求）", re(noComments(src.flowIdx), /for \(const off of \[-1, 1, -2, 2\]\) preloadCover\(ctx\.songAt\(off\), off\);/) && has(noComments(src.flowIdx), "preloadCover(ctx.songAt(1), 1);") && has(noComments(src.flowIdx), "const warmed = new Set<string>();"));
+ok("flowscape: 封面预载跟随播放顺序（稳态预载 ±1/±2/±3，不等点下去才请求）", re(noComments(src.flowIdx), /for \(const off of \[-1, 1, -2, 2, -3, 3\]\) preloadCover\(ctx\.songAt\(off\), off\);/) && has(noComments(src.flowIdx), "preloadCover(ctx.songAt(1), 1);") && has(noComments(src.flowIdx), "const warmed = new Set<string>();"));
+// 五卡专属：侧二要能悬停、能点（跳两首）、悬停歌名/角标也在；侧一保留堆叠轮廓
+ok("flowscape: 侧二（±2）与侧一同权 —— 悬停转正抬亮、悬停显歌名/角标", re(src.flowIdx, /\.fs-covers:not\(\.fs-anim-next\):not\(\.fs-anim-prev\) \.fs-card\[data-off="-2"\]:hover \.fs-art\{/) && re(src.flowIdx, /\.fs-covers:not\(\.fs-anim-next\):not\(\.fs-anim-prev\) \.fs-card\[data-off="2"\]:hover \.fs-art\{/) && re(src.flowIdx, /\.fs-card\[data-off="-2"\]:hover \.fs-cap, [\s\S]{0,120}?opacity:1; \}/) && re(src.flowIdx, /\.fs-card\[data-off="-2"\]:hover \.fs-badge, [\s\S]{0,120}?opacity:\.95; \}/));
+ok("flowscape: 无障碍标签区分 上上首/上一首/下一首/下下首（节点会转格，标签要跟着槽位走）", has(noComments(src.flowIdx), 'const label = o === 0 ? "播放/暂停" : o === -1 ? "上一首" : o === 1 ? "下一首" : o < 0 ? "上上首" : "下下首";'));
+// 三张卡时代用一层「堆叠轮廓」伪元素（半透明白+阴影往外偏）暗示后面还有一叠；
+// 五张全是真卡之后它没了意义，正好悬在 ±1 与 ±2 之间 = 用户看到的「神秘透明蒙版」。
+// 所以反向断言：不许再回来。
+ok("flowscape: 不许再有「堆叠轮廓」伪元素（五张真卡后它就是 ±1 与 ±2 之间的透明蒙版）", !re(src.flowIdx, /\.fs-card::after/) && !re(src.flowIdx, /\.fs-card\.fs-hop::after/) && !re(noComments(src.flowIdx), /堆叠轮廓/));
 ok("flowscape: 控制带染色直连宿主 --cvg-accent（白拿宿主的 .45s 扫色；不再 JS 抄一次停在旧色上）", has(src.flowIdx, "--fs-acc:var(--cvg-accent, var(--cyan, #7fd7ff));") && !re(noComments(src.flowIdx), /getComputedStyle\(document\.documentElement\)/) && has(src.flowIdx, "background:var(--fs-acc)"));
 ok("flowscape: 封面色当前景色时用 color-mix 锚亮度（原色当字色在浅色封面上会糊）", has(src.flowIdx, "--fs-acc-ink:color-mix(in srgb, var(--fs-acc) 42%, #fff);") && has(src.flowIdx, "color:var(--fs-acc-ink)"));
 ok("flowscape: 进度/旋钮/音量/开关/选中项都吃封面染色（不是只有进度条一处）", has(src.flowIdx, "background:color-mix(in srgb, var(--fs-acc) 58%, #fff)") && has(src.flowIdx, "background:color-mix(in srgb, var(--fs-acc) 30%, transparent)") && has(src.flowIdx, "background:color-mix(in srgb, var(--fs-acc) 55%, #0b0e19)"));
@@ -305,7 +331,7 @@ ok("flowscape: 换封面按 src 签名守卫（4Hz 无条件重建 <img> 会反�
 ok("flowscape: 暂停时 veil 显示播放图标（点了是继续播，别反）", re(noComments(src.flowIdx), /playSig === "paused" \? ICON\.play : ICON\.pause/));
 ok("flowscape: 设置区只留总开关（版式已固定单行）", re(src.flowIdx, /registerSettingsSection/) && re(src.flowIdx, /data-opt="on"/) && !re(src.flowIdx, /data-lyric-mode/));
 ok("flowscape: storage 走 setup 捕获的模块级引用 + dispose 置 null", re(src.flowIdx, /let store: \{ get\(k: string\): string \| null/) && re(src.flowIdx, /store = ctx\.storage;/) && re(src.flowIdx, /return \(\) => \{\s*store = null;/));
-ok("flowscape: prefers-reduced-motion 关掉全部动效", re(src.flowIdx, /@media \(prefers-reduced-motion: reduce\)/) && re(src.flowIdx, /\.fs-card, \.fs-card \.fs-art, \.fs-card::after\{ transition:none; \}/));
+ok("flowscape: prefers-reduced-motion 关掉全部动效", re(src.flowIdx, /@media \(prefers-reduced-motion: reduce\)/) && re(src.flowIdx, /\.fs-card, \.fs-card \.fs-art\{ transition:none; \}/));
 ok("flowscape: 禁选中 + 纵向溢出裁剪", re(src.flowIdx, /\.fs-root, \.fs-root \*\{[^}]*user-select:none/) && re(noComments(src.flowIdx), /\.fs-root\{[\s\S]{0,400}?min-height:0; overflow:hidden;/));
 
 console.log(`\n${checks - fails}/${checks} passed`);

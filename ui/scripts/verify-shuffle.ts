@@ -27,7 +27,7 @@ const eq = (name, got, want) => ok(name, got === want, `got ${JSON.stringify(got
 
 // ===================== 真单测：日期种子与洗牌 =====================
 // Node ≥22.18 默认开启类型剥离，零依赖 .ts 可直接 import。
-const { dayKey, daySeed, shuffleOrder, step } = await import("../src/lib/shuffle.ts");
+const { dayKey, daySeed, shuffleOrder, step, walk } = await import("../src/lib/shuffle.ts");
 
 // —— 日期键：本地时区（不是 UTC），否则晚上 8 点前后的用户会觉得换序来得莫名其妙
 eq("日期键：本地 2026-10-04", dayKey(new Date(2026, 9, 4, 12, 0, 0)), "2026-10-04");
@@ -94,8 +94,31 @@ eq("step：cur=-1（还没在播）→ 取序里第一首", step(o, -1, 1, true)
 eq("step：cur 比序里所有下标都大且 wrap=false → -1", step(o, 99, 1, false), -1);
 eq("step：cur 比序里所有下标都大且 wrap=true → 回绕首位", step(o, 99, 1, true), 3);
 
+// —— walk：一次走 N 步（封面流的 ±2 槽位用它取「下下首 / 上上曲」）
+// 回归点：多步前进必须**每步从上一步的落点继续**。曾经的宿主实现是循环调用
+// 上面那个 step，而它的起点恒为「当前曲」→ 走 N 步仍停在第一跳，
+// songAtOffset(-2) 取回的是 -1 那首，封面流左右各出现一对重复封面。
+const id5 = [0, 1, 2, 3, 4];      // 顺序播放时的「播放顺序数组」= 恒等序
+eq("walk：顺序序上走 1 步", walk(id5, 2, 1, -1, false), 1);
+eq("walk：顺序序上走 2 步（≠ 1 步，这是 ±2 的语义）", walk(id5, 2, 2, -1, false), 0);
+eq("walk：正向走 2 步", walk(id5, 2, 2, 1, false), 4);
+eq("walk：走 3 步越界（wrap=false 到末尾就停）", walk(id5, 2, 3, 1, false), -1);
+eq("walk：中间越界即返回 -1（不硬凑）", walk(id5, 4, 2, 1, false), -1);
+eq("walk：wrap=true 回绕继续走", walk(id5, 4, 2, 1, true), 1);
+eq("walk：0 步 = 原地", walk(id5, 3, 0, 1, true), 3);
+eq("walk：洗牌序上走 2 步 ≠ 走 1 步", walk(o, 3, 2, 1, false), 4);
+// o = [3,0,4,1,2]：从 3 出发 → 0 → 4，所以 +2 是 4（而不是又回到 0）
+eq("walk：洗牌序上走 2 步落点", walk(o, 3, 2, 1, true), 4);
+eq("walk：空序列 → -1", walk([], 0, 2, 1, true), -1);
+// 步数爆炸：插件可能传天文数字（offset 来自路由/用户），线性空转会转死主线程。
+// 夹紧后 wrap 取模、不 wrap 最多 n 步，语义不变。
+eq("walk：超大 wrap 步数按取模（1e9 % 5 = 0 → 原地）", walk(id5, 2, 1e9, 1, true), 2);
+eq("walk：超大不 wrap 步数直接判定越界（不空转）", walk(id5, 2, 1e9, 1, false), -1);
+eq("walk：正好一圈 = 原地", walk(id5, 3, 5, -1, true), 3);
+
 // ===================== 静态断言：接线不许被改坏 =====================
 const player = read("src/player.ts");
+const shuffleSrc = read("src/lib/shuffle.ts");
 const bar = read("src/components/PlayerBar.ts");
 const sess = read("src/lib/session.ts");
 const mpris = read("src/mpris.ts");
@@ -107,7 +130,11 @@ ok("player：缓存记了队列版本", /shuffleCache\s*=\s*\{\s*ver:\s*this\.qu
 ok("player：缓存记了日期键（跨零点自动换序）", /c\.day === day/.test(player));
 ok("player：顺序由 lib/shuffle 的洗牌生成", /shuffleOrder\(this\.queue\.length, daySeed\(day\)\)/.test(player));
 ok("player：切歌/播完统一走 stepInOrder", /stepInOrder\(1, !auto \|\| this\.mode !== "off"\)/.test(player));
-ok("player：播完收尾判定已从 next() 挪进 stepInOrder（随机时末尾≠队尾）", /!wrap && \(\(dir > 0 && i <= this\.index\) \|\| \(dir < 0 && i >= this\.index\)\)/.test(player));
+ok("player：播完收尾判定在步进原语里（随机时末尾≠队尾），next() 不自己判", /return step\(this\.orderOf\(\), this\.index, dir, wrap\)/.test(player) && /if \(!wrap\) return -1;/.test(shuffleSrc) && !/onEnded[\s\S]{0,200}queue\.length - 1/.test(player));
+// 多步前进必须走 walk（每步从上一步的落点继续）。曾经的写法是循环调 stepInOrder ——
+// 它永远从 this.index 出发，循环 N 次只走一步：songAtOffset(±2) === ±1，封面流左右
+// 各出现一对重复封面，jumpToOffset(±2) 也只跳一首。
+ok("player：songAtOffset/jumpToOffset 走 walk（别再循环调「从当前走一步」）", /const i = walk\(this\.orderOf\(\), this\.index, Math\.abs\(offset\), dir, false\);/.test(player) && /const i = walk\(this\.orderOf\(\), this\.index, Math\.abs\(offset\), dir, true\);/.test(player) && !/this\.stepInOrder\(dir,/.test(player));
 ok("player：onEnded 不再自己判末曲（交给 stepInOrder）", /private onEnded\(\)[\s\S]{0,160}this\.next\(true\);/.test(player) && !/onEnded[\s\S]{0,200}queue\.length - 1/.test(player));
 ok("player：坏流回退沿当日顺序走（不打乱当天听感）", /const i = this\.stepInOrder\(1, true\);/.test(player));
 ok("player：菜单需要直接落档的 setter", /setMode\(m: Mode\)/.test(player));
