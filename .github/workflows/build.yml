@@ -16,8 +16,10 @@
 #     PyInstaller 时代的 wheel / QEMU / WoA 模拟问题全部消失。跨架构二进制「不报错、
 #     只跑不起来」→ 非原生档用 file 核对机器码，linux x86_64 档真跑 smoke。
 #   - mpv 官方 release 只发 Windows + macOS 二进制：Windows 用 mingw x64（自带全套 DLL）+
-#     msvc arm64（静态链接）；macOS 用 macos-15 arm 单份 zip（自包含 mpv.app）。Linux 用
-#     pkgforge AppImage（x86_64/aarch64）。
+#     msvc arm64（静态链接）；macOS 用 macos-14 arm 单份 zip（自包含 mpv.app）—— 上游按构建机的
+#     macOS 版本出 macos-14 / 15 / 26 三份，Mach-O 的 minos 就是那个版本号，装高了在老系统上
+#     一启动就被 dyld 拒（v0.41 的 macos-15 那份在 macOS 14 上直接 SIGABRT），所以取最低档 14。
+#     Linux 用 pkgforge AppImage（x86_64/aarch64）。
 #
 # 触发：
 #   - push 到 main / PR：只出 artifact
@@ -393,7 +395,8 @@ jobs:
           cp ../dist-bin/quaver-server "$PKG/opt/quaver/resources/bin/"
           file "$PKG/opt/quaver/resources/bin/quaver-server" | grep -qi LoongArch
           cp ../vendor/Typhoeus/mpris/dist/mpris-daemon.cjs "$PKG/opt/quaver/resources/mpris/"
-          cp build-res/icon.png build-res/tray.png "$PKG/opt/quaver/resources/build-res/"
+          cp build-res/icon.png "$PKG/opt/quaver/resources/build-res/"
+          cp -r build-res/tray "$PKG/opt/quaver/resources/build-res/"
 
           # 启动 wrapper（quaver.sh）+ 命令行入口（/usr/bin/quaver）+ 桌面项
           # heredoc 内容顶不了格（YAML 缩进会一并写进文件、shebang 失效）→ printf 逐行生成

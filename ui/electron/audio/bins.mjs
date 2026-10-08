@@ -7,6 +7,9 @@
 //   linux  = pkgforge mpv AppImage 构建期 --appimage-extract 出来的 quick-sharun 目录
 //   win32  = mpv 官方 release zip（mingw/msvc）平铺的 mpv.exe + 同目录 DLL
 //   darwin = mpv 官方 release 包的 mpv.app（自带 dylib，按 @executable_path 自举）
+// darwin 那份另有一条系统性坑：上游按构建机的系统版本出 macos-14/15/26 多档，Mach-O 里写死的
+// minos 就是那个版本号 —— 装高了在低版本系统上 dyld 直接拒（SIGABRT），所以暂存脚本按地板挑资产并
+// 静态校验（见 macho.mjs / stage-mpv-official.mjs），运行期 probeRuntime 再兜一道。
 // Linux 那套里有两件事必须照它自己的声明来做，别自作聪明：
 //   1. 载荷在 mpv/shared/bin/mpv，不能裸跑（缺包内 so，如 libunibreak）；
 //   2. 用包内自带 loader + `lib/lib.path` 声明的库路径启动 ——
@@ -115,6 +118,27 @@ export function resolveMpv(opts = {}) {
   return p ? { source: "path", payload: p, argv: [p] } : null;
 }
 
+/**
+ * 真跑一次 `--version`。可执行位在 ≠ 跑得起来 —— 跨架构（exec 126）、缺库、以及 macOS 上
+ * 「载荷声明的最低系统版本比本机高」被 dyld 直接拒，全都是 spawn 成功、进程立刻死，
+ * 只有真执行一次才知道（CI 自检与引擎开机自检共用这一份判据）。
+ * @param {{payload:string, argv:string[]}} resolved resolveMpv/resolveBundled 的返回值
+ * @param {number} [timeoutMs]
+ * @returns {{ok:boolean, status:number|null, signal:string|null, output:string}}
+ */
+export function probeRuntime(resolved, timeoutMs = 30000) {
+  const [bin, ...rest] = resolved.argv;
+  const r = spawnSync(bin, [...rest, "--version"], { encoding: "utf8", timeout: timeoutMs });
+  const output = `${r.stdout ?? ""}${r.stderr ?? ""}`.trim();
+  // stdout 里混日志/崩溃报告是常态 → 按行找版本行（mpv 的门面是 "mpv v0.41.0 ..."）
+  return {
+    ok: r.status === 0 && !r.signal && /^mpv v?\d/m.test(output),
+    status: r.status ?? null,
+    signal: r.signal ?? null,
+    output,
+  };
+}
+
 // —— CLI：--check <audioRoot>（只认随包运行时；真跑一次 --version）——
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   const [flag, root] = process.argv.slice(2);
@@ -127,14 +151,12 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
     console.error(`✗ 随包运行时不可用：${root}（本平台预期的载荷/loader 不在位，布局见 resolveBundled）`);
     process.exit(1);
   }
-  const [bin, ...rest] = found.argv;
-  // 真跑一次：跨架构/缺库都不会报错，只会跑不起来（exec 126），必须执行才算验过
-  const r = spawnSync(bin, [...rest, "--version"], { encoding: "utf8", timeout: 30000 });
-  const out = `${r.stdout ?? ""}${r.stderr ?? ""}`.trim();
-  if (r.status !== 0 || !/^mpv v?\d/.test(out)) {
-    console.error(`✗ 随包 mpv 跑不起来（exit=${r.status}）:\n${out}`);
+  // 真跑一次：跨架构/缺库/系统版本不够都不会在 exec 时报错，只会跑不起来，必须执行才算验过
+  const probe = probeRuntime(found);
+  if (!probe.ok) {
+    console.error(`✗ 随包 mpv 跑不起来（exit=${probe.status}${probe.signal ? `, signal=${probe.signal}` : ""}）:\n${probe.output}`);
     process.exit(1);
   }
-  console.log(`✓ 随包 mpv 可用：${out.split("\n")[0]}`);
+  console.log(`✓ 随包 mpv 可用：${probe.output.split("\n")[0]}`);
   console.log(`  payload: ${found.payload}`);
 }

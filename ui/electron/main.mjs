@@ -13,8 +13,11 @@ import { fileURLToPath } from "node:url";
 import { audioEngine } from "./audio/engine.mjs";
 // 配置文件（quaver.conf）与跨平台目录规则：路径单一真相，渲染层与 sidecar 都对齐这一份
 import { configDir, configFile, ensureConfigDir, logFile, readValues, resetConfig, writeValues } from "./config.mjs";
-// 系统深浅色探测（Linux 桌面各自的真相来源，见模块头）：「跟随系统」要靠它才真的跟得上
-import { readSystemTheme, watchSystemTheme } from "./systheme.mjs";
+// 系统深浅色探测（Linux 桌面各自的真相来源，见模块头）：「跟随系统」要靠它才真的跟得上；
+// macOS 侧的菜单栏深浅（托盘图用）也在这里——两者是不同的问题，别混
+import { readMacShellTheme, readSystemTheme, watchMacShellTheme, watchSystemTheme } from "./systheme.mjs";
+// 托盘图标：尺寸口径 + 明暗两份素材的映射（纯逻辑，见模块头）
+import { TRAY_ICON_PT, trayIconFile } from "./tray-icon.mjs";
 // Linux 桌面集成自装（<app_id>.desktop 身份文件 + hicolor 图标）：各桌面/门户按 app_id 反查
 // 桌面文件取图标，AppImage 裸跑与开发态都没人代劳，必须自己装（模块头有完整链路说明）
 import { DESKTOP_ID, installLinuxDesktopIntegration, quoteExecPath } from "./linux-desktop.mjs";
@@ -299,14 +302,53 @@ ipcMain.on("quaver:mpris", (_e, state) => {
 // build-res 资源定位：打包态在 <resources>/build-res，开发态在 ui/build-res。
 const buildRes = (name) => join(app.isPackaged ? process.resourcesPath : UI_ROOT, "build-res", name);
 
+// 托盘外壳（面板/菜单栏/任务栏）的深浅 —— 判据是**外壳底色**，不是应用窗口主题。
+// 这里踩过坑：最初拿 nativeTheme 当判据，而它被我们写进 themeSource 的**应用主题**钉住（本应用
+// 默认主题就是 dark）→ 托盘图永远被判成「深色外壳」，系统切到浅色时菜单栏/面板变浅、图标还是
+// 浅色那份，直接看不见。所以每个平台都去取「系统给自己外壳的颜色」：
+//   Linux  自己探测（readSystemTheme，见 systheme.mjs —— nativeTheme 在 KDE 下只认那份静态 GTK 快照）
+//   macOS  读系统设置的 AppleInterfaceStyle（readMacShellTheme）—— 菜单栏底色只认它；nativeTheme
+//          在 mac 上（含 shouldUseDarkColorsForSystemIntegratedUI 那一档）跟着 themeSource 走，用不得
+//   Windows 用 shouldUseDarkColorsForSystemIntegratedUI：Electron 专门给「系统集成 UI（任务栏/通知区）」
+//          开的判据，明说是**系统**主题，跟应用自己 set 的 themeSource 解耦
+// 全判不出来才退回 nativeTheme，再不行交给 trayIconFile 兜底（按深色处理）。
+function trayAppearance() {
+  const detected = readSystemTheme() // Linux 桌面配色
+    ?? (process.platform === "darwin" ? readMacShellTheme() : null) // macOS 系统设置
+    ?? (process.platform === "win32"
+      ? (nativeTheme.shouldUseDarkColorsForSystemIntegratedUI ? "dark" : "light") // Windows 系统主题
+      : null);
+  return detected ?? (nativeTheme.shouldUseDarkColors ? "dark" : "light");
+}
+
+/** 托盘图：按 TRAY_ICON_PT 统一出图 + 附一张 @2x（mac 高 DPI 菜单栏不糊）。
+ *  尺寸必须显式 resize —— macOS 按点的原尺寸画 NSImage，素材直塞就是「托盘图标巨大」的成因。 */
+function trayImage() {
+  const appearance = trayAppearance();
+  const rel = trayIconFile(appearance);
+  // 一行日志记下判断结果：这套「外壳底色」的判据在 Linux 上依桌面而定（Hyprland 这类没有系统级
+  // 深浅色 API），出问题时只看日志就知道是判错了还是没刷新
+  log(`[quaver] tray icon: 外壳=${appearance} → build-res/${rel}`);
+  const src = nativeImage.createFromPath(buildRes(rel));
+  if (src.isEmpty()) return nativeImage.createEmpty(); // 素材缺失也别让 Tray 构造抛错
+  const image = nativeImage.createEmpty();
+  const rep = (px) => src.resize({ width: px, height: px, quality: "best" }).toDataURL();
+  image.addRepresentation({ scaleFactor: 1, dataURL: rep(TRAY_ICON_PT) });
+  image.addRepresentation({ scaleFactor: 2, dataURL: rep(TRAY_ICON_PT * 2) });
+  return image;
+}
+
+/** 外壳外观变了就换图（系统配色切换 / 应用主题档位切换都会走到这里）。Tray 没建好时是空操作。 */
+function refreshTrayImage() {
+  if (!tray) return;
+  try { tray.setImage(trayImage()); } catch (e) { log("[quaver] tray image update failed:", String(e)); }
+}
+
 function createTray() {
   // Linux 下 Electron Tray 实现 StatusNotifierItem（D-Bus），Plasma 原生支持；
   // AppIndicator 扩展没有 XEmbed 回退，老版 GNOME 看不到属正常。
-  // 托盘图固定用浅色版（tray.png）：面板多为深底，浅米底图标对比更好。
-  const iconPath = buildRes("tray.png");
-  let image = nativeImage.createFromPath(iconPath);
-  if (image.isEmpty()) image = nativeImage.createEmpty(); // 图标缺失也别让 Tray 构造抛错
-  tray = new Tray(image);
+  // 图标见 tray-icon.mjs：明暗两份按外壳底色挑，尺寸三平台统一（mac 上「图标巨大」就是这里修掉的）。
+  tray = new Tray(trayImage());
   tray.setToolTip("Quaver Music");
   // 首帧兜底菜单：渲染层快照到达后由 updateTrayMenu 整体替换
   tray.setContextMenu(buildTrayMenu());
@@ -882,7 +924,11 @@ app.whenReady().then(() => {
     // Electron 就不再去问系统了，那个事件自然不会来；盯文件才是真来源。
     watchSystemTheme(() => {
       if (themePref !== "dark" && themePref !== "light") applyThemeSource();
+      refreshTrayImage(); // 桌面配色变了：托盘图跟外壳底色走，跟应用窗口主题档位无关
     });
+    // macOS：菜单栏的深浅只认系统设置（见 trayAppearance 那段注释），单独盯一份 —— 非 mac 上
+    // 这个 watcher 自己什么都不做（readMacShellTheme 恒 null）。
+    watchMacShellTheme(() => refreshTrayImage());
   } catch (e) {
     log("[quaver] system theme watch failed:", String(e));
   }
@@ -919,6 +965,10 @@ app.whenReady().then(() => {
     app.quit();
   });
   try { createTray(); } catch (e) { log("[quaver] tray init failed:", String(e)); }
+  // 换托盘图的两条触发：①nativeTheme 的 updated（应用主题档位切换、以及 win/mac 上的系统配色切换
+  // 都会发）②Linux 的 watchSystemTheme（Electron 在 KDE 下看不见真实配色变化，见 systheme.mjs）。
+  // 换图本身很便宜（两张 256² 缩到 16/32），不做去重。
+  nativeTheme.on("updated", () => refreshTrayImage());
   try { startMpris(); } catch (e) { log("[quaver] mpris init failed:", String(e)); }
   try { hotkeys.apply(); } catch (e) { log("[quaver] hotkeys init failed:", String(e)); }
 });
