@@ -96,6 +96,9 @@ eq("自动检查更新默认开", P.getAutoCheck(), true);
 eq("更新渠道默认 stable", P.getUpdateChannel(), "stable");
 eq("已提醒版本标识默认空", P.getLastNotified(), "");
 eq("字体默认（族列表 ⇒ 认成系统默认）", [P.getUiFont(), P.getLyricFont()], ["custom", "custom"]);
+eq("背景默认跟随封面（升级后行为不变）", P.getBackgroundMode(), "cover");
+eq("背景图默认未选择", P.getBackgroundImage(), "");
+eq("背景模糊默认 70", P.getBackgroundBlur(), 70);
 check("内置字体列表能被反查成预设", P.fontKeyOf('"Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", SimSun, serif') === "serif");
 check("空字体值 = 系统默认", P.fontKeyOf("") === "system");
 check("自定义字体族列表归为 custom", P.fontKeyOf('"LXGW WenKai", serif') === "custom");
@@ -124,10 +127,25 @@ P.setUpdateChannel("stable");  eq("渠道 stable → Update.Channel", conf()["Up
 P.setLastNotified("nightly:1.2.0-abc1234");
 eq("跳过版本标识原样存取", P.getLastNotified(), "nightly:1.2.0-abc1234");
 P.setLastNotified("");
+// 背景（默认主题的环境色层）：模式 / 自定义图路径 / 模糊强度
+P.setBackgroundMode("off");     eq("BackgroundMode.off → off", conf()["Style.Background"], "off");
+P.setBackgroundMode("custom");  eq("BackgroundMode.custom → custom", conf()["Style.Background"], "custom");
+P.setBackgroundMode("cover");   eq("BackgroundMode.cover → cover", conf()["Style.Background"], "cover");
+P.setBackgroundImage("/home/me/pics/bg.jpg");
+eq("背景图路径写盘", conf()["Style.BackgroundImage"], "/home/me/pics/bg.jpg");
+P.setBackgroundBlur(30);
+eq("模糊拖拽即时进内存", P.getBackgroundBlur(), 30);
+await settle();
+eq("模糊是高频项 → 合并后落盘一次", conf()["Style.BackgroundBlur"], "30");
+P.setBackgroundBlur(9999);
+eq("越界值即时夹紧到上界", P.getBackgroundBlur(), 120);
+P.setBackgroundBlur(70);
+await settle();
 // 浏览器兜底模式存的是整份内存快照（键名应与 conf 的 Section.Key 完全一致，不能混进旧的 localStorage 键）
 const keys = Object.keys(conf());
 check("写盘键名齐全（Section.Key 风格）", [
   "Style.Style", "Style.DefaultUIFonts", "Style.DefaultLyricsFonts",
+  "Style.Background", "Style.BackgroundImage", "Style.BackgroundBlur",
   "Window.Decor", "Window.CloseAction",
   "Playing.Backend", "Playing.AudioDevice", "Playing.Fade", "Playing.PrevReplay", "Playing.InhibitSleep",
   "Quality.DefaultQuality", "Quality.FallbackToQMAtmos",
@@ -216,10 +234,33 @@ eq("预设名简写要展开成族列表（font-family: sans 是无效声明）"
 P.applyFonts();
 check("展开后 CSS 变量拿到的是族列表", /Noto Sans CJK SC/.test(cssVars.get("--font-ui") ?? ""), cssVars.get("--font-ui"));
 
+// 背景：读盘方向 + 兜底（手改 conf 写坏值不该把界面锁死）
+await reload({ "Style.Background": "custom" });
+eq("custom 读回", P.getBackgroundMode(), "custom");
+await reload({ "Style.Background": "off" });
+eq("off 读回", P.getBackgroundMode(), "off");
+await reload({ "Style.Background": "wallpaper" });
+eq("瞎写的模式回落 cover", P.getBackgroundMode(), "cover");
+await reload({ "Style.BackgroundImage": "  /x/bg.png  " });
+eq("路径两端空白被去掉", P.getBackgroundImage(), "/x/bg.png");
+await reload({ "Style.BackgroundBlur": "9999" });
+eq("越界模糊夹紧到 120", P.getBackgroundBlur(), 120);
+await reload({ "Style.BackgroundBlur": "-5" });
+eq("负数夹紧到 0", P.getBackgroundBlur(), 0);
+await reload({ "Style.BackgroundBlur": "" });
+eq("空值回落 70（不是 Number(\"\") === 0）", P.getBackgroundBlur(), 70);
+await reload({ "Style.BackgroundBlur": "很糊" });
+eq("非数值回落 70", P.getBackgroundBlur(), 70);
+await reload({ "Style.BackgroundBlur": "0" });
+eq("0 是合法值（不模糊），不许被当成空值", P.getBackgroundBlur(), 0);
+await reload({ "Style.Background": "cover", "Style.BackgroundBlur": "70", "Style.BackgroundImage": "" });
+
 // ——— 重置 ———
 section("重置");
 await P.resetConfig();
 eq("重置回到默认", [P.getTheme(), P.getDecode(), P.getFade()], ["dark", "MPV", "normal"]);
+eq("背景一并回到默认（FALLBACK 里也得有这三键）",
+  [P.getBackgroundMode(), P.getBackgroundImage(), P.getBackgroundBlur()], ["cover", "", 70]);
 eq("重置后的落盘值", conf()["Style.Style"], "dark");
 
 // ——— 切主题时 data-theme 同步 ———

@@ -27,9 +27,10 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
     ├── lyric.ts        # LRC 解析（含翻译行）
     ├── relay.ts        # /api -> sidecar:3200 中继（透传 + 封面取色代理）
     ├── style.css       # 全局样式
-    ├── lib/{api,config,prefs,songs,session,playlists,icons,transport,vip}.ts
+    ├── lib/{api,config,prefs,songs,session,playlists,icons,transport,vip,ambient}.ts
     │                     # config=quaver.conf 门面，prefs=偏好映射，songs=歌曲行渲染（含右键菜单挂载），
     │                     # session=会话存档（队列/进度），playlists=自建歌单读写，transport=播放传输抽象（见下），
+    │                     # ambient=默认主题的背景层（关闭/封面/自定义图 + 模糊强度），
     │                     # vip=/user/vip 的展示口径（到期时间/档位明细，见 verify-user-vip）
     └── components/
         ├── PlayerBar.ts    # 底部播放条（进度线/控制/收藏/队列；封面点击展开 np）
@@ -42,7 +43,9 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
 
 `electron/`（桌面壳，不属于 vite 构建）：`main.ts` 主进程（窗口/托盘/MPRIS daemon 拉起/音频引擎接线/配置 IPC）、
 `config.ts` 配置文件引擎（跨平台目录、INI 保注释读写、schema 与原子落盘）、
-`preload.cts` 桥（窗口控制 + MPRIS + `quaverAudio` + `quaverConfig`）、`native-server.ts` 打包态静态+/api 服务、
+`background.ts` 自定义背景图的读盘侧（只认 conf 里的路径 + 扩展名白名单 + 体积上限，见 `/api/bg`）、
+`preload.cts` 桥（窗口控制 + MPRIS + `quaverAudio` + `quaverConfig` + `quaverBackground`）、
+`native-server.ts` 打包态静态+/api 服务、
 `audio/` 原生音频引擎（`bins.ts` 二进制解析、`mpv-ipc.ts` libmpv JSON IPC、`engine.ts` 状态机与 IPC 命令面）。
 
 ## 配置持久化（quaver.conf）
@@ -61,6 +64,7 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
 
 ```ini
 [Style]     Style / DefaultUIFonts / DefaultLyricsFonts / ShowTranslation
+            Background / BackgroundImage / BackgroundBlur
 [Window]    Decor / CloseAction / SidebarCollapsed
 [Playing]   Backend / AudioDevice / Fade / Volume / Muted
 [Quality]   DefaultQuality / FallbackToQMAtmos
@@ -69,6 +73,10 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
 
 - 键名与可选值以 `electron/config.ts` 的 `SCHEMA` 为唯一真相；改新项要同时改
   `src/lib/config.ts` 的 `FALLBACK` 与 `src/lib/prefs.ts` 的类型化 getter/setter（三处）。
+- 「背景」三键 = 设置→外观→背景：`Background` 三档（`off` 关闭 / `cover` 当前曲封面 / `custom`
+  自定义图）、`BackgroundImage` 自定义图的绝对路径、`BackgroundBlur` 模糊强度（px，0..120，默认 70）。
+  自定义图由本地服务 `/api/bg` 按 conf 里那条路径读出（**路径不从渲染层来**，扩展名白名单 + 40MB 上限），
+  选图走原生对话框，仅在桌面端可用。默认 `cover`，即本功能上线前的老观感不变。
 - **保注释**：程序只改写对应键的那一行，注释、顺序、你自己加的键都原样保留；行内 `# 注释` 也认。
 - 字体两项存的就是 **CSS font-family 列表**（如 `Source Han Sans, "Microsoft YaHei", sans-serif`）。
   设置页里下拉给预设、右侧输入框可直接编辑，两边互相同步（选预设 → 填进输入框；输入非预设值 →
@@ -80,7 +88,8 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
 - 打包态页面跑在**固定端口**（`main.ts:STABLE_PORT`）：origin 稳定，Chromium 的 localStorage/IndexedDB/Cache
   才能跨启动延续；端口被占时 `native-server.ts` 自动回落系统分配端口（设置本就在 conf 里，不受影响）。
 
-自检：`pnpm run verify:config`（INI 引擎 + 渲染层映射，纯 Node，不用起浏览器）。
+自检：`pnpm run verify:config`（INI 引擎 + 渲染层映射，纯 Node，不用起浏览器）、
+`pnpm run verify:background`（背景读盘侧 + `/api/bg` 真 HTTP + 接线护栏）。
 
 ## 凭证存储（系统密钥管理器）
 

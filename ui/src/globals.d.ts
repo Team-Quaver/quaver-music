@@ -40,4 +40,9 @@ interface Window {
     /** 第二步：渲染层校验插件形状后回传本体（base64）与元数据，主进程落盘 */
     installLocal(msg: { dataBase64: string; meta?: Record<string, unknown> }): Promise<{ ok: boolean; id?: string; error?: string }>;
   };
+  /** 自定义背景图（设置→外观→背景）：选图与回显。图片本体走同源 /api/bg，不经这里。 */
+  quaverBackground?: {
+    pick(): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
+    info(): Promise<{ ok: boolean; path?: string; exists?: boolean; error?: string }>;
+  };
 }

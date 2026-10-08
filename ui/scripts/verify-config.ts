@@ -80,7 +80,7 @@ check("模板随读取落地", (readValues(), existsSync(FILE)));
 check("模板含全部段", ["[Style]", "[Window]", "[Playing]", "[Quality]", "[Security]", "[Update]"].every((s) => template().includes(s)));
 check("模板注释来自 schema", template().includes("可选 dark,light,follow-system"));
 eq("默认值与模板占位一致", (() => { const v = readValues().values; return v["Style.Style"] === "dark" && v["Playing.Backend"] === "MPV" && v["Quality.DefaultQuality"] === "Auto" && v["Quality.FallbackToQMAtmos"] === "False"; })(), true);
-eq("schema 默认值表条数", Object.keys(defaults()).length, 35); // WordByWord 移入 amll 插件设置；LyricScale 为行级歌词缩放；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
+eq("schema 默认值表条数", Object.keys(defaults()).length, 38); // WordByWord 移入 amll 插件设置；LyricScale 为行级歌词缩放；Background/BackgroundImage/BackgroundBlur 为默认主题背景（模式/自定义图/模糊强度）；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
 check("模板含热键两段", ["[Hotkeys.Global]", "[Hotkeys.Focus]"].every((s) => template().includes(s)));
 eq("全局热键默认 Ctrl+Alt+P", defaults()["Hotkeys.Global.Toggle"], "Ctrl+Alt+P");
 eq("焦点退出默认 Ctrl+Q", defaults()["Hotkeys.Focus.Quit"], "Ctrl+Q");
@@ -94,6 +94,23 @@ eq("队列宽度默认未自定义", defaults()["Window.QueueWidth"], "");
 eq("宽度键拒绝非数值", writeValues({ "Window.SidebarWidth": "wide" }), []);
 eq("宽度键拒绝超界", writeValues({ "Window.SidebarWidth": "99999", "Window.QueueWidth": "-3" }), []);
 eq("宽度键接受合法值与空值", writeValues({ "Window.SidebarWidth": "260", "Window.QueueWidth": "" }), ["Window.SidebarWidth", "Window.QueueWidth"]);
+
+// ——— 默认主题的背景（模式 / 自定义图路径 / 模糊强度）———
+eq("背景默认跟随封面", defaults()["Style.Background"], "cover");
+eq("背景图默认未选择", defaults()["Style.BackgroundImage"], "");
+eq("背景模糊默认 70px", defaults()["Style.BackgroundBlur"], "70");
+eq("背景模式拒绝瞎写", writeValues({ "Style.Background": "wallpaper" }), []);
+eq("背景模式接受关闭", writeValues({ "Style.Background": "off" }), ["Style.Background"]);
+eq("背景模式接受自定义", writeValues({ "Style.Background": "custom" }), ["Style.Background"]);
+eq("背景模式回到默认", writeValues({ "Style.Background": "cover" }), ["Style.Background"]);
+eq("背景图接受 Windows 绝对路径（反斜杠不特殊）", writeValues({ "Style.BackgroundImage": "C:\\Users\\me\\Pictures\\bg.jpg" }), ["Style.BackgroundImage"]);
+eq("背景图路径含空格与引号也能存", writeValues({ "Style.BackgroundImage": "/home/me/my pics/it's.jpg" }), ["Style.BackgroundImage"]);
+eq("背景图路径拒绝换行（会把 INI 段结构撕开）", writeValues({ "Style.BackgroundImage": "a.jpg\n[Evil]\nx=1" }), []);
+eq("背景图路径允许清空（= 未选择）", writeValues({ "Style.BackgroundImage": "" }), ["Style.BackgroundImage"]);
+eq("模糊强度拒绝超界", writeValues({ "Style.BackgroundBlur": "500" }), []);
+eq("模糊强度拒绝非数值", writeValues({ "Style.BackgroundBlur": "很糊" }), []);
+eq("模糊强度接受 0（原图不模糊）", (writeValues({ "Style.BackgroundBlur": "0" }), readValues().values["Style.BackgroundBlur"]), "0");
+eq("模糊强度回到默认", writeValues({ "Style.BackgroundBlur": "70" }), ["Style.BackgroundBlur"]);
 eq("非法布尔值被拒绝（侧栏缩回）", writeValues({ "Window.SidebarCollapsed": "maybe" }), []);
 eq("合法布尔值写入（侧栏缩回）", writeValues({ "Window.SidebarCollapsed": "True" }), ["Window.SidebarCollapsed"]);
 eq("非法音量被拒绝", writeValues({ "Playing.Volume": "1.5" }), []);

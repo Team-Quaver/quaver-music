@@ -9,6 +9,9 @@ import { pushHistory } from "./components/SearchBox";
 import { playNowWithToast, toast } from "./components/SongMenu";
 import { player, type Song } from "./player";
 import {
+  BG_BLUR_MAX,
+  BG_BLUR_MIN,
+  type BackgroundMode,
   type CloseAction,
   type DecorMode,
   type FadePreset,
@@ -17,6 +20,9 @@ import {
   FONT_LABELS,
   FONT_PRESETS,
   fontKeyOf,
+  getBackgroundBlur,
+  getBackgroundImage,
+  getBackgroundMode,
   getCloseAction,
   getAutoCheck,
   getDecode,
@@ -31,6 +37,9 @@ import {
   getUpdateChannel,
   normalizeFontList,
   setAutoCheck,
+  setBackgroundBlur,
+  setBackgroundImage,
+  setBackgroundMode,
   setCloseAction,
   setDecor,
   setFallbackSort,
@@ -46,6 +55,7 @@ import {
   type ThemeMode,
   type UpdateChannel,
 } from "./lib/prefs";
+import { applyBackground } from "./lib/ambient";
 import { checkAndPrompt, getPlatformInfo } from "./lib/updater";
 import { buildChannel, describeBuild, parseVersion } from "./lib/update-core";
 import { syncInhibit } from "./lib/inhibit";
@@ -954,6 +964,29 @@ async function settingsView(root: HTMLElement) {
         </div>
       </div>
 
+      <!-- 背景（默认主题的环境色层）：三档 + 自定义图片 + 模糊强度，绑定见下方 paintBg* -->
+      <div class="set-group">
+        <div class="set-label">背景 <span class="set-note-inline">默认主题的环境色层；插件主题自带背景时不受此项影响</span></div>
+        <div class="opt-cards" id="bg-cards">
+          <button class="opt-card" data-opt="off" type="button">关闭背景</button>
+          <button class="opt-card" data-opt="cover" type="button">专辑封面</button>
+          <button class="opt-card" data-opt="custom" type="button">自定义图片</button>
+          <!-- 「选择图片…」紧挨着「自定义图片」：只在选中它时才出现（paintBgMode 控 hidden），
+               虚边框 + 次级文字色 = 它是动作不是第四个档位 -->
+          <button class="opt-card action" id="bg-pick" type="button" hidden>选择图片…</button>
+          <span class="bg-file" id="bg-file" hidden></span>
+        </div>
+        <div class="set-row" id="bg-blur-row">
+          <span class="set-row__label">模糊强度</span>
+          <div class="set-row__ctrl">
+            <input class="set-blur" id="bg-blur" type="range" min="${BG_BLUR_MIN}" max="${BG_BLUR_MAX}" step="5"
+              aria-label="背景模糊强度" />
+            <span class="bg-blur-val" id="bg-blur-val"></span>
+          </div>
+        </div>
+        <p class="muted set-hint" id="bg-hint"></p>
+      </div>
+
       <!-- Sparkle 主题：卡片由下方 renderSparkleThemes 动态填充（无插件主题时整组隐藏） -->
       <div class="set-group" id="sparkle-theme-group" hidden>
         <div class="set-label">Sparkle 主题 <span class="set-note-inline">来自插件；覆盖在上方模式之上，未覆盖的变量跟随明暗</span></div>
@@ -1144,6 +1177,96 @@ async function settingsView(root: HTMLElement) {
 
   // 外观模式：跟随系统 / 明镜白 / 玄幻黑（prefs 写 html[data-theme]，style.css 响应）
   bindOptCards<ThemeMode>(wrap.querySelector<HTMLElement>("#theme-cards")!, getTheme, setTheme);
+
+  // —— 背景（默认主题的环境色层）：关闭背景 / 专辑封面 / 自定义图片 + 模糊强度 ——
+  // 选图走主进程的原生对话框（路径落进 quaver.conf，图片本体由同源 /api/bg 端点交给界面，
+  // 见 lib/ambient.ts）；浏览器 dev 下没有这个桥，只能看不能换。
+  const BG_HINT = "关闭背景：只留主题底色；专辑封面：当前曲封面模糊铺底（默认）；自定义图片：用你自己的图，建议把模糊强度调小。";
+  const bgCards = wrap.querySelector<HTMLElement>("#bg-cards")!;
+  const bgFile = wrap.querySelector<HTMLElement>("#bg-file")!;
+  const bgPick = wrap.querySelector<HTMLButtonElement>("#bg-pick")!;
+  const bgBlur = wrap.querySelector<HTMLInputElement>("#bg-blur")!;
+  const bgBlurVal = wrap.querySelector<HTMLElement>("#bg-blur-val")!;
+  const bgHint = wrap.querySelector<HTMLElement>("#bg-hint")!;
+  const bgBridge = window.quaverBackground;
+
+  const paintBlur = () => {
+    const px = getBackgroundBlur();
+    bgBlur.value = String(px);
+    // 已滑过的一段染色：值换算成百分比写 --v（与播放条音量滑块同一口径）
+    bgBlur.style.setProperty("--v", `${Math.round(((px - BG_BLUR_MIN) / (BG_BLUR_MAX - BG_BLUR_MIN)) * 100)}%`);
+    bgBlurVal.textContent = px === 0 ? "不模糊" : `${px}px`;
+  };
+  /** 图片一行：文件名 + 文件还在不在（被挪走/删掉要提示重选，不静默当没事）。 */
+  const paintBgFile = (info?: { path?: string; exists?: boolean; error?: string }) => {
+    const path = info?.path ?? getBackgroundImage();
+    if (!path) { bgFile.textContent = "尚未选择图片"; bgFile.title = ""; bgFile.classList.remove("bad"); return; }
+    const name = path.split(/[\\/]/).pop() || path;
+    const bad = info?.exists === false;
+    bgFile.textContent = bad ? `${name}（${info?.error ?? "不可用"}）` : name;
+    bgFile.title = path; // 完整路径挂 title：行内只放文件名，长路径不撑破布局
+    bgFile.classList.toggle("bad", bad);
+  };
+  const paintBgMode = () => {
+    const mode = getBackgroundMode();
+    syncSel(bgCards, "opt", mode);
+    // 「选择图片…」与文件名只在自定义档出现（就在那张卡片旁边）：不占别的档位的版面
+    const isCustom = mode === "custom";
+    bgPick.hidden = !isCustom;
+    bgFile.hidden = !isCustom;
+    bgBlur.disabled = mode === "off"; // 背景都关了，模糊强度无从谈起
+  };
+  /** 原生选图：成功（路径已落盘 + 界面重画）返回 true；取消/失败返回 false。 */
+  const pickBgImage = async (): Promise<boolean> => {
+    if (!bgBridge?.pick) return false;
+    bgPick.disabled = true;
+    try {
+      const r = await bgBridge.pick();
+      if (!r?.ok) { paintBgFile({ path: getBackgroundImage(), exists: false, error: r?.error ?? "选择失败" }); return false; }
+      if (r.canceled) return false;
+      // 主进程已经写盘；这里同步渲染层的内存快照（值相同，落盘侧是一次幂等重写）
+      setBackgroundImage(r.path ?? "");
+      applyBackground();
+      paintBgFile({ path: getBackgroundImage(), exists: true });
+      return true;
+    } catch (e) {
+      paintBgFile({ path: getBackgroundImage(), exists: false, error: errText(e) });
+      return false;
+    } finally {
+      bgPick.disabled = false;
+    }
+  };
+
+  bgCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
+    b.onclick = async () => {
+      const next = b.dataset.opt as BackgroundMode;
+      // 选「自定义」但还没有图：这一档点下去的意图就是去选图，直接弹对话框；
+      // 取消就停在原来的档位（不切到一个「自定义但没有图」的空状态）
+      if (next === "custom" && !getBackgroundImage() && !(await pickBgImage())) { paintBgMode(); return; }
+      setBackgroundMode(next);
+      applyBackground();
+      paintBgMode();
+    };
+  });
+  bgPick.onclick = async () => {
+    if (!(await pickBgImage())) return;
+    setBackgroundMode("custom"); // 「选择图片」本身就意味着要用这张图 → 顺手切到自定义档
+    applyBackground();
+    paintBgMode();
+  };
+  bgBlur.addEventListener("input", () => {
+    setBackgroundBlur(Number(bgBlur.value));
+    paintBlur();
+    applyBackground();
+  });
+
+  bgHint.textContent = bgBridge?.pick ? BG_HINT : `${BG_HINT} 浏览器里没法选本地图片，请在桌面端设置。`;
+  paintBlur();
+  paintBgMode();
+  paintBgFile();
+  // 文件还在不在要问主进程（渲染层看不到磁盘）：不在就提示重选
+  if (bgBridge?.info) void bgBridge.info().then((r) => { if (r?.ok) paintBgFile(r); }).catch(() => {});
+
   // Sparkle 主题：插件注册的自定义主题（覆盖在上方外观模式之上的变量层）。
   // 列表随注册表动态变化（插件异步启用/停用），onSparkleChange 重画整组；
   // 激活经 host 持久化并即时生效，停用激活主题所属插件时 host 自动回落默认。

@@ -99,6 +99,30 @@ pnpm run typecheck:node  # Node 侧，迁移中：尚未清零，不作闸门
   壳层直接加载 dist 文件时只有 `.html` 形式可用）。
 - 播放全局对象 `window.QuaverPlayer` 由 `PlayerBar()` 挂载。
 
+## 默认主题的背景（关闭 / 封面 / 自定义图 + 模糊强度）
+
+设置→外观→背景。三档模式 = `Style.Background`（`off` / `cover` / `custom`），自定义图的路径 =
+`Style.BackgroundImage`（原生选图写入的绝对路径），模糊强度 = `Style.BackgroundBlur`（px，0..120，
+默认 70 = 改造前的观感）。默认 `cover` = 本功能之前一直的行为，老配置升级后不变。
+
+- **渲染层分工**：`src/lib/prefs.ts` 只管「枚举 ⇄ 配置取值」；DOM 归 `src/lib/ambient.ts`
+  （建 `.ambient` 层、按 `data-mode` + `--ambient-blur` / `--ambient-scale` 应用、监听换曲）。
+  改完偏好要自己调 `applyBackground()`。`shell.ts` 只留 `--cvg-accent/--cvg-glow` 的**界面染色**
+  —— 那条与背景同源（同一张封面）但独立：关掉背景不该把界面高亮色一起关掉。
+- **图片怎么到界面**：走同源 `/api/bg`，与 `/api/sparkle/plugin/<id>/<file>` 同一套路
+  （dev/preview = `src/relay.ts`，打包态 = `electron/native-server.ts`，两个服务端共用
+  `electron/background.ts:backgroundResponse`）。**不走 data: URL**（4K 壁纸的 base64 是几 MB 的字符串
+  常驻内存）、**不过 IPC 传 buffer**、**不用 file://**（页面 Origin 是 http，Chromium 不许跨 scheme 取本地文件）。
+- **安全边界**（三条一起才成立，`verify-background` 逐条反向锁定）：
+  ① 路径只来自 `quaver.conf` —— 请求里的任何参数都不参与拼路径，渲染层无法指定读哪个文件；
+  ② 扩展名白名单 `BG_IMAGE_EXTS`；③ 只读**普通文件**且有 40MB 上限（否则 `/dev/zero` 一次请求读爆主进程）。
+- **两种图两种观感**（`style.css` 的 `.ambient[data-mode=…]`）：`cover` 是「环境色」，强模糊 +
+  提饱和/提亮只取色彩倾向 → 压到 55% 不透明；`custom` 是用户自己挑的图，满不透明且**不额外调色**。
+  扩边系数（`--ambient-scale`）随模糊一起收放 —— 扩边只为盖住 `blur()` 边缘发白，不模糊时白裁一圈图。
+- 选图是 Electron 专属（原生对话框）：浏览器 dev 下没有 `window.quaverBackground`，设置页给提示、
+  不给假按钮；`/api/bg` 在纯浏览器下读的是磁盘 conf（localStorage 里那份不参与），故也不出图。
+- 验证：`node scripts/verify-background.ts`（读盘侧真文件真 HTTP + 源码接线护栏，已进 `verify:static`）。
+
 ## 「跟随系统」深浅色（Linux 特有的坑）
 
 渲染层只认 `matchMedia("(prefers-color-scheme: dark)")`（`src/lib/prefs.ts`），但**这个值由谁决定

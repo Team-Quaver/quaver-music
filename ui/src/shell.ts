@@ -18,6 +18,7 @@ import { SearchBox } from "./components/SearchBox";
 import { playPlaylistNow, playSongsNow, openPlaylistMenu, openVirtualPlaylistMenu, type PlaylistMenuOptions } from "./components/PlaylistMenu";
 import { views, BACK_SVG } from "./views";
 import { extractCoverColor, toUiColors, type RGB } from "./lib/color";
+import { bootBackground } from "./lib/ambient";
 
 export const nav = [
   { path: "#/", label: "首页", icon: "home" },
@@ -129,29 +130,20 @@ function applyCoverTint(rgb: RGB | null) {
   root.style.setProperty("--cvg-glow", c.glow);
 }
 
-export function bootShell() {  // 环境色层：当前封面高斯模糊铺满窗口，供侧栏/播放条等玻璃面板透出色彩
-  const ambient = document.createElement("div");
-  ambient.className = "ambient";
-  ambient.innerHTML = `<div class="ambient-art"></div>`;
-  document.body.prepend(ambient);
-  const ambArt = ambient.querySelector<HTMLElement>(".ambient-art")!;
-  let ambPic = "";
+export function bootShell() {
+  // 背景层（关闭背景 / 专辑封面 / 自定义图片 + 模糊强度）由 lib/ambient.ts 接管；
+  // 这里只剩**界面染色**：把封面主色提升到 :root 的 --cvg-accent / --cvg-glow，供全局
+  // 高亮与条目背景消费。两者同源（同一张封面）但彼此独立 —— 关掉背景不该把界面的
+  // 高亮色一起关掉，所以染色留在壳层、不跟背景模式走。
+  bootBackground();
+  let tintPic = "";
   player.on(() => {
     const pic = player.current ? coverUrl(player.current, 300) : "";
-    if (pic === ambPic) return;
-    ambPic = pic;
-    if (!pic) { ambArt.classList.remove("ready"); applyCoverTint(null); return; }
-    const img = new Image();
-    img.onload = () => {
-      if (ambPic !== pic) return; // 期间已换曲
-      ambArt.style.backgroundImage = `url("${pic}")`;
-      ambArt.classList.add("ready");
-    };
-    img.onerror = () => { if (ambPic === pic) ambArt.classList.remove("ready"); }; // 封面 404：保持中性底
-    img.src = pic;
-    // UI 高亮/条目背景染色：与 ambient 同源，提取主色写入 :root 供全局消费
-    // （extractCoverColor 有 url 缓存，与 PlayerBar 各取一份不重复请求网络）
-    void extractCoverColor(pic).then((rgb) => { if (ambPic === pic) applyCoverTint(rgb); });
+    if (pic === tintPic) return;
+    tintPic = pic;
+    if (!pic) { applyCoverTint(null); return; }
+    // extractCoverColor 有 url 缓存，与背景层各取一份不重复请求网络
+    void extractCoverColor(pic).then((rgb) => { if (tintPic === pic) applyCoverTint(rgb); });
   });
 
   const frame = document.createElement("div");

@@ -6,6 +6,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, isAbsolute, join, normalize, relative } from "node:path";
+import { backgroundResponse } from "./background.ts";
 
 const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -167,6 +168,15 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
       const sub = url.pathname.slice(4); // 剥掉 "/api"
       if (sub === "/img") return proxyImage(url.searchParams.get("u"), res);
       if (sub === "/log") return serveLog(res, logFile, parseInt(url.searchParams.get("tail") ?? "800", 10) || 800);
+      // 自定义背景图（设置→外观→背景）：路径只认 quaver.conf 里那一条。
+      // dev/preview 在 src/relay.ts 有同构实现（同一个 backgroundResponse）。
+      if (sub === "/bg") {
+        const r = backgroundResponse();
+        res.statusCode = r.status;
+        res.setHeader("content-type", r.type);
+        res.setHeader("cache-control", "no-store"); // 换图后同 URL 也要拿到新的
+        return res.end(r.body);
+      }
       // Sparkle 已安装插件的文件服务（必须在 sidecar 转发之前截住）
       if (sub.startsWith("/sparkle/")) return serveSparkle(sub, res, pluginsRoot);
 

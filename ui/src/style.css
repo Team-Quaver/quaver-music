@@ -21,6 +21,9 @@
      transition 这两个变量 → 换曲染色时全局平滑过渡（所有消费 var(--cvg-*) 的属性都跟着动）。 */
   --cvg-accent: var(--acc); --cvg-glow: var(--cyan);
   transition: --cvg-accent .45s ease, --cvg-glow .45s ease;
+  /* 环境色层的模糊强度与扩边系数：由 src/lib/ambient.ts 按偏好写在这两个变量上
+     （这里给的是 CSS 侧兜底默认，与 BG_BLUR_DEFAULT / SCALE_AT_70 同值）。 */
+  --ambient-blur: 70px; --ambient-scale: 1.15;
 }
 html[data-theme="dark"] {
   --bg: #131417; --card: #232529; --side: #1b1d21; --ink: #e6e8ec; --ink2: #a6adb8;
@@ -68,17 +71,25 @@ input:focus, textarea:focus, select:focus {
 /* 搜索胶囊内的 input 无边框：聚焦态光环由 .sb-field:focus-within 统一画，本体不叠加 */
 .sb-field input:focus { border-color: transparent; }
 
-/* 环境色层：当前封面模糊铺底（玻璃面板的色彩来源）。
+/* 环境色层（默认主题的背景）：当前封面 / 自定义图铺底，为玻璃面板提供色彩来源。
    z-index:-1：画在 body 画布背景之上、所有常规流内容之下——
-   透明缝隙与 backdrop-filter 面板都能透出它，且不污染白色内容卡。 */
+   透明缝隙与 backdrop-filter 面板都能透出它，且不污染白色内容卡。
+   三档模式由 data-mode 驱动（见 src/lib/ambient.ts，取值 = quaver.conf 的 Style.Background）：
+     off    整层不画（只有主题底色）；
+     cover  封面环境色：强模糊 + 提饱和/提亮只取色彩倾向 → 压到 55% 不透明度；
+     custom 用户自己选的图：满不透明、不额外调色（他的图不该被改）。
+   模糊强度与扩边系数走 --ambient-blur / --ambient-scale（设置页滑块即时写入）。 */
 .ambient { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.ambient[data-mode="off"] { display: none; }
 .ambient-art {
   position: absolute; inset: 0; background-size: cover; background-position: center;
-  transform: scale(1.15); /* 扩边避免 blur() 边缘发白 */
-  filter: blur(70px) saturate(1.5) brightness(1.06);
+  transform: scale(var(--ambient-scale, 1.15)); /* 扩边避免 blur() 边缘发白（随模糊强度收放） */
+  filter: blur(var(--ambient-blur, 70px)) saturate(1.5) brightness(1.06);
   opacity: 0; transition: opacity 1.2s ease;
 }
 .ambient-art.ready { opacity: .55; }
+.ambient[data-mode="custom"] .ambient-art { filter: blur(var(--ambient-blur, 70px)); }
+.ambient[data-mode="custom"] .ambient-art.ready { opacity: 1; }
 
 .frame { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; position: relative; }
 /* CSD（frame:false）：无标题栏、无浮窗。三按钮+抓握点平铺在窗口右上角，
@@ -1154,6 +1165,14 @@ html[data-theme="dark"] .vip-card .is-expired { color: #e66; }
 .opt-card:hover:not(:disabled) { border-color: var(--ink2); }
 .opt-card.sel { border-color: var(--acc); box-shadow: inset 0 0 0 1.5px var(--acc); color: var(--acc); font-weight: 700; }
 .opt-card:disabled { opacity: .45; cursor: not-allowed; }
+/* 作者样式压过 UA 的 [hidden]{display:none}：这两个都自带 display（卡片是 inline-flex），
+   光加 hidden 属性根本藏不住 —— 背景分组的「选择图片…」靠它只在自定义档出现。
+   （同 .set-panel[hidden] 的来由；.bg-file 一并列出，免得以后给它加 display 时踩同一个坑。） */
+.opt-card[hidden], .bg-file[hidden] { display: none; }
+/* 选项卡组里的「动作」按钮（如今只有「选择图片…」）：虚边框 + 次级文字色，
+   与三张实心档位卡区分开 —— 它是动作，不是第四个档位。 */
+.opt-card.action { border-style: dashed; color: var(--ink2); font-weight: 400; }
+.opt-card.action:hover:not(:disabled) { color: var(--ink); }
 .opt-card .sw { width: 18px; height: 18px; border-radius: 5px; border: 1px solid #0002; flex: 0 0 auto; }
 .sw-system { background: linear-gradient(135deg, #cfd2d6 0 50%, #1f2329 50% 100%); }
 .sw-light { background: #fff; }
@@ -1312,6 +1331,38 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
   flex: 1; min-width: 240px; cursor: text;
   font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 12.5px;
 }
+
+/* 设置页 · 背景模糊滑块：外形与播放条音量滑块同一套语言（4px 轨道 + 12px 圆点，
+   已滑过的一段用 --cvg-accent 染色，--v 由 views.ts 随值写入）。
+   选择器写成 `.set-row__ctrl input.set-blur`：上面那条通用 input 规则打了边框/底色/内距，
+   单类选择器压不过它（0,1,1 vs 0,1,0），滑块会长成一个带框的方块。 */
+.set-row__ctrl input.set-blur,
+.set-row__ctrl input.set-blur:hover {
+  -webkit-appearance: none; appearance: none;
+  flex: 1 1 180px; min-width: 140px; max-width: 280px; height: 16px;
+  padding: 0; margin: 0; border: 0; border-radius: 0;
+  background: transparent; cursor: pointer;
+}
+.set-blur::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--cvg-accent, var(--acc)) var(--v, 58%), var(--track) var(--v, 58%));
+}
+.set-blur::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 12px; height: 12px; border: 0; border-radius: 50%;
+  background: var(--cvg-accent, var(--acc)); margin-top: -4px; box-shadow: 0 1px 3px #0004;
+}
+.set-blur::-moz-range-track { height: 4px; border-radius: 2px; background: var(--track); }
+.set-blur::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--cvg-accent, var(--acc)); }
+.set-blur::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: var(--cvg-accent, var(--acc)); box-shadow: 0 1px 3px #0004; }
+.set-row__ctrl input.set-blur:disabled { opacity: .5; cursor: not-allowed; }
+.set-blur:disabled::-webkit-slider-thumb { background: var(--idx); }
+.set-blur:disabled::-moz-range-thumb { background: var(--idx); }
+.bg-blur-val { font-size: 12px; color: var(--ink2); min-width: 40px; font-variant-numeric: tabular-nums; }
+/* 背景图一行的文件名：过长省略（完整路径挂在 title 上）；align-self 让它与旁边的卡片垂直居中
+   —— 它现在挂在 .opt-cards 里，那个 flex 行默认 align-items:stretch */
+.bg-file { align-self: center; font-size: 12px; color: var(--ink2); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bg-file.bad { color: #ff8a3c; }
 
 /* 设置页的分组不再用卡片底色，统一走发丝线；关于区居中收尾 */
 .set-view .set-about { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 32px 0; }

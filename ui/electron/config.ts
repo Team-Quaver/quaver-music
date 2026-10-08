@@ -198,6 +198,16 @@ export const isHotkey = (v: unknown): boolean => {
 // 但不接受能改 CSS 结构的字符（; { } 换行）或 url() —— 手改配置文件也注入不进别的东西。
 const isFontList = (v: string): boolean => !/[;{}\r\n]|url\s*\(/i.test(v);
 
+/** 自定义背景图支持的扩展名（同时也是原生「选择图片」对话框的过滤器，与 /api/bg 的白名单同源）。
+ *  这里收窄是有意义的：/api/bg 只肯吐图片后缀的文件，手改配置文件也读不到别的文件。 */
+export const BG_IMAGE_EXTS = ["jpg", "jpeg", "png", "webp", "gif", "bmp", "avif"] as const;
+
+/** 背景图路径校验：空值合法（= 未选择）；否则只要求「单行、非控制字符、长度合理」——
+ *  路径里的 `"` `=` `#` 等字符不在这里拦（那是用户自己机器上的文件名，读盘侧不吃字符串拼接）。
+ *  唯一要防的是换行/回车：INI 是逐行解析的，写进去会把配置文件的段结构撕开。 */
+const isBackgroundImagePath = (v: string): boolean =>
+  v.trim() === "" || (!/[\r\n\u0000]/.test(v) && v.length <= 1024);
+
 /** schema 里一个键的完整描述：默认值、文件内注释、值域校验器。 */
 export interface KeySpec {
   key: string;
@@ -248,6 +258,33 @@ export const SCHEMA: SectionSpec[] = [
         def: "1",
         doc: ["正在播放页行级（LRC）歌词缩放：0.7..1.5，1=默认；字号与行距随同一系数缩放。逐字（QRC/AMLL）模式不生效"],
         valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0.7 && Number(v) <= 1.5,
+      },
+      {
+        key: "Background",
+        def: "cover",
+        doc: [
+          "默认主题的背景（环境色层）：off=关闭（只有主题底色）｜cover=当前曲封面模糊铺底（默认）｜custom=自定义图片",
+          "（路径见 BackgroundImage）。插件主题自带背景时不受此项约束",
+        ],
+        valid: (v: string) => ["off", "cover", "custom"].includes(v),
+      },
+      {
+        key: "BackgroundImage",
+        def: "",
+        doc: [
+          "自定义背景图片的**绝对路径**（设置页「选择图片」写入）；留空=尚未选择。",
+          "图片由客户端本地服务（/api/bg）按此路径读出并交给界面，扩展名限 jpg/jpeg/png/webp/gif/bmp/avif",
+        ],
+        valid: isBackgroundImagePath,
+      },
+      {
+        key: "BackgroundBlur",
+        def: "70",
+        doc: [
+          "背景模糊强度（px，高斯半径）：0..120，0=原图不模糊。",
+          "自定义图片建议小值（看得清图），封面环境色建议大值（只取色彩倾向）",
+        ],
+        valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 120,
       },
     ],
   },

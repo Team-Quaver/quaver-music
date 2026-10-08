@@ -118,6 +118,45 @@ export function applyFonts() {
   if (ly) r.setProperty("--font-lyric", ly); else r.removeProperty("--font-lyric");
 }
 
+// —— 默认主题的背景（环境色层）：模式 + 自定义图 + 模糊强度 ——
+// 模式落在 quaver.conf 的 [Style] Background（off / cover / custom），自定义图的路径落在
+// BackgroundImage（由设置页的原生选图写进来，主进程读它、经同源 /api/bg 交给界面）。
+// 这里**只**管「内部枚举 ⇄ 配置取值」：DOM 归 src/lib/ambient.ts —— prefs 被 player/api
+// 反向依赖，不能反过来 import 渲染层的东西（成环）。改完要自己调 applyBackground()。
+export type BackgroundMode = "off" | "cover" | "custom";
+const CONF_TO_BG: Record<string, BackgroundMode> = { off: "off", cover: "cover", custom: "custom" };
+
+export function getBackgroundMode(): BackgroundMode {
+  return CONF_TO_BG[cfg("Style.Background", "cover")] ?? "cover";
+}
+export function setBackgroundMode(m: BackgroundMode) {
+  cfgSet({ "Style.Background": CONF_TO_BG[m] ?? "cover" });
+}
+export function getBackgroundImage(): string {
+  return cfg("Style.BackgroundImage").trim();
+}
+export function setBackgroundImage(path: string) {
+  cfgSet({ "Style.BackgroundImage": (path ?? "").trim() });
+}
+
+export const BG_BLUR_MIN = 0;
+export const BG_BLUR_MAX = 120;
+export const BG_BLUR_DEFAULT = 70;
+
+/** 模糊强度（px 高斯半径）。空值/非数值回落默认；越界夹紧（手改 conf 写 9999 不该把界面糊死）。 */
+export function getBackgroundBlur(): number {
+  const raw = cfg("Style.BackgroundBlur", String(BG_BLUR_DEFAULT)).trim();
+  if (!raw) return BG_BLUR_DEFAULT; // Number("") === 0 的坑：空值 ≠ 不模糊
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return BG_BLUR_DEFAULT;
+  return Math.min(BG_BLUR_MAX, Math.max(BG_BLUR_MIN, Math.round(n)));
+}
+/** 拖滑块是高频项 → 合并落盘（与音量同一套）。 */
+export function setBackgroundBlur(px: number) {
+  const clamped = Math.max(BG_BLUR_MIN, Math.min(BG_BLUR_MAX, Math.round(px)));
+  cfgSetSoon({ "Style.BackgroundBlur": String(clamped) });
+}
+
 // —— 窗口装饰：CSD=自绘（右上角平铺按钮簇，无标题栏/无浮窗底）；SSD=系统标题栏（Electron 重建窗口生效） ——
 export function getDecor(): DecorMode {
   return cfg("Window.Decor") === "ssd" ? "ssd" : "csd";

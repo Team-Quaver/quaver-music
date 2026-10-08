@@ -61,6 +61,13 @@ contextBridge.exposeInMainWorld("quaverSecurity", {
   info: () => ipcRenderer.invoke("quaver:credential-info"),
 });
 
+// 自定义背景图（设置→外观→背景）：pick = 原生选图（主进程把路径写进 quaver.conf），
+// info = 回显当前路径/文件是否还在。图片本体不经这里 —— 界面走同源 /api/bg 拿。
+contextBridge.exposeInMainWorld("quaverBackground", {
+  pick: () => ipcRenderer.invoke("quaver:background", { op: "pick" }),
+  info: () => ipcRenderer.invoke("quaver:background", { op: "info" }),
+});
+
 // Sparkle 插件系统（第三方插件管理）：list/install/uninstall/market/pick-local/install-local
 // 均由主进程执行，渲染层只拿结果。安装 ≠ 启用：装完默认不加载，需用户在设置页手动开启。
 contextBridge.exposeInMainWorld("quaverSparkle", {

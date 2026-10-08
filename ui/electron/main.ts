@@ -13,6 +13,9 @@ import { fileURLToPath } from "node:url";
 import { audioEngine } from "./audio/engine.ts";
 // 配置文件（quaver.conf）与跨平台目录规则：路径单一真相，渲染层与 sidecar 都对齐这一份
 import { configDir, configFile, ensureConfigDir, logFile, readValues, resetConfig, writeValues } from "./config.ts";
+// 自定义背景图（默认主题）：路径只认 quaver.conf 里那一条，图片本体由 /api/bg 交给界面
+// （dev/preview 走 src/relay.ts、打包态走 native-server.ts，同一个 backgroundResponse）
+import { BG_DIALOG_EXTENSIONS, backgroundInfo, backgroundMime } from "./background.ts";
 // 系统深浅色探测（Linux 桌面各自的真相来源，见模块头）：「跟随系统」要靠它才真的跟得上；
 // macOS 的菜单栏深浅、Windows 的任务栏/通知区域深浅（都是托盘图用的**外壳**判据）也在这里
 // ——三者是不同的问题，别混
@@ -799,6 +802,33 @@ ipcMain.handle("quaver:sparkle", async (_e, msg) => {
 
 // 应用自更新（设置-通用）：检查/下载/安装的执行端在 update.ts，渲染层负责编排与提醒
 setupUpdaterIPC({ log });
+
+// 自定义背景图（设置→外观→背景）：pick = 原生选图并落盘路径（图片本体不走 IPC，见 electron/background.ts）；
+// info = 设置页回显用（路径 + 文件现在还在不在 —— 用户把图挪走/删掉时要能提示重选）。
+ipcMain.handle("quaver:background", async (_e, msg) => {
+  const op = msg?.op;
+  try {
+    if (op === "info") return { ok: true, ...backgroundInfo() };
+    if (op === "pick") {
+      const r = await dialog.showOpenDialog(win ?? undefined, {
+        title: "选择背景图片",
+        filters: [{ name: "图片", extensions: BG_DIALOG_EXTENSIONS }],
+        properties: ["openFile"],
+      });
+      const picked = r.canceled ? "" : String(r.filePaths[0] ?? "");
+      if (!picked) return { ok: true, canceled: true };
+      // 对话框过滤器可以被用户切到「所有文件」，所以这里再核一次格式 —— 与 /api/bg 同一份白名单
+      if (!backgroundMime(picked)) return { ok: false, error: `不支持的图片格式（只认 ${BG_DIALOG_EXTENSIONS.join(" / ")}）` };
+      writeValues({ "Style.BackgroundImage": picked }); // 幂等兜底：渲染层也会写，这里保证主进程侧落盘
+      log("[quaver] background ->", picked);
+      return { ok: true, path: picked };
+    }
+    return { ok: false, error: `unknown op: ${op}` };
+  } catch (e) {
+    log("[quaver] background op failed:", String(op), String(e));
+    return { ok: false, error: String(e) };
+  }
+});
 
 // 凭证存储状态（**不含凭证本体**）：确认这次到底走的是密钥环还是 0600 明文，排查用。
 // 只读，不提供「读取凭证」的入口 —— 凭证永不进渲染层。

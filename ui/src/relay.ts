@@ -8,6 +8,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join, normalize, relative } from "node:path";
 import { configDir } from "../electron/config.ts";
+import { backgroundResponse } from "../electron/background.ts";
 
 const SIDECAR = process.env.QUAVER_API ?? "http://127.0.0.1:3200";
 
@@ -145,6 +146,15 @@ export function apiRelay(): Connect.NextHandleFunction {
 
     if (path === "img") return proxyImage(url.searchParams.get("u"), res);
     if (path === "log") return serveLog(res, parseInt(url.searchParams.get("tail") ?? "800", 10) || 800);
+    // 自定义背景图（设置→外观→背景）：路径只认 quaver.conf 里那一条，query 只当缓存击穿用。
+    // 打包态在 native-server.ts 有同构实现（同一个 backgroundResponse）。
+    if (path === "bg") {
+      const r = backgroundResponse();
+      res.statusCode = r.status;
+      res.setHeader("content-type", r.type);
+      res.setHeader("cache-control", "no-store"); // 换图后同 URL 也要拿到新的
+      return res.end(r.body);
+    }
     // Sparkle 已安装插件的文件服务（/api/sparkle/...，打包态在 native-server.ts 有同构实现）
     if (path.startsWith("sparkle/")) return serveSparkle("/" + path, res);
 
