@@ -65,6 +65,7 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
 ```ini
 [Style]     Style / DefaultUIFonts / DefaultLyricsFonts / ShowTranslation
             Background / BackgroundImage / BackgroundBlur
+            Tint / TintColor
 [Window]    Decor / CloseAction / SidebarCollapsed
 [Playing]   Backend / AudioDevice / Fade / Volume / Muted
 [Quality]   DefaultQuality / FallbackToQMAtmos
@@ -78,6 +79,11 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
   自定义图由本地服务 `/api/bg` 按 conf 里那条路径读出（**路径不从渲染层来**，扩展名白名单 + 40MB 上限），
   选图走原生对话框，仅在桌面端可用。默认值只对「键缺失 / 全新配置 / 恢复默认」生效 ——
   conf 首启就按模板物化，已写过的值不会被改默认值搬动。
+- 「高亮颜色」两键 = 设置→外观→高亮颜色：`Tint` 三档（`default` 固定青色（**默认**，不跟封面跑）/
+  `cover` 当前曲封面主色 / `custom` 自定义色）、`TintColor` 自定义色的 `#rrggbb` 字面量。
+  它决定 `--cvg-accent` / `--cvg-glow`（UI 高亮）与 `--cvg-bar-fill` / `--cvg-bar-line`（播放条）——
+  全应用只有 `src/lib/tint.ts` 一处写这些变量。自定义色的选择器按 HSL / CMYK / RGB 编辑并支持直接填 HEX，
+  落盘只存 HEX 一种规范形态（`#rgb` / `#rrggbb`，其余值不合法会回落默认并写日志）。
 - **保注释**：程序只改写对应键的那一行，注释、顺序、你自己加的键都原样保留；行内 `# 注释` 也认。
 - 字体两项存的就是 **CSS font-family 列表**（如 `Source Han Sans, "Microsoft YaHei", sans-serif`）。
   设置页里下拉给预设、右侧输入框可直接编辑，两边互相同步（选预设 → 填进输入框；输入非预设值 →

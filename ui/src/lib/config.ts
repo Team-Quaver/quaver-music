@@ -23,6 +23,8 @@ const FALLBACK: ConfigSnapshot = {
   "Style.Background": "off",
   "Style.BackgroundImage": "",
   "Style.BackgroundBlur": "70",
+  "Style.Tint": "default",
+  "Style.TintColor": "#19c2d8",
   "Window.Decor": "csd",
   "Window.CloseAction": "tray",
   "Window.SidebarCollapsed": "False",

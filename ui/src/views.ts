@@ -33,6 +33,8 @@ import {
   getLyricFontList,
   getPrevBehavior,
   getTheme,
+  getTintColor,
+  getTintMode,
   getUiFontList,
   getUpdateChannel,
   normalizeFontList,
@@ -48,14 +50,20 @@ import {
   setLyricFontPreset,
   setPrevBehavior,
   setTheme,
+  setTintColor,
+  setTintMode,
   setUiFontList,
   setUiFontPreset,
   setUpdateChannel,
+  TINT_DEFAULT_COLOR,
   type PrevBehavior,
   type ThemeMode,
+  type TintMode,
   type UpdateChannel,
 } from "./lib/prefs";
 import { applyBackground } from "./lib/ambient";
+import { applyTint } from "./lib/tint";
+import { cmyk2rgb, hsl2rgb, parseHex, rgb2cmyk, rgb2hsl, toHex, type RGB } from "./lib/color";
 import { checkAndPrompt, getPlatformInfo } from "./lib/updater";
 import { buildChannel, describeBuild, parseVersion } from "./lib/update-core";
 import { syncInhibit } from "./lib/inhibit";
@@ -987,6 +995,45 @@ async function settingsView(root: HTMLElement) {
         <p class="muted set-hint" id="bg-hint"></p>
       </div>
 
+      <!-- 高亮颜色（tint）：三档来源 + 自定义色的颜色选择器（HSL / CMYK / RGB + HEX），
+           绑定见下方 paintTint* 那一段 -->
+      <div class="set-group">
+        <div class="set-label">高亮颜色 <span class="set-note-inline">进度条 / 选中态 / 激活描边用的强调色系</span></div>
+        <div class="opt-cards" id="tint-cards">
+          <button class="opt-card" data-opt="default" type="button">青色（默认）</button>
+          <button class="opt-card" data-opt="cover" type="button">跟随封面</button>
+          <div class="tint-slot" id="tint-slot">
+            <button class="opt-card" data-opt="custom" type="button">自定义颜色</button>
+            <!-- 当前自定义色的色块：动作按钮样式（虚边框）+ 点它展开/收起旁边的选择器；只在自定义档出现 -->
+            <button class="opt-card action tint-chip" id="tint-chip" type="button" hidden
+              aria-label="展开或收起颜色选择器" aria-expanded="false"></button>
+            <div class="tint-pop" id="tint-pop" hidden>
+              <div class="tint-pop__head">
+                <span class="tint-pop__title">颜色选择器</span>
+                <button class="tint-pop__fold" id="tint-fold" type="button">收起</button>
+              </div>
+              <div class="tint-preview">
+                <span class="tint-preview__sw" id="tint-swatch"></span>
+                <code class="tint-preview__hex" id="tint-code"></code>
+              </div>
+              <input class="tint-hue" id="tint-hue" type="range" min="0" max="359" step="1" aria-label="色相" />
+              <div class="tint-modes" id="tint-modes" role="tablist">
+                <button class="tint-mode" data-mode="hsl" type="button" role="tab">HSL</button>
+                <button class="tint-mode" data-mode="cmyk" type="button" role="tab">CMYK</button>
+                <button class="tint-mode" data-mode="rgb" type="button" role="tab">RGB</button>
+              </div>
+              <div class="tint-fields" id="tint-fields"></div>
+              <div class="tint-hex-row">
+                <span class="tint-field__label">HEX</span>
+                <input id="tint-hex" type="text" spellcheck="false" autocomplete="off" maxlength="7"
+                  placeholder="#19c2d8" aria-label="颜色十六进制值" />
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="muted set-hint" id="tint-hint"></p>
+      </div>
+
       <!-- Sparkle 主题：卡片由下方 renderSparkleThemes 动态填充（无插件主题时整组隐藏） -->
       <div class="set-group" id="sparkle-theme-group" hidden>
         <div class="set-label">Sparkle 主题 <span class="set-note-inline">来自插件；覆盖在上方模式之上，未覆盖的变量跟随明暗</span></div>
@@ -1266,6 +1313,167 @@ async function settingsView(root: HTMLElement) {
   paintBgFile();
   // 文件还在不在要问主进程（渲染层看不到磁盘）：不在就提示重选
   if (bgBridge?.info) void bgBridge.info().then((r) => { if (r?.ok) paintBgFile(r); }).catch(() => {});
+
+  // —— 高亮颜色（tint）：三档来源 + 自定义色的颜色选择器（HSL / CMYK / RGB + HEX） ——
+  // 颜色真相只有一个 RGB：三个模式与 HEX 都只是它的不同表示，表示之间的换算走 lib/color.ts 的
+  // 纯函数。落盘的永远是 HEX（prefs.setTintColor），样式侧由 lib/tint.ts 写 --cvg-accent/--cvg-glow。
+  const TINT_HINT = "青色：固定强调色，不随歌曲变化（默认）；跟随封面：取当前曲封面主色（换曲平滑过渡）；自定义颜色：自己挑，点色块展开颜色选择器，支持 HSL / CMYK / RGB 与 HEX。";
+  const tintCards = wrap.querySelector<HTMLElement>("#tint-cards")!;
+  const tintChip = wrap.querySelector<HTMLButtonElement>("#tint-chip")!;
+  const tintPop = wrap.querySelector<HTMLElement>("#tint-pop")!;
+  const tintFold = wrap.querySelector<HTMLButtonElement>("#tint-fold")!;
+  const tintSwatch = wrap.querySelector<HTMLElement>("#tint-swatch")!;
+  const tintCode = wrap.querySelector<HTMLElement>("#tint-code")!;
+  const tintHue = wrap.querySelector<HTMLInputElement>("#tint-hue")!;
+  const tintModes = wrap.querySelector<HTMLElement>("#tint-modes")!;
+  const tintFields = wrap.querySelector<HTMLElement>("#tint-fields")!;
+  const tintHex = wrap.querySelector<HTMLInputElement>("#tint-hex")!;
+  const tintHint = wrap.querySelector<HTMLElement>("#tint-hint")!;
+  const chipSw = h("span", "tint-chip__sw");
+  tintChip.append(chipSw);
+
+  type ColorMode = "hsl" | "cmyk" | "rgb";
+  /** 每个模式的通道定义：k 用于读写输入框，label + suffix 只影响显示。 */
+  const CHANNELS: Record<ColorMode, { k: string; label: string; min: number; max: number; suffix: string }[]> = {
+    hsl: [
+      { k: "h", label: "H", min: 0, max: 359, suffix: "°" },
+      { k: "s", label: "S", min: 0, max: 100, suffix: "%" },
+      { k: "l", label: "L", min: 0, max: 100, suffix: "%" },
+    ],
+    cmyk: [
+      { k: "c", label: "C", min: 0, max: 100, suffix: "%" },
+      { k: "m", label: "M", min: 0, max: 100, suffix: "%" },
+      { k: "y", label: "Y", min: 0, max: 100, suffix: "%" },
+      { k: "k", label: "K", min: 0, max: 100, suffix: "%" },
+    ],
+    rgb: [
+      { k: "r", label: "R", min: 0, max: 255, suffix: "" },
+      { k: "g", label: "G", min: 0, max: 255, suffix: "" },
+      { k: "b", label: "B", min: 0, max: 255, suffix: "" },
+    ],
+  };
+
+  let colorMode: ColorMode = "hsl";
+  let popOpen = false; // 选择器是否展开（只对自定义档有意义）
+  // 选择器编辑的永远是自定义色的值；进来时以配置为准（配置里的才是真相）
+  let tintRgb: RGB = parseHex(getTintColor()) ?? parseHex(TINT_DEFAULT_COLOR) ?? { r: 25, g: 194, b: 216 };
+
+  const unit01 = (n: number) => Math.max(0, Math.min(1, Number.isFinite(n) ? n : 0));
+  const pctInt = (n: number) => Math.round(unit01(n) * 100);
+
+  /** 当前色在某个模式下的通道取值（整数，直接进输入框）。 */
+  const channelValues = (m: ColorMode): number[] => {
+    if (m === "rgb") return [tintRgb.r, tintRgb.g, tintRgb.b];
+    if (m === "hsl") {
+      const { h, s, l } = rgb2hsl(tintRgb);
+      return [Math.round(h), pctInt(s), pctInt(l)];
+    }
+    const { c, m: mg, y, k } = rgb2cmyk(tintRgb);
+    return [pctInt(c), pctInt(mg), pctInt(y), pctInt(k)];
+  };
+  /** 把某模式的通道值组装回 RGB。 */
+  const rgbFromChannels = (m: ColorMode, v: number[]): RGB => {
+    if (m === "rgb") return { r: v[0], g: v[1], b: v[2] };
+    if (m === "hsl") return hsl2rgb(v[0], unit01(v[1] / 100), unit01(v[2] / 100));
+    return cmyk2rgb({ c: unit01(v[0] / 100), m: unit01(v[1] / 100), y: unit01(v[2] / 100), k: unit01(v[3] / 100) });
+  };
+  const fieldOf = (k: string) => tintFields.querySelector<HTMLInputElement>(`[data-k="${k}"]`);
+
+  /** 各显示位（色块 / HEX 码 / 色相条 / HEX 框）跟着真相走。 */
+  const paintColor = (hueOverride?: number) => {
+    const hex = toHex(tintRgb);
+    tintSwatch.style.background = hex;
+    chipSw.style.background = hex;
+    tintCode.textContent = hex;
+    tintHue.value = String(Math.round(hueOverride ?? rgb2hsl(tintRgb).h));
+    if (document.activeElement !== tintHex) tintHex.value = hex;
+  };
+  /** 通道输入框回填：正在编辑的那个不动（否则会打断输入 / 把半截值抹掉）。 */
+  const refreshFields = () => {
+    const vals = channelValues(colorMode);
+    CHANNELS[colorMode].forEach((ch, i) => {
+      const el = fieldOf(ch.k);
+      if (el && document.activeElement !== el) el.value = String(vals[i]);
+    });
+  };
+  /** 写色：真相 → 落盘 + 即时生效（写 CSS 变量）→ 刷新显示位。 */
+  const commitColor = (next: RGB) => {
+    tintRgb = { r: Math.round(next.r), g: Math.round(next.g), b: Math.round(next.b) };
+    setTintColor(toHex(tintRgb));
+    applyTint();
+    paintColor();
+    refreshFields();
+  };
+  /** 重建当前模式的通道输入行（只在切模式时调；输入过程中不重建，免得丢焦点）。 */
+  const renderFields = () => {
+    const vals = channelValues(colorMode);
+    tintFields.innerHTML = CHANNELS[colorMode].map((ch, i) =>
+      `<label class="tint-field"><span class="tint-field__label">${ch.label}${ch.suffix}</span>`
+      + `<input type="number" inputmode="numeric" data-k="${ch.k}" min="${ch.min}" max="${ch.max}" step="1"`
+      + ` value="${vals[i]}" aria-label="${ch.label}" /></label>`,
+    ).join("");
+    tintModes.querySelectorAll<HTMLElement>("[data-mode]")
+      .forEach((b) => b.classList.toggle("sel", b.dataset.mode === colorMode));
+  };
+
+  tintModes.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => {
+    b.onclick = () => { colorMode = b.dataset.mode as ColorMode; renderFields(); };
+  });
+  tintFields.addEventListener("input", () => {
+    const cur = channelValues(colorMode);
+    const vals = CHANNELS[colorMode].map((ch, i) => {
+      const raw = (fieldOf(ch.k)?.value ?? "").trim();
+      if (raw === "") return cur[i]; // 清空中的框按原值算，不瞬间掉到下限
+      const n = Number(raw);
+      return Number.isFinite(n) ? Math.max(ch.min, Math.min(ch.max, Math.round(n))) : cur[i];
+    });
+    commitColor(rgbFromChannels(colorMode, vals));
+  });
+  // 离开输入框时校正越界值（R 里敲 300 会被夹到 255，但框里还显示着 300）
+  tintFields.addEventListener("blur", refreshFields, true);
+  tintHue.addEventListener("input", () => {
+    const hue = Number(tintHue.value);
+    const { s, l } = rgb2hsl(tintRgb);
+    // 无彩度（灰/黑白）时给一个看得出颜色的 S/L，否则拖色相条毫无反馈
+    const base = s < 0.02 ? { s: 0.75, l: 0.5 } : { s, l };
+    commitColor(hsl2rgb(hue, base.s, base.l));
+    paintColor(hue); // 用拖动值回填滑块，免得 hsl→rgb→hsl 往返把圆点抖回去
+  });
+  tintHex.addEventListener("input", () => {
+    const c = parseHex(tintHex.value);
+    if (c) commitColor(c); // 半截输入（如 "#19"）不是合法字面量，先不改色
+  });
+
+  /** 展开/收起选择器。非自定义档不给开 —— 面板编的就是自定义色，别的档位没有可编的色。 */
+  const setPopOpen = (open: boolean) => {
+    popOpen = open && getTintMode() === "custom";
+    tintPop.hidden = !popOpen;
+    tintChip.setAttribute("aria-expanded", String(popOpen));
+  };
+  const paintTintMode = () => {
+    const mode = getTintMode();
+    syncSel(tintCards, "opt", mode);
+    // 色块只在自定义档出现；离开该档时选择器一并收起
+    tintChip.hidden = mode !== "custom";
+    setPopOpen(popOpen);
+  };
+
+  tintCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
+    b.onclick = () => {
+      const next = b.dataset.opt as TintMode;
+      setTintMode(next);
+      applyTint(); // 档位换了要立刻重写 CSS 变量（封面档还会去取当前曲封面）
+      if (next === "custom") popOpen = true; // 点「自定义颜色」→ 就地弹出选择器
+      paintTintMode();
+    };
+  });
+  tintChip.onclick = () => { setPopOpen(!popOpen); };
+  tintFold.onclick = () => { setPopOpen(false); };
+
+  tintHint.textContent = TINT_HINT;
+  renderFields();
+  paintColor();
+  paintTintMode();
 
   // Sparkle 主题：插件注册的自定义主题（覆盖在上方外观模式之上的变量层）。
   // 列表随注册表动态变化（插件异步启用/停用），onSparkleChange 重画整组；

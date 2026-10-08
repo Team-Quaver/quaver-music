@@ -208,6 +208,11 @@ export const BG_IMAGE_EXTS = ["jpg", "jpeg", "png", "webp", "gif", "bmp", "avif"
 const isBackgroundImagePath = (v: string): boolean =>
   v.trim() === "" || (!/[\r\n\u0000]/.test(v) && v.length <= 1024);
 
+/** 高亮色（tint）自定义色的值域：只收规范形态 `#rgb` / `#rrggbb`（带 `#`，大小写皆可）。
+ *  这个值最终会被渲染层塞进 CSS 变量，所以只认十六进制字面量 —— `red`、`rgb(0,0,0)`、
+ *  `var(--x)` 一律不合法，它被关进「颜色常量」这一种可能里。渲染层读回来统一归一成小写 6 位。 */
+export const isHexColor = (v: string): boolean => /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(v ?? "").trim());
+
 /** schema 里一个键的完整描述：默认值、文件内注释、值域校验器。 */
 export interface KeySpec {
   key: string;
@@ -285,6 +290,24 @@ export const SCHEMA: SectionSpec[] = [
           "自定义图片建议小值（看得清图），封面环境色建议大值（只取色彩倾向）",
         ],
         valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 120,
+      },
+      {
+        key: "Tint",
+        def: "default",
+        doc: [
+          "界面高亮色（tint）的来源：default=固定青色 #19c2d8（**默认**，不随封面变化）｜cover=跟随当前曲封面主色（换曲平滑过渡）｜custom=自定义颜色",
+          "（自定义色的取值见 TintColor）。影响进度条/选中态/激活描边等一切 --cvg-accent/--cvg-glow 的消费点",
+        ],
+        valid: (v: string) => ["default", "cover", "custom"].includes(v),
+      },
+      {
+        key: "TintColor",
+        def: "#19c2d8",
+        doc: [
+          "自定义高亮色（仅 [Style] Tint=custom 时生效）：#rgb / #rrggbb 十六进制字面量。",
+          "设置页的颜色选择器按 HSL / CMYK / RGB 编辑，落盘的永远是这一种规范形态",
+        ],
+        valid: isHexColor,
       },
     ],
   },

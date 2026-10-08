@@ -564,7 +564,7 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
   .pb-q, .pb-btn#pb-love { display: none; }
   .now .s { display: none; }
 }
-/* 背景染色进度条：已播区 = 封面主色。fill 的母容器 .pb-fill-clip 负责裁切：
+/* 高亮色进度条：已播区 = tint 染色（色源与档位见 src/lib/tint.ts）。fill 的母容器 .pb-fill-clip 负责裁切：
    inset:1px 贴紧 border 内侧两端（R 角与 .player(14px) 同心 = 13px），
    overflow:hidden 把已播区永远裁在内沿圆角矩形里 —— 之前 fill 自带 13px 圆角，
    刚开播时宽度只有几像素，圆角被等比缩成 ~1px，尖角顶出 Bar 的圆角玻璃边
@@ -580,14 +580,16 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 }
 .pb-fill {
   height: 100%; width: calc(100% * var(--pf, 0));
-  background: var(--tint, rgba(25,194,216,.75));
+  background: var(--cvg-bar-fill, rgba(25,194,216,.75));
   transition: background-color .5s ease;
 }
 .pb-left, .pb-mid, .pb-right { position: relative; z-index: 1; }
-/* 进度 = 封面染色本身（.pb-fill 即进度指示，整条 Bar 可拖拽 seek，无需额外细线） */
+/* 进度 = 染色本身（.pb-fill 即进度指示，整条 Bar 可拖拽 seek，无需额外细线）。
+   色源由 lib/tint.ts 统一给出（固定青色 / 跟随封面 / 自定义），亮度那一版是 toBarColors 另调的——
+   别改回自己从封面取色，那会绕过「设置 → 外观 → 高亮颜色」。 */
 /* 拖拽 seek 中：整条高亮 + 染色块描边反馈 */
 .player.scrubbing { outline: 2px solid color-mix(in srgb, var(--cvg-accent, var(--cyan)) 40%, transparent); outline-offset: 1px; cursor: ew-resize; }
-.player.scrubbing .pb-fill { box-shadow: 2px 0 0 0 var(--tint-line, var(--cyan)); }
+.player.scrubbing .pb-fill { box-shadow: 2px 0 0 0 var(--cvg-bar-line, var(--cyan)); }
 
 .pb-left { display: flex; align-items: center; gap: 10px; width: 250px; min-width: 0; height: 100%; }
 .pb-cover {
@@ -900,7 +902,7 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 /* 翻阅（滚轮自由浏览）期间：雾化只属于跟随态的氛围 —— 翻阅是为了读别的行，
    整列去模糊提亮；回跟随（3s 静默/点击行）随原过渡平滑雾回。当前句本就清晰，不参与。 */
 .np-lyrics.browse .np-ly-line:not(.cur) { filter: none; opacity: .55; }
-/* 当前句：清晰、加大、染色 = 进度条同源 --np-hl（PlayerBar 取封面主色写入 root）。
+/* 当前句：清晰、加大、染色 = 进度条同源 --np-hl（由 lib/tint.ts 写入 root）。
    加大落在 .l1（行内 span）上：.np-ly-line 自身字号不动，em 行距在当前句上不跳变。 */
 .np-ly-line.cur {
 /*  因为我觉得这样可读性有点差，遂改成白色  */
@@ -912,9 +914,9 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 .np-ly-empty { text-align: center; color: #fff8; font-size: 14px; padding: 60px 0; }
 
 /* —— 逐字歌词（Sparkle 逐字提供器接管 .np-kara-host，官方 amll 插件 = AMLL 渲染；行级列表隐藏；
-   开关在 设置-外观） —— 高亮色落在 AMLL 的 --amll-lp-color 上：封面主色（--cvg-accent）
-   统一掺白提亮（55% accent + 45% 白），保留色相的同时最坏情况也可读；
-   --cvg-accent 注册过 @property 且 :root 上有 transition，换曲染色时扫色平滑跟随。
+   开关在 设置-外观） —— 高亮色落在 AMLL 的 --amll-lp-color 上：当前 tint 色（--cvg-accent，
+   色源与档位见 lib/tint.ts）统一掺白提亮（55% accent + 45% 白），保留色相的同时最坏情况也可读；
+   --cvg-accent 注册过 @property 且 :root 上有 transition，跟随封面档换曲时扫色平滑跟随。
    Shadow 与行级当前句同款（text-shadow 可继承，主行/翻译一起吃到），压住深色遮罩上的发虚。 */
 .np-kara-host {
   display: none; position: relative; height: 100%;
@@ -1363,6 +1365,81 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
    —— 它现在挂在 .opt-cards 里，那个 flex 行默认 align-items:stretch */
 .bg-file { align-self: center; font-size: 12px; color: var(--ink2); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bg-file.bad { color: #ff8a3c; }
+
+/* ===================== 设置页 · 高亮颜色（tint）的颜色选择器 =====================
+   浮窗挂在「自定义颜色」卡旁边（.tint-slot 是定位锚）：点色块或点「自定义颜色」弹出，
+   「收起」或再点色块缩回。视觉沿用既有浮窗语言（--volpop 玻璃底 + 12px 圆角 + ctx-in 入场）。 */
+.tint-slot { position: relative; display: inline-flex; align-items: center; gap: 8px; }
+/* 色块按钮：动作按钮的虚边框已够克制，内距收到 10px —— 它就是个色块，不必像档位卡那么宽 */
+.tint-chip { padding: 9px 10px; }
+.tint-chip__sw { width: 18px; height: 18px; border-radius: 5px; border: 1px solid #0002; }
+.tint-pop {
+  position: absolute; left: 0; top: calc(100% + 8px); z-index: 20;
+  width: 268px; padding: 12px; border-radius: 12px;
+  background: var(--volpop); border: 1px solid var(--glass-line);
+  box-shadow: 0 12px 36px rgba(15,20,30,.22);
+  backdrop-filter: blur(24px) saturate(1.5); -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  animation: ctx-in .14s cubic-bezier(.22,.61,.36,1) both;
+}
+/* 作者样式会压过 UA 的 [hidden]{display:none}，这里显式关掉（同 .opt-card[hidden] 的来由） */
+.tint-pop[hidden] { display: none; }
+.tint-pop__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.tint-pop__title { font-size: 12px; color: var(--ink2); }
+.tint-pop__fold {
+  padding: 2px 8px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--ink2); font: inherit; font-size: 12px; cursor: pointer;
+}
+.tint-pop__fold:hover { color: var(--ink); background: var(--press); }
+.tint-preview { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.tint-preview__sw {
+  width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--glass-line);
+  box-shadow: inset 0 0 0 1px #0001; background: var(--cvg-glow, var(--cyan));
+}
+.tint-preview__hex { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 12.5px; color: var(--ink); }
+/* 色相条：纯 CSS 彩虹底 —— 「看不出数字也能调」的那条通道，拖它只改色相 */
+.tint-hue {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 14px; margin: 0 0 10px; padding: 0; border: 0; border-radius: 7px;
+  background: linear-gradient(90deg, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%);
+  cursor: pointer;
+}
+.tint-hue::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; border: 2px solid #fff; border-radius: 50%;
+  background: transparent; box-shadow: 0 1px 3px #0006;
+}
+.tint-hue::-moz-range-thumb {
+  width: 14px; height: 14px; border: 2px solid #fff; border-radius: 50%;
+  background: transparent; box-shadow: 0 1px 3px #0006;
+}
+.tint-modes { display: flex; gap: 6px; margin-bottom: 10px; }
+.tint-mode {
+  padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card);
+  color: var(--ink2); font: inherit; font-size: 12px; cursor: pointer;
+}
+.tint-mode:hover { border-color: var(--ink2); color: var(--ink); }
+.tint-mode.sel {
+  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 62%, transparent);
+  color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 26%, var(--ink));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cvg-accent, var(--acc)) 26%, transparent);
+}
+/* 通道输入：CMYK 四个、其余三个，两列 grid 自动铺开（数字框不要 spinner，紧凑面板里太脏） */
+.tint-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.tint-field { display: flex; flex-direction: column; gap: 4px; }
+.tint-field__label { font-size: 11px; color: var(--ink2); }
+.tint-fields .tint-field input, .tint-hex-row input {
+  width: 100%; height: 30px; padding: 0 8px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  font: inherit; font-size: 12.5px; font-variant-numeric: tabular-nums;
+}
+.tint-fields .tint-field input:focus, .tint-hex-row input:focus {
+  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 55%, var(--line));
+}
+.tint-fields .tint-field input::-webkit-outer-spin-button,
+.tint-fields .tint-field input::-webkit-inner-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
+.tint-hex-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.tint-hex-row .tint-field__label { flex: 0 0 auto; }
+.tint-hex-row input { flex: 1; min-width: 0; font-family: ui-monospace, "JetBrains Mono", monospace; }
 
 /* 设置页的分组不再用卡片底色，统一走发丝线；关于区居中收尾 */
 .set-view .set-about { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 32px 0; }

@@ -4,7 +4,7 @@
 // 切视图不打断音频、搜索框与输入状态不随视图重建。地址栏 hash 路由
 // （file:// 与壳层加载均兼容），旧的多页入口（daily.html 等）保留为薄跳转层。
 import "./style.css";
-import { api, coverUrl, upPic, identityBadges } from "./lib/api";
+import { api, upPic, identityBadges } from "./lib/api";
 import { favSonglists, loadFavSonglists, onFavSonglistsChange } from "./lib/favs";
 import { getSidebarCollapsed, setSidebarCollapsed, getSidebarWidth, setSidebarWidth } from "./lib/prefs";
 import { bindHResizer } from "./lib/resizer";
@@ -17,7 +17,7 @@ import { QueuePanel } from "./components/QueuePanel";
 import { SearchBox } from "./components/SearchBox";
 import { playPlaylistNow, playSongsNow, openPlaylistMenu, openVirtualPlaylistMenu, type PlaylistMenuOptions } from "./components/PlaylistMenu";
 import { views, BACK_SVG } from "./views";
-import { extractCoverColor, toUiColors, type RGB } from "./lib/color";
+import { bootTint } from "./lib/tint";
 import { bootBackground } from "./lib/ambient";
 
 export const nav = [
@@ -115,36 +115,12 @@ export async function renderRoute() {
   player.markActive();
 }
 
-// UI 染色：把封面主色提升到 :root 的 --cvg-accent / --cvg-glow，供全局高亮/条目背景消费。
-// 与 ambient 环境层同源（同张封面），无色（未播放/中继不可用）则移除变量，CSS 回落默认强调色。
-// 与 PlayerBar 的 --tint/--tint-line 互不干扰：播放条进度条仍用自己的颜色对。
-function applyCoverTint(rgb: RGB | null) {
-  const root = document.documentElement;
-  const c = toUiColors(rgb);
-  if (!c) {
-    root.style.removeProperty("--cvg-accent");
-    root.style.removeProperty("--cvg-glow");
-    return;
-  }
-  root.style.setProperty("--cvg-accent", c.accent);
-  root.style.setProperty("--cvg-glow", c.glow);
-}
-
 export function bootShell() {
   // 背景层（关闭背景 / 专辑封面 / 自定义图片 + 模糊强度）由 lib/ambient.ts 接管；
-  // 这里只剩**界面染色**：把封面主色提升到 :root 的 --cvg-accent / --cvg-glow，供全局
-  // 高亮与条目背景消费。两者同源（同一张封面）但彼此独立 —— 关掉背景不该把界面的
-  // 高亮色一起关掉，所以染色留在壳层、不跟背景模式走。
+  // 高亮色（固定青色 / 跟随封面 / 自定义色）由 lib/tint.ts 接管 —— 两者同源（都可能取同一张
+  // 封面）但彼此独立：关掉背景不该把界面的高亮色一起关掉，所以这两件事各归各的模块。
   bootBackground();
-  let tintPic = "";
-  player.on(() => {
-    const pic = player.current ? coverUrl(player.current, 300) : "";
-    if (pic === tintPic) return;
-    tintPic = pic;
-    if (!pic) { applyCoverTint(null); return; }
-    // extractCoverColor 有 url 缓存，与背景层各取一份不重复请求网络
-    void extractCoverColor(pic).then((rgb) => { if (tintPic === pic) applyCoverTint(rgb); });
-  });
+  bootTint();
 
   const frame = document.createElement("div");
   frame.className = "frame";

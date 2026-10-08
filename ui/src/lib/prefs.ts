@@ -8,6 +8,7 @@
 // CSS 变量 --font-ui / --font-lyric 分别作用于界面与歌词。
 
 import { cfg, cfgSet, cfgSetSoon } from "./config";
+import { parseHex, toHex } from "./color";
 
 export type ThemeMode = "system" | "light" | "dark";
 export type DecorMode = "csd" | "ssd";
@@ -156,6 +157,39 @@ export function getBackgroundBlur(): number {
 export function setBackgroundBlur(px: number) {
   const clamped = Math.max(BG_BLUR_MIN, Math.min(BG_BLUR_MAX, Math.round(px)));
   cfgSetSoon({ "Style.BackgroundBlur": String(clamped) });
+}
+
+// —— 界面高亮色（tint）：--cvg-accent / --cvg-glow 的来源 ——
+// 三档落在 quaver.conf 的 [Style] Tint（default=固定青色｜cover=跟随封面｜custom=自定义色），
+// 自定义色的取值落在 TintColor（#rrggbb）。这里同样**只**管「枚举 ⇄ 配置取值」：写 CSS 变量的
+// DOM 侧在 src/lib/tint.ts（prefs 被 player/api 反向依赖，不能反过来 import 渲染层模块）。
+export type TintMode = "default" | "cover" | "custom";
+const TINT_MODES: readonly string[] = ["default", "cover", "custom"];
+
+/** 默认档的固定色 —— 就是主题里那条「播放进度条青色」（style.css 的 --cyan）。
+ *  它是本功能的出厂色：不跟封面跑，也不随明暗主题换色相（只有亮度锚在主题 token 上）。 */
+export const TINT_DEFAULT_COLOR = "#19c2d8";
+
+export function getTintMode(): TintMode {
+  const v = cfg("Style.Tint", "default");
+  return TINT_MODES.includes(v) ? (v as TintMode) : "default";
+}
+export function setTintMode(m: TintMode) {
+  cfgSet({ "Style.Tint": TINT_MODES.includes(m) ? m : "default" });
+}
+
+/** 自定义色。读回来一律是规范小写 6 位（手改 conf 写 `#0ff` 也归一）；
+ *  解析不了的取值（手误写进来的别的字符串）回落默认色，不让它流进 CSS 变量。 */
+export function getTintColor(): string {
+  const c = parseHex(cfg("Style.TintColor"));
+  return c ? toHex(c) : TINT_DEFAULT_COLOR;
+}
+/** 写自定义色：只接受能解析的颜色字面量（输入框里正在敲的半截值直接丢弃，不改色也不落盘）。 */
+export function setTintColor(hex: string) {
+  const c = parseHex(hex);
+  if (!c) return;
+  // 拖色相条 / 连打数字是高频项 → 合并落盘；改色本身即时生效（调用方补一次 applyTint()）
+  cfgSetSoon({ "Style.TintColor": toHex(c) }, 200);
 }
 
 // —— 窗口装饰：CSD=自绘（右上角平铺按钮簇，无标题栏/无浮窗底）；SSD=系统标题栏（Electron 重建窗口生效） ——

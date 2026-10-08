@@ -108,8 +108,8 @@ pnpm run typecheck:node  # Node 侧，迁移中：尚未清零，不作闸门
 
 - **渲染层分工**：`src/lib/prefs.ts` 只管「枚举 ⇄ 配置取值」；DOM 归 `src/lib/ambient.ts`
   （建 `.ambient` 层、按 `data-mode` + `--ambient-blur` / `--ambient-scale` 应用、监听换曲）。
-  改完偏好要自己调 `applyBackground()`。`shell.ts` 只留 `--cvg-accent/--cvg-glow` 的**界面染色**
-  —— 那条与背景同源（同一张封面）但独立：关掉背景不该把界面高亮色一起关掉。
+  改完偏好要自己调 `applyBackground()`。**界面染色不在这一节**（见下节「界面高亮色」）：
+  那条与背景同源（都可能取同一张封面）但彼此独立 —— 关掉背景不该把界面高亮色一起关掉。
 - **图片怎么到界面**：走同源 `/api/bg`，与 `/api/sparkle/plugin/<id>/<file>` 同一套路
   （dev/preview = `src/relay.ts`，打包态 = `electron/native-server.ts`，两个服务端共用
   `electron/background.ts:backgroundResponse`）。**不走 data: URL**（4K 壁纸的 base64 是几 MB 的字符串
@@ -123,6 +123,30 @@ pnpm run typecheck:node  # Node 侧，迁移中：尚未清零，不作闸门
 - 选图是 Electron 专属（原生对话框）：浏览器 dev 下没有 `window.quaverBackground`，设置页给提示、
   不给假按钮；`/api/bg` 在纯浏览器下读的是磁盘 conf（localStorage 里那份不参与），故也不出图。
 - 验证：`node scripts/verify-background.ts`（读盘侧真文件真 HTTP + 源码接线护栏，已进 `verify:static`）。
+
+## 界面高亮色（tint）：固定青色 / 跟随封面 / 自定义
+
+设置→外观→高亮颜色。三档 = `Style.Tint`（`default` / `cover` / `custom`），自定义色的取值 =
+`Style.TintColor`（`#rrggbb`，默认 `#19c2d8`）。**默认 `default` = 固定青色，不跟封面跑。**
+
+- **染色只有一个来源**：`src/lib/tint.ts`（`shell.ts` 在 `bootShell` 里调 `bootTint()`）。一次写
+  5 个变量，全部由同一个源色派生：`--cvg-accent` / `--cvg-glow`（`toUiColors`，UI 高亮：选中态、
+  激活描边、条目洗底…）；`--cvg-bar-fill` / `--cvg-bar-line`（`toBarColors`，播放条已播区与拖拽 seek
+  的边线 —— 「亮度另调过」的那一版）；`--np-hl`（播放页歌词当前句，CSS 侧目前是注释掉的预留钩子）。
+  清空时按 `TINT_VARS` 清单一起 `removeProperty`（别漏一个，否则留下「半套颜色」）。
+- **别让任何组件自己从封面取色**：播放条原先就是这么干的（`PlayerBar` 里写 `--tint` / `--tint-line`，
+  `.pb-fill` 读 `var(--tint)`），于是「高亮颜色」选固定色后界面变了、进度条还在跟封面跑。
+  这类旁路不读 `--cvg-*`，只 grep `--cvg-` 的消费点是查不出来的 —— 动视觉令牌时一并 `grep --tint`。
+- 颜色数学在 `src/lib/color.ts`（纯函数、无 DOM，可直接单测）：`parseHex` / `toHex` / `rgb2hsl` /
+  `hsl2rgb` / `rgb2cmyk` / `cmyk2rgb`。**真相只有一个 RGB**，HSL/CMYK/HEX 都只是它的表示，落盘只存 HEX。
+  两侧判据**故意不同**：`electron/config.ts:isHexColor` 严格（必须带 `#`），渲染层 `parseHex` 宽松
+  （可省 `#`、认 3 位简写 —— 它判的是「输入框里正在敲的东西」）。只认十六进制，是因为这个值会进 CSS 变量。
+- 选择器 = 自绘浮窗 `.tint-pop`（`absolute` 挂在 `.tint-slot`，即「自定义颜色」卡旁边）：HSL / CMYK / RGB
+  三个模式（number 通道，两列 grid）+ 常驻 HEX 输入 + 一条彩虹色相条。展开/收起 = 点色块或点「自定义颜色」
+  卡，「收起」缩回；非自定义档不给开（面板编的就是自定义色）。输入时**只刷显示位、不重建字段**（否则丢
+  焦点），越界值在 blur 时校正。卡片 `hidden` 靠 `.opt-card[hidden]`，浮窗靠 `.tint-pop[hidden]`。
+- 验证：`node scripts/verify-tint.ts`（纯逻辑往返 + 源码接线 + 反向自证，已进 `verify:static`）。
+  加配置键时 `scripts/verify-config.ts` 的 `Object.keys(defaults()).length` 硬断言要一起改。
 
 ## 「跟随系统」深浅色（Linux 特有的坑）
 

@@ -9,7 +9,6 @@ import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQu
 // getLastStream 仍由 paintQ 使用（胶囊显示实际已应用档位）
 import { fmtDur } from "../lyric";
 import { icons } from "../lib/icons";
-import { extractCoverColor, toBarColors } from "../lib/color";
 
 const clamp01 = (f: number) => Math.max(0, Math.min(1, f));
 
@@ -296,20 +295,8 @@ export function PlayerBar(): HTMLElement {
     mute2.classList.toggle("on", player.muted);
   }
 
-  // 封面染色：主色 → Bar 已播区背景即进度指示（fill 宽度 = --p）
-  let colorKey = "";
-  async function paintTint(pic: string) {
-    if (pic === colorKey) return;
-    colorKey = pic;
-    if (!pic) { el.style.removeProperty("--tint"); el.style.removeProperty("--tint-line"); return; }
-    const rgb = await extractCoverColor(pic);
-    if (colorKey !== pic) return; // 期间已换曲
-    const c = toBarColors(rgb);
-    el.style.setProperty("--tint", c.soft);
-    el.style.setProperty("--tint-line", c.line);
-    // 播放页歌词当前句与进度条同源染色：提升到 root 供 .np 使用
-    document.documentElement.style.setProperty("--np-hl", c.line);
-  }
+  // 进度条染色已移交 lib/tint.ts（全应用唯一的染色来源，:root 上的 --cvg-bar-fill / --cvg-bar-line）。
+  // 原先这里自己从封面取色，等于绕过「高亮颜色」设置 —— 选了固定青色，界面高亮变了、进度条还在跟封面跑。
 
   // 订阅状态。notify 是 ~4Hz 的位置广播：所有 DOM 写入先比对签名再落，
   // 否则每帧重建 <img>/SVG 会反复触发图片重解码与 GC，把 V8 堆顶在高位。
@@ -334,7 +321,6 @@ export function PlayerBar(): HTMLElement {
     }
     const pic = s ? coverUrl(s, 150) : "";
     if (pic !== lastCover) { lastCover = pic; cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : ""; }
-    void paintTint(pic);
     // 中央按钮三态：取链/缓冲=spinner（点击=取消）；出错=重试图标；常规=播放/暂停
     el.classList.toggle("loading", player.loading);
     const playSig = player.loading ? "load" : player.error ? "err" : player.playing ? "play" : "pause";
