@@ -145,8 +145,19 @@ pnpm run typecheck:node  # Node 侧，迁移中：尚未清零，不作闸门
   三个模式（number 通道，两列 grid）+ 常驻 HEX 输入 + 一条彩虹色相条。展开/收起 = 点色块或点「自定义颜色」
   卡，「收起」缩回；非自定义档不给开（面板编的就是自定义色）。输入时**只刷显示位、不重建字段**（否则丢
   焦点），越界值在 blur 时校正。卡片 `hidden` 靠 `.opt-card[hidden]`，浮窗靠 `.tint-pop[hidden]`。
-- 验证：`node scripts/verify-tint.ts`（纯逻辑往返 + 源码接线 + 反向自证，已进 `verify:static`）。
-  加配置键时 `scripts/verify-config.ts` 的 `Object.keys(defaults()).length` 硬断言要一起改。
+- **Sparkle 主题可以接管高亮色**（SDK 的 `SparkleTheme.tint`，策略解析在 `src/sparkle/theme-tint.ts`）。
+  主题**不声明** `tint` = 它自带强调色 → **宿主让位**：`lib/tint.ts` 清掉那几个内联变量，
+  `--cvg-accent` 回落 `:root { --cvg-accent: var(--acc) }` —— 于是主题只要覆盖 `--acc`/`--cyan`
+  就等于自带高亮色；设置页的「高亮颜色」整组**禁用**并注明由谁接管。`tint: { mode: "host" }` 让用户
+  继续用那三档；`tint: { mode: "presets", presets: [...] }` 则换成主题给的方案卡（选择按主题 id 存在
+  localStorage，切主题来回不丢）。
+  **让位是必须的**：那几个变量是行内样式，主题在 CSS 里写 `--cvg-accent` 抢不赢 —— 所以「主题自带
+  高亮色」只能是宿主主动不写，不能靠主题去覆盖。`theme-tint.ts` 是纯策略（护栏要在 node 里直接
+  import 做单测），因此它的**值导入必须带 `.ts` 扩展名**（`from "../lib/color.ts"`）。
+  换/停主题后 host 要重算（`host.ts:applySparkleTheme` 末尾调 `applyTint()`）。
+- 验证：`node scripts/verify-tint.ts`（纯逻辑往返 + 主题交接策略 + 源码接线 + 反向自证，已进
+  `verify:static`）。加配置键时 `scripts/verify-config.ts` 的 `Object.keys(defaults()).length`
+  硬断言要一起改。
 
 ## 「跟随系统」深浅色（Linux 特有的坑）
 

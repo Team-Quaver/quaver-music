@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { cmyk2rgb, hsl2rgb, isHexColor, parseHex, rgb2cmyk, rgb2hsl, toHex } from "../src/lib/color.ts";
 import { defaults, schemaIndex } from "../electron/config.ts";
+import { pickPreset, sparkTintChoice, tintPolicyOf, validPresets } from "../src/sparkle/theme-tint.ts";
 
 let pass = 0, fail = 0;
 const section = (t) => console.log(`\n=== ${t} ===`);
@@ -25,6 +26,8 @@ const eq = (name, got, want) =>
 
 const UI = fileURLToPath(new URL("..", import.meta.url));
 const src = (rel: string) => readFileSync(join(UI, rel), "utf8");
+/** 仓库根下的文件（vendor/Sparkle 的 SDK、文档、市场示例插件） */
+const srcVendor = (rel: string) => readFileSync(join(UI, "..", rel), "utf8");
 const near = (a: number, b: number, tol: number) => Math.abs(a - b) <= tol;
 
 // ================= 颜色字面量 =================
@@ -111,8 +114,10 @@ check("有色相条（不看数字也能调）", tintBlock.includes('id="tint-hu
 check("点「自定义颜色」就地弹出选择器", views.includes('if (next === "custom") popOpen = true'));
 check("色块按钮切换展开/收起", /tintChip\.onclick = \(\) => \{ setPopOpen\(!popOpen\); \}/.test(views));
 check("收起按钮收起浮窗", /tintFold\.onclick = \(\) => \{ setPopOpen\(false\); \}/.test(views));
-check("非自定义档不给开（面板编的就是自定义色）", /popOpen = open && getTintMode\(\) === "custom"/.test(views));
-check("色块只在自定义档出现", views.includes('tintChip.hidden = mode !== "custom"'));
+// 这两条故意用「宽松尾部」：主题接管（tintPolicy().mode）也是不给开 / 不显色块的条件之一，
+// 断言写死整行会在加条件时误红；但少掉档位判定又必须能红 —— 所以两段关键字都卡住。
+check("非自定义档不给开（面板编的就是自定义色）", /popOpen = open && [^\n]*getTintMode\(\) === "custom"/.test(views));
+check("色块只在自定义档出现", /tintChip\.hidden = [^\n]*mode !== "custom"/.test(views));
 check("浮窗显隐跟着 popOpen", views.includes("tintPop.hidden = !popOpen"));
 check("切档位立刻重写 CSS 变量（封面档还会去取当前曲封面）", /setTintMode\(next\);\s*\n\s*applyTint\(\);/.test(views));
 
@@ -133,7 +138,7 @@ check("prefs 的高频写走合并落盘（拖色相条/连打数字）", /cfgSe
 // ——— 染色归 tint 模块 ———
 section("源码接线 · 高亮色模块");
 check("tint.ts 提供 bootTint", /export function bootTint\(\)/.test(tint));
-check("启动时先应用一次（不等播放事件）", /player\.on\(applyTint\);\s*\n\s*applyTint\(\);/.test(tint));
+check("启动时先应用一次（不等播放事件）", /player\.on\(applyTint\);[\s\S]{0,300}\n\s*applyTint\(\);/.test(tint));
 check("写的就是那两个变量", tint.includes('setProperty("--cvg-accent"') && tint.includes('setProperty("--cvg-glow"'));
 check("无色时移除变量（CSS 回落主题色）而非写死灰",
   /TINT_VARS = \[[^\]]*"--cvg-accent", "--cvg-glow"/.test(tint)
@@ -209,6 +214,87 @@ const legacyTintVars = (s) => /var\(--tint[,\s)]|var\(--tint-line/.test(s);
 check("…旧通路已无消费点（--tint / --tint-line）", !legacyTintVars(css));
 check("…反向：进度条又回去读 --tint 会被逮住", legacyTintVars(".pb-fill { background: var(--tint, rgba(25,194,216,.75)); }"));
 check("…反向：--tint-row（另一个 token）不该被误伤", !legacyTintVars(".row.playing { background: var(--cvg-glow, var(--tint-row)); }"));
+
+// ================= Sparkle 主题与 tint 的交接 =================
+section("主题交接策略（纯逻辑）");
+/** 造一个「只有 tint 不同」的主题；tint 是第三方给的任意值，所以断言成 never 再传进去 */
+const mkTheme = (tint?: unknown) => ({ id: "t", name: "T", css: "", ...(tint === undefined ? {} : { tint }) }) as never;
+
+eq("没启用主题 → 宿主的正常三档", tintPolicyOf(null).mode, "host");
+eq("主题不声明 tint → 让位（主题自带强调色）", tintPolicyOf(mkTheme()).mode, "off");
+eq("声明 host → 宿主接管", tintPolicyOf(mkTheme({ mode: "host" })).mode, "host");
+eq("mode 不认识 → 按让位处理（安全侧：宁可少写变量）", tintPolicyOf(mkTheme({ mode: "wat" })).mode, "off");
+eq("声明 presets 且有一套合法 → presets",
+  tintPolicyOf(mkTheme({ mode: "presets", presets: [{ id: "a", label: "A", color: "#19c2d8" }] })).mode, "presets");
+eq("声明 presets 但一套都没给 → 降级 host（别让整组不可用）", tintPolicyOf(mkTheme({ mode: "presets" })).mode, "host");
+eq("声明 presets 但全是非法色 → 同样降级 host",
+  tintPolicyOf(mkTheme({ mode: "presets", presets: [{ id: "a", label: "A", color: "red" }] })).mode, "host");
+eq("策略带回主题 id（方案选择要按它存）", tintPolicyOf(mkTheme({ mode: "host" })).themeId, "t");
+
+section("方案列表校验（主题是第三方代码，先校验再信）");
+eq("裸色名被滤掉", validPresets([{ id: "a", label: "A", color: "red" }]), []);
+eq("缺 label 被滤掉", validPresets([{ id: "a", color: "#fff" }]), []);
+eq("缺 id 被滤掉", validPresets([{ label: "A", color: "#fff" }]), []);
+eq("id 重复只留第一个", validPresets([{ id: "a", label: "A", color: "#fff" }, { id: "a", label: "B", color: "#000" }]).length, 1);
+eq("非数组 → 空", validPresets("nope"), []);
+eq("合法项原样保留（含 3 位简写）", validPresets([{ id: "a", label: "A", color: "#0ff" }]), [{ id: "a", label: "A", color: "#0ff" }]);
+
+section("方案选择");
+const PS = [{ id: "a", label: "A", color: "#111111" }, { id: "b", label: "B", color: "#222222" }];
+eq("没选过 → 第一个（与主题包 variants 同口径）", pickPreset(PS, null)?.id, "a");
+eq("选过 → 那一个", pickPreset(PS, "b")?.id, "b");
+eq("选过的方案已消失 → 回落第一个", pickPreset(PS, "gone")?.id, "a");
+eq("空列表 → null（调用方据此不写变量）", pickPreset([], "a"), null);
+eq("themeId 为 null 时不碰存储", sparkTintChoice(null), null);
+
+section("源码接线 · 主题交接");
+const themeTint = src("src/sparkle/theme-tint.ts");
+const hostSrc = src("src/sparkle/host.ts");
+const sdkTypes = srcVendor("vendor/Sparkle/sdk/types.ts");
+const guide = srcVendor("vendor/Sparkle/docs/plugin-author-guide.md");
+const aurora = srcVendor("vendor/Sparkle/marketplace/aurora/index.ts");
+
+check("SDK 定义了 SparkleTintPreset / SparkleThemeTint",
+  sdkTypes.includes("export interface SparkleTintPreset") && sdkTypes.includes("export interface SparkleThemeTint"));
+check("SDK 的 SparkleTheme 带上了 tint 字段", /interface SparkleTheme \{[\s\S]*?tint\?: SparkleThemeTint;/.test(sdkTypes));
+check("SDK 写明了缺省语义（不声明 = 主题接管 + 宿主让位）", sdkTypes.includes("缺省 = 主题接管"));
+
+check("交接策略模块零 ui 依赖（只 import SDK 类型与颜色纯函数）",
+  themeTint.includes('from "@quaver/sparkle"') && themeTint.includes('from "../lib/color.ts"') && !themeTint.includes('from "../shell"'));
+check("…且值导入带 .ts（护栏要在 node 里直接 import 它做单测，剥离不补扩展名）",
+  /from "\.\.\/lib\/color\.ts"/.test(themeTint));
+check("tint.ts 从 <html> 的 data-sparkle-theme 取当前主题", tint.includes("document.documentElement.dataset.sparkleTheme"));
+check("…且不 import sparkle/host（那个模块反向依赖 shell，会成环）", !tint.includes('from "../sparkle/host"'));
+check("主题接管时让位：清掉变量而不是照写", /policy\.mode === "off"[\s\S]{0,160}?paint\(null\)/.test(tint));
+check("presets 模式用主题方案色（用户选过的优先，否则第一个）",
+  /pickPreset\(policy\.presets, sparkTintChoice\(policy\.themeId\)\)/.test(tint));
+check("bootTint 订阅插件启停（注册表变化要重算策略）", /onSparkleChange\(applyTint\)/.test(tint));
+check("封面取色的回调里复检策略（主题中途接管就不能再把颜色写回来）",
+  /tintPolicyOf\(activeSparkTheme\(\)\)\.mode === "host"/.test(tint));
+
+const applyFn = /function applySparkleTheme\(\) \{([\s\S]*?)\n\}/.exec(hostSrc)?.[1] ?? "";
+check("applySparkleTheme 体取得到（防失配让下面全绿）", applyFn.length > 50, String(applyFn.length));
+check("host 换/停主题后重算 tint（否则会停在上一套策略上）", applyFn.includes("applyTint()"));
+
+check("设置页按策略收口：三档与主题方案卡互斥",
+  /tintCards\.hidden = presets/.test(views) && /tintSparkCards\.hidden = !presets/.test(views));
+check("主题接管时三档禁用（可见但不可点，比整组消失好懂）", /b\.disabled = locked/.test(views));
+check("方案卡带色块 + data-preset", /b\.dataset\.preset = p\.id/.test(views) && /\$\{p\.color\}/.test(views));
+check("方案名字走 escHtml（主题是第三方代码）", /escHtml\(p\.label\)/.test(views));
+check("接管时选择器不给开", /popOpen = open && tintPolicy\(\)\.mode === "host"/.test(views));
+check("切主题 / 插件启停都重刷这一组",
+  /syncSparkleThemeSel\(\);\s*\n\s*paintTintPolicy\(\)/.test(views) && /paintTintPolicy\(\); \/\/ 主题列表变了/.test(views));
+check("方案卡组有 [hidden] 兜底（.opt-cards 是 flex，光加属性藏不住）",
+  /\.opt-card\[hidden\][^}]*\.opt-cards\[hidden\][^}]*\{\s*display:\s*none;\s*\}/.test(css));
+
+check("插件开发文档写了 tint 契约", guide.includes("高亮色（tint）归谁管") && guide.includes('tint: { mode: "host" }'));
+check("市场示例说明了三种写法", /mode: "host"/.test(aurora) && /mode: "presets"/.test(aurora));
+
+// 反向：不为主题让位（照写变量压主题）是这次要防的回归
+const noYield = (s) => !/policy\.mode === "off"/.test(s);
+check("…反向：applyTint 不为主题让位会被逮住",
+  noYield("export function applyTint() { paint(parseHex(getTintColor())); }"));
+check("…当前实现确实让位", !noYield(tint));
 
 console.log(`\n${fail === 0 ? "✅" : "❌"} verify-tint: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

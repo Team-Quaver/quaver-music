@@ -1,9 +1,15 @@
-// Quaver — 界面高亮色（tint）：:root 上 --cvg-accent / --cvg-glow 两个变量的来源与写值。
+// Quaver — 界面高亮色（tint）：:root 上那几个染色变量的来源与写值。
 //
 // 三档（quaver.conf 的 [Style] Tint，设置→外观→高亮颜色）：
 //   default 固定青色（TINT_DEFAULT_COLOR）—— 默认档。不跟封面跑，色相稳定；
 //   cover   当前曲封面主色（extractCoverColor → toUiColors），换曲平滑跟随（:root 上有 transition）；
 //   custom  用户自选色（TintColor，HEX），设置页的颜色选择器按 HSL / CMYK / RGB 编辑。
+//
+// 但**主题优先于档位**：启用 Sparkle 主题后由它决定（契约见 sparkle/theme-tint.ts）——
+//   主题没声明 tint   → 主题自带强调色：本模块**让位**（清掉内联变量，回落 :root 的 --acc/--cyan）
+//   主题 tint=host    → 上面那三档照常
+//   主题 tint=presets → 用主题给的方案（用户在设置页挑，选择存在 localStorage）
+// 让位是必须的：这几个变量是行内样式，会压过主题的 html[data-sparkle-theme=…] 规则。
 //
 // 本模块是**全应用唯一的染色来源**，一次写两套变量（都由同一个源色派生）：
 //   --cvg-accent / --cvg-glow  UI 高亮（选中态、激活描边、歌曲行/胶囊洗底…，亮度用途见 toUiColors）
@@ -13,12 +19,16 @@
 // 选「固定青色」时界面高亮变了、进度条还在跟封面跑。现在它同源，只是色对另算。
 //
 // 分工：本模块只管写变量。取值 ⇄ 配置的映射在 lib/prefs.ts，颜色数学（HEX/HSL/CMYK/RGB
-// 互转）在 lib/color.ts。ambient.ts 管背景那张图 —— 两者同源（都可能取同一张封面）但彼此独立：
-// 关掉背景不该把高亮色一起关掉，所以染色归这里、不跟背景模式走。shell.ts 只调 bootTint()。
+// 互转）在 lib/color.ts，主题交接策略在 sparkle/theme-tint.ts。ambient.ts 管背景那张图 ——
+// 两者同源（都可能取同一张封面）但彼此独立：关掉背景不该把高亮色一起关掉。
+// shell.ts 只调 bootTint()。
+import type { SparkleTheme } from "@quaver/sparkle";
 import { coverUrl } from "./api";
 import { extractCoverColor, parseHex, toBarColors, toUiColors, type RGB } from "./color";
 import { getTintColor, getTintMode, TINT_DEFAULT_COLOR } from "./prefs";
 import { player } from "../player";
+import { onSparkleChange, sparkleThemes } from "../sparkle/registry";
+import { pickPreset, sparkTintChoice, tintPolicyOf } from "../sparkle/theme-tint";
 
 /** 封面取图尺寸：染色只取色彩倾向，300px 足够（与背景层、播放条同口径，CDN 缓存也共用）。 */
 const COVER_SIZE = 300;
@@ -26,10 +36,18 @@ const COVER_SIZE = 300;
 /** 封面档当前生效的图源：同曲重复触发不重取（extractCoverColor 有缓存，这是省一层 promise）。 */
 let coverPic = "";
 
+/** 当前生效的 Sparkle 主题（读 host 写在 <html> 上的 data-sparkle-theme，再回注册表取声明）。
+ *  不 import sparkle/host.ts —— 它反向依赖 shell，会成环；dataset 就是它维护的公开真相。 */
+function activeSparkTheme(): SparkleTheme | null {
+  const id = document.documentElement.dataset.sparkleTheme;
+  if (!id) return null;
+  return sparkleThemes().find((t) => t.id === id) ?? null;
+}
+
 /** 本模块产出的全部变量（移除时一起清，别漏一个导致「半套颜色」残留）。 */
 const TINT_VARS = ["--cvg-accent", "--cvg-glow", "--cvg-bar-fill", "--cvg-bar-line", "--np-hl"];
 
-/** 写变量。无颜色（未播放 / 中继不可用）时全部移除，CSS 回落到主题默认色。 */
+/** 写变量。无颜色（未播放 / 中继不可用 / 让位给主题）时全部移除，CSS 回落到主题默认色。 */
 function paint(rgb: RGB | null) {
   const root = document.documentElement;
   const ui = toUiColors(rgb);
@@ -46,8 +64,26 @@ function paint(rgb: RGB | null) {
   root.style.setProperty("--np-hl", bar.line);
 }
 
-/** 应用当前偏好。设置页改完立刻调一次即生效；换曲由 bootTint 注册的监听驱动。 */
+/** 应用当前偏好。设置页改完立刻调一次即生效；换曲与插件启停由 bootTint 注册的监听驱动。 */
 export function applyTint() {
+  const policy = tintPolicyOf(activeSparkTheme());
+
+  // 主题接管高亮色：让位。清掉内联变量后 --cvg-accent 回落 :root 的 var(--acc)，
+  // 而主题一般已经覆盖了 --acc/--cyan —— 高亮色于是自然跟着主题走。
+  if (policy.mode === "off") {
+    coverPic = "";
+    paint(null);
+    return;
+  }
+  // 主题自带方案：用用户挑好的那套（没挑过 = 第一个），走自定义色那条通路应用
+  if (policy.mode === "presets") {
+    coverPic = "";
+    const chosen = pickPreset(policy.presets, sparkTintChoice(policy.themeId));
+    paint(chosen ? parseHex(chosen.color) : null);
+    return;
+  }
+
+  // 以下 = 主题把高亮色交给宿主（或压根没启用主题）：用户的三档
   const mode = getTintMode();
 
   if (mode !== "cover") {
@@ -67,12 +103,14 @@ export function applyTint() {
   coverPic = pic;
   // extractCoverColor 有 url 缓存，与背景层各取一份不重复请求网络
   void extractCoverColor(pic).then((rgb) => {
-    if (coverPic === pic && getTintMode() === "cover") paint(rgb);
+    if (coverPic === pic && getTintMode() === "cover" && tintPolicyOf(activeSparkTheme()).mode === "host") paint(rgb);
   });
 }
 
 /** 建订阅。由 shell.ts 在 bootShell 时调用一次（必须早于第一次路由渲染）。 */
 export function bootTint() {
   player.on(applyTint);
+  // 插件启停 / 主题注册变化都会改策略（主题接管与否决定本模块让不让位），跟着重算一次
+  onSparkleChange(applyTint);
   applyTint();
 }

@@ -72,6 +72,8 @@ import {vipCardHtml} from "./lib/vip";
 import {mountSparklePanel} from "./sparkle/settings";
 import {onSparkleChange, sparkleThemes} from "./sparkle/registry";
 import {sparkActivateTheme, sparkActiveThemeId} from "./sparkle/host";
+import {sparkSetTintChoice, sparkTintChoice, tintPolicyOf} from "./sparkle/theme-tint";
+import type { SparkleTintPreset } from "@quaver/sparkle";
 import {mountHotkeysPanel} from "./components/HotkeySettings";
 
 const h = (tag: string, cls: string, html = "") => {
@@ -1031,6 +1033,9 @@ async function settingsView(root: HTMLElement) {
             </div>
           </div>
         </div>
+        <!-- 主题自带的高亮方案（SDK: SparkleTheme.tint.mode="presets"）动态填充；
+             主题接管高亮色（tint 缺省）时这组与上面的三档都不出现，只留一行说明 -->
+        <div class="opt-cards" id="tint-spark-cards" hidden></div>
         <p class="muted set-hint" id="tint-hint"></p>
       </div>
 
@@ -1210,7 +1215,8 @@ async function settingsView(root: HTMLElement) {
     };
   });
 
-  const syncSel = (box: HTMLElement, attr: "opt" | "q", active: string) =>
+  // preset 是「Sparkle 主题自带的高亮方案」那组（见 #tint-spark-cards）
+  const syncSel = (box: HTMLElement, attr: "opt" | "q" | "preset", active: string) =>
     box.querySelectorAll<HTMLElement>("[data-" + attr + "]").forEach((b) => b.classList.toggle("sel", b.dataset[attr] === active));
 
   /** 通用「卡片选项组」绑定：点击写偏好 + 原地同步选中态（外观/装饰/关闭行为/Fallback/淡入淡出共用） */
@@ -1444,18 +1450,69 @@ async function settingsView(root: HTMLElement) {
     if (c) commitColor(c); // 半截输入（如 "#19"）不是合法字面量，先不改色
   });
 
-  /** 展开/收起选择器。非自定义档不给开 —— 面板编的就是自定义色，别的档位没有可编的色。 */
+  // —— 与 Sparkle 主题的交接（SDK 的 SparkleTheme.tint；策略解析见 sparkle/theme-tint.ts）——
+  // 主题不声明 tint = 它自带强调色：宿主让位（lib/tint.ts 清掉内联变量、回落 --acc/--cyan），
+  // 这里把整组禁用并写明原因。主题声明 presets = 用它给的那几套方案，三档卡退场换方案卡。
+  const tintSparkCards = wrap.querySelector<HTMLElement>("#tint-spark-cards")!;
+  /** 当前激活的 Sparkle 主题（含它的 tint 声明）；没启用主题 / 主题已消失 = null。 */
+  const activeSparkTheme = () => {
+    const id = sparkActiveThemeId();
+    return id ? (sparkleThemes().find((t) => t.id === id) ?? null) : null;
+  };
+  const tintPolicy = () => tintPolicyOf(activeSparkTheme());
+
+  /** 主题给的高亮方案卡：一张卡 = 色块 + 名字。色值已过 validPresets 校验（十六进制字面量）。 */
+  const renderSparkTintCards = (presets: readonly SparkleTintPreset[], themeId: string) => {
+    tintSparkCards.innerHTML = "";
+    for (const p of presets) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "opt-card";
+      b.dataset.preset = p.id;
+      b.innerHTML = `<span class="sw" style="background:${p.color}"></span>${escHtml(p.label)}`;
+      b.onclick = () => {
+        sparkSetTintChoice(themeId, p.id);
+        applyTint();       // 换了方案立刻重写 CSS 变量
+        paintTintPolicy(); // 同步选中态
+      };
+      tintSparkCards.append(b);
+    }
+  };
+
+  /** 展开/收起选择器。非自定义档不给开，高亮色被主题接管时也不给开 —— 面板编的就是自定义色。 */
   const setPopOpen = (open: boolean) => {
-    popOpen = open && getTintMode() === "custom";
+    popOpen = open && tintPolicy().mode === "host" && getTintMode() === "custom";
     tintPop.hidden = !popOpen;
     tintChip.setAttribute("aria-expanded", String(popOpen));
   };
   const paintTintMode = () => {
     const mode = getTintMode();
     syncSel(tintCards, "opt", mode);
-    // 色块只在自定义档出现；离开该档时选择器一并收起
-    tintChip.hidden = mode !== "custom";
+    // 色块只在「宿主管高亮色 + 自定义档」出现；离开该档时选择器一并收起
+    tintChip.hidden = tintPolicy().mode !== "host" || mode !== "custom";
     setPopOpen(popOpen);
+  };
+
+  /** 整组的主刷新：决定三档卡、主题方案卡、说明文案各自出现与否（主题切换 / 插件启停都要重跑）。 */
+  const paintTintPolicy = () => {
+    const policy = tintPolicy();
+    const themeName = activeSparkTheme()?.name ?? "";
+    const locked = policy.mode === "off";   // 主题自带配色：三档留在原位但禁用（整组消失会让人找不到）
+    const presets = policy.mode === "presets";
+
+    tintCards.hidden = presets;             // 有替代方案时三档直接退场
+    tintSparkCards.hidden = !presets;
+    tintCards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = locked; });
+    if (presets) {
+      renderSparkTintCards(policy.presets, policy.themeId ?? "");
+      syncSel(tintSparkCards, "preset", sparkTintChoice(policy.themeId) ?? policy.presets[0]?.id ?? "");
+    }
+    tintHint.textContent = locked
+      ? `当前 Sparkle 主题「${themeName}」自带配色，已接管高亮色；切到「默认」主题或让主题声明 tint 才可调。`
+      : presets
+        ? `高亮色由 Sparkle 主题「${themeName}」提供，从上面挑一套。`
+        : TINT_HINT;
+    paintTintMode(); // 顺带把 chip / 选择器的可用性收口
   };
 
   tintCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
@@ -1470,10 +1527,9 @@ async function settingsView(root: HTMLElement) {
   tintChip.onclick = () => { setPopOpen(!popOpen); };
   tintFold.onclick = () => { setPopOpen(false); };
 
-  tintHint.textContent = TINT_HINT;
   renderFields();
   paintColor();
-  paintTintMode();
+  paintTintPolicy();
 
   // Sparkle 主题：插件注册的自定义主题（覆盖在上方外观模式之上的变量层）。
   // 列表随注册表动态变化（插件异步启用/停用），onSparkleChange 重画整组；
@@ -1496,12 +1552,17 @@ async function settingsView(root: HTMLElement) {
       b.className = "opt-card";
       b.dataset.opt = id;
       b.textContent = label;
-      b.onclick = () => { sparkActivateTheme(id || null); syncSparkleThemeSel(); };
+      b.onclick = () => {
+        sparkActivateTheme(id || null);
+        syncSparkleThemeSel();
+        paintTintPolicy(); // 主题决定高亮色归谁：切完要把上面那组重新收口
+      };
       return b;
     };
     sparkleThemeCards.append(mkCard("", "默认"));
     for (const t of themes) sparkleThemeCards.append(mkCard(t.id, t.name));
     syncSparkleThemeSel();
+    paintTintPolicy(); // 主题列表变了（插件启停）→ 高亮色那组的可用性也要跟着重算
   };
   renderSparkleThemes();
   const offSparkleThemes = onSparkleChange(renderSparkleThemes);

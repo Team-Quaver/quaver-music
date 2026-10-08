@@ -1167,10 +1167,11 @@ html[data-theme="dark"] .vip-card .is-expired { color: #e66; }
 .opt-card:hover:not(:disabled) { border-color: var(--ink2); }
 .opt-card.sel { border-color: var(--acc); box-shadow: inset 0 0 0 1.5px var(--acc); color: var(--acc); font-weight: 700; }
 .opt-card:disabled { opacity: .45; cursor: not-allowed; }
-/* 作者样式压过 UA 的 [hidden]{display:none}：这两个都自带 display（卡片是 inline-flex），
-   光加 hidden 属性根本藏不住 —— 背景分组的「选择图片…」靠它只在自定义档出现。
+/* 作者样式压过 UA 的 [hidden]{display:none}：这几个都自带 display（卡片是 inline-flex，
+   卡片组是 flex），光加 hidden 属性根本藏不住 —— 背景分组的「选择图片…」靠它只在自定义档出现，
+   高亮颜色里那组「主题自带方案」（#tint-spark-cards）也靠它整组退场。
    （同 .set-panel[hidden] 的来由；.bg-file 一并列出，免得以后给它加 display 时踩同一个坑。） */
-.opt-card[hidden], .bg-file[hidden] { display: none; }
+.opt-card[hidden], .opt-cards[hidden], .bg-file[hidden] { display: none; }
 /* 选项卡组里的「动作」按钮（如今只有「选择图片…」）：虚边框 + 次级文字色，
    与三张实心档位卡区分开 —— 它是动作，不是第四个档位。 */
 .opt-card.action { border-style: dashed; color: var(--ink2); font-weight: 400; }

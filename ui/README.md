@@ -84,6 +84,10 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
   它决定 `--cvg-accent` / `--cvg-glow`（UI 高亮）与 `--cvg-bar-fill` / `--cvg-bar-line`（播放条）——
   全应用只有 `src/lib/tint.ts` 一处写这些变量。自定义色的选择器按 HSL / CMYK / RGB 编辑并支持直接填 HEX，
   落盘只存 HEX 一种规范形态（`#rgb` / `#rrggbb`，其余值不合法会回落默认并写日志）。
+  这两项**会被 Sparkle 主题接管**：启用的主题没声明 `theme.tint` 时它自带强调色，宿主让位
+  （高亮色回落主题的 `--acc`/`--cyan`），设置页那一组随之禁用；主题也可以声明
+  `tint: { mode: "host" }`（交给用户调）或 `{ mode: "presets", presets: […] }`（给用户几套挑）。
+  详见 `vendor/Sparkle/docs/plugin-author-guide.md` 的「高亮色（tint）归谁管」。
 - **保注释**：程序只改写对应键的那一行，注释、顺序、你自己加的键都原样保留；行内 `# 注释` 也认。
 - 字体两项存的就是 **CSS font-family 列表**（如 `Source Han Sans, "Microsoft YaHei", sans-serif`）。
   设置页里下拉给预设、右侧输入框可直接编辑，两边互相同步（选预设 → 填进输入框；输入非预设值 →

@@ -186,7 +186,10 @@ eq("CSS 兜底模糊与 schema 默认同值（改一处要改两处）",
   Number(/--ambient-blur: (\d+)px/.exec(css)?.[1]), Number(defaults()["Style.BackgroundBlur"]));
 check("滑块盖得住通用 input 规则（否则长成一个带框的方块）", css.includes(".set-row__ctrl input.set-blur"));
 // .opt-card 是 inline-flex → 作者样式压过 UA 的 [hidden]{display:none}，不显式关掉就藏不住
-check("隐藏的卡片/文件名真能藏住（[hidden] 显式 override）", css.includes(".opt-card[hidden], .bg-file[hidden] { display: none; }"));
+// 断言不写死整行：那条规则是共用的一条（高亮颜色也往里加了 .opt-cards[hidden]），
+// 逐个列出选择器反而会随别人加项而误红 —— 只卡「两端 + display:none」。
+check("隐藏的卡片/文件名真能藏住（[hidden] 显式 override）",
+  /\.opt-card\[hidden\][^}]*\.bg-file\[hidden\][^}]*\{\s*display:\s*none;\s*\}/.test(css));
 check("「选择图片…」用虚边框的「动作」样式与档位卡区分",
   /\.opt-card\.action \{ border-style: dashed;/.test(css) && views.includes('class="opt-card action" id="bg-pick"'));
 
