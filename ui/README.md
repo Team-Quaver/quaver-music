@@ -73,10 +73,11 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
 
 - 键名与可选值以 `electron/config.ts` 的 `SCHEMA` 为唯一真相；改新项要同时改
   `src/lib/config.ts` 的 `FALLBACK` 与 `src/lib/prefs.ts` 的类型化 getter/setter（三处）。
-- 「背景」三键 = 设置→外观→背景：`Background` 三档（`off` 关闭 / `cover` 当前曲封面 / `custom`
-  自定义图）、`BackgroundImage` 自定义图的绝对路径、`BackgroundBlur` 模糊强度（px，0..120，默认 70）。
+- 「背景」三键 = 设置→外观→背景：`Background` 三档（`off` 关闭背景（**默认**）/ `cover` 当前曲封面 /
+  `custom` 自定义图）、`BackgroundImage` 自定义图的绝对路径、`BackgroundBlur` 模糊强度（px，0..120，默认 70）。
   自定义图由本地服务 `/api/bg` 按 conf 里那条路径读出（**路径不从渲染层来**，扩展名白名单 + 40MB 上限），
-  选图走原生对话框，仅在桌面端可用。默认 `cover`，即本功能上线前的老观感不变。
+  选图走原生对话框，仅在桌面端可用。默认值只对「键缺失 / 全新配置 / 恢复默认」生效 ——
+  conf 首启就按模板物化，已写过的值不会被改默认值搬动。
 - **保注释**：程序只改写对应键的那一行，注释、顺序、你自己加的键都原样保留；行内 `# 注释` 也认。
 - 字体两项存的就是 **CSS font-family 列表**（如 `Source Han Sans, "Microsoft YaHei", sans-serif`）。
   设置页里下拉给预设、右侧输入框可直接编辑，两边互相同步（选预设 → 填进输入框；输入非预设值 →

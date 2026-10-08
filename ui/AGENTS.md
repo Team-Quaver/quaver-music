@@ -103,7 +103,8 @@ pnpm run typecheck:node  # Node 侧，迁移中：尚未清零，不作闸门
 
 设置→外观→背景。三档模式 = `Style.Background`（`off` / `cover` / `custom`），自定义图的路径 =
 `Style.BackgroundImage`（原生选图写入的绝对路径），模糊强度 = `Style.BackgroundBlur`（px，0..120，
-默认 70 = 改造前的观感）。默认 `cover` = 本功能之前一直的行为，老配置升级后不变。
+默认 70）。**默认 `off`**（只有主题底色，不铺环境色层）—— 注意这条只在「键缺失 / 全新配置 / 恢复默认」
+时生效：conf 是首启按模板**物化**出来的，跑过的机器上那行已经写死了，不会被改默认值搬动。
 
 - **渲染层分工**：`src/lib/prefs.ts` 只管「枚举 ⇄ 配置取值」；DOM 归 `src/lib/ambient.ts`
   （建 `.ambient` 层、按 `data-mode` + `--ambient-blur` / `--ambient-scale` 应用、监听换曲）。

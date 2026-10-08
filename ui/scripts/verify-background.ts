@@ -231,11 +231,11 @@ check("globals.d.ts 声明了桥（TS 侧才敢直接用）", src("src/globals.d
 section("源码护栏 · 配置");
 check("schema 三键齐全",
   ["Style.Background", "Style.BackgroundImage", "Style.BackgroundBlur"].every((k) => k in defaults()));
-eq("模式默认跟随封面（升级后行为不变）", defaults()["Style.Background"], "cover");
+eq("模式默认关闭背景（只有主题底色）", defaults()["Style.Background"], "off");
 eq("自定义图默认未选择", defaults()["Style.BackgroundImage"], "");
 eq("模糊默认 70", defaults()["Style.BackgroundBlur"], "70");
 check("渲染层 FALLBACK 与 schema 同步（改一处要改两处）",
-  ['"Style.Background": "cover"', '"Style.BackgroundImage": ""', '"Style.BackgroundBlur": "70"']
+  ['"Style.Background": "off"', '"Style.BackgroundImage": ""', '"Style.BackgroundBlur": "70"']
     .every((line) => src("src/lib/config.ts").includes(line)));
 
 rmSync(ROOT, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });

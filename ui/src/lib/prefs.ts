@@ -119,18 +119,19 @@ export function applyFonts() {
 }
 
 // —— 默认主题的背景（环境色层）：模式 + 自定义图 + 模糊强度 ——
-// 模式落在 quaver.conf 的 [Style] Background（off / cover / custom），自定义图的路径落在
-// BackgroundImage（由设置页的原生选图写进来，主进程读它、经同源 /api/bg 交给界面）。
+// 模式落在 quaver.conf 的 [Style] Background（off / cover / custom，**默认 off**：不开环境色层，
+// 只有主题底色），自定义图的路径落在 BackgroundImage（由设置页的原生选图写进来，主进程读它、
+// 经同源 /api/bg 交给界面）。
 // 这里**只**管「内部枚举 ⇄ 配置取值」：DOM 归 src/lib/ambient.ts —— prefs 被 player/api
 // 反向依赖，不能反过来 import 渲染层的东西（成环）。改完要自己调 applyBackground()。
 export type BackgroundMode = "off" | "cover" | "custom";
 const CONF_TO_BG: Record<string, BackgroundMode> = { off: "off", cover: "cover", custom: "custom" };
 
 export function getBackgroundMode(): BackgroundMode {
-  return CONF_TO_BG[cfg("Style.Background", "cover")] ?? "cover";
+  return CONF_TO_BG[cfg("Style.Background", "off")] ?? "off";
 }
 export function setBackgroundMode(m: BackgroundMode) {
-  cfgSet({ "Style.Background": CONF_TO_BG[m] ?? "cover" });
+  cfgSet({ "Style.Background": CONF_TO_BG[m] ?? "off" });
 }
 export function getBackgroundImage(): string {
   return cfg("Style.BackgroundImage").trim();

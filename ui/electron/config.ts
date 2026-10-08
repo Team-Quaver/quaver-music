@@ -261,9 +261,9 @@ export const SCHEMA: SectionSpec[] = [
       },
       {
         key: "Background",
-        def: "cover",
+        def: "off",
         doc: [
-          "默认主题的背景（环境色层）：off=关闭（只有主题底色）｜cover=当前曲封面模糊铺底（默认）｜custom=自定义图片",
+          "默认主题的背景（环境色层）：off=关闭（只有主题底色，**默认**）｜cover=当前曲封面模糊铺底｜custom=自定义图片",
           "（路径见 BackgroundImage）。插件主题自带背景时不受此项约束",
         ],
         valid: (v: string) => ["off", "cover", "custom"].includes(v),

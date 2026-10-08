@@ -96,7 +96,7 @@ eq("宽度键拒绝超界", writeValues({ "Window.SidebarWidth": "99999", "Windo
 eq("宽度键接受合法值与空值", writeValues({ "Window.SidebarWidth": "260", "Window.QueueWidth": "" }), ["Window.SidebarWidth", "Window.QueueWidth"]);
 
 // ——— 默认主题的背景（模式 / 自定义图路径 / 模糊强度）———
-eq("背景默认跟随封面", defaults()["Style.Background"], "cover");
+eq("背景默认关闭（只有主题底色）", defaults()["Style.Background"], "off");
 eq("背景图默认未选择", defaults()["Style.BackgroundImage"], "");
 eq("背景模糊默认 70px", defaults()["Style.BackgroundBlur"], "70");
 eq("背景模式拒绝瞎写", writeValues({ "Style.Background": "wallpaper" }), []);

@@ -96,7 +96,7 @@ eq("自动检查更新默认开", P.getAutoCheck(), true);
 eq("更新渠道默认 stable", P.getUpdateChannel(), "stable");
 eq("已提醒版本标识默认空", P.getLastNotified(), "");
 eq("字体默认（族列表 ⇒ 认成系统默认）", [P.getUiFont(), P.getLyricFont()], ["custom", "custom"]);
-eq("背景默认跟随封面（升级后行为不变）", P.getBackgroundMode(), "cover");
+eq("背景默认关闭（只有主题底色）", P.getBackgroundMode(), "off");
 eq("背景图默认未选择", P.getBackgroundImage(), "");
 eq("背景模糊默认 70", P.getBackgroundBlur(), 70);
 check("内置字体列表能被反查成预设", P.fontKeyOf('"Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", SimSun, serif') === "serif");
@@ -240,7 +240,7 @@ eq("custom 读回", P.getBackgroundMode(), "custom");
 await reload({ "Style.Background": "off" });
 eq("off 读回", P.getBackgroundMode(), "off");
 await reload({ "Style.Background": "wallpaper" });
-eq("瞎写的模式回落 cover", P.getBackgroundMode(), "cover");
+eq("瞎写的模式回落 off（与 schema 默认同一处真相）", P.getBackgroundMode(), "off");
 await reload({ "Style.BackgroundImage": "  /x/bg.png  " });
 eq("路径两端空白被去掉", P.getBackgroundImage(), "/x/bg.png");
 await reload({ "Style.BackgroundBlur": "9999" });
@@ -260,7 +260,7 @@ section("重置");
 await P.resetConfig();
 eq("重置回到默认", [P.getTheme(), P.getDecode(), P.getFade()], ["dark", "MPV", "normal"]);
 eq("背景一并回到默认（FALLBACK 里也得有这三键）",
-  [P.getBackgroundMode(), P.getBackgroundImage(), P.getBackgroundBlur()], ["cover", "", 70]);
+  [P.getBackgroundMode(), P.getBackgroundImage(), P.getBackgroundBlur()], ["off", "", 70]);
 eq("重置后的落盘值", conf()["Style.Style"], "dark");
 
 // ——— 切主题时 data-theme 同步 ———

@@ -1181,7 +1181,7 @@ async function settingsView(root: HTMLElement) {
   // —— 背景（默认主题的环境色层）：关闭背景 / 专辑封面 / 自定义图片 + 模糊强度 ——
   // 选图走主进程的原生对话框（路径落进 quaver.conf，图片本体由同源 /api/bg 端点交给界面，
   // 见 lib/ambient.ts）；浏览器 dev 下没有这个桥，只能看不能换。
-  const BG_HINT = "关闭背景：只留主题底色；专辑封面：当前曲封面模糊铺底（默认）；自定义图片：用你自己的图，建议把模糊强度调小。";
+  const BG_HINT = "关闭背景（默认）：只留主题底色；专辑封面：当前曲封面模糊铺底；自定义图片：用你自己的图，建议把模糊强度调小。";
   const bgCards = wrap.querySelector<HTMLElement>("#bg-cards")!;
   const bgFile = wrap.querySelector<HTMLElement>("#bg-file")!;
   const bgPick = wrap.querySelector<HTMLButtonElement>("#bg-pick")!;

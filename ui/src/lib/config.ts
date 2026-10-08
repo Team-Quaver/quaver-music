@@ -20,7 +20,7 @@ const FALLBACK: ConfigSnapshot = {
   "Style.DefaultLyricsFonts": "Source Han Serif",
   "Style.ShowTranslation": "True",
   "Style.LyricScale": "1",
-  "Style.Background": "cover",
+  "Style.Background": "off",
   "Style.BackgroundImage": "",
   "Style.BackgroundBlur": "70",
   "Window.Decor": "csd",
