@@ -21,9 +21,12 @@
 // 图形占画布 ~88%。verify-icon 会核对（PNG 主色/形状 vs SVG、以及图形包围盒必须 ≥82%）。
 //
 // 明暗判据在调用方（main.ts trayAppearance）：托盘挂在**外壳**上，判据必须是「系统给外壳的颜色」——
-// Linux 探测桌面配色、macOS 读 AppleInterfaceStyle、Windows 用 shouldUseDarkColorsForSystemIntegratedUI。
+// Linux 探测桌面配色、macOS 读 AppleInterfaceStyle、Windows 读注册表的 SystemUsesLightTheme。
 // 千万别拿 nativeTheme.shouldUseDarkColors 当判据：它跟着应用自己的 themeSource 走，而本应用默认
 // 主题是 dark → 永远判成深色外壳（系统切浅色后菜单栏变浅、图标还是浅色那份，直接看不见）。
+// Windows 上还要再避一个近亲 shouldUseDarkColorsForSystemIntegratedUI：Electron 只在 native theme
+// 通知到达时才去读注册表，其余时间它等于 shouldUseDarkColors（= 应用主题）→ 托盘图跟着「深浅色
+// 模式」走。详见 systheme.ts 的 Windows 一节。
 
 /** 托盘逻辑尺寸（pt/px）。16 = macOS 菜单栏 / Windows 通知区 / Linux SNI 的通用档位。 */
 export const TRAY_ICON_PT = 16;

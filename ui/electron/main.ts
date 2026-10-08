@@ -14,8 +14,9 @@ import { audioEngine } from "./audio/engine.ts";
 // 配置文件（quaver.conf）与跨平台目录规则：路径单一真相，渲染层与 sidecar 都对齐这一份
 import { configDir, configFile, ensureConfigDir, logFile, readValues, resetConfig, writeValues } from "./config.ts";
 // 系统深浅色探测（Linux 桌面各自的真相来源，见模块头）：「跟随系统」要靠它才真的跟得上；
-// macOS 侧的菜单栏深浅（托盘图用）也在这里——两者是不同的问题，别混
-import { readMacShellTheme, readSystemTheme, watchMacShellTheme, watchSystemTheme } from "./systheme.ts";
+// macOS 的菜单栏深浅、Windows 的任务栏/通知区域深浅（都是托盘图用的**外壳**判据）也在这里
+// ——三者是不同的问题，别混
+import { readMacShellTheme, readSystemTheme, readWindowsShellTheme, watchMacShellTheme, watchSystemTheme, watchWindowsShellTheme } from "./systheme.ts";
 // 托盘图标：尺寸口径 + 明暗两份素材的映射（纯逻辑，见模块头）
 import { TRAY_ICON_PT, trayIconFile } from "./tray-icon.ts";
 // 托盘菜单的曲目标题行：成型 + 按显示列宽截断（纯逻辑，见模块头 —— 原生菜单不折行，长歌名会撑宽菜单）
@@ -311,16 +312,20 @@ const buildRes = (name) => join(app.isPackaged ? process.resourcesPath : UI_ROOT
 //   Linux  自己探测（readSystemTheme，见 systheme.ts —— nativeTheme 在 KDE 下只认那份静态 GTK 快照）
 //   macOS  读系统设置的 AppleInterfaceStyle（readMacShellTheme）—— 菜单栏底色只认它；nativeTheme
 //          在 mac 上（含 shouldUseDarkColorsForSystemIntegratedUI 那一档）跟着 themeSource 走，用不得
-//   Windows 用 shouldUseDarkColorsForSystemIntegratedUI：Electron 专门给「系统集成 UI（任务栏/通知区）」
-//          开的判据，明说是**系统**主题，跟应用自己 set 的 themeSource 解耦
+//   Windows 自己读注册表（readWindowsShellTheme，SystemUsesLightTheme）—— **别用**
+//          shouldUseDarkColorsForSystemIntegratedUI：Electron 那个属性只在 native theme 通知到达时
+//          才去读注册表，其余时间退回 shouldUseDarkColors = 应用主题，于是托盘图跟着「深浅色模式」
+//          走（浅色配浅色图标、深色配深色图标），正是这一段要防的坑；见 systheme.ts 该节注释
 // 全判不出来才退回 nativeTheme，再不行交给 trayIconFile 兜底（按深色处理）。
 function trayAppearance() {
   const detected = readSystemTheme() // Linux 桌面配色
     ?? (process.platform === "darwin" ? readMacShellTheme() : null) // macOS 系统设置
-    ?? (process.platform === "win32"
-      ? (nativeTheme.shouldUseDarkColorsForSystemIntegratedUI ? "dark" : "light") // Windows 系统主题
-      : null);
-  return detected ?? (nativeTheme.shouldUseDarkColors ? "dark" : "light");
+    ?? (process.platform === "win32" ? readWindowsShellTheme() : null); // Windows 注册表（任务栏/通知区域）
+  if (detected) return detected;
+  // Windows 上 readWindowsShellTheme 只在 reg.exe 都拉不起来时才为空 —— 那时退回 Electron 那档
+  // 「系统集成色」：它读的是同一把钥匙，只是要等一次 native theme 通知才不是应用主题，聊胜于无。
+  if (process.platform === "win32") return nativeTheme.shouldUseDarkColorsForSystemIntegratedUI ? "dark" : "light";
+  return nativeTheme.shouldUseDarkColors ? "dark" : "light";
 }
 
 /** 托盘图：按 TRAY_ICON_PT 统一出图 + 附一张 @2x（mac 高 DPI 菜单栏不糊）。
@@ -933,6 +938,10 @@ app.whenReady().then(() => {
     // macOS：菜单栏的深浅只认系统设置（见 trayAppearance 那段注释），单独盯一份 —— 非 mac 上
     // 这个 watcher 自己什么都不做（readMacShellTheme 恒 null）。
     watchMacShellTheme(() => refreshTrayImage());
+    // Windows：任务栏/通知区域只认注册表，而注册表没有 mtime 可盯 → 定时轮询（见 systheme.ts）。
+    // 不能只靠 nativeTheme 的 updated：我们把 themeSource 写死成应用主题后，Chromium 那边的
+    // 「配色变了」未必再发得出来，那时托盘图就会一直停在启动时挑的那份。
+    watchWindowsShellTheme(() => refreshTrayImage());
   } catch (e) {
     log("[quaver] system theme watch failed:", String(e));
   }
@@ -969,8 +978,9 @@ app.whenReady().then(() => {
     app.quit();
   });
   try { createTray(); } catch (e) { log("[quaver] tray init failed:", String(e)); }
-  // 换托盘图的两条触发：①nativeTheme 的 updated（应用主题档位切换、以及 win/mac 上的系统配色切换
-  // 都会发）②Linux 的 watchSystemTheme（Electron 在 KDE 下看不见真实配色变化，见 systheme.ts）。
+  // 换托盘图的三条触发：①nativeTheme 的 updated（应用主题档位切换、以及 mac 上的系统配色切换会发；
+  // Windows 上未必 —— 见 systheme.ts:watchWindowsShellTheme 那条）②Linux 的 watchSystemTheme
+  // ③Windows 的 watchWindowsShellTheme（Electron 在 KDE 下看不见真实配色变化、在 Windows 上也未必发事件）。
   // 换图本身很便宜（两张 256² 缩到 16/32），不做去重。
   nativeTheme.on("updated", () => refreshTrayImage());
   try { startMpris(); } catch (e) { log("[quaver] mpris init failed:", String(e)); }
