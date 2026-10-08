@@ -231,15 +231,21 @@ check("托盘图按逻辑尺寸 resize（不 resize 就是 mac 上「图标巨�
   /resize\(\{\s*width:\s*px,\s*height:\s*px/.test(mainSrc));
 check("附了 @2x 位图（高 DPI 菜单栏不糊）", /addRepresentation\(\{\s*scaleFactor:\s*2/.test(mainSrc));
 // 这条是踩过的坑：拿 nativeTheme 当判据 → 被应用主题（默认 dark）钉死 → 系统切浅色后图标看不见
-check("外壳外观按平台取「系统给外壳的颜色」：Linux 探测 / mac 读系统设置 / win 系统集成档",
+// Windows 那条同款坑：shouldUseDarkColorsForSystemIntegratedUI 在首次 native theme 通知前会退回
+// shouldUseDarkColors（= 应用主题）→ 托盘图跟着「深浅色模式」走，所以判据要自己读注册表。
+check("外壳外观按平台取「系统给外壳的颜色」：Linux 探测 / mac 读系统设置 / win 读注册表系统模式",
   /readSystemTheme\(\)/.test(mainSrc) && /readMacShellTheme\(\)/.test(mainSrc)
-    && /shouldUseDarkColorsForSystemIntegratedUI/.test(mainSrc));
+    && /readWindowsShellTheme\(\)/.test(mainSrc));
+const appearanceFn = /function trayAppearance\(\)[\s\S]*?\n\}/.exec(mainSrc)?.[0] ?? "";
+check("Windows 主判据是 readWindowsShellTheme()（不是那个会退回应用主题的 Electron 属性）",
+  /process\.platform === "win32"\s*\?\s*readWindowsShellTheme\(\)/.test(appearanceFn), appearanceFn.slice(0, 120));
 check("托盘判据不直接吃 nativeTheme.shouldUseDarkColors 当主判据（只能是最后的兜底）",
   !/readSystemTheme\(\)\s*\?\?\s*nativeTheme\.shouldUseDarkColors/.test(mainSrc));
-check("系统配色变化会刷新托盘图（nativeTheme.updated / Linux watchSystemTheme / mac watchMacShellTheme 三条都接）",
+check("系统配色变化会刷新托盘图（nativeTheme.updated / Linux watchSystemTheme / mac watchMacShellTheme / win watchWindowsShellTheme 四条都接）",
   /nativeTheme\.on\("updated",\s*\(\)\s*=>\s*refreshTrayImage\(\)\)/.test(mainSrc)
     && /watchSystemTheme\(\(\) => \{[\s\S]{0,240}refreshTrayImage\(\)/.test(mainSrc)
-    && /watchMacShellTheme\(\(\) => refreshTrayImage\(\)\)/.test(mainSrc));
+    && /watchMacShellTheme\(\(\) => refreshTrayImage\(\)\)/.test(mainSrc)
+    && /watchWindowsShellTheme\(\(\) => refreshTrayImage\(\)\)/.test(mainSrc));
 check("裁边生成脚本在位（PNG 不是直接导出的那份空白稿）",
   existsSync(join(UI, "scripts", "gen-tray-icons.sh")));
 

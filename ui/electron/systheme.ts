@@ -29,6 +29,9 @@
 // 另有一条**独立**的 mac 侧需求：托盘图要的是「外壳（菜单栏）的深浅」，那个只认系统设置、不能跟
 // 应用自己的 themeSource 走（应用默认主题是 dark，跟它就永远挑成深色外壳）→ 见文件后半段的
 // parseAppleInterfaceStyle / readMacShellTheme / watchMacShellTheme。
+// Windows 侧同款需求走注册表（SystemUsesLightTheme = 任务栏/通知区域），见后半段的 Windows 一节 ——
+// Electron 的 shouldUseDarkColorsForSystemIntegratedUI 名义上就是干这个的，但它在首次 native theme
+// 通知前会退回应用主题，正是要防的坑。
 import { readdirSync, readFileSync, statSync, watchFile, unwatchFile } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -272,6 +275,66 @@ export function watchMacShellTheme(onChange, opts = {}) {
   return () => unwatchFile(file, tick);
 }
 
+// ——— Windows：任务栏 / 通知区域（外壳）的深浅 ———
+// 为什么不直接吃 nativeTheme.shouldUseDarkColorsForSystemIntegratedUI —— Electron 那边的实现是
+//     should_use_dark_colors_for_system_integrated_ui_.value_or(ShouldUseDarkColors())
+// 而那个 optional **只在 OnNativeThemeUpdatedOnUI() 里被赋值**（Windows 分支才去读同一把注册表钥匙），
+// 于是有两个口子：
+//   ① 启动后到第一次 native theme 通知之前，它取的是兜底值 ShouldUseDarkColors() = **应用自己的主题**
+//      （本应用默认 dark）→ 托盘图按「应用主题」挑，也就是跟着用户选的深浅色档位走 —— 正是托盘挂在
+//      **外壳**上要防的那件事（实测症状：浅色模式配浅色图标、深色模式配深色图标）；
+//   ② 构造函数那次 HKCU\...\Themes\Personalize 的 Open 失败（新 profile 里该键可能还没被创建），
+//      optional 永远是 nullopt → 此后**永远**吃应用主题。
+// 所以与 Linux/macOS 同一口径：自己读系统自己的真相 —— 注册表里那两把钥匙的区别要认清：
+//   SystemUsesLightTheme → 任务栏 / 通知区域（**托盘就挂它上面，这才是判据**）
+//   AppsUseLightTheme    → 应用窗口底色（不是外壳，拿它判托盘就是上面那个坑的另一种写法）
+const WIN_PERSONALIZE_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
+/** 轮询间隔。注册表没有 mtime 可盯（watchSystemTheme 那套文件监视在这儿没有对应物），
+ *  只能定时问一次 reg.exe —— 一次只读查询几毫秒，2s 一次的开销可以忽略。
+ *  与 nativeTheme 的 updated 事件并存：那条路免费且立即，这条路是「Chromium 没发事件时」的兜底。 */
+const WIN_WATCH_INTERVAL_MS = 2000;
+
+/** `reg query ...\Themes\Personalize` 的输出 → "light" | "dark"（外壳），认不出返回 null。
+ *  只看 SystemUsesLightTheme（任务栏/通知区域 = 托盘所在的那层）；0x0 = 深色外壳，0x1 = 浅色外壳。 */
+export function parseWindowsPersonalize(output) {
+  const m = /systemuseslighttheme\s+REG_DWORD\s+0x([0-9a-fA-F]+)/i.exec(String(output ?? ""));
+  if (!m) return null;
+  return parseInt(m[1], 16) === 0 ? "dark" : "light";
+}
+
+/** 读 Windows 任务栏/通知区域的深浅（"light" | "dark"）。非 Windows 返回 null。
+ *  reg.exe 拉不起来（opts.error）返回 null，交调用方兜底；键或值**不存在**不算错误：Windows 系统
+ *  模式的出厂档就是浅色（Electron 自己那次读取也以 1 为初值），所以按浅色外壳处理 —— 宁可挑深色
+ *  图标（两种底色上都看得见），也不要退回应用主题（那正是要修的坑）。
+ *  opts 全为测试注入用。注意编码：reg.exe 在中文 Windows 上是 GBK 输出，但我们要匹配的键名与
+ *  DWORD 都是 ASCII，按 utf8 解不会影响判断。 */
+export function readWindowsShellTheme(opts = {}) {
+  if ((opts.platform ?? process.platform) !== "win32") return null;
+  const run = opts.run ?? spawnSync;
+  // 与 gsettings 同理必须带 timeout：spawnSync 挂住 = 主进程假死（这个还是 2s 一次的轮询）
+  const r = run("reg.exe", ["query", opts.personalizeKey ?? WIN_PERSONALIZE_KEY],
+    { encoding: "utf8", timeout: opts.timeoutMs ?? 2000 });
+  if (r.error) return null;
+  return parseWindowsPersonalize(r.stdout) ?? "light";
+}
+
+/** 轮询注册表，值真的变了才回调（返回停止函数）。非 Windows 上直接返回空停止函数 —— 不建定时器，
+ *  也不要让调用方去记「这个平台上它什么都不做」（watchSystemTheme 在非 Linux 上是同名空转的设计，
+ *  这里反过来：Windows 是唯一有意义的平台）。 */
+export function watchWindowsShellTheme(onChange, opts = {}) {
+  if ((opts.platform ?? process.platform) !== "win32") return () => {};
+  let last = readWindowsShellTheme(opts);
+  const tick = () => {
+    const now = readWindowsShellTheme(opts);
+    if (now === null || now === last) return;
+    last = now;
+    onChange(now);
+  };
+  const timer = setInterval(tick, opts.pollMs ?? WIN_WATCH_INTERVAL_MS);
+  timer.unref?.(); // 兜底轮询不许拽住事件循环（不挡应用退出）
+  return () => clearInterval(timer);
+}
+
 // —— CLI：把这次判断的各层原始值摊开（排障用，只读，不动任何设置）——
 //   cd ui && node electron/systheme.ts
 // 托盘图标选错素材时先跑它：一眼看出是哪一层给了错值，还是所有层都没表态。
@@ -283,8 +346,15 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   show("gsettings →", gsettingsColorScheme());
   show("GTK 配色 css →", cssNewest ? `${gtkCssTheme(readText(cssNewest)) ?? "认不出底色"}  [${cssNewest}]` : null);
   show("GTK settings.ini →", gtkIniPaths().map((p) => gtkTheme(readText(p))).find(Boolean) ?? null);
-  if (process.platform === "darwin") show("macOS 菜单栏 →", readMacShellTheme());
+  const mac = process.platform === "darwin" ? readMacShellTheme() : null;
+  if (process.platform === "darwin") show("macOS 菜单栏 →", mac);
+  const win = process.platform === "win32" ? readWindowsShellTheme() : null;
+  if (process.platform === "win32") show("Windows 系统模式 →", win);
   const verdict = readSystemTheme();
   console.log(`→ 结论                 ${verdict ?? "null（交回 Electron 自己的判断）"}`);
-  console.log(`  托盘图标             ${verdict === "light" ? "深色图标（配浅色外壳）" : "浅色图标（配深色外壳）"}`);
+  // 托盘图的实际判据（与 main.ts:trayAppearance 同一口径），这里一眼看出会挑哪份素材
+  const shell = verdict ?? mac ?? win;
+  console.log(`  托盘图标             ${
+    shell === "light" ? "深色图标（配浅色外壳）"
+      : shell ? "浅色图标（配深色外壳）" : "浅色图标（判不出来 → 按深色外壳兜底）"}`);
 }

@@ -9,7 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   gsettingsColorScheme, gtkCssTheme, gtkCssThemeFromDirs, gtkTheme, iniValue, isLightHex,
-  isLightRGB, kdeTheme, parseColorScheme, readMacShellTheme, readSystemTheme, watchSystemTheme,
+  isLightRGB, kdeTheme, parseColorScheme, parseWindowsPersonalize, readMacShellTheme,
+  readSystemTheme, readWindowsShellTheme, watchSystemTheme, watchWindowsShellTheme,
 } from "../electron/systheme.ts";
 
 let pass = 0, fail = 0;
@@ -20,6 +21,7 @@ function check(name, cond, detail = "") {
 }
 const eq = (name, got, want) =>
   check(name, JSON.stringify(got) === JSON.stringify(want), `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // 真实取样（KDE BreezeLight / Breeze Dark 的窗口底色就长这样）
 const KDE_LIGHT = [
@@ -136,6 +138,79 @@ check("macOS defaults 调用也带 timeout，且非 mac 平台直接不试", (()
   return got === "dark" && typeof o?.timeout === "number" && readMacShellTheme({ platform: "linux" }) === null;
 })());
 
+// ——— Windows：托盘图的**外壳**判据（注册表）———
+// 为什么要自己读：nativeTheme.shouldUseDarkColorsForSystemIntegratedUI 在 Windows 上只在
+// native theme 通知到达后才去读注册表，其余时间退回 shouldUseDarkColors = 应用主题 → 托盘图
+// 跟着「深浅色模式」走（浅色配浅色图标、深色配深色图标）。这里盯的就是「读的是哪把钥匙、
+// 缺值时怎么兜」——真在 Windows 上跑一次才知道 UI 对不对，解析错可就静默挑反了。
+section("Windows 系统模式（注册表）");
+const WIN_DARK = [
+  "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+  "    AppsUseLightTheme    REG_DWORD    0x1",
+  "    SystemUsesLightTheme    REG_DWORD    0x0",
+  "",
+].join("\r\n");
+const WIN_LIGHT = WIN_DARK.replace("SystemUsesLightTheme    REG_DWORD    0x0", "SystemUsesLightTheme    REG_DWORD    0x1");
+eq("系统模式深色（任务栏深底）→ dark → 配浅色图标", parseWindowsPersonalize(WIN_DARK), "dark");
+eq("系统模式浅色（任务栏浅底）→ light → 配深色图标", parseWindowsPersonalize(WIN_LIGHT), "light");
+eq("只认 SystemUsesLightTheme：应用窗口那把钥匙（AppsUseLightTheme）不是外壳",
+  parseWindowsPersonalize("    AppsUseLightTheme    REG_DWORD    0x0"), null);
+eq("大小写/空白不敏感（reg.exe 的输出列宽随系统语言变）",
+  parseWindowsPersonalize("  SystemUsesLightTheme REG_DWORD 0X1 \n"), "light");
+eq("值不存在 / 垃圾输出 → null（不硬掰）",
+  [parseWindowsPersonalize("错误: 系统找不到指定的注册表项或值。"), parseWindowsPersonalize(""), parseWindowsPersonalize(null)],
+  [null, null, null]);
+
+eq("非 Windows 直接不问 reg.exe（run 一旦被调用就会抛）",
+  readWindowsShellTheme({ platform: "linux", run: () => { throw new Error("不该被调用"); } }), null);
+{
+  let argv = null, o = null;
+  const got = readWindowsShellTheme({
+    platform: "win32",
+    run: (bin, args, opts) => { argv = [bin, ...args]; o = opts; return { stdout: WIN_DARK }; },
+  });
+  eq("win32：深色系统模式 → dark", got, "dark");
+  check("问的是 HKCU\\...\\Themes\\Personalize",
+    argv?.[0] === "reg.exe" && argv.includes("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
+    JSON.stringify(argv));
+  check("reg.exe 调用带 timeout（2s 一次的轮询里更不能挂住主进程）",
+    typeof o?.timeout === "number" && o.timeout > 0);
+}
+eq("reg.exe 拉不起来（spawn 自己失败）→ null，交主进程兜底",
+  readWindowsShellTheme({ platform: "win32", run: () => ({ error: new Error("spawnSync reg.exe ENOENT") }) }), null);
+eq("键/值不存在不算错误：系统模式的出厂档就是浅色 → light（宁可挑深色图标，也不退回应用主题）",
+  readWindowsShellTheme({
+    platform: "win32",
+    run: () => ({ status: 1, stdout: "错误: 系统找不到指定的注册表项或值。\n" }),
+  }), "light");
+
+// 监听：注册表没有 mtime 可盯，只能轮询 —— 抓变化、值没变不回调、停得掉
+{
+  let out = WIN_LIGHT;
+  const seen = [];
+  const stop = watchWindowsShellTheme((t) => seen.push(t), {
+    platform: "win32", pollMs: 150, run: () => ({ stdout: out }),
+  });
+  out = WIN_DARK; // 系统模式 浅 → 深（任务栏变深 → 该换浅色图标）
+  await sleep(600);
+  out = WIN_DARK; // 值没变：不该再回调
+  await sleep(600);
+  stop();
+  eq("系统模式切换被轮询抓到（浅 → 深）", seen, ["dark"]);
+  check("值没变不回调（免得白刷托盘图）", seen.length === 1, JSON.stringify(seen));
+  out = WIN_LIGHT;
+  await sleep(600);
+  eq("stop() 之后不再回调", seen, ["dark"]);
+}
+eq("非 Windows：不建轮询（从不问 reg.exe，只还一个空停止函数）", (() => {
+  let called = false;
+  const stop = watchWindowsShellTheme(() => { called = true; }, {
+    platform: "linux", pollMs: 10, run: () => { called = true; return { stdout: WIN_LIGHT }; },
+  });
+  stop();
+  return called;
+})(), false);
+
 // ——— GTK 配色 css（主题生成器写的产物：Hyprland 这类桌面上它是外壳真底色）———
 section("GTK 配色 css");
 eq("noctalia 那种深色底 → dark",
@@ -167,7 +242,6 @@ eq("配色 css 也没有 → 才落到 settings.ini",
 
 // ——— 监听：真改文件 → 真回调 ———
 section("变化监听");
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 {
   const p = write("watch-kdeglobals", KDE_LIGHT);
   const seen = [];

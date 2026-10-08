@@ -156,11 +156,18 @@ desktop 文件名、`Icon=`、hicolor 图标文件名全部取自它，四方只
 按这个前提判：
 
 - **图标明暗**（`electron/tray-icon.ts` + `main.ts:trayAppearance`）：判据必须是「系统给外壳的
-  颜色」，Linux 探测桌面配色、macOS 读 `AppleInterfaceStyle`、Windows 用
-  `shouldUseDarkColorsForSystemIntegratedUI`。**别拿 `nativeTheme.shouldUseDarkColors` 当判据**：
-  它跟着应用自己的 `themeSource` 走，而本应用默认主题是 dark → 永远判成深色外壳，系统切浅色后
-  菜单栏变浅、图标还是浅色那份，直接看不见。尺寸统一 16pt 出图（mac 按点画 NSImage，直塞 512²
-  就是「托盘图标巨大」）。
+  颜色」，Linux 探测桌面配色、macOS 读 `AppleInterfaceStyle`、Windows 读注册表
+  `HKCU\...\Themes\Personalize\SystemUsesLightTheme`（`systheme.ts:readWindowsShellTheme`）。
+  两个**别用**的写法：
+  - `nativeTheme.shouldUseDarkColors` —— 它跟着应用自己的 `themeSource` 走，而本应用默认主题是
+    dark → 永远判成深色外壳，系统切浅色后菜单栏变浅、图标还是浅色那份，直接看不见。
+  - Windows 上 `shouldUseDarkColorsForSystemIntegratedUI` —— 名义上正是「系统集成 UI 的深浅」，
+    但 Electron 只在 native theme 通知到达时才去读注册表，其余时间**退回 `shouldUseDarkColors`
+    （= 应用主题）**；`Personalize` 键 Open 失败时更是永远吃应用主题。表现就是托盘图跟着用户选的
+    深浅色档位走（实测：浅色配浅色图标、深色配深色图标）—— 外壳判据最忌这个，所以 Windows 自己读
+    注册表。刷新触发同理：注册表没有 mtime 可盯，`watchWindowsShellTheme` 定时轮询（2s），
+    不能只等 `nativeTheme` 的 `updated`。
+  尺寸统一 16pt 出图（mac 按点画 NSImage，直塞 512² 就是「托盘图标巨大」）。
 - **菜单标题行**（`electron/tray-title.ts`）：`electron/tray-title.ts:trayTitleLine` 拼「歌名 -
   歌手」并按**显示列宽**截断（40 列，汉字记 2 列）。原因：Win32 HMENU 与 macOS NSMenu **都不折
   行**，菜单宽度 = 最宽那一项，一首长中文歌名 + 多位歌手就能把托盘菜单撑成横贯屏幕的一条；Linux
