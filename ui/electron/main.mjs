@@ -18,6 +18,8 @@ import { configDir, configFile, ensureConfigDir, logFile, readValues, resetConfi
 import { readMacShellTheme, readSystemTheme, watchMacShellTheme, watchSystemTheme } from "./systheme.mjs";
 // 托盘图标：尺寸口径 + 明暗两份素材的映射（纯逻辑，见模块头）
 import { TRAY_ICON_PT, trayIconFile } from "./tray-icon.mjs";
+// 托盘菜单的曲目标题行：成型 + 按显示列宽截断（纯逻辑，见模块头 —— 原生菜单不折行，长歌名会撑宽菜单）
+import { trayTitleLine } from "./tray-title.mjs";
 // Linux 桌面集成自装（<app_id>.desktop 身份文件 + hicolor 图标）：各桌面/门户按 app_id 反查
 // 桌面文件取图标，AppImage 裸跑与开发态都没人代劳，必须自己装（模块头有完整链路说明）
 import { DESKTOP_ID, installLinuxDesktopIntegration, quoteExecPath } from "./linux-desktop.mjs";
@@ -374,8 +376,10 @@ function buildTrayMenu() {
   const t = s?.track ?? null;
   const playing = s?.status === "Playing";
   const loop = TRAY_LOOP_LABELS[s?.loop] ? s.loop : "None";
-  // 曲目行：歌名（title=主名+版本后缀，不含说明文字）- 歌手（" / " 连接，与界面同款）
-  const songLine = t ? t.name + (t.artists?.length ? ` - ${t.artists.join(" / ")}` : "") : "未在播放";
+  // 曲目行：歌名（title=主名+版本后缀，不含说明文字）- 歌手（" / " 连接，与界面同款）。
+  // 成型与**截断**都在 tray-title.mjs：win/mac 的原生菜单不折行，菜单宽度 = 最宽那一项，
+  // 一首长中文歌名 + 多位歌手就能把托盘菜单撑成横贯屏幕的一条（Linux 面板宿主自己会省略）。
+  const songLine = trayTitleLine(t);
   return Menu.buildFromTemplate([
     { label: songLine, enabled: false }, // 纯展示项
     { label: "上一曲", enabled: !!s?.can?.prev, click: () => trayCmd("prev") }, // 渲染层 prevPress：单按遵循 PrevReplay，快速连按=跳上一首

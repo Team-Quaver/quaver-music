@@ -122,6 +122,25 @@ desktop 文件名、`Icon=`、hicolor 图标文件名全部取自它，四方只
 三平台打包图标：win/mac 的 `build.icon` 指向 build-res/icon.png（electron-builder 首次打包自动
 转 ico/icns）；linux 用 build-res/icons 多尺寸集（16–512）。验证：`pnpm run verify:icon`。
 
+## 托盘（图标 + 菜单）
+
+托盘挂在**外壳**上（Linux 面板 / macOS 菜单栏 / Windows 通知区），不是挂在应用窗口里——两件事都
+按这个前提判：
+
+- **图标明暗**（`electron/tray-icon.mjs` + `main.mjs:trayAppearance`）：判据必须是「系统给外壳的
+  颜色」，Linux 探测桌面配色、macOS 读 `AppleInterfaceStyle`、Windows 用
+  `shouldUseDarkColorsForSystemIntegratedUI`。**别拿 `nativeTheme.shouldUseDarkColors` 当判据**：
+  它跟着应用自己的 `themeSource` 走，而本应用默认主题是 dark → 永远判成深色外壳，系统切浅色后
+  菜单栏变浅、图标还是浅色那份，直接看不见。尺寸统一 16pt 出图（mac 按点画 NSImage，直塞 512²
+  就是「托盘图标巨大」）。
+- **菜单标题行**（`electron/tray-title.mjs`）：`electron/tray-title.mjs:trayTitleLine` 拼「歌名 -
+  歌手」并按**显示列宽**截断（40 列，汉字记 2 列）。原因：Win32 HMENU 与 macOS NSMenu **都不折
+  行**，菜单宽度 = 最宽那一项，一首长中文歌名 + 多位歌手就能把托盘菜单撑成横贯屏幕的一条；Linux
+  面板宿主自己会打省略号，所以这个症状只在 win/mac 看得见——但**三平台同一份口径**，别为 win/mac
+  另开分支（否则同一首歌在三个系统上显示成三样）。上限别调大来「修好」截断。
+- 曲目行是 `enabled:false` 的纯展示项；命令一律回发渲染层（`quaver:mpris-cmd`），播放器仍是唯一
+  事实源。
+
 ## Documentation
 
 Vite guide: https://vite.dev/guide/
