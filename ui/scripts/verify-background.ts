@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { BG_DIALOG_EXTENSIONS, BACKGROUND_MAX_BYTES, backgroundInfo, backgroundMime, backgroundPath, backgroundResponse } from "../electron/background.ts";
 import { BG_IMAGE_EXTS, configFile, defaults, writeValues } from "../electron/config.ts";
 import { startQuaverServer } from "../electron/native-server.ts";
+import { backgroundPolicyOf } from "../src/sparkle/theme-background.ts";
 
 let pass = 0, fail = 0;
 const section = (t) => console.log(`\n=== ${t} ===`);
@@ -30,6 +31,8 @@ const eq = (name, got, want) =>
 
 const UI = fileURLToPath(new URL("..", import.meta.url));
 const src = (rel: string) => readFileSync(join(UI, rel), "utf8");
+/** 仓库根下的文件（vendor/Sparkle 的 SDK / 文档 / 市场示例插件） */
+const srcVendor = (rel: string) => readFileSync(join(UI, "..", rel), "utf8");
 /** 从 needle 处往后截一段：用来把「这条路由/这个处理器」的代码单独拎出来断言。 */
 const after = (s: string, needle: string, n = 700) => {
   const i = s.indexOf(needle);
@@ -158,7 +161,7 @@ check("「选择图片…」就在自定义卡片旁边（同一个选项卡组�
   bgBlock.includes('id="bg-pick"') && bgBlock.indexOf('data-opt="custom"') < bgBlock.indexOf('id="bg-pick"'));
 check("选图按钮只在自定义档出现", views.includes("bgPick.hidden = !isCustom"));
 check("滑块区间用常量插值（改区间不会只改一半）", views.includes('min="${BG_BLUR_MIN}" max="${BG_BLUR_MAX}"'));
-check("关闭背景时滑块禁用（有背景才谈得上模糊）", views.includes('bgBlur.disabled = mode === "off"'));
+check("关闭背景时滑块禁用（有背景才谈得上模糊）", /bgBlur\.disabled = locked \|\| mode === "off"/.test(views));
 check("选「自定义」但还没有图 → 直接弹选图，不落进空状态",
   views.includes('next === "custom" && !getBackgroundImage() && !(await pickBgImage())'));
 check("背景三处改动都即时生效（applyBackground）", (views.match(/applyBackground\(\)/g) ?? []).length >= 4);
@@ -177,7 +180,7 @@ check("图源指纹挡住「拖滑块重拉一张 4K 壁纸」", ambient.include
 check("自定义图带序号击穿缓存（原地替换同一路径的图也能刷新）", ambient.includes("${BG_ROUTE}?v=${++bgRev}"));
 
 check("环境层模糊来自变量（不许退回写死值）", /filter: blur\(var\(--ambient-blur/.test(css));
-check("关闭档整层不画", /\.ambient\[data-mode="off"\] \{ display: none; \}/.test(css));
+check("关闭档整层不画", /\.ambient\[data-mode="off"\][^{]*\{ display: none; \}/.test(css));
 check("自定义档满不透明（用户挑的图不该被压成 .55）", /\.ambient\[data-mode="custom"\] \.ambient-art\.ready \{ opacity: 1; \}/.test(css));
 check("自定义档不额外调色（saturate/brightness 只留给封面环境色）",
   /\.ambient\[data-mode="custom"\] \.ambient-art \{ filter: blur\(var\(--ambient-blur/.test(css));
@@ -240,6 +243,76 @@ eq("模糊默认 70", defaults()["Style.BackgroundBlur"], "70");
 check("渲染层 FALLBACK 与 schema 同步（改一处要改两处）",
   ['"Style.Background": "off"', '"Style.BackgroundImage": ""', '"Style.BackgroundBlur": "70"']
     .every((line) => src("src/lib/config.ts").includes(line)));
+
+// ——— 与 Sparkle 主题的交接：谁管这层背景（口径与 tint 那套逐条对齐）———
+section("主题交接策略（纯逻辑）");
+/** 造一个「只有 background 不同」的主题；字段是第三方给的任意值，所以断言成 never 再传进去 */
+const mkTheme = (background?: unknown) =>
+  ({ id: "t", name: "T", css: "", ...(background === undefined ? {} : { background }) }) as never;
+
+eq("没启用主题 → 宿主的正常三档", backgroundPolicyOf(null).mode, "host");
+eq("不启用主题时 themeId 为 null", backgroundPolicyOf(null).themeId, null);
+eq("主题不声明 background → 让位（主题自带背景）", backgroundPolicyOf(mkTheme()).mode, "off");
+eq("声明 host → 宿主接管（用户三档 + 模糊强度照常）", backgroundPolicyOf(mkTheme({ mode: "host" })).mode, "host");
+eq("mode 不认识 → 按让位处理（安全侧：宁可少画一层）", backgroundPolicyOf(mkTheme({ mode: "wat" })).mode, "off");
+eq("声明成空对象 → 同样让位（只有显式 host 才算交出去）", backgroundPolicyOf(mkTheme({})).mode, "off");
+eq("字段写成 true / 字符串这类不成形的值 → 让位，且不抛",
+  [backgroundPolicyOf(mkTheme(true)).mode, backgroundPolicyOf(mkTheme("host")).mode, backgroundPolicyOf(mkTheme(1)).mode],
+  ["off", "off", "off"]);
+eq("策略带回主题 id", backgroundPolicyOf(mkTheme({ mode: "host" })).themeId, "t");
+
+section("源码接线 · 主题交接");
+const bgPolicySrc = src("src/sparkle/theme-background.ts");
+const registrySrc = src("src/sparkle/registry.ts");
+const hostSrc = src("src/sparkle/host.ts");
+const sdkTypes = srcVendor("vendor/Sparkle/sdk/types.ts");
+const guide = srcVendor("vendor/Sparkle/docs/plugin-author-guide.md");
+const aurora = srcVendor("vendor/Sparkle/marketplace/aurora/index.ts");
+
+check("SDK 定义了 SparkleThemeBackground", sdkTypes.includes("export interface SparkleThemeBackground"));
+check("SDK 的 SparkleTheme 带上了 background 字段", /interface SparkleTheme \{[\s\S]*?background\?: SparkleThemeBackground;/.test(sdkTypes));
+check("SDK 写明了缺省语义（不声明 = 主题接管）", sdkTypes.includes("缺省 = 主题接管"));
+check("交接策略模块零 ui 依赖（可在 node 里直接 import 做单测）",
+  bgPolicySrc.includes('from "@quaver/sparkle"') && !/from "\.\.?\//.test(bgPolicySrc));
+
+check("激活主题只有一个解析处（registry），且读的是 host 维护的 data-sparkle-theme",
+  /export function sparkleActiveTheme\(\)/.test(registrySrc)
+  && registrySrc.includes("document.documentElement.dataset.sparkleTheme"));
+check("…且不 import host（它反向依赖 shell，会成环）", !registrySrc.includes('from "./host"'));
+check("背景层用同一份解析（不许自己再写第三份）",
+  src("src/lib/ambient.ts").includes("sparkleActiveTheme") && src("src/views.ts").includes("sparkleActiveTheme"));
+check("hint/空态之类不在 registry 里被 DOM 绑住（node 侧 import 不炸）",
+  /typeof document === "undefined"/.test(registrySrc));
+
+check("背景层让位：主题接管时整层不画",
+  /backgroundPolicyOf\(sparkleActiveTheme\(\)\)\.mode === "off"[\s\S]{0,240}?layer\.dataset\.mode = "theme"/.test(ambient));
+check("…且作废图源指纹（切回默认主题要重新取图，不能停在「已加载」的假象上）",
+  /artKey = "";\s*\n\s*hideArt\(\)/.test(ambient));
+check("boot 时订阅插件启停（注册表变化要重算归属）", /onSparkleChange\(applyBackground\)/.test(ambient));
+const applyFn = /function applySparkleTheme\(\) \{([\s\S]*?)\n\}/.exec(hostSrc)?.[1] ?? "";
+check("applySparkleTheme 体取得到（防失配让下面全绿）", applyFn.length > 50, String(applyFn.length));
+check("host 换/停主题后重算背景（否则会停在上一套策略上）", applyFn.includes("applyBackground()"));
+
+check("CSS：主题接管态与 off 一样整层藏掉",
+  css.includes('.ambient[data-mode="off"], .ambient[data-mode="theme"] { display: none; }'));
+check("设置页按策略收口：三档禁用 + 写明由谁接管",
+  /b\.disabled = locked/.test(views) && views.includes("自带背景，已接管"));
+check("主题接管时不给换图（选图按钮与文件名一并收起）", views.includes('const isCustom = mode === "custom" && !locked'));
+check("模糊滑块也叠加 locked", views.includes("bgBlur.disabled = locked ||"));
+check("切主题 / 插件启停都重刷这一组",
+  /paintTintPolicy\(\);[^\n]*\n\s*paintBgPolicy\(\);/.test(views) && views.includes("paintBgPolicy();   // 背景那组同理"));
+
+check("插件开发文档写了 background 契约", guide.includes("背景归谁管") && guide.includes('background: { mode: "host" }'));
+check("文档点明两件事各自独立声明", guide.includes("各自独立声明"));
+check("市场示例说明了两种写法", /background: \{ mode: "host" \}/.test(aurora) && /不写这个字段/.test(aurora));
+
+// 反向自证：让位这件事一旦被写没，必须能被逮住
+const yieldsBg = (s) => /layer\.dataset\.mode = "theme"/.test(s);
+check("…反向：主题接管时不藏层会被逮住", !yieldsBg('layer.dataset.mode = mode;\nhideArt();'));
+check("…当前实现确实藏了", yieldsBg(ambient));
+const locksGroup = (s) => /b\.disabled = locked/.test(s);
+check("…反向：主题接管却不锁设置项会被逮住", !locksGroup("bgCards.querySelectorAll('[data-opt]').forEach((b) => {});"));
+check("…当前实现确实锁了", locksGroup(views));
 
 rmSync(ROOT, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 delete process.env.QUAVER_CONFIG_DIR;

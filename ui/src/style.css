@@ -78,9 +78,10 @@ input:focus, textarea:focus, select:focus {
      off    整层不画（只有主题底色）；
      cover  封面环境色：强模糊 + 提饱和/提亮只取色彩倾向 → 压到 55% 不透明度；
      custom 用户自己选的图：满不透明、不额外调色（他的图不该被改）。
+   另有 data-mode="theme"：启用的 Sparkle 主题接管背景时由宿主让位，整层与 off 一样藏掉。
    模糊强度与扩边系数走 --ambient-blur / --ambient-scale（设置页滑块即时写入）。 */
 .ambient { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
-.ambient[data-mode="off"] { display: none; }
+.ambient[data-mode="off"], .ambient[data-mode="theme"] { display: none; }
 .ambient-art {
   position: absolute; inset: 0; background-size: cover; background-position: center;
   transform: scale(var(--ambient-scale, 1.15)); /* 扩边避免 blur() 边缘发白（随模糊强度收放） */

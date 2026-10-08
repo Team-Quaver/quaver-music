@@ -11,6 +11,7 @@ import { addNavItem, repaintSidebarPlaylists } from "../shell";
 // 高亮色（tint）的交接：换主题后要重算宿主让不让位（见 lib/tint.ts / sparkle/theme-tint.ts）。
 // 方向是 host → lib/tint → sparkle/registry，单向，不成环。
 import { applyTint } from "../lib/tint";
+import { applyBackground } from "../lib/ambient";
 import {
   activateStyle, mountStyleLayer, onStyleChange, resetStyle, stylePacks, styleState,
 } from "./style-layer";
@@ -62,9 +63,10 @@ function applySparkleTheme() {
   const known = active && sparkleThemes().some((t) => t.id === active) ? active : null;
   if (known) root.dataset.sparkleTheme = known;
   else delete root.dataset.sparkleTheme;
-  // 主题会决定高亮色（tint）归谁：没声明 tint 的主题自带强调色，宿主必须让位（否则
-  // 那几个内联变量会压着主题的 CSS）。换主题/停用主题后都要重算一次，否则会停在上一套策略上。
+  // 主题会决定两样东西归谁：高亮色（tint）与背景（background）。没声明的主题自带那一块，
+  // 宿主必须让位。换主题/停用主题后都要重算一次，否则会停在上一套策略上。
   applyTint();
+  applyBackground();
 }
 
 function injectThemeStyle(t: SparkleTheme) {

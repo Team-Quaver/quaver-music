@@ -263,8 +263,11 @@ check("交接策略模块零 ui 依赖（只 import SDK 类型与颜色纯函数
   themeTint.includes('from "@quaver/sparkle"') && themeTint.includes('from "../lib/color.ts"') && !themeTint.includes('from "../shell"'));
 check("…且值导入带 .ts（护栏要在 node 里直接 import 它做单测，剥离不补扩展名）",
   /from "\.\.\/lib\/color\.ts"/.test(themeTint));
-check("tint.ts 从 <html> 的 data-sparkle-theme 取当前主题", tint.includes("document.documentElement.dataset.sparkleTheme"));
-check("…且不 import sparkle/host（那个模块反向依赖 shell，会成环）", !tint.includes('from "../sparkle/host"'));
+check("激活主题的解析走 registry（读 host 维护在 <html> 的 data-sparkle-theme）",
+  src("src/sparkle/registry.ts").includes("document.documentElement.dataset.sparkleTheme")
+  && /const activeSparkTheme = sparkleActiveTheme;/.test(tint));
+check("…且两处都不 import sparkle/host（那个模块反向依赖 shell，会成环）",
+  !tint.includes('from "../sparkle/host"') && !src("src/sparkle/registry.ts").includes('from "./host"'));
 check("主题接管时让位：清掉变量而不是照写", /policy\.mode === "off"[\s\S]{0,160}?paint\(null\)/.test(tint));
 check("presets 模式用主题方案色（用户选过的优先，否则第一个）",
   /pickPreset\(policy\.presets, sparkTintChoice\(policy\.themeId\)\)/.test(tint));

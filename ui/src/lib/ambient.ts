@@ -3,17 +3,24 @@
 //
 // 三种模式（quaver.conf 的 [Style] Background，设置→外观→背景）：
 //   off    关闭背景 —— 整层不画，只剩主题底色；
-//   cover  当前曲封面（默认，也就是本功能之前一直的行为）—— 强模糊 + 提饱和/提亮，只取色彩
-//          倾向，所以压到 55% 不透明度；
+//   cover  当前曲封面（环境色）—— 强模糊 + 提饱和/提亮，只取色彩倾向，所以压到 55% 不透明度；
 //   custom 用户自己选的图片 —— 是他挑的图，就该看得清：满不透明，且不额外调色。
+// 外加第四个**非用户档位**的 data-mode="theme"：启用的 Sparkle 主题接管背景时这一层不画
+// （契约见 sparkle/theme-background.ts），CSS 里与 off 一样整层藏掉。
 // 模糊强度（BackgroundBlur，px）对两种出图模式都生效；扩边系数随模糊一起收放 —— 扩边只为
 // 盖住 blur() 边缘的发白，不模糊时不该平白裁掉一圈图。
 //
 // 分工：本模块只管这一层。封面主色 → --cvg-accent/--cvg-glow 的**界面染色**在 shell.ts，
 // 两者同源（同一张封面）但互不依赖：一个管背景，一个管高亮色，关掉背景不该影响高亮。
+//
+// 还有一层归属：**启用的 Sparkle 主题可能接管背景**（契约见 sparkle/theme-background.ts）——
+// 主题不声明 background 就由它管，本模块让位（整层不画），设置页那一组同时禁用。判定与
+// tint 的让位是同一套口径，别只改一边。
 import { coverUrl } from "./api";
 import { getBackgroundBlur, getBackgroundImage, getBackgroundMode } from "./prefs";
 import { player } from "../player";
+import { onSparkleChange, sparkleActiveTheme } from "../sparkle/registry";
+import { backgroundPolicyOf } from "../sparkle/theme-background";
 
 /** 同源背景图端点（dev/preview = src/relay.ts，打包态 = electron/native-server.ts） */
 const BG_ROUTE = "/api/bg";
@@ -39,6 +46,8 @@ export function bootBackground() {
   art = layer.querySelector<HTMLElement>(".ambient-art")!;
   document.body.prepend(layer);
   player.on(applyBackground); // 换曲：封面模式跟着换图（off/custom 下指纹不变，空转）
+  // 插件启停 / 主题注册变化都会改归属（主题接管与否决定本模块让不让位），跟着重算一次
+  onSparkleChange(applyBackground);
   applyBackground();
 }
 
@@ -55,6 +64,15 @@ function hideArt() {
  */
 export function applyBackground() {
   if (!layer || !art) return;
+  // 主题接管背景：让位 —— 整层不画（否则用户的自定义壁纸会从主题的底色底下透出来），
+  // 也顺手作废图源指纹：切回默认主题时要重新取图，不能停在「已加载」的假象上。
+  if (backgroundPolicyOf(sparkleActiveTheme()).mode === "off") {
+    layer.dataset.mode = "theme";
+    artKey = "";
+    hideArt();
+    return;
+  }
+
   const mode = getBackgroundMode();
   layer.dataset.mode = mode;
   const blur = getBackgroundBlur();

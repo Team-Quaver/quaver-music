@@ -242,6 +242,19 @@ export const sparkleNavItems = (): SparkleNavItem[] => navItems;
 export const sparkleSonglistGroups = (): SparkleSonglistGroup[] => songlistGroups.map((e) => e.group);
 export const sparkleSettingsSections = (): SettingsSectionEntry[] => settingsSections;
 export const sparkleThemes = (): ThemeEntry[] => themes;
+
+/** 当前**激活**的那个主题（含它的 tint / background 声明）；没启用主题 / 主题已消失 = null。
+ *
+ *  真相在 <html data-sparkle-theme>（host.applySparkleTheme 维护），这里只是把它读回注册表。
+ *  为什么不从 host.ts 导：host 反向依赖 shell，而本模块被 shell/player/tint/ambient 读 ——
+ *  让消费方 import host 会成环。三个消费方（lib/tint、lib/ambient、设置页）共用这一份，
+ *  免得「激活主题怎么找」出现第三、第四份实现。
+ *  `typeof document` 兜底：本模块会被 scripts/verify-sparkle.ts 在 node 里直接 import。 */
+export function sparkleActiveTheme(): SparkleTheme | null {
+  const id = typeof document === "undefined" ? "" : (document.documentElement.dataset.sparkleTheme ?? "");
+  if (!id) return null;
+  return themes.find((t) => t.id === id) ?? null;
+}
 /** 已登记的常驻样式层（style-layer.ts 订阅本表并注入 <style>） */
 export const sparkleStyleLayers = (): StyleLayerEntry[] => styleLayers;
 /** 已登记的主题包（按注册序） */

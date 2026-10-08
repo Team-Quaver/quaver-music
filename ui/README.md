@@ -79,6 +79,8 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
   自定义图由本地服务 `/api/bg` 按 conf 里那条路径读出（**路径不从渲染层来**，扩展名白名单 + 40MB 上限），
   选图走原生对话框，仅在桌面端可用。默认值只对「键缺失 / 全新配置 / 恢复默认」生效 ——
   conf 首启就按模板物化，已写过的值不会被改默认值搬动。
+  启用 Sparkle 主题时这一层归主题管：主题不声明 `background` = 它自带背景，宿主让位（那一组设置禁用）；
+  声明 `{ mode: "host" }` 才把背景交回用户（见 `vendor/Sparkle/docs/plugin-author-guide.md`）。
 - 「高亮颜色」两键 = 设置→外观→高亮颜色：`Tint` 三档（`default` 固定青色（**默认**，不跟封面跑）/
   `cover` 当前曲封面主色 / `custom` 自定义色）、`TintColor` 自定义色的 `#rrggbb` 字面量。
   它决定 `--cvg-accent` / `--cvg-glow`（UI 高亮）与 `--cvg-bar-fill` / `--cvg-bar-line`（播放条）——

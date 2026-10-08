@@ -70,9 +70,10 @@ import { syncInhibit } from "./lib/inhibit";
 import {configInfo, resetConfig, revealConfig} from "./lib/config";
 import {vipCardHtml} from "./lib/vip";
 import {mountSparklePanel} from "./sparkle/settings";
-import {onSparkleChange, sparkleThemes} from "./sparkle/registry";
+import {onSparkleChange, sparkleActiveTheme, sparkleThemes} from "./sparkle/registry";
 import {sparkActivateTheme, sparkActiveThemeId} from "./sparkle/host";
 import {sparkSetTintChoice, sparkTintChoice, tintPolicyOf} from "./sparkle/theme-tint";
+import {backgroundPolicyOf} from "./sparkle/theme-background";
 import type { SparkleTintPreset } from "@quaver/sparkle";
 import {mountHotkeysPanel} from "./components/HotkeySettings";
 
@@ -1242,6 +1243,8 @@ async function settingsView(root: HTMLElement) {
   const bgBlurVal = wrap.querySelector<HTMLElement>("#bg-blur-val")!;
   const bgHint = wrap.querySelector<HTMLElement>("#bg-hint")!;
   const bgBridge = window.quaverBackground;
+  /** 当前激活的 Sparkle 主题（含它的 background 声明）；没启用主题 / 主题已消失 = null。 */
+  const bgPolicy = () => backgroundPolicyOf(sparkleActiveTheme());
 
   const paintBlur = () => {
     const px = getBackgroundBlur();
@@ -1262,12 +1265,14 @@ async function settingsView(root: HTMLElement) {
   };
   const paintBgMode = () => {
     const mode = getBackgroundMode();
+    const locked = bgPolicy().mode === "off"; // 主题接管背景：这一组整体不可调（见 paintBgPolicy）
     syncSel(bgCards, "opt", mode);
-    // 「选择图片…」与文件名只在自定义档出现（就在那张卡片旁边）：不占别的档位的版面
-    const isCustom = mode === "custom";
+    // 「选择图片…」与文件名只在自定义档出现（就在那张卡片旁边）：不占别的档位的版面；
+    // 主题接管时也不给换图/换文件
+    const isCustom = mode === "custom" && !locked;
     bgPick.hidden = !isCustom;
     bgFile.hidden = !isCustom;
-    bgBlur.disabled = mode === "off"; // 背景都关了，模糊强度无从谈起
+    bgBlur.disabled = locked || mode === "off"; // 背景都关了（或不由宿主管），模糊强度无从谈起
   };
   /** 原生选图：成功（路径已落盘 + 界面重画）返回 true；取消/失败返回 false。 */
   const pickBgImage = async (): Promise<boolean> => {
@@ -1313,9 +1318,21 @@ async function settingsView(root: HTMLElement) {
     applyBackground();
   });
 
-  bgHint.textContent = bgBridge?.pick ? BG_HINT : `${BG_HINT} 浏览器里没法选本地图片，请在桌面端设置。`;
+  /** 组内说明（没被主题接管时的那份；接管时换成让位说明）。 */
+  const bgHintBase = bgBridge?.pick ? BG_HINT : `${BG_HINT} 浏览器里没法选本地图片，请在桌面端设置。`;
+  /** 整组的主刷新：主题接管背景时三档留在原位但禁用并写明原因（整组消失会让人找不到）。
+   *  面板初次挂载 / 切换主题 / 插件启停都要重跑一遍。 */
+  const paintBgPolicy = () => {
+    const locked = bgPolicy().mode === "off";
+    bgCards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = locked; });
+    bgHint.textContent = locked
+      ? `当前 Sparkle 主题「${sparkleActiveTheme()?.name ?? ""}」自带背景，已接管；切到「默认」主题，或让主题声明 background 才可调。`
+      : bgHintBase;
+    paintBgMode(); // 顺带把按钮显隐与滑块可用性收口（那里也要叠加 locked）
+  };
+
   paintBlur();
-  paintBgMode();
+  paintBgPolicy();
   paintBgFile();
   // 文件还在不在要问主进程（渲染层看不到磁盘）：不在就提示重选
   if (bgBridge?.info) void bgBridge.info().then((r) => { if (r?.ok) paintBgFile(r); }).catch(() => {});
@@ -1454,11 +1471,9 @@ async function settingsView(root: HTMLElement) {
   // 主题不声明 tint = 它自带强调色：宿主让位（lib/tint.ts 清掉内联变量、回落 --acc/--cyan），
   // 这里把整组禁用并写明原因。主题声明 presets = 用它给的那几套方案，三档卡退场换方案卡。
   const tintSparkCards = wrap.querySelector<HTMLElement>("#tint-spark-cards")!;
-  /** 当前激活的 Sparkle 主题（含它的 tint 声明）；没启用主题 / 主题已消失 = null。 */
-  const activeSparkTheme = () => {
-    const id = sparkActiveThemeId();
-    return id ? (sparkleThemes().find((t) => t.id === id) ?? null) : null;
-  };
+  /** 当前激活的 Sparkle 主题（含它的 tint / background 声明）；没启用主题 / 主题已消失 = null。
+   *  解析走 sparkle/registry（读 host 维护的 <html data-sparkle-theme>）—— 背景那一组也用它。 */
+  const activeSparkTheme = sparkleActiveTheme;
   const tintPolicy = () => tintPolicyOf(activeSparkTheme());
 
   /** 主题给的高亮方案卡：一张卡 = 色块 + 名字。色值已过 validPresets 校验（十六进制字面量）。 */
@@ -1556,6 +1571,7 @@ async function settingsView(root: HTMLElement) {
         sparkActivateTheme(id || null);
         syncSparkleThemeSel();
         paintTintPolicy(); // 主题决定高亮色归谁：切完要把上面那组重新收口
+        paintBgPolicy();   // 背景归谁同理
       };
       return b;
     };
@@ -1563,6 +1579,7 @@ async function settingsView(root: HTMLElement) {
     for (const t of themes) sparkleThemeCards.append(mkCard(t.id, t.name));
     syncSparkleThemeSel();
     paintTintPolicy(); // 主题列表变了（插件启停）→ 高亮色那组的可用性也要跟着重算
+    paintBgPolicy();   // 背景那组同理
   };
   renderSparkleThemes();
   const offSparkleThemes = onSparkleChange(renderSparkleThemes);

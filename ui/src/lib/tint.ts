@@ -22,12 +22,11 @@
 // 互转）在 lib/color.ts，主题交接策略在 sparkle/theme-tint.ts。ambient.ts 管背景那张图 ——
 // 两者同源（都可能取同一张封面）但彼此独立：关掉背景不该把高亮色一起关掉。
 // shell.ts 只调 bootTint()。
-import type { SparkleTheme } from "@quaver/sparkle";
 import { coverUrl } from "./api";
 import { extractCoverColor, parseHex, toBarColors, toUiColors, type RGB } from "./color";
 import { getTintColor, getTintMode, TINT_DEFAULT_COLOR } from "./prefs";
 import { player } from "../player";
-import { onSparkleChange, sparkleThemes } from "../sparkle/registry";
+import { onSparkleChange, sparkleActiveTheme } from "../sparkle/registry";
 import { pickPreset, sparkTintChoice, tintPolicyOf } from "../sparkle/theme-tint";
 
 /** 封面取图尺寸：染色只取色彩倾向，300px 足够（与背景层、播放条同口径，CDN 缓存也共用）。 */
@@ -36,13 +35,9 @@ const COVER_SIZE = 300;
 /** 封面档当前生效的图源：同曲重复触发不重取（extractCoverColor 有缓存，这是省一层 promise）。 */
 let coverPic = "";
 
-/** 当前生效的 Sparkle 主题（读 host 写在 <html> 上的 data-sparkle-theme，再回注册表取声明）。
- *  不 import sparkle/host.ts —— 它反向依赖 shell，会成环；dataset 就是它维护的公开真相。 */
-function activeSparkTheme(): SparkleTheme | null {
-  const id = document.documentElement.dataset.sparkleTheme;
-  if (!id) return null;
-  return sparkleThemes().find((t) => t.id === id) ?? null;
-}
+/** 当前生效的 Sparkle 主题。解析在 sparkle/registry.ts:sparkleActiveTheme（那边不 import host，
+ *  读的是 host 维护在 <html data-sparkle-theme> 上的公开真相）—— 设置页与背景层共用同一份。 */
+const activeSparkTheme = sparkleActiveTheme;
 
 /** 本模块产出的全部变量（移除时一起清，别漏一个导致「半套颜色」残留）。 */
 const TINT_VARS = ["--cvg-accent", "--cvg-glow", "--cvg-bar-fill", "--cvg-bar-line", "--np-hl"];

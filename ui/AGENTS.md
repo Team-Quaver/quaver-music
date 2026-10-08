@@ -122,7 +122,14 @@ pnpm run typecheck:node  # Node 侧，迁移中：尚未清零，不作闸门
   扩边系数（`--ambient-scale`）随模糊一起收放 —— 扩边只为盖住 `blur()` 边缘发白，不模糊时白裁一圈图。
 - 选图是 Electron 专属（原生对话框）：浏览器 dev 下没有 `window.quaverBackground`，设置页给提示、
   不给假按钮；`/api/bg` 在纯浏览器下读的是磁盘 conf（localStorage 里那份不参与），故也不出图。
-- 验证：`node scripts/verify-background.ts`（读盘侧真文件真 HTTP + 源码接线护栏，已进 `verify:static`）。
+- **Sparkle 主题可以接管这一层**（契约 `SparkleTheme.background`，策略 `src/sparkle/theme-background.ts`）：
+  **不声明 = 主题自带背景**，宿主让位 —— `ambient.ts` 把层设成 `data-mode="theme"`（CSS 与 off 一样
+  藏掉）并作废图源指纹，设置页「背景」整组禁用 + 写明由谁接管；声明 `{ mode: "host" }` = 用户那三档
+  照常。判定口径与 tint 那一节**必须一致**（让位是安全侧：不成形的声明也算主题接管）。
+  激活主题的解析只有一份：`sparkle/registry.ts:sparkleActiveTheme()`（读 host 维护的
+  `<html data-sparkle-theme>`，不 import host 免得成环），tint / 背景 / 设置页三处共用。
+- 验证：`node scripts/verify-background.ts`（读盘侧真文件真 HTTP + 主题交接纯逻辑 + 源码接线护栏，
+  已进 `verify:static`）。
 
 ## 界面高亮色（tint）：固定青色 / 跟随封面 / 自定义
 
@@ -154,7 +161,9 @@ pnpm run typecheck:node  # Node 侧，迁移中：尚未清零，不作闸门
   **让位是必须的**：那几个变量是行内样式，主题在 CSS 里写 `--cvg-accent` 抢不赢 —— 所以「主题自带
   高亮色」只能是宿主主动不写，不能靠主题去覆盖。`theme-tint.ts` 是纯策略（护栏要在 node 里直接
   import 做单测），因此它的**值导入必须带 `.ts` 扩展名**（`from "../lib/color.ts"`）。
-  换/停主题后 host 要重算（`host.ts:applySparkleTheme` 末尾调 `applyTint()`）。
+  换/停主题后 host 要重算（`host.ts:applySparkleTheme` 末尾调 `applyTint()`，背景那一层同理调
+  `applyBackground()`）。激活主题的解析走 `sparkle/registry.ts:sparkleActiveTheme()`（读 host 维护的
+  `<html data-sparkle-theme>`）—— 别在消费方各写一份（tint / 背景 / 设置页共用同一份）。
 - 验证：`node scripts/verify-tint.ts`（纯逻辑往返 + 主题交接策略 + 源码接线 + 反向自证，已进
   `verify:static`）。加配置键时 `scripts/verify-config.ts` 的 `Object.keys(defaults()).length`
   硬断言要一起改。
