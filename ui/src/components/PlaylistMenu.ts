@@ -12,6 +12,7 @@ import { api } from "../lib/api";
 import { player, type Song } from "../player";
 import { deleteSonglist } from "../lib/playlists";
 import { toggleFavSonglist } from "../lib/favs";
+import { sparklePlaylistMenuItems } from "../sparkle/registry";
 import { openMenuAt, toast, type MenuItem } from "./SongMenu";
 
 /** 侧栏歌单条目最小契约（自建列表是上游原样对象，收藏列表是 FavPlaylist） */
@@ -86,18 +87,23 @@ export async function playPlaylistNext(pl: PlaylistMenuTarget) {
 }
 
 /** 系统虚拟歌单（每日 30 首 / 我喜欢）的右键菜单：没有删除/取消收藏的尾巴，只有播放两兄弟。
- *  虚拟歌单没有固定的 disstid 可翻页拉详情，取歌由调用方给专用接口的 fetchSongs。 */
+ *  虚拟歌单没有固定的 disstid 可翻页拉详情，取歌由调用方给专用接口的 fetchSongs；
+ *  id 是它的稳定标识（daily / liked），只给插件菜单项的 ctx 用。 */
 export function openVirtualPlaylistMenu(
   x: number,
   y: number,
   title: string,
   fetchSongs: () => Promise<Song[]>,
   anchor?: HTMLElement,
+  id = "virtual",
 ) {
-  openMenuAt(x, y, [
+  const items: MenuItem[] = [
     { label: "立即播放", note: "替换当前队列", run: () => playSongsNow(title, fetchSongs) },
     { label: "插队播放", note: "排到当前曲之后", run: () => playSongsNext(title, fetchSongs) },
-  ], anchor);
+  ];
+  // Sparkle 插件追加项（SparkleMenuItem 与 MenuItem 同型；异常已在 registry 侧吞掉）
+  items.push(...sparklePlaylistMenuItems({ id, title, kind: "virtual", songnum: 0 }));
+  openMenuAt(x, y, items, anchor);
 }
 
 /** 在 (x, y) 打开歌单菜单（坐标一般是鼠标位置）。anchor = 右键的那个歌单条目 */
@@ -136,5 +142,12 @@ export function openPlaylistMenu(
       },
     });
   }
+  // Sparkle 插件追加项：ctx 按当时那个歌单现算（函数型条目据此区分「自建 / 收藏 / 虚拟」）
+  items.push(...sparklePlaylistMenuItems({
+    id: String(pl.id),
+    title: pl.title,
+    kind: opts.kind,
+    songnum: Number(pl.songnum) || 0,
+  }));
   openMenuAt(x, y, items, anchor);
 }

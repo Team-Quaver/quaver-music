@@ -165,7 +165,12 @@ ok("bar：随机档有可读说明（每日一套顺序）", /每日一套顺序
 ok("icons：shuffle 图标已加", /shuffle: svg\(/.test(read("src/lib/icons.ts")));
 
 // —— 样式：与音质浮窗同一套玻璃语言，选中态锚亮度
-ok("css：模式浮窗有玻璃底/描边/动效", /\.pb-lpop \{[\s\S]*backdrop-filter: blur/.test(css) && /\.player\.lp-open \.pb-lpop \{ opacity: 1; pointer-events: auto;/.test(css));
+// 玻璃底/描边/模糊已收敛到 style.css 的「浮层菜单的玻璃」共享规则（一处定义、七处消费）——
+// 这里只卡「.pb-lpop 在那条共享规则的选择器表里，且那条规则真的带模糊」，不再要求它自己写一份
+// （各菜单各写一份正是「菜单看着没有模糊」的病根，见 scripts/verify-menu-glass.ts）。
+ok("css：模式浮窗吃到共享的菜单玻璃（不再各写一份 backdrop-filter）",
+  /\.ctx-menu, \.pb-qpop, \.pb-lpop, \.pb-volpop, \.tint-pop, \.np-menu, \.np-qinfo \{[\s\S]*?backdrop-filter: var\(--menu-filter\)/.test(css)
+  && /\.player\.lp-open \.pb-lpop \{ opacity: 1; pointer-events: auto;/.test(css));
 ok("css：菜单项选中态前景锚 --ink（裸 accent 会随色相漂）", /\.lp-i\.sel \{[^}]*var\(--ink\)/.test(css));
 ok("css：循环/随机之间有分隔线", /\.lp-sep \{/.test(css));
 ok("css：菜单项不加底（只有 hover 态有，选中不换底）", !/\.lp-i\.sel \{[^}]*background:/.test(css));

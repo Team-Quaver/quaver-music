@@ -13,7 +13,7 @@
   --glass: rgba(236,236,238,.62); --glass-line: rgba(255,255,255,.35);
   --ink3: #3c4048; --ph: #e8e8ea; --ph2: #d5d5d7; --idx: #9aa0a6;
   --row-hover: #f2f2f3; --nav-active: #d8d8da; --nav-active-line: #c9c9cc; --sep: #bdbdc0;
-  --pill: rgba(247,247,248,.55); --volpop: rgba(246,246,248,.78);
+  --pill: rgba(247,247,248,.55);
   --track: #cfcfd2; --press: #0000000d; --tint-row: #e8f3ee;
   /* 字体族（用户偏好写入；未设置时回退默认栈） */
   --font-default: "Noto Sans CJK SC", system-ui, -apple-system, sans-serif;
@@ -32,9 +32,80 @@ html[data-theme="dark"] {
   --glass: rgba(30,32,37,.62); --glass-line: rgba(255,255,255,.08);
   --ink3: #c3c8d0; --ph: #2b2e34; --ph2: #34373e; --idx: #767c85;
   --row-hover: #26292f; --nav-active: #31343b; --nav-active-line: #3f434b; --sep: #43464e;
-  --pill: rgba(32,34,39,.55); --volpop: rgba(32,34,39,.8);
+  --pill: rgba(32,34,39,.55);
   --track: #43464e; --press: #ffffff12; --tint-row: #1e3129;
   color-scheme: dark;
+}
+
+/* ===================== 浮层菜单的玻璃（唯一来源：data-menu-glass） =====================
+   消费方（七处，一处定义）：.ctx-menu（侧栏歌单 / 歌曲右键菜单）、.pb-qpop（音质）、
+   .pb-lpop（播放模式）、.pb-volpop（音量）、.np-menu（正在播放页「更多操作」）、
+   .np-qinfo（音频流信息）、.tint-pop（设置页颜色选择器）。
+
+   这也解释了「菜单看起来完全没有模糊」的四个叠加成因（按重要性排）：
+     ① **[已修，最致命] 压缩器把无前缀的 backdrop-filter 吃掉了** —— 见下面那段 ⚠️：
+        改造前产物里整个应用一条可用的 backdrop-filter 都没有，所以调令牌、调底片全都没用；
+     ② .pb-*pop 挂在 .player 里，而 .player 自己带 backdrop-filter —— 它成了那几颗浮窗的
+        backdrop root，模糊只采样播放条内部，条外一片空白（→ 已改成 .player::before，见该处注释）；
+     ③ 底片不透明度 0.78~0.85（--volpop / .np-menu 的 #10131cd9），透出来的不到四分之一，
+        模糊就算生效也被实色底片吃掉 → 现在压到 0.62~0.66，对齐侧栏/播放条那档；
+     ④ .np-menu 底下的 .np-bg 本来就是 blur(60px) 的封面，再糊一遍没有增量（本页只靠透色显玻璃）；
+     ⑤ 默认配置下背景层是 off（纯色底）+ 内容卡是实白 —— 模糊纯色 = 纯色，结构上无从体现
+        （设置页的提示语里点了这一条：想看出玻璃感，先把「背景」打开）。
+
+   --menu-filter 是模糊的唯一开关：关掉时是 none 而不是 blur(0px) —— 后者照样建 backdrop
+   root、照样占一层 GPU 合成，等于没关。关掉时底片同时换实色，保证关掉后文字依旧清晰。
+
+   三态（由 lib/menu-glass.ts 写在 <html data-menu-glass> 上）：
+     on    —— 半透明玻璃 + 模糊（用户开关的「开启」）
+     off   —— 实底 + 完全不模糊（用户开关的「关闭」）
+     theme —— 宿主**让位**：启用的 Sparkle 主题自带菜单外观（契约见 sparkle/theme-menus.ts）。
+              本文件不为 theme 写任何令牌 —— 默认值留在 :root，主题覆盖那几个变量即可。
+
+   ⚠️ 别给这里的 backdrop-filter 补 -webkit- 前缀 —— 那不是「多一层兼容」，是**自毁**：
+     lightningcss（Vite 8 的 CSS 压缩器）把「同一逻辑属性的重复声明」按后者优先折叠，
+     它不认识前缀差异。写成 `backdrop-filter: X; -webkit-backdrop-filter: X;` 时产物里
+     只剩下后一条，而 Chromium **没有** `-webkit-backdrop-filter` 这个别名（Electron 44
+     二进制里连这个字符串都不存在）—— 结果是整个应用的毛玻璃静默失效，
+     且只在构建后的产物里失效（dev 不压缩 → 两份都在 → 看着是好的）。
+     就是这一条让「菜单完全没有模糊」查了半天：调令牌、调透明度全都没用，因为压根没有模糊。
+     也不是「多留一层兼容」的事：本应用只跑 Chromium（Electron / QtWebEngine / WebView2），
+     不需要 Safari 的前缀；将来若真有 WebKit 壳要用，得先解决压缩器折叠（例如给压缩器传
+     targets），**不要**把前缀补回来。
+     护栏 scripts/verify-menu-glass.ts 里有源码级 + 产物级两条断言钉着这件事。 */
+:root {
+  /* 与侧栏/播放条同一套玻璃（--glass 0.62 + blur 26 那档），菜单略薄一点：
+     比改造前的 0.78~0.85（--volpop）薄，模糊才透得出来 */
+  --menu-filter: blur(26px) saturate(1.5);
+  --menu-surface: rgba(246, 246, 248, .66);
+  --menu-line: var(--glass-line);
+  --menu-shadow: 0 12px 36px rgba(15, 20, 30, .22);
+  --menu-edge: rgba(255, 255, 255, .5); /* 上缘内高光 = 玻璃的「厚度」，不是装饰 */
+}
+html[data-theme="dark"] {
+  --menu-surface: rgba(30, 32, 38, .62);
+  --menu-shadow: 0 12px 36px rgba(0, 0, 0, .46);
+  --menu-edge: rgba(255, 255, 255, .08);
+}
+/* 正在播放页恒为深色玻璃：本页的菜单表面另起一份（色锚同那一页的白字口径） */
+.np {
+  --menu-surface: rgba(16, 19, 28, .62);
+  --menu-line: rgba(255, 255, 255, .16);
+  --menu-shadow: 0 12px 36px #0006;
+  --menu-edge: rgba(255, 255, 255, .1);
+}
+/* 关掉毛玻璃：实底 + 完全不模糊。整页所有菜单一起（含正在播放页那份深色表面 ——
+   .np 自己也声明了 --menu-surface，不专门顶掉它的话本页会漏开关）。 */
+html[data-menu-glass="off"] {
+  --menu-filter: none;
+  --menu-surface: var(--card);
+  --menu-line: var(--line);
+  --menu-edge: transparent;
+}
+html[data-menu-glass="off"] .np {
+  --menu-surface: #14171f;
+  --menu-line: #ffffff1f;
+  --menu-edge: transparent;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -130,7 +201,7 @@ input:focus, textarea:focus, select:focus {
   display: flex; flex-direction: column; gap: 10px; overflow: hidden; min-height: 0;
   background: var(--glass); border: 1px solid var(--glass-line);
   box-shadow: 0 8px 32px rgba(15,20,30,.10);
-  backdrop-filter: blur(26px) saturate(1.5); -webkit-backdrop-filter: blur(26px) saturate(1.5);
+  backdrop-filter: blur(26px) saturate(1.5); /* 无前缀！见文件顶部「别补 -webkit-」那段 */
   /* 缩回/展开只动 flex-basis 与水平内距（216↔64px，见文件下方 body.side-collapsed 段）：
      条目本身不改结构，只让各自的文字（max-width→0 + 淡出）与 gap 收干净。过渡声明在下一段。 */
 }
@@ -272,7 +343,7 @@ body.side-collapsed .side-resizer { display: none; }
 .content { flex: 1; border-radius: 14px; overflow: hidden; padding: 0; min-width: 0; min-height: 0; position: relative;
   display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--panel-line);
-  backdrop-filter: blur(24px) saturate(1.4); -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4); /* 无前缀！见文件顶部「别补 -webkit-」那段 */
 }
 /* 顶部渐隐层：从上缘 panel 实色往下渐隐到透明——CSD 按钮簇与搜索栏所在的顶部带
    由此获得「标题栏」质感，与下方内容自然过渡而非硬切。盖在 content-top / route 顶部
@@ -552,7 +623,18 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
   display: flex; align-items: center; gap: 14px; padding: 0 16px; color: var(--ink2);
   background: var(--glass); border: 1px solid var(--glass-line);
   box-shadow: 0 6px 28px rgba(15,20,30,.12);
-  backdrop-filter: blur(26px) saturate(1.5); -webkit-backdrop-filter: blur(26px) saturate(1.5);
+  /* 本元素的玻璃**不写在这里**，见下面 .player::before。
+     原因：带 filter 系属性的元素会成为后代 backdrop-filter 的 backdrop root —— 挂在条上方
+     那三颗浮窗（音质 / 播放模式 / 音量）的盒子整个在条外，它们的 backdrop 就只采样条内
+     （条外一片空白）→ 采样到空的 → 浮窗等于没有毛玻璃。把模糊挪到 ::before 之后，
+     .player 自身不再是 backdrop root，浮窗才拿得到「页面」当背景。
+     代价：几乎没有 —— ::before 铺满内边距盒、圆角继承、z-index:-1 压在内容之下、自身背景之上
+     （.player 是 position:relative + z-index:60，自带层叠上下文，负 z 跑不出去）。 */
+}
+.player::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: -1;
+  backdrop-filter: blur(26px) saturate(1.5); /* 无前缀！见文件顶部「别补 -webkit-」那段 */
+  pointer-events: none;
 }
 /* 窄窗口防溢出：三列可收缩 + 中列按钮间隙收紧（播放/暂停永远留位） */
 @media (max-width: 1020px) {
@@ -631,10 +713,8 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 .pb-qpop {
   position: absolute; right: 68px; bottom: calc(100% + 10px); z-index: 70;
   display: flex; flex-direction: column; gap: 2px; padding: 6px; min-width: 190px;
-  max-height: 320px; overflow-y: auto;
-  background: var(--volpop); border: 1px solid var(--glass-line); border-radius: 12px;
-  box-shadow: 0 10px 32px rgba(15,20,30,.18);
-  backdrop-filter: blur(24px) saturate(1.5); -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  max-height: 320px; overflow-y: auto; border-radius: 12px;
+  /* 底片 / 描边 / 模糊 / 阴影由下方「浮层菜单的玻璃」那条共享规则统一给 */
   opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity .16s, transform .16s;
 }
 .player.q-open .pb-qpop { opacity: 1; pointer-events: auto; transform: none; }
@@ -644,10 +724,8 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 .pb-lpop {
   position: absolute; right: calc(34px + 2px + 17px + 8px); bottom: calc(100% + 10px); z-index: 70;
   display: flex; flex-direction: column; gap: 2px; padding: 6px; min-width: 208px;
-  max-height: 320px; overflow-y: auto;
-  background: var(--volpop); border: 1px solid var(--glass-line); border-radius: 12px;
-  box-shadow: 0 10px 32px rgba(15,20,30,.18);
-  backdrop-filter: blur(24px) saturate(1.5); -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  max-height: 320px; overflow-y: auto; border-radius: 12px;
+  /* 底片 / 描边 / 模糊 / 阴影同上（共享规则） */
   opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity .16s, transform .16s;
 }
 .player.lp-open .pb-lpop { opacity: 1; pointer-events: auto; transform: none; }
@@ -702,10 +780,8 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 /* 音量浮窗：挂在 Bar 上方右侧，玻璃底；静音钮 + 滑杆 + 读数一体 */
 .pb-volpop {
   position: absolute; right: 8px; bottom: calc(100% + 10px); z-index: 70;
-  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
-  background: var(--volpop); border: 1px solid var(--glass-line); border-radius: 12px;
-  box-shadow: 0 10px 32px rgba(15,20,30,.18);
-  backdrop-filter: blur(24px) saturate(1.5); -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px;
+  /* 底片 / 描边 / 模糊 / 阴影同上（共享规则） */
   opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity .16s, transform .16s;
 }
 .player.vol-open .pb-volpop { opacity: 1; pointer-events: auto; transform: none; }
@@ -776,9 +852,7 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 .np-qinfo {
   position: absolute; right: 36px; bottom: calc(100% + 8px); z-index: 5;
   min-width: 228px; padding: 10px 12px 11px; border-radius: 12px;
-  background: #10131cd9; border: 1px solid #ffffff1f;
-  box-shadow: 0 12px 36px #0006;
-  backdrop-filter: blur(24px) saturate(1.5); -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  /* 底片 / 描边 / 模糊 / 阴影由共享规则统一给（本页的深色表面见 .np 上那几个令牌） */
   text-align: left;
   transform-origin: calc(100% - 24px) calc(100% + 8px);
   opacity: 0; transform: scale(.8);
@@ -810,9 +884,7 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 .np-menu {
   position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 5;
   min-width: 180px; padding: 6px; border-radius: 12px;
-  background: #10131cd9; border: 1px solid #ffffff1f;
-  box-shadow: 0 12px 36px #0006;
-  backdrop-filter: blur(24px) saturate(1.5); -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  /* 底片 / 描边 / 模糊 / 阴影由共享规则统一给（本页的深色表面见 .np 上那几个令牌） */
   display: flex; flex-direction: column; gap: 2px;
   /* 开合动画：transform 锚在 ⋮ 按钮圆心上（按钮 30px 宽右对齐 → 圆心在菜单右缘内 15px、
      下缘外 8px），scale 从按钮的位置长出来/缩回去；曲线用本仓库弹簧曲线（非线性）。 */
@@ -830,6 +902,10 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .np-menu-item:hover:not(:disabled) { background: #ffffff14; color: #fff; }
+/* 危险项（插件菜单项声明 danger 时）：与歌曲右键菜单 .ct-item.danger 同一个红，
+   是这套 UI 里既有的「不可逆操作」语义 */
+.np-menu-item.danger { color: #e8465a; }
+.np-menu-item.danger:hover:not(:disabled) { color: #ff6b7d; }
 .np-menu-item:disabled { opacity: .45; cursor: default; }
 .np-menu-empty { padding: 8px 10px; font-size: 12px; color: #fff8; }
 /* 翻译行：Switch 开关。checkbox 隐身只留语义/焦点，滑块视觉由 .np-sw 承担；
@@ -1370,7 +1446,7 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 
 /* ===================== 设置页 · 高亮颜色（tint）的颜色选择器 =====================
    浮窗挂在「自定义颜色」卡旁边（.tint-slot 是定位锚）：点色块或点「自定义颜色」弹出，
-   「收起」或再点色块缩回。视觉沿用既有浮窗语言（--volpop 玻璃底 + 12px 圆角 + ctx-in 入场）。 */
+   「收起」或再点色块缩回。视觉沿用既有浮窗语言（--menu-* 那套玻璃 + 12px 圆角 + ctx-in 入场）。 */
 .tint-slot { position: relative; display: inline-flex; align-items: center; gap: 8px; }
 /* 色块按钮：动作按钮的虚边框已够克制，内距收到 10px —— 它就是个色块，不必像档位卡那么宽 */
 .tint-chip { padding: 9px 10px; }
@@ -1378,9 +1454,7 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 .tint-pop {
   position: absolute; left: 0; top: calc(100% + 8px); z-index: 20;
   width: 268px; padding: 12px; border-radius: 12px;
-  background: var(--volpop); border: 1px solid var(--glass-line);
-  box-shadow: 0 12px 36px rgba(15,20,30,.22);
-  backdrop-filter: blur(24px) saturate(1.5); -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  /* 底片 / 描边 / 模糊 / 阴影由「浮层菜单的玻璃」那条共享规则统一给 */
   animation: ctx-in .14s cubic-bezier(.22,.61,.36,1) both;
 }
 /* 作者样式会压过 UA 的 [hidden]{display:none}，这里显式关掉（同 .opt-card[hidden] 的来由） */
@@ -1446,6 +1520,19 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 /* 设置页的分组不再用卡片底色，统一走发丝线；关于区居中收尾 */
 .set-view .set-about { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 32px 0; }
 
+/* ===================== 浮层菜单的玻璃（共享规则） =====================
+   七处菜单的底片 / 描边 / 模糊 / 内高光只在这一条里定义：改玻璃观感只动文件顶部那几个
+   --menu-* 令牌。各菜单自己的规则从此只管定位 / 尺寸 / 开合动画 —— 不再各写一份
+   `background + border + box-shadow + backdrop-filter`（改造前是七份，且不透明度各不同，
+   所以才会出现「有的菜单看着糊、有的看着是实心」）。
+   模糊只写无前缀的 backdrop-filter —— 别补 -webkit-，原因见文件顶部那段。 */
+.ctx-menu, .pb-qpop, .pb-lpop, .pb-volpop, .tint-pop, .np-menu, .np-qinfo {
+  background: var(--menu-surface);
+  border: 1px solid var(--menu-line);
+  box-shadow: var(--menu-shadow), inset 0 1px 0 var(--menu-edge);
+  backdrop-filter: var(--menu-filter);
+}
+
 /* ===================== 歌曲右键菜单（SongMenu） =====================
    层 = body 下的 fixed 覆盖层（pointer-events:none），面板各自 fixed 定位：
    避开 .route 的 transform/overflow 形成的新包含块，也避开队列面板/播放条的位置差异。
@@ -1455,9 +1542,7 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
   position: fixed; z-index: 1; min-width: 200px; max-width: 300px; padding: 6px;
   max-height: calc(100vh - 24px); overflow-y: auto;   /* 歌单多时子菜单自己滚，不越出视口 */
   border-radius: 12px; pointer-events: auto;
-  background: var(--volpop); border: 1px solid var(--glass-line);
-  box-shadow: 0 12px 36px rgba(15,20,30,.22);
-  backdrop-filter: blur(24px) saturate(1.5); -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  /* 底片 / 描边 / 模糊 / 阴影由下方「浮层菜单的玻璃」共享规则统一给 */
   animation: ctx-in .14s cubic-bezier(.22,.61,.36,1) both;
 }
 @keyframes ctx-in {

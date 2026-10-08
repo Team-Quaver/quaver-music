@@ -159,6 +159,19 @@ export function setBackgroundBlur(px: number) {
   cfgSetSoon({ "Style.BackgroundBlur": String(clamped) });
 }
 
+// —— 浮层菜单的毛玻璃（[Style] MenuBlur）——
+// 一棵开关：开 = 半透明玻璃底 + backdrop 模糊（右键菜单 / 音质·播放模式·音量浮窗 /
+// 正在播放页「更多操作」菜单 / 音频流信息浮窗）；关 = 实底且完全不模糊。
+// 这里同样**只**管「布尔 ⇄ 配置取值」：写 DOM 属性的那侧在 src/lib/menu-glass.ts
+// （prefs 被 player/api 反向依赖，不能反过来 import 渲染层模块），主题归属策略在
+// src/sparkle/theme-menus.ts。默认开（与 schema 的 def 同值）。
+export function getMenuBlur(): boolean {
+  return !/^(false|0|no)$/i.test(cfg("Style.MenuBlur", "True"));
+}
+export function setMenuBlur(v: boolean) {
+  cfgSet({ "Style.MenuBlur": v ? "True" : "False" });
+}
+
 // —— 界面高亮色（tint）：--cvg-accent / --cvg-glow 的来源 ——
 // 三档落在 quaver.conf 的 [Style] Tint（default=固定青色｜cover=跟随封面｜custom=自定义色），
 // 自定义色的取值落在 TintColor（#rrggbb）。这里同样**只**管「枚举 ⇄ 配置取值」：写 CSS 变量的

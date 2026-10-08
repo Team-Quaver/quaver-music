@@ -99,6 +99,7 @@ eq("字体默认（族列表 ⇒ 认成系统默认）", [P.getUiFont(), P.getLy
 eq("背景默认关闭（只有主题底色）", P.getBackgroundMode(), "off");
 eq("背景图默认未选择", P.getBackgroundImage(), "");
 eq("背景模糊默认 70", P.getBackgroundBlur(), 70);
+eq("菜单毛玻璃默认开", P.getMenuBlur(), true);
 check("内置字体列表能被反查成预设", P.fontKeyOf('"Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", SimSun, serif') === "serif");
 check("空字体值 = 系统默认", P.fontKeyOf("") === "system");
 check("自定义字体族列表归为 custom", P.fontKeyOf('"LXGW WenKai", serif') === "custom");
@@ -141,11 +142,18 @@ P.setBackgroundBlur(9999);
 eq("越界值即时夹紧到上界", P.getBackgroundBlur(), 120);
 P.setBackgroundBlur(70);
 await settle();
+
+// 浮层菜单的毛玻璃（[Style] MenuBlur）：一棵布尔开关，落 False/True
+P.setMenuBlur(false); eq("关闭菜单毛玻璃 → MenuBlur=False", conf()["Style.MenuBlur"], "False");
+eq("读回来也是关", P.getMenuBlur(), false);
+P.setMenuBlur(true);  eq("开启 → True", conf()["Style.MenuBlur"], "True");
+eq("读回来也是开", P.getMenuBlur(), true);
+
 // 浏览器兜底模式存的是整份内存快照（键名应与 conf 的 Section.Key 完全一致，不能混进旧的 localStorage 键）
 const keys = Object.keys(conf());
 check("写盘键名齐全（Section.Key 风格）", [
   "Style.Style", "Style.DefaultUIFonts", "Style.DefaultLyricsFonts",
-  "Style.Background", "Style.BackgroundImage", "Style.BackgroundBlur",
+  "Style.Background", "Style.BackgroundImage", "Style.BackgroundBlur", "Style.MenuBlur",
   "Window.Decor", "Window.CloseAction",
   "Playing.Backend", "Playing.AudioDevice", "Playing.Fade", "Playing.PrevReplay", "Playing.InhibitSleep",
   "Quality.DefaultQuality", "Quality.FallbackToQMAtmos",

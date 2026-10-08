@@ -309,6 +309,16 @@ export const SCHEMA: SectionSpec[] = [
         ],
         valid: isHexColor,
       },
+      {
+        key: "MenuBlur",
+        def: "True",
+        doc: [
+          "浮层菜单的毛玻璃（模糊）效果：True=半透明玻璃底 + 背景模糊（**默认**）｜False=实底且不模糊（省 GPU，文字最清晰）",
+          "作用于右键菜单（侧栏歌单 / 歌曲）、音质浮窗、播放模式浮窗、音量浮窗、正在播放页「更多操作」菜单、音频流信息浮窗；",
+          "插件主题自带菜单外观（theme.menus 缺省）时不受此项约束",
+        ],
+        valid: (v: string) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
+      },
     ],
   },
   {

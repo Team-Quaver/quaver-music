@@ -12,12 +12,14 @@ import { addNavItem, repaintSidebarPlaylists } from "../shell";
 // 方向是 host → lib/tint → sparkle/registry，单向，不成环。
 import { applyTint } from "../lib/tint";
 import { applyBackground } from "../lib/ambient";
+import { applyMenuGlass } from "../lib/menu-glass";
 import {
   activateStyle, mountStyleLayer, onStyleChange, resetStyle, stylePacks, styleState,
 } from "./style-layer";
 import {
   sparkRecordDrop, sparkRecordInit, sparkRecordOf,
-  sparkRegisterKaraokeProvider, sparkRegisterNav, sparkRegisterNpView, sparkRegisterNpWidget,
+  sparkRegisterKaraokeProvider, sparkRegisterNav, sparkRegisterNpMenuItem, sparkRegisterNpView,
+  sparkRegisterNpWidget, sparkRegisterPlaylistMenuItem,
   sparkRegisterSettingsSection, sparkRegisterSongMenuItem, sparkRegisterSonglistGroup,
   sparkRegisterStreamSource, sparkRegisterTheme, sparkRegisterThemePack, sparkRegisterView,
   sparklePluginRoutes, sparkleThemes,
@@ -63,10 +65,11 @@ function applySparkleTheme() {
   const known = active && sparkleThemes().some((t) => t.id === active) ? active : null;
   if (known) root.dataset.sparkleTheme = known;
   else delete root.dataset.sparkleTheme;
-  // 主题会决定两样东西归谁：高亮色（tint）与背景（background）。没声明的主题自带那一块，
-  // 宿主必须让位。换主题/停用主题后都要重算一次，否则会停在上一套策略上。
+  // 主题会决定三样东西归谁：高亮色（tint）、背景（background）、浮层菜单的外观（menus）。
+  // 没声明的主题自带那一块，宿主必须让位。换主题/停用主题后都要重算一次，否则会停在上一套策略上。
   applyTint();
   applyBackground();
+  applyMenuGlass();
 }
 
 function injectThemeStyle(t: SparkleTheme) {
@@ -154,6 +157,8 @@ function makeContext(pluginId: string): SparkleContext {
     // 整页接管：不立即挂载 —— 由 np-view.ts 在正在播放页的 notify 里按 enabled() 决定
     registerNowPlayingView: (view) => sparkRegisterNpView(pluginId, view),
     registerSongMenuItem: (item) => sparkRegisterSongMenuItem(pluginId, item),
+    registerPlaylistMenuItem: (item) => sparkRegisterPlaylistMenuItem(pluginId, item),
+    registerNowPlayingMenuItem: (item) => sparkRegisterNpMenuItem(pluginId, item),
     registerStreamSource: (source) => sparkRegisterStreamSource(pluginId, source),
     registerKaraokeProvider: (provider) => sparkRegisterKaraokeProvider(pluginId, provider),
     storage: {

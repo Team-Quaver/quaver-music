@@ -19,6 +19,7 @@ import { playPlaylistNow, playSongsNow, openPlaylistMenu, openVirtualPlaylistMen
 import { views, BACK_SVG } from "./views";
 import { bootTint } from "./lib/tint";
 import { bootBackground } from "./lib/ambient";
+import { bootMenuGlass } from "./lib/menu-glass";
 
 export const nav = [
   { path: "#/", label: "首页", icon: "home" },
@@ -117,10 +118,12 @@ export async function renderRoute() {
 
 export function bootShell() {
   // 背景层（关闭背景 / 专辑封面 / 自定义图片 + 模糊强度）由 lib/ambient.ts 接管；
-  // 高亮色（固定青色 / 跟随封面 / 自定义色）由 lib/tint.ts 接管 —— 两者同源（都可能取同一张
-  // 封面）但彼此独立：关掉背景不该把界面的高亮色一起关掉，所以这两件事各归各的模块。
+  // 高亮色（固定青色 / 跟随封面 / 自定义色）由 lib/tint.ts 接管；浮层菜单的毛玻璃
+  // （右键菜单 / 音质·播放模式·音量浮窗 / 正在播放页「更多操作」）由 lib/menu-glass.ts 接管 ——
+  // 三者都可能被 Sparkle 主题接管，是同一套「宿主功能 ⇄ 主题插件」归属口径，各归各的模块。
   bootBackground();
   bootTint();
+  bootMenuGlass();
 
   const frame = document.createElement("div");
   frame.className = "frame";
@@ -247,12 +250,14 @@ export function bootShell() {
   //    两者是系统虚拟歌单（没有固定 disstid 可翻页拉详情），取歌各走专用接口：
   //    每日走 /recommend/daily（30 首一把拿全）；我喜欢走 player 的预载缓存（loadLoved
   //    自带 TTL 对账，多数时候直接命中，不打网络）。 ——
-  const VIRTUAL_LISTS: Record<string, { title: string; fetch: () => Promise<Song[]> }> = {
+  const VIRTUAL_LISTS: Record<string, { id: string; title: string; fetch: () => Promise<Song[]> }> = {
     "/daily": {
+      id: "daily",
       title: "每日 30 首",
       fetch: async () => (await api<{ songs?: Song[] }>("/recommend/daily?page=1&num=100"))?.songs ?? [],
     },
     "/liked": {
+      id: "liked",
       title: "我喜欢",
       fetch: async () => ((await player.loadLoved()) ? (player.likedCache ?? []) : []),
     },
@@ -265,7 +270,7 @@ export function bootShell() {
     a.addEventListener("contextmenu", (e) => {
       e.preventDefault(); // 不弹系统菜单
       e.stopPropagation();
-      openVirtualPlaylistMenu(e.clientX, e.clientY, v.title, v.fetch, a);
+      openVirtualPlaylistMenu(e.clientX, e.clientY, v.title, v.fetch, a, v.id);
     });
   }
 

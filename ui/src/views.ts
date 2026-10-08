@@ -31,6 +31,7 @@ import {
   getFallbackSort,
   getInhibitSleep,
   getLyricFontList,
+  getMenuBlur,
   getPrevBehavior,
   getTheme,
   getTintColor,
@@ -48,6 +49,7 @@ import {
   setInhibitSleep,
   setLyricFontList,
   setLyricFontPreset,
+  setMenuBlur,
   setPrevBehavior,
   setTheme,
   setTintColor,
@@ -63,6 +65,7 @@ import {
 } from "./lib/prefs";
 import { applyBackground } from "./lib/ambient";
 import { applyTint } from "./lib/tint";
+import { applyMenuGlass } from "./lib/menu-glass";
 import { cmyk2rgb, hsl2rgb, parseHex, rgb2cmyk, rgb2hsl, toHex, type RGB } from "./lib/color";
 import { checkAndPrompt, getPlatformInfo } from "./lib/updater";
 import { buildChannel, describeBuild, parseVersion } from "./lib/update-core";
@@ -74,6 +77,7 @@ import {onSparkleChange, sparkleActiveTheme, sparkleThemes} from "./sparkle/regi
 import {sparkActivateTheme, sparkActiveThemeId} from "./sparkle/host";
 import {sparkSetTintChoice, sparkTintChoice, tintPolicyOf} from "./sparkle/theme-tint";
 import {backgroundPolicyOf} from "./sparkle/theme-background";
+import {menuGlassPolicyOf} from "./sparkle/theme-menus";
 import type { SparkleTintPreset } from "@quaver/sparkle";
 import {mountHotkeysPanel} from "./components/HotkeySettings";
 
@@ -1040,6 +1044,17 @@ async function settingsView(root: HTMLElement) {
         <p class="muted set-hint" id="tint-hint"></p>
       </div>
 
+      <!-- 浮层菜单的毛玻璃：一棵总开关（右键菜单 / 音质·播放模式·音量浮窗 / 正在播放页 ⋮ /
+           音频流信息浮窗），绑定见下方 paintMenuGlass*。令牌与七处消费点全在 style.css 顶部。 -->
+      <div class="set-group">
+        <div class="set-label">菜单毛玻璃 <span class="set-note-inline">右键菜单 / 音质与播放模式浮窗 / 正在播放页「更多操作」</span></div>
+        <div class="opt-cards" id="menu-glass-cards">
+          <button class="opt-card" data-opt="on" type="button">开启</button>
+          <button class="opt-card" data-opt="off" type="button">关闭</button>
+        </div>
+        <p class="muted set-hint" id="menu-glass-hint"></p>
+      </div>
+
       <!-- Sparkle 主题：卡片由下方 renderSparkleThemes 动态填充（无插件主题时整组隐藏） -->
       <div class="set-group" id="sparkle-theme-group" hidden>
         <div class="set-label">Sparkle 主题 <span class="set-note-inline">来自插件；覆盖在上方模式之上，未覆盖的变量跟随明暗</span></div>
@@ -1546,6 +1561,35 @@ async function settingsView(root: HTMLElement) {
   paintColor();
   paintTintPolicy();
 
+  // —— 菜单毛玻璃（[Style] MenuBlur）：浮层菜单的玻璃底 + 背景模糊开不开 ——
+  // 真相是 <html data-menu-glass>（由 lib/menu-glass.ts 写，on/off/theme 三态），CSS 侧一组
+  // --menu-* 令牌据此取值；这里只管这棵开关的呈现。主题自带菜单外观时整组留在原位但禁用。
+  const MENU_GLASS_HINT = "开启：半透明玻璃底 + backdrop 模糊（默认）；关闭：改成实底、完全不糊，"
+    + "省一层 GPU 合成且文字最清晰。玻璃感来自透出来的背景色 —— 看不出模糊时，先把上面的「背景」打开。";
+  const menuGlassCards = wrap.querySelector<HTMLElement>("#menu-glass-cards")!;
+  const menuGlassHint = wrap.querySelector<HTMLElement>("#menu-glass-hint")!;
+  const menuGlassPolicy = () => menuGlassPolicyOf(activeSparkTheme());
+  const paintMenuGlass = () => {
+    syncSel(menuGlassCards, "opt", getMenuBlur() ? "on" : "off");
+    menuGlassHint.textContent = menuGlassPolicy().mode === "off"
+      ? `当前 Sparkle 主题「${activeSparkTheme()?.name ?? ""}」自带菜单外观，已接管；切到「默认」主题或让主题声明 menus 才可调。`
+      : MENU_GLASS_HINT;
+  };
+  /** 整组的主刷新：主题接管时这组留在原位但禁用（整组消失会让人找不到）。 */
+  const paintMenuGlassPolicy = () => {
+    const locked = menuGlassPolicy().mode === "off";
+    menuGlassCards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = locked; });
+    paintMenuGlass();
+  };
+  menuGlassCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
+    b.onclick = () => {
+      setMenuBlur(b.dataset.opt === "on");
+      applyMenuGlass(); // 立刻生效：样式按属性取值，这里只换那个属性
+      paintMenuGlass();
+    };
+  });
+  paintMenuGlassPolicy();
+
   // Sparkle 主题：插件注册的自定义主题（覆盖在上方外观模式之上的变量层）。
   // 列表随注册表动态变化（插件异步启用/停用），onSparkleChange 重画整组；
   // 激活经 host 持久化并即时生效，停用激活主题所属插件时 host 自动回落默认。
@@ -1572,6 +1616,7 @@ async function settingsView(root: HTMLElement) {
         syncSparkleThemeSel();
         paintTintPolicy(); // 主题决定高亮色归谁：切完要把上面那组重新收口
         paintBgPolicy();   // 背景归谁同理
+        paintMenuGlassPolicy(); // 浮层菜单的外观归谁同理
       };
       return b;
     };
@@ -1580,6 +1625,7 @@ async function settingsView(root: HTMLElement) {
     syncSparkleThemeSel();
     paintTintPolicy(); // 主题列表变了（插件启停）→ 高亮色那组的可用性也要跟着重算
     paintBgPolicy();   // 背景那组同理
+    paintMenuGlassPolicy(); // 菜单外观那组同理
   };
   renderSparkleThemes();
   const offSparkleThemes = onSparkleChange(renderSparkleThemes);
