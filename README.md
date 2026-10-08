@@ -10,14 +10,24 @@
 
 ---
 
-Quaver Music，是一款 QQ 音乐的第三方客户端，其目的是为了让 Linux DE / Wayland WM 用户能够爽用，基于 Electron + Vite 实现
+Quaver Music，最早是为了解决 Linux 上 QQ 音乐官方客户端不好用而生。
 
-名字取自于八分音符，对应了音乐，“QQ” 的 Q 字母。
+而现在，它已然成为一个完善，现代，流畅，百变，以极致体验而生的第三方 QQ 音乐客户端。
 
 > [!CAUTION]
 > 真爱音乐，尊重正版，音乐平台不易，该应用**不提供盗版 QQ 音乐曲目服务！**
 > 
 > 本软件系 Vibe Coding 的产物，虽然我会尽力尝试个人维护，但不提供可用性保证
+
+与此同时，非 WebView 版本的 Quaver Music Astra 也正在路上 -> [传送门](https://github.com/team-quaver/quaver-astra)，复用 Typhoeus-Go 后端，基于 Golang + MyGO 框架设计。
+
+# 功能特性
+
+- 🎉 百变：支持 Sparkle 插件，可用 Sparkle 插件支持
+- 🖥 跨平台：支持 Windows（X86、ARM） / ARM macOS / Linux（X86、龙芯、ARM）
+- 📚 系统集成：支持 dBus MPRIS、Windows SMTC、macOS NowPlaying 与 Logind Inhibit、Windows 电源请求、macOS 电源断言
+- 📔 丰富歌词：支持 QRC 和 LRC，逐字高亮和翻译
+- 🎨 自适应主题：基于封面背景 + Tint，支持深浅模式和跟随系统
 
 # 截图
 
@@ -38,14 +48,6 @@ Quaver Music，是一款 QQ 音乐的第三方客户端，其目的是为了让 
 <p align="center">
   <img src="img/playlist.webp" width="480">
 </p>
-
-# 契机
-
-我一直是 QQ 音乐的用户，也用过 NCM 的第三方客户端（如 SPlayer），Spotify，Apple Music。
-
-然而 QQ 音乐一直没有什么好用的第三方客户端，而同 TME 系的有 [MoeKoe](https://music.moekoe.cn/) ，而转机是在 [Lyrune](https://github.com/amtoaer/lyrune)，一个挺好用的 Rust Q 音第三方客户端，但可惜 Rust 开发起来太重了，而且我 Rust 是真菜。
-
-所以使用 Electron，对接入 NodeJS 的 API 而言也很方便，开发也很快，也可以避免我孱弱的 Rust 开发，与此同时，后端我也能玩 C++ 这一个我更熟悉的编程语言（虽然最后变成了 TypeScript + Go）。故此项目诞生，现正在 Prototype 阶段，逐步新增功能。
 
 # 目标
 
