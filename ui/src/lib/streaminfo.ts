@@ -11,7 +11,7 @@
 // 声道数按字段规范放行，别按「常见值」收口成 8（见 parseOgg 注释）。
 //
 // 本模块**零依赖**（不 import 任何东西）：解析函数是纯函数，Node 直接 strip-types
-// 跑 scripts/verify-streaminfo.mjs 的合成头用例。
+// 跑 scripts/verify-streaminfo.ts 的合成头用例。
 
 /** 一次探测的结果。有损格式没有采样精度（bitDepth 空缺）；头里带不出码率时由
  *  总长 ÷ 时长估算（bitrateApprox=true，展示层加 ≈ 号）。 */

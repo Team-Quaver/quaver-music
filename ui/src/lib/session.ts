@@ -4,7 +4,7 @@
 // 播放条/进度条/歌词都停在退出前那一刻，按下播放键即从原处继续。
 //
 // 为什么在 localStorage 而不是 quaver.conf：这是「本地会话数据」而非「用户设置」，
-// 与收藏（quaver.loved.v1）同类。打包态页面跑在固定端口（main.mjs:STABLE_PORT），
+// 与收藏（quaver.loved.v1）同类。打包态页面跑在固定端口（main.ts:STABLE_PORT），
 // origin 稳定 → localStorage 跨启动延续；配置目录被 app.setPath("userData") 钉死，
 // 所以清缓存之外不会莫名丢档。
 //

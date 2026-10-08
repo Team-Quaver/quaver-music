@@ -5,14 +5,14 @@
 # 自带 libc/编解码/音频后端 so），在**构建期**展开成目录：
 #   - 运行时 spawn 嵌套 AppImage 需要宿主机 FUSE（等于套第二层），展开成目录最稳；
 #   - 展开后由 engine 用包内自带 loader + lib/lib.path 直启载荷，绕开 sharun 的
-#     自更新/yt-dlp 钩子（见 ui/electron/audio/bins.mjs 头部注释）。
+#     自更新/yt-dlp 钩子（见 ui/electron/audio/bins.ts 头部注释）。
 #
 # 用法：
 #   scripts/stage-mpv.sh [架构] [目标目录]
 #   架构：x86_64 | aarch64（默认按 uname -m 归一化）
 #   目标目录：默认 <repo>/ui/build-res/audio，产物落在 <目标目录>/mpv/
 # 校验：脚本只负责取货落盘；装完用下面这条验证（验的就是生产解析路径）：
-#   cd ui && node electron/audio/bins.mjs --check build-res/audio
+#   cd ui && node electron/audio/bins.ts --check build-res/audio
 set -euo pipefail
 
 # —— 钉版本：升级时同时改 MPV_TAG 与两个 sha256（GitHub API 的 asset digest 即为 sha256）——
@@ -93,4 +93,4 @@ rm -rf "$dest" 2>/dev/null || rm -f "$dest" 2>/dev/null || true
 mkdir -p "$dest_root"
 cp -aL "$src" "$dest"
 
-echo "✓ 完成。验证：cd ui && node electron/audio/bins.mjs --check ${dest_root#$PWD/}"
+echo "✓ 完成。验证：cd ui && node electron/audio/bins.ts --check ${dest_root#$PWD/}"

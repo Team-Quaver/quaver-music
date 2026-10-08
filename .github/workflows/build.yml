@@ -183,13 +183,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      # 版本不在此处钉：读 ui/package.json 的 packageManager（pnpm@10.33.0），
+      # 与本地/锁文件的书写版本严格同源，避免「CI 用 latest 10.x」漂移。
+      # package_json_file 相对仓库根 —— 本仓库的 package.json 在 ui/ 子目录，根目录没有
+      - uses: pnpm/action-setup@v6
         with:
-          version: 10
+          package_json_file: ui/package.json
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "22"
+          node-version: "24"
           cache: pnpm
           cache-dependency-path: |
             ui/pnpm-lock.yaml
@@ -224,7 +227,7 @@ jobs:
       # 随包音频运行时（mpv）：上游不发 Linux 二进制，脚本钉 pkgforge 的 AppImage（含版本 + sha256），
       # 在构建期 --appimage-extract 展开成目录再进 extraResources。运行期由 engine 用包内自带
       # loader + lib/lib.path 直启载荷 —— 不套第二层 FUSE，也不跑 sharun 的钩子
-      # （自更新下载 / yt-dlp 弹窗），细节见 ui/electron/audio/bins.mjs 头部注释。
+      # （自更新下载 / yt-dlp 弹窗），细节见 ui/electron/audio/bins.ts 头部注释。
       - name: Stage bundled mpv runtime
         working-directory: ui
         run: ./scripts/stage-mpv.sh "${{ matrix.arch_label }}"
@@ -232,7 +235,7 @@ jobs:
       # 验的就是生产解析路径本身（loader + lib.path + 真跑一次 --version）
       - name: Verify staged mpv runtime
         working-directory: ui
-        run: node electron/audio/bins.mjs --check build-res/audio
+        run: node electron/audio/bins.ts --check build-res/audio
 
       # extraResources 里约定文件名是 quaver-server（filter: quaver-server*）
       - name: Stage sidecar
@@ -278,7 +281,7 @@ jobs:
           ./release/Quaver-*.AppImage --appimage-extract >/dev/null
           root=squashfs-root
           [ -d "$root/resources/audio/mpv" ] || root=AppDir   # 解包目录名随 runtime 而异
-          node electron/audio/bins.mjs --check "$root/resources/audio"
+          node electron/audio/bins.ts --check "$root/resources/audio"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -289,7 +292,7 @@ jobs:
   # 龙芯客户端：Electron 官方 / electron-builder 两方都不支持 loong64 ——
   #   Electron 用 loongson/electron 社区构建（v34.3.4，LoongArch64 ABI 2.0）；
   #   音频引擎 mpv 不随包捆绑：作为发行版依赖（Depends: mpv）安装时解析
-  #   （Debian sid loong64 / AOSC / loongnix 三方同名；bins.mjs 三级兜底自动落宿主
+  #   （Debian sid loong64 / AOSC / loongnix 三方同名；bins.ts 三级兜底自动落宿主
   #   PATH 的系统 mpv），也不再需要「apt 拉 sid 闭包」这条吃 runner 钥匙环的链路。
   #   electron-builder 无 loong64 目标 → 手工 dpkg-deb 打包：/opt/quaver（electron dist +
   #   asar(app) + resources 等价物）+ /usr/bin/quaver 链接 + 桌面项，主进程无需改动。
@@ -302,13 +305,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      # 版本不在此处钉：读 ui/package.json 的 packageManager（pnpm@10.33.0），
+      # 与本地/锁文件的书写版本严格同源，避免「CI 用 latest 10.x」漂移。
+      # package_json_file 相对仓库根 —— 本仓库的 package.json 在 ui/ 子目录，根目录没有
+      - uses: pnpm/action-setup@v6
         with:
-          version: 10
+          package_json_file: ui/package.json
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "22"
+          node-version: "24"
           cache: pnpm
           cache-dependency-path: |
             ui/pnpm-lock.yaml
@@ -363,7 +369,7 @@ jobs:
       # electron-builder 不支持 loong64 → 手工 dpkg-deb 打包：
       #   /opt/quaver（electron dist + resources/app.asar + resources/{bin,mpris,build-res}）
       #   + /usr/bin/quaver 链接 + /usr/share/applications/quaver.desktop
-      # 无 resources/audio：mpv 走 Depends，bins.mjs 三级兜底自动落宿主 PATH
+      # 无 resources/audio：mpv 走 Depends，bins.ts 三级兜底自动落宿主 PATH
       - name: Assemble loong64 deb
         working-directory: ui
         env:
@@ -468,13 +474,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      # 版本不在此处钉：读 ui/package.json 的 packageManager（pnpm@10.33.0），
+      # 与本地/锁文件的书写版本严格同源，避免「CI 用 latest 10.x」漂移。
+      # package_json_file 相对仓库根 —— 本仓库的 package.json 在 ui/ 子目录，根目录没有
+      - uses: pnpm/action-setup@v6
         with:
-          version: 10
+          package_json_file: ui/package.json
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "22"
+          node-version: "24"
           cache: pnpm
           cache-dependency-path: |
             ui/pnpm-lock.yaml
@@ -500,18 +509,18 @@ jobs:
           pnpm run build
 
       # 随包音频运行时（mpv 官方 release）：x64=mingw（自带 DLL）、arm64=msvc（静态链接）。
-      # 平铺 mpv.exe 布局，运行期 bins.mjs 直接 spawn（见其 win32 分支）。
+      # 平铺 mpv.exe 布局，运行期 bins.ts 直接 spawn（见其 win32 分支）。
       - name: Stage bundled mpv runtime
         working-directory: ui
         shell: bash
-        run: node scripts/stage-mpv-official.mjs win32 ${{ matrix.arch_label }}
+        run: node scripts/stage-mpv-official.ts win32 ${{ matrix.arch_label }}
 
       # x64 才能真跑一遍（arm64 载荷在 x64 机器上只会 exec 126，校验在暂存脚本里做 PE 机器码）
       - name: Verify staged mpv runtime
         if: matrix.arch_label == 'x64'
         working-directory: ui
         shell: bash
-        run: node electron/audio/bins.mjs --check build-res/audio
+        run: node electron/audio/bins.ts --check build-res/audio
 
       - name: pnpm install
         working-directory: ui
@@ -554,13 +563,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      # 版本不在此处钉：读 ui/package.json 的 packageManager（pnpm@10.33.0），
+      # 与本地/锁文件的书写版本严格同源，避免「CI 用 latest 10.x」漂移。
+      # package_json_file 相对仓库根 —— 本仓库的 package.json 在 ui/ 子目录，根目录没有
+      - uses: pnpm/action-setup@v6
         with:
-          version: 10
+          package_json_file: ui/package.json
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "22"
+          node-version: "24"
           cache: pnpm
           cache-dependency-path: |
             ui/pnpm-lock.yaml
@@ -590,16 +602,16 @@ jobs:
           pnpm run build
 
       # 随包音频运行时（mpv 官方 release，arm64 单架构）：
-      # 自包含 mpv.app（自带 dylib rpath），bins.mjs 直接 spawn（见其 darwin 分支）
+      # 自包含 mpv.app（自带 dylib rpath），bins.ts 直接 spawn（见其 darwin 分支）
       - name: Stage bundled mpv runtime
         working-directory: ui
-        run: node scripts/stage-mpv-official.mjs darwin arm64
+        run: node scripts/stage-mpv-official.ts darwin arm64
 
       - name: Verify staged mpv runtime
         working-directory: ui
         run: |
           set -euo pipefail
-          node electron/audio/bins.mjs --check build-res/audio
+          node electron/audio/bins.ts --check build-res/audio
 
       - name: pnpm install
         working-directory: ui
@@ -637,7 +649,7 @@ jobs:
           hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg"
           trap 'hdiutil detach "$mount" -force >/dev/null 2>&1 || true' EXIT
           app=$(ls -d "$mount"/*.app | head -1)
-          node electron/audio/bins.mjs --check "$app/Contents/Resources/audio"
+          node electron/audio/bins.ts --check "$app/Contents/Resources/audio"
           [ -x "$app/Contents/Resources/bin/quaver-server" ]
 
       - uses: actions/upload-artifact@v7

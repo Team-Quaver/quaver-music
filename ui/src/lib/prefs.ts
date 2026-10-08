@@ -1,6 +1,6 @@
 // Quaver — 用户偏好（外观主题 / 字体 / 窗口装饰 CSD·SSD / 解码后端 / 音频设备 / 淡入淡出 / 音质）。
 //
-// 全部持久化到 quaver.conf（INI，见 electron/config.mjs），通过 src/lib/config.ts 读写：
+// 全部持久化到 quaver.conf（INI，见 electron/config.ts），通过 src/lib/config.ts 读写：
 // 桌面端落 <配置目录>/quaver.conf，浏览器 dev 落 localStorage。本模块只负责
 // 「内部枚举 ⇄ 配置文件取值」的映射与即时生效（CSS 变量 / Electron 桥）。
 //
@@ -65,7 +65,7 @@ export function fontKeyOf(value: string): string {
 
 /** 清洗 + 规范化手填的 font-family 列表：只留字体名里合法的字符
  *  （字母 / 数字 / CJK / 空格 / 逗号 / 引号 / 点 / 连字符 / 下划线 / 加号），内部空白收敛，
- *  逗号两侧统一成一个空格，空项丢掉。空串合法（= 不覆盖）。比 electron/config.mjs 的
+ *  逗号两侧统一成一个空格，空项丢掉。空串合法（= 不覆盖）。比 electron/config.ts 的
  *  isFontList（拦结构字符与 url(）更严 —— 前端清洗后的值一定能过后端校验。 */
 export function normalizeFontList(s: string): string {
   return (s || "")
@@ -305,7 +305,7 @@ export function setQueueWidth(px: number | null) {
 }
 
 // —— 热键（全局 / 焦点内）——
-// 取值 = 规范化 accelerator（值域在 electron/config.mjs 的 isHotkey）：修饰键 Ctrl/Alt/Shift/
+// 取值 = 规范化 accelerator（值域在 electron/config.ts 的 isHotkey）：修饰键 Ctrl/Alt/Shift/
 // Super 按固定序组合 + 键名，如 "Ctrl+Alt+F5"；空串 = 停用该热键（合法）。
 // 全局热键由主进程注册（Windows/macOS 用 Electron globalShortcut，Linux 走 XDG 桌面门户），
 // 焦点内热键由渲染层 keydown 分发（src/lib/hotkeys.ts）；两边都实时读内存快照，改完即生效。
@@ -316,7 +316,7 @@ export type HotkeyScope = "Global" | "Focus";
 export const hotkeyConfKey = (scope: HotkeyScope, action: HotkeyAction) => `Hotkeys.${scope}.${HOTKEY_KEY_NAMES[action]}`;
 
 /** 动作 → schema 键名。VolUp/VolDown 是多词键，首字母大写法（volup→Volup）会拼错，
- *  必须显式列全 —— 与 electron/global-hotkeys.mjs 的 GLOBAL_CONF_KEYS 逐字一致
+ *  必须显式列全 —— 与 electron/global-hotkeys.ts 的 GLOBAL_CONF_KEYS 逐字一致
  *  （verify-hotkeys 交叉比对两边）。 */
 const HOTKEY_KEY_NAMES: Record<HotkeyAction, string> = {
   toggle: "Toggle", prev: "Prev", next: "Next", volup: "VolUp", voldown: "VolDown", quit: "Quit",
@@ -361,7 +361,7 @@ export const GLOBAL_HOTKEY_ACTIONS: HotkeyAction[] = ["toggle", "prev", "next", 
 export const FOCUS_HOTKEY_ACTIONS: HotkeyAction[] = ["toggle", "quit", "prev", "next", "volup", "voldown"];
 
 // —— 应用更新（设置-通用）：自动检查开关 / 渠道（stable｜nightly）/ 已提醒版本标识。 ——
-// 检查与安装的执行端在主进程（electron/update.mjs），编排见 src/lib/updater.ts。
+// 检查与安装的执行端在主进程（electron/update.ts），编排见 src/lib/updater.ts。
 export type UpdateChannel = "stable" | "nightly";
 
 export function getAutoCheck(): boolean {

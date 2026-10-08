@@ -7,12 +7,12 @@
 // 所以 main.ts 必须在 applyTheme/applyFonts 之前 await loadConfig()。
 // （旧实现直接把 localStorage 当真相来源，打包态每次启动都是新 origin → 设置全丢。）
 
-/** 拍平的配置表：键为 "Section.Key"，值恒为字符串（与 electron/config.mjs 的 schema 对齐）。 */
+/** 拍平的配置表：键为 "Section.Key"，值恒为字符串（与 electron/config.ts 的 schema 对齐）。 */
 export type ConfigSnapshot = Record<string, string>;
 
 const LS_KEY = "quaver.conf.v1";
 
-// 与 electron/config.mjs 的 SCHEMA 默认值保持一致（浏览器 dev 兜底 / 文件缺键时用；
+// 与 electron/config.ts 的 SCHEMA 默认值保持一致（浏览器 dev 兜底 / 文件缺键时用；
 // 桌面端主进程 readValues() 已补齐全量，这里只是不让两种环境的行为分叉）。改一处要改两处。
 const FALLBACK: ConfigSnapshot = {
   "Style.Style": "dark",
@@ -45,7 +45,7 @@ const FALLBACK: ConfigSnapshot = {
   "Hotkeys.Focus.VolDown": "Ctrl+Down",
   "Quality.DefaultQuality": "Auto",
   "Quality.FallbackToQMAtmos": "False",
-  // [Security] 只有主进程读（凭证存储走 electron/keyring.mjs），渲染层没有对应 getter ——
+  // [Security] 只有主进程读（凭证存储走 electron/keyring.ts），渲染层没有对应 getter ——
   // 列在这里只是为了与 SCHEMA 的默认值保持一一对应，别让两种环境的取值表分叉。
   "Security.CredentialStore": "auto",
   "Security.KeyringBackend": "auto",
@@ -71,7 +71,7 @@ function adopt(r: any): boolean {
 }
 
 // ——— 启动装载（同步）———
-// 桌面端：preload 已经用 sendSync 取好了快照（见 electron/preload.cjs），这里直接吃。
+// 桌面端：preload 已经用 sendSync 取好了快照（见 electron/preload.cts），这里直接吃。
 // 浏览器 dev：没有桥，退回 localStorage（也是同步的）。
 // 为什么必须同步：ESM 静态 import 提升 —— player 的实例化、各模块对 cfg() 的读取都发生在
 // 任何 await 之前；异步装载会让启动期全部落在默认值上（音量、后端、歌词开关…），

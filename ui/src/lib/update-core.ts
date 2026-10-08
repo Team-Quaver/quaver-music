@@ -1,7 +1,7 @@
 // Quaver — 应用自更新：纯逻辑层。
 //
 // 版本解析/比较、安装包匹配（平台 × 架构）、GitHub release notes 的安全迷你渲染。
-// 不依赖 DOM 与 Electron 桥 —— ui/scripts/verify-update.mjs 直接打包本文件跑单测，
+// 不依赖 DOM 与 Electron 桥 —— ui/scripts/verify-update.ts 直接打包本文件跑单测，
 // 改比较规则先改这里再补用例。
 //
 // 口径（与 CI 对齐，见 .github/workflows/build.yml + resolve-version action）：

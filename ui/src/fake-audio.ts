@@ -23,7 +23,7 @@
 //     st.paused || st.idle）把 dead/error/eof/stop 全部坍缩为暂停，任一路径失灵
 //     的最坏结果也只是多持一个无声 blocker，不会出声、不会显示错状态。
 //
-// 依赖：Electron 默认 autoplay 策略 no-user-gesture-required（main.mjs webPreferences
+// 依赖：Electron 默认 autoplay 策略 no-user-gesture-required（main.ts webPreferences
 // 未改）。若将来给 webPreferences 加 user-gesture-required，本模块会静默失效。
 import { player } from "./player";
 

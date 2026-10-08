@@ -7,15 +7,15 @@ import type { Connect } from "vite";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join, normalize, relative } from "node:path";
-import { configDir } from "../electron/config.mjs";
+import { configDir } from "../electron/config.ts";
 
 const SIDECAR = process.env.QUAVER_API ?? "http://127.0.0.1:3200";
 
-/** Sparkle 第三方插件目录（与 electron/main.mjs 同规则：env 优先，否则配置目录下 plugins/） */
+/** Sparkle 第三方插件目录（与 electron/main.ts 同规则：env 优先，否则配置目录下 plugins/） */
 const SPARKLE_PLUGINS_ROOT = process.env.QUAVER_SPARKLE_DIR?.trim() || join(configDir(), "plugins");
 const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
-/** 已安装插件的静态文件（/api/sparkle/plugin/<id>/<file>）。与 native-server.mjs 的 serveSparkle 同构。 */
+/** 已安装插件的静态文件（/api/sparkle/plugin/<id>/<file>）。与 native-server.ts 的 serveSparkle 同构。 */
 export function serveSparkle(sub: string, res: ServerResponse) {
   // sub 形如 /sparkle/plugin/<id>/<file...>；id 与 file 都过白名单（防目录穿越）
   const m = /^\/sparkle\/plugin\/([a-z0-9][a-z0-9-]*)\/(.+)$/.exec(sub);
@@ -120,7 +120,7 @@ async function proxyImage(u: string | null, res: ServerResponse) {
   }
 }
 
-// 调试：日志页面数据源。Electron 壳层写 ui/electron-dev.log（见 electron/main.mjs），
+// 调试：日志页面数据源。Electron 壳层写 ui/electron-dev.log（见 electron/main.ts），
 // 这里以纯文本给出尾部 N 行；文件不存在（纯浏览器 dev）返回 404 JSON，前端显示占位提示。
 function serveLog(res: ServerResponse, tail: number) {
   const file = join(import.meta.dirname ?? ".", "..", "electron-dev.log");
@@ -145,7 +145,7 @@ export function apiRelay(): Connect.NextHandleFunction {
 
     if (path === "img") return proxyImage(url.searchParams.get("u"), res);
     if (path === "log") return serveLog(res, parseInt(url.searchParams.get("tail") ?? "800", 10) || 800);
-    // Sparkle 已安装插件的文件服务（/api/sparkle/...，打包态在 native-server.mjs 有同构实现）
+    // Sparkle 已安装插件的文件服务（/api/sparkle/...，打包态在 native-server.ts 有同构实现）
     if (path.startsWith("sparkle/")) return serveSparkle("/" + path, res);
 
     const target = new URL(SIDECAR);

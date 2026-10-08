@@ -1,0 +1,268 @@
+// Quaver — mpv JSON IPC 客户端（libmpv 的 --input-ipc-server 线协议）。
+// 线协议：unix socket 上每行一个 JSON。
+//   我方请求  {"command":["loadfile","<url>","replace"],"request_id":N}
+//   mpv 应答  {"error":"success","data":...,"request_id":N}
+//   mpv 事件  {"event":"property-change","id":1,"name":"time-pos","data":...}
+//             {"event":"end-file","reason":"eof"|"stop"|"error"|...}
+//
+// 安全口径：播放 URL（/api/stream/<token>）只经 socket 传输，绝不进 mpv 命令行参数
+// （命令行对同机所有用户可见，token 虽 2h 过期也不该晒在 ps 里）。
+import { spawn, type ChildProcess } from "node:child_process";
+import { connect, type Socket } from "node:net";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+/** socket 就绪轮询上限：mpv 冷启动通常 <100ms，5s 足够兜极端机器 */
+const SOCK_WAIT_MS = 5000;
+
+/** 一条在飞命令的应答口（command() 里建，收到 request_id 应答时兑现）。 */
+interface PendingReq {
+  resolve: (v: unknown) => void;
+  reject: (e: Error) => void;
+}
+
+/** mpv 线协议事件（JSON.parse 后的原始对象）：已知字段可选，其余走索引签名兜底。 */
+export interface MpvEvent {
+  event?: string;
+  id?: number;
+  data?: unknown;
+  reason?: string;
+  file_error?: string;
+  code?: number | null;
+  [key: string]: unknown;
+}
+
+export interface MpvIpcOpts {
+  log?: (...a: unknown[]) => void;
+  volume?: number;      // 0..1，映射 mpv volume 0..100
+  muted?: boolean;
+  audioDevice?: string; // mpv audio-device（"auto" = 系统默认）
+  extraArgs?: string[]; // 追加参数（测试用 --ao=null 等）
+}
+
+/**
+ * @param argv 完整 spawn argv（argv[0] = 可执行文件）。随包运行时时是
+ *   `[包内 loader, "--library-path", <lp>, 载荷]` 的形式（见 bins.ts），mpv 参数接在其后。
+ */
+export class MpvIpc {
+  argv: string[];
+  bin: string;
+  log: (...a: unknown[]) => void;
+  volume: number;
+  muted: boolean;
+  audioDevice: string;
+  extraArgs: string[];
+  child: ChildProcess | null;
+  sock: Socket | null;
+  sockDir: string | null;
+  reqId: number;
+  pending: Map<number, PendingReq>;
+  buf: string;
+  eventCb: ((ev: MpvEvent) => void) | null;
+  dead: boolean;
+  exitCb: ((code: unknown) => void) | null;
+  /** start() 里探测到的 mpv 版本串；未拉起时为空串（展示侧按「空 = 未知」处理）。 */
+  mpvVersion = "";
+
+  constructor(argv: string[], opts: MpvIpcOpts = {}) {
+    if (!Array.isArray(argv) || !argv.length) throw new Error("MpvIpc: argv 不能为空");
+    this.argv = argv;
+    this.bin = argv[0];
+    this.log = opts.log ?? (() => {});
+    this.volume = opts.volume ?? 0.8;
+    this.muted = !!opts.muted;
+    this.audioDevice = opts.audioDevice || "auto";
+    this.extraArgs = opts.extraArgs ?? [];
+    this.child = null;
+    this.sock = null;
+    this.sockDir = null;
+    this.reqId = 0;
+    this.pending = new Map<number, PendingReq>();
+    this.buf = "";
+    this.eventCb = null;
+    this.dead = false;
+    this.exitCb = null;
+  }
+
+  /** 拉起 mpv 并连上 IPC socket。失败抛错（调用方决定报错/回落）。 */
+  async start(): Promise<this> {
+    if (this.dead) throw new Error("mpv already dead");
+    // IPC 端点按平台分两路：unix socket（文件系统可见，就绪 = 文件出现）与
+    // Windows 命名管道（不在文件系统里，就绪 = connect 第一次成功）。
+    const isWin = process.platform === "win32";
+    let connectTarget;
+    if (isWin) {
+      // 命名管道名带 pid+随机段：多实例不互踩。sockDir 保持 null，cleanup() 天然跳过。
+      const name = `quaver-mpv-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+      connectTarget = `\\\\.\\pipe\\${name}`;
+      this.sockDir = null;
+    } else {
+      this.sockDir = mkdtempSync(join(tmpdir(), "quaver-mpv-"));
+      connectTarget = join(this.sockDir, "ipc.sock"); // socket 是 0 字节，tmpfs 大小无关紧要
+    }
+
+    const args = [
+      // 受控子进程：不吃用户 ~/.config/mpv 的 mpv.conf / 自动加载的脚本 ——
+      // 用户配置能直接把我们搞坏（no-audio、自定义 vo、ytdl=yes…），本项目里音频/设备全由我们显式下发。
+      "--no-config",
+      "--load-scripts=no",
+      "--idle=yes",                 // 常驻：换曲不重启进程
+      "--no-terminal",              // 不占 tty
+      "--no-video",                 // 纯音频
+      "--audio-display=no",
+      `--input-ipc-server=${connectTarget}`,
+      // —— 缓存：有上限的滑动窗口，纯内存，绝不落盘（合规线：不做整曲持久化）——
+      "--cache-on-disk=no",
+      "--demuxer-max-bytes=32MiB",  // 前向窗口
+      "--demuxer-max-back-bytes=24MiB", // 回看窗口（seek 回退不大动干戈重拉全流；再大只是白占内存，更早的回退交给 CDN 重取）
+      // —— 断流韧性：上游 CDN 抖动时 ffmpeg http 层自动重连，别直接判死 ——
+      "--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=2",
+      "--network-timeout=15",
+      // —— 行为对齐 web <audio> 管线 ——
+      "--gapless-audio=no",         // 每曲独立 ended 事件（循环/切歌逻辑吃这个）
+      "--ytdl=no",                  // 别让 ytdl_hook 碰 http URL
+      `--volume=${Math.round(Math.min(1, Math.max(0, this.volume)) * 100)}`,
+      `--mute=${this.muted ? "yes" : "no"}`,
+      `--audio-device=${this.audioDevice}`,
+      ...this.extraArgs,
+    ];
+    this.log("[audio] spawning mpv:", this.bin, this.argv.length > 1 ? "(bundled runtime)" : "");
+    const child = spawn(this.bin, [...this.argv.slice(1), ...args], { stdio: ["ignore", "ignore", "pipe"] });
+    this.child = child;
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (d) => this.log("[mpv]", String(d).trimEnd()));
+    const exited = new Promise((_, rej) => child.once("exit", (c) => rej(new Error(`mpv exited early: ${c}`))));
+    // win 分支（管道）不走 race：mpv 早退时这个 promise 没人接 → unhandled rejection，垫一下。
+    exited.catch(() => {});
+
+    // 等 IPC 端点就绪；期间进程死了要立刻知道
+    const deadline = Date.now() + SOCK_WAIT_MS;
+    if (isWin) {
+      // 管道不可 stat → 用重试 connect 当就绪探针（成功即复用该连接）
+      await new Promise<Socket>((resolve, reject) => {
+        let done = false;   // 连上之后 socket 的后续 error 不许再触发重连
+        const tryConn = () => {
+          if (done) return;
+          if (child.exitCode !== null) return reject(new Error(`mpv exited early: ${child.exitCode}`));
+          if (Date.now() > deadline) return reject(new Error("mpv IPC 管道超时未就绪"));
+          const s = connect(connectTarget, () => { done = true; resolve(s); });
+          s.on("error", () => {
+            if (done) return;
+            s.destroy();
+            setTimeout(tryConn, 50);
+          });
+        };
+        tryConn();
+      }).then((s) => { this.sock = s; });
+    } else {
+      while (!existsSync(connectTarget)) {
+        if (child.exitCode !== null) throw new Error(`mpv exited early: ${child.exitCode}`);
+        if (Date.now() > deadline) {
+          try { child.kill(); } catch {}
+          throw new Error("mpv IPC socket 超时未就绪");
+        }
+        await Promise.race([exited, new Promise((r) => setTimeout(r, 50))]);
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const s = connect(connectTarget, () => resolve());
+        s.on("error", reject);
+        this.sock = s;
+      });
+    }
+    // 上面两个分支（win 命名管道 / unix socket 文件）都得把 socket 建好；缺一个就不该继续
+    const sock = this.sock;
+    if (!sock) throw new Error("mpv IPC socket 未建立");
+    sock.setEncoding("utf8");
+    sock.on("data", (chunk) => this.onData(chunk));
+    sock.on("close", () => this.onSockClose());
+    sock.on("error", (e) => this.log("[audio] sock error:", String(e)));
+    child.once("exit", (code) => {
+      this.dead = true;
+      this.rejectAll(new Error(`mpv exited: ${code}`));
+      try { this.sock?.destroy(); } catch {}
+      this.eventCb?.({ event: "__exit__", code });
+      this.exitCb?.(code);
+      this.cleanup(); // socket 目录随进程退出回收
+    });
+
+    // 主动摸一把 get_version：既验证协议通了，也拿到版本串给设置页展示
+    this.mpvVersion = String(await this.command(["get_property", "mpv-version"]));
+    return this;
+  }
+
+  /** 上面 setEncoding("utf8") 之后 data 事件在运行期给的是已解码字符串；但 @types/node
+   *  不感知 setEncoding，仍按 Buffer 建模 —— 入参收宽成两者，统一归一成串再拼接。 */
+  onData(chunk: string | Buffer): void {
+    this.buf += typeof chunk === "string" ? chunk : chunk.toString();
+    let i;
+    while ((i = this.buf.indexOf("\n")) >= 0) {
+      const line = this.buf.slice(0, i).trim();
+      this.buf = this.buf.slice(i + 1);
+      if (!line) continue;
+      let msg;
+      try { msg = JSON.parse(line); } catch { continue; }
+      if (msg.request_id !== undefined && this.pending.has(msg.request_id)) {
+        const p = this.pending.get(msg.request_id)!; // has() 已确认在表里
+        this.pending.delete(msg.request_id);
+        if (msg.error === "success") p.resolve(msg.data);
+        else p.reject(new Error(`mpv: ${msg.error}`));
+      } else if (msg.event) {
+        this.eventCb?.(msg);
+      }
+    }
+  }
+
+  rejectAll(e: Error): void {
+    for (const p of this.pending.values()) p.reject(e);
+    this.pending.clear();
+  }
+
+  onSockClose(): void {
+    this.dead = true; // socket 断开视同实例作废（进程退出/IPC 关闭都会走到这里）
+    this.rejectAll(new Error("mpv IPC socket closed"));
+  }
+
+  /** 发一条命令，返回 data（error 非 success 时 reject）。dead 时 reject。 */
+  command(args: unknown[], timeoutMs = 8000): Promise<unknown> {
+    const sock = this.sock; // 本地收口：可写性判过之后，后面闭包里不再重读可变属性
+    if (this.dead || !sock?.writable) return Promise.reject(new Error("mpv not running"));
+    const id = ++this.reqId;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`mpv command timeout: ${args[0]}`));
+      }, timeoutMs);
+      this.pending.set(id, {
+        resolve: (v) => { clearTimeout(timer); resolve(v); },
+        reject: (e) => { clearTimeout(timer); reject(e); },
+      });
+      try {
+        sock.write(JSON.stringify({ command: args, request_id: id }) + "\n");
+      } catch (e) {
+        this.pending.delete(id);
+        clearTimeout(timer);
+        reject(e);
+      }
+    });
+  }
+
+  observe(id: number, prop: string): Promise<unknown> { return this.command(["observe_property", id, prop]); }
+  getProp(prop: string): Promise<unknown> { return this.command(["get_property", prop]); }
+  setProp(prop: string, value: unknown): Promise<unknown> { return this.command(["set_property", prop, value]); }
+
+  /** 温和退出：裸写 quit（不走 command()——dead 标志会挡）+ SIGTERM 直杀（不依赖 socket
+   *  flush：主进程可能在 quit 字节刷出前就退出，信号是内核直接递的不怕），2s 后仍在就 SIGKILL。 */
+  kill(): void {
+    const c = this.child;
+    if (!c) return;
+    try { this.sock?.write(JSON.stringify({ command: ["quit"] }) + "\n"); } catch {}
+    try { c.kill("SIGTERM"); } catch {}
+    setTimeout(() => { try { c.kill("SIGKILL"); } catch {} }, 2000).unref?.();
+  }
+
+  cleanup(): void {
+    if (this.sockDir) { try { rmSync(this.sockDir, { recursive: true, force: true }); } catch {} this.sockDir = null; }
+  }
+}

@@ -6,7 +6,7 @@
 // 或者直接关掉随机回到顺序播。跨零点的「今天」按**本地时区**算（用户感知的日界），
 // 不是 UTC —— 否则晚上 8 点前后的用户会觉得换序来得莫名其妙。
 //
-// 零依赖单文件：scripts/verify-shuffle.mjs 直接 `await import` 跑真断言
+// 零依赖单文件：scripts/verify-shuffle.ts 直接 `await import` 跑真断言
 // （Node ≥22.18 默认开启类型剥离），不用为这段算术起浏览器。
 
 /** 本地日期键 `YYYY-MM-DD`（本地时区，理由见文件头） */

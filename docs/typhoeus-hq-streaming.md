@@ -36,7 +36,7 @@
 
 ```
 ui (api.ts getPlayUrl → /api/stream/resolve → <audio> src=/api/stream/<token>)
- └ relay.ts / native-server.mjs：/api/stream/* 流式管道（Range 透传，不缓冲）
+ └ relay.ts / native-server.ts：/api/stream/* 流式管道（Range 透传，不缓冲）
     └ sidecar (quaver_server/streaming.py 薄接线)
        └ vendor/Typhoeus (包：quality/provider/resolver/stream/adapters.qqmusic)
           └ vendor/QQMusicApi (SDK：GetVkey 明文档位；不碰 GetEVkey/ekey)
@@ -89,7 +89,7 @@ curl -s -r 0-15 "http://127.0.0.1:3200$(jq -r .data.path <(curl -s -X POST \
 
 - Typhoeus 单测 19 passed（假 provider，无网络）。
 - curl：tiers/resolve/206/后缀 range/416/451(加密档拒绝)/422/降档 degraded。
-- headless Chrome（scripts/typhoeus-smoke.mjs）：flac/640ogg/master/320/128/auto
+- headless Chrome（scripts/typhoeus-smoke.ts）：flac/640ogg/master/320/128/auto
   六档 currentTime 前进、duration 261s 对、src 走 `/api/stream/`；播放条徽章
   「无损 SQ」；设置页 9 张档位卡（会员全解锁）。
-- 旧冒烟 scripts/smoke.mjs 全 PASS（唯一 400 为歌词端点上游 24001，改动前即存在）。
+- 旧冒烟 scripts/smoke.ts 全 PASS（唯一 400 为歌词端点上游 24001，改动前即存在）。

@@ -10,6 +10,34 @@ pnpm run dev -- --port 5173 --strictPort --host 127.0.0.1
 `curl -s http://127.0.0.1:5173/api/login/status` 验证中继（需 sidecar :3200 在跑，
 否则返回 502 JSON 也算中继活着）。
 
+## TypeScript 与 Node 24（全仓无构建步骤）
+
+`ui/` 下**没有裸 JS 源码**：`electron/**`、`scripts/**` 全是 `.ts`，`src/**` 本来就是。运行方式
+靠 Node 24 的原生类型剥离（strip-only）——`node scripts/verify-x.ts`、`electron .` 直接跑源码，
+**没有 tsc 产物、没有 outDir**。三条硬约束（写错就是启动时炸，不是类型报错）：
+
+- **相对导入必须写全 `.ts` 扩展名**：Node 的剥离不做路径改写，`"./config.js"` 或裸 `"./config"`
+  一律 `ERR_MODULE_NOT_FOUND`。`allowImportingTsExtensions` 让 tsc 也认这种写法。
+- **只能用可擦除语法**：`enum` / `namespace` / 构造器参数属性 / 旧式装饰器在 strip-only 下抛
+  `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`。`tsconfig.node.json` 的 `erasableSyntaxOnly` 让 tsc 提前拦。
+  类字段**必须显式声明**（`lines: string[];`）——`.ts` 不会从构造器赋值推断属性，这是主要迁移成本。
+- **preload 必须是 `.cts`**（不是 `.ts`）：Electron 按扩展名分流 preload（`lib/renderer/init.ts`：
+  `path.extname(p) !== '.mjs'` → 走 Node 的 `Module._load`），且 **preload 忽略 `type: module`**，
+  所以 `.ts` 在 `"type": "module"` 包里是 ESM 语义、顶层 `require` 不存在。`.cts` 强制 CJS-TS，
+  正好落在 Electron 的 CJS 分支 + Node 的剥离器上。
+
+两套 tsconfig：`tsconfig.json` = 渲染层（`src/**`，浏览器语义）；`tsconfig.node.json` = Node 侧
+（`electron/**` + `scripts/**`，nodenext + 上述开关，`lib` 含 DOM 是给 puppeteer `page.evaluate` 回调用的）。
+
+```sh
+pnpm run typecheck       # 渲染层，必须 0 错（build 闸门）
+pnpm run typecheck:node  # Node 侧，迁移中：尚未清零，不作闸门
+```
+
+**verify 脚本的自毁陷阱**：不少断言是**读源码文本做正则**（`readFileSync("electron/config.ts")`
+再 `.test()`）。给被测源码加类型标注会静默打坏这类断言（真实踩过：`valid: (v) =>` 改成
+`valid: (v: string) =>` 后 verify-sidebar 立刻红）。改类型时**顺手跑一遍 verify:static**。
+
 ## Conventions
 
 - 页面 = 根目录 `<name>.html` + `src/entries/<name>.ts`；新页面要同时加进
@@ -21,16 +49,16 @@ pnpm run dev -- --port 5173 --strictPort --host 127.0.0.1
 
 ## 凭证存储（系统密钥管理器）
 
-真相在 `electron/keyring.mjs`（零依赖、不 import electron，可单测）。三条硬约束：
+真相在 `electron/keyring.ts`（零依赖、不 import electron，可单测）。三条硬约束：
 
-- **`--password-store` 必须在 `app ready` 之前钉死**（`main.mjs` 顶层 `appendSwitch`）：Chromium
+- **`--password-store` 必须在 `app ready` 之前钉死**（`main.ts` 顶层 `appendSwitch`）：Chromium
   只在初始化时读一次，ready 之后再改是空操作。自定义合成器（Hyprland/sway）不在 Chromium 的桌面
   白名单里 → 不显式钉就会静默退到 `basic_text`（硬编码口令的假加密，而 `isEncryptionAvailable()`
   仍然返回 true）。探测顺序：桌面名 → `/proc` 里的守护进程 → 钱包/keyrings 目录 → 保守试 Secret Service。
   探测只负责**选开关**，真正算数的是 ready 之后的 `getSelectedStorageBackend()` 校验。
 - **凭证归属在 Electron 主进程**（打包态）。main 把已存凭证写进 sidecar 的 stdin（`QCRED1 {json}` /
   `QCRED1 null` 一行），sidecar 登录/刷新/登出时从 stdout 交回同一格式 → main 加密落盘。
-  前缀常量两侧必须逐字一致：`ui/electron/keyring.mjs:HANDOFF_PREFIX` ↔
+  前缀常量两侧必须逐字一致：`ui/electron/keyring.ts:HANDOFF_PREFIX` ↔
   `vendor/Typhoeus/quaver_server/session.py:HANDOFF_PREFIX`（含末尾空格，verify:keyring 会比对）。
   sidecar 侧只在 `QUAVER_CREDENTIAL_MODE=external` 下启用（stdin 阻塞读、save/clear 改交接）；
   不设该变量（手工单跑）= memory 模式，什么都不落盘。
@@ -51,20 +79,20 @@ pnpm run dev -- --port 5173 --strictPort --host 127.0.0.1
 
 ## 配置持久化（quaver.conf）
 
-真相在 `electron/config.mjs`：平台路径规则、INI 解析（保注释）、schema 默认值与值域、原子落盘。
+真相在 `electron/config.ts`：平台路径规则、INI 解析（保注释）、schema 默认值与值域、原子落盘。
 渲染层经 `src/lib/config.ts` 读写（桌面端过 preload 的 `quaverConfig` 桥，浏览器 dev 回落 localStorage）。
 
 - 目录：Linux `~/.config/quaver-music`｜Windows `%AppData%\Quaver Music`｜macOS `Application Support/Quaver Music`；
   `QUAVER_CONFIG_DIR` 可整体顶掉（主进程也用它下发给 sidecar，两边规则必须一致：
-  `ui/electron/config.mjs:configDir` ↔ `vendor/Typhoeus/quaver_server/session.py:_config_dir`）。
-- 加新设置项：改 `electron/config.mjs` 的 `SCHEMA` + `src/lib/config.ts` 的 `FALLBACK`
+  `ui/electron/config.ts:configDir` ↔ `vendor/Typhoeus/quaver_server/session.py:_config_dir`）。
+- 加新设置项：改 `electron/config.ts` 的 `SCHEMA` + `src/lib/config.ts` 的 `FALLBACK`
   + `src/lib/prefs.ts` 的类型化 getter/setter（三处都要动）。**例外**：只有主进程消费的项
   （`[Security]` 三项）只需前两处，渲染层不加 getter。
 - 字体两项是 **CSS font-family 列表**（空串 = 不覆盖，合法）。写入统一走 `setUiFontList` /
   `setLyricFontList`（逐字符输入 → `cfgSetSoon` 合并 400ms）。设置页 = 预设下拉 + 可直编输入框，
   两边靠 `fontKeyOf` 反向匹配同步；`fontCssOf` 负责把 `sans` 这类预设名简写展开成族列表
   （直接塞进 CSS 变量是无效声明）。`normalizeFontList` 是前端清洗（allowlist，比后端更严）。
-- 打包态页面跑在**固定端口**（`main.mjs:STABLE_PORT`）：origin 稳定，Chromium 的
+- 打包态页面跑在**固定端口**（`main.ts:STABLE_PORT`）：origin 稳定，Chromium 的
   localStorage/IndexedDB/Cache 才能跨启动延续；端口被占时 native-server 自动回落随机端口。
 - `app.setPath("userData")` 钉在配置目录，必须在任何 `app.getPath("userData")` 之前执行。
 - 跨页导航一律 `.html` 后缀绝对路径（Vite dev 对 `/foo.html` 与 `/foo` 都可解析；
@@ -80,7 +108,7 @@ pnpm run dev -- --port 5173 --strictPort --host 127.0.0.1
 之间来回切，`~/.config/gtk-{3,4}.0/settings.ini` 里始终是 `adw-gtk3`（浅），于是「跟随系统」
 永远是浅色。
 
-所以这件事由**主进程**兜（`electron/systheme.mjs`）：
+所以这件事由**主进程**兜（`electron/systheme.ts`）：
 
 - 探测真相：KDE 会话读 `kdeglobals` 的 `[Colors:Window] BackgroundNormal` 按亮度判（不猜方案名，
   「BreezeLight」「noctalia」这类名字没法可靠分类）；其他桌面读 GTK settings.ini 兜底；
@@ -92,7 +120,7 @@ pnpm run dev -- --port 5173 --strictPort --host 127.0.0.1
   它不会再来，盯文件才是真来源。
 - 主题偏好经 `quaver:config` 的 `set` 落盘时同步进主进程（`themePref`），`reset` 也要同步，
   否则切回明/暗固定档后还挂着探测值。
-- 单测：`node scripts/verify-systheme.mjs`（INI 解析 / 亮度判据 / 来源优先级 / 变化监听，真文件真解析）。
+- 单测：`node scripts/verify-systheme.ts`（INI 解析 / 亮度判据 / 来源优先级 / 变化监听，真文件真解析）。
 
 ## 应用身份与图标（Linux 桌面集成）
 
@@ -103,7 +131,7 @@ Electron init 在任何用户代码之前读它并写进 `CHROME_DESKTOP`，X11 
 desktop 文件名、`Icon=`、hicolor 图标文件名全部取自它，四方只能同源。
 
 图标链：桌面环境按 app_id 反查 `<ID>.desktop` → `Icon=` → 图标主题。AppImage 裸跑与开发态没人
-代装桌面文件/图标，`electron/linux-desktop.mjs` 每次启动自装（幂等、失败只记账）：
+代装桌面文件/图标，`electron/linux-desktop.ts` 每次启动自装（幂等、失败只记账）：
 
 - hicolor `<size>x<size>/apps/<ID>.png`（素材 `build-res/icons`，随 extraResources 进包）：
   内容一致就跳过；有实际写入后 best-effort 刷 `gtk-update-icon-cache`——有 icon-theme.cache 的
@@ -127,13 +155,13 @@ desktop 文件名、`Icon=`、hicolor 图标文件名全部取自它，四方只
 托盘挂在**外壳**上（Linux 面板 / macOS 菜单栏 / Windows 通知区），不是挂在应用窗口里——两件事都
 按这个前提判：
 
-- **图标明暗**（`electron/tray-icon.mjs` + `main.mjs:trayAppearance`）：判据必须是「系统给外壳的
+- **图标明暗**（`electron/tray-icon.ts` + `main.ts:trayAppearance`）：判据必须是「系统给外壳的
   颜色」，Linux 探测桌面配色、macOS 读 `AppleInterfaceStyle`、Windows 用
   `shouldUseDarkColorsForSystemIntegratedUI`。**别拿 `nativeTheme.shouldUseDarkColors` 当判据**：
   它跟着应用自己的 `themeSource` 走，而本应用默认主题是 dark → 永远判成深色外壳，系统切浅色后
   菜单栏变浅、图标还是浅色那份，直接看不见。尺寸统一 16pt 出图（mac 按点画 NSImage，直塞 512²
   就是「托盘图标巨大」）。
-- **菜单标题行**（`electron/tray-title.mjs`）：`electron/tray-title.mjs:trayTitleLine` 拼「歌名 -
+- **菜单标题行**（`electron/tray-title.ts`）：`electron/tray-title.ts:trayTitleLine` 拼「歌名 -
   歌手」并按**显示列宽**截断（40 列，汉字记 2 列）。原因：Win32 HMENU 与 macOS NSMenu **都不折
   行**，菜单宽度 = 最宽那一项，一首长中文歌名 + 多位歌手就能把托盘菜单撑成横贯屏幕的一条；Linux
   面板宿主自己会打省略号，所以这个症状只在 win/mac 看得见——但**三平台同一份口径**，别为 win/mac

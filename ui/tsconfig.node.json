@@ -1,0 +1,34 @@
+{
+  // Quaver — Node 侧（Electron 主进程 + 校验脚本）的 TS 工程。
+  //
+  // 这里**不产出任何 JS**：Electron 44 内置 Node 24.21、开发机/CI 用 Node 24，都原生支持
+  // 类型剥离（strip-only），直接 `node scripts/x.ts` / `electron .` 即可运行源码。
+  // 因此：
+  //   - 相对导入**必须写全 `.ts` 扩展名**（Node 的类型剥离不做路径改写，`.js` 或裸名一律
+  //     ERR_MODULE_NOT_FOUND）→ allowImportingTsExtensions。
+  //   - 只能用「可擦除」语法：enum / namespace / 参数属性 / 旧式装饰器在 strip-only 下会
+  //     ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX → erasableSyntaxOnly 让 tsc 提前拦住。
+  //   - preload 例外：Electron 按扩展名分流（非 .mjs 走 Node 的 Module._load），
+  //     且 preload 忽略 package.json 的 type:module，故必须是 .cts（CJS-TS）。
+  "compilerOptions": {
+    "target": "ES2023",
+    // DOM 是给 scripts/ 里的 puppeteer `page.evaluate(() => …)` 回调用的：那段代码
+    // 在渲染进程里跑，`document`/`window` 是真实存在的东西，不是笔误。
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["electron/**/*.ts", "electron/**/*.cts"],
+  "exclude": ["node_modules", "dist", "release", "electron/audio/dist", "build-res"]
+}

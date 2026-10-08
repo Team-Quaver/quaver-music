@@ -24,11 +24,11 @@
   - `CredentialInvalidError` → 自动 `login.refresh_credential()` 重试一次
 
 > 更新：这两个文件后来统一挪进了系统配置目录（Linux `~/.config/quaver-music/`，与 `quaver.conf` 同目录），
-> 旧的 `~/.config/quaver`、`~/.local/state/quaver` 在首次运行时自动搬迁。见 `ui/electron/config.mjs`。
+> 旧的 `~/.config/quaver`、`~/.local/state/quaver` 在首次运行时自动搬迁。见 `ui/electron/config.ts`。
 
 > 更新（2026-09-20，凭证归属）：**凭证明文不再落盘**。`session.py` 已不读写 `credential.json`，
 > 改由 Electron 主进程独占保存：磁盘上只有密文 `credential.enc`，钥匙在系统密钥管理器里
-> （KWallet / GNOME Keyring / 钥匙串 / DPAPI，见 `ui/electron/keyring.mjs`）。启动时主进程通过
+> （KWallet / GNOME Keyring / 钥匙串 / DPAPI，见 `ui/electron/keyring.ts`）。启动时主进程通过
 > stdin 注入一行 `QCRED1 {json}`，sidecar 登录/刷新/登出时从 stdout 交回；不设
 > `QUAVER_CREDENTIAL_MODE=external` 时（手工单跑）为 memory 模式 —— 只驻内存、关掉即需重登。
 > 上面的「QR DONE 时由 sidecar 写 credential.json」是当时的实况，保留作历史记录。
@@ -78,5 +78,5 @@ cd vendor/Typhoeus && uv sync && uv run run.py        # :3200
 curl -s localhost:3200/login/status | jq
 curl -s "localhost:3200/search?keyword=%E5%91%8A%E7%99%BD&num=3" | jq '.data.song[0].name'
 cd ../ui && npm run dev -- --port 5173 --strictPort --host 127.0.0.1
-node scripts/smoke.mjs                           # headless 全链路冒烟
+node scripts/smoke.ts                           # headless 全链路冒烟
 ```

@@ -1,6 +1,6 @@
 // 队列面板「拖拽排序」的纯逻辑（几何 + 序列）。
 //
-// 单独成文件只有一个理由：**零依赖**，scripts/verify-queue-drag.mjs 可以直接
+// 单独成文件只有一个理由：**零依赖**，scripts/verify-queue-drag.ts 可以直接
 // `await import("../src/lib/reorder.ts")` 跑真断言（Node ≥22.18 默认类型剥离），
 // 不用为了测这段算术去起浏览器。位置信息只吃「顶边 + 高」两个数，调用方从
 // getBoundingClientRect() 取来即可 —— 这里一行 DOM 都不碰。

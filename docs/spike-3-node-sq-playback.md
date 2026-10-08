@@ -37,7 +37,7 @@ submodule，体积和维护面偏重。想验证：换回 Node 版 API（npm 包
 - 复现脚本：`~/qq-node-spike/boot-with-python-credential.js`（PORT=3201 避开现有 sidecar）。
 
 > 更新（2026-09-20）：**seed 的来源没有了** —— Python 侧已不落明文 `credential.json`（凭证改为
-> Electron 主进程用系统密钥管理器加密保存，见 `ui/electron/keyring.mjs`）。要重跑这个 spike，
+> Electron 主进程用系统密钥管理器加密保存，见 `ui/electron/keyring.ts`）。要重跑这个 spike，
 > 得改成从主进程拿凭证：要么走 `QCRED1` 交接管道（由主进程 spawn 时注入），
 > 要么在 Electron 里 `safeStorage.decryptString(credential.enc)` 后按下面的 camelCase 形状种进仓库。
 

@@ -40,10 +40,10 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
         └── SearchBox.ts    # 顶带常驻搜索框（联想 + 搜索历史）
 ```
 
-`electron/`（桌面壳，不属于 vite 构建）：`main.mjs` 主进程（窗口/托盘/MPRIS daemon 拉起/音频引擎接线/配置 IPC）、
-`config.mjs` 配置文件引擎（跨平台目录、INI 保注释读写、schema 与原子落盘）、
-`preload.cjs` 桥（窗口控制 + MPRIS + `quaverAudio` + `quaverConfig`）、`native-server.mjs` 打包态静态+/api 服务、
-`audio/` 原生音频引擎（`bins.mjs` 二进制解析、`mpv-ipc.mjs` libmpv JSON IPC、`engine.mjs` 状态机与 IPC 命令面）。
+`electron/`（桌面壳，不属于 vite 构建）：`main.ts` 主进程（窗口/托盘/MPRIS daemon 拉起/音频引擎接线/配置 IPC）、
+`config.ts` 配置文件引擎（跨平台目录、INI 保注释读写、schema 与原子落盘）、
+`preload.cts` 桥（窗口控制 + MPRIS + `quaverAudio` + `quaverConfig`）、`native-server.ts` 打包态静态+/api 服务、
+`audio/` 原生音频引擎（`bins.ts` 二进制解析、`mpv-ipc.ts` libmpv JSON IPC、`engine.ts` 状态机与 IPC 命令面）。
 
 ## 配置持久化（quaver.conf）
 
@@ -67,7 +67,7 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
 [Security]  CredentialStore / KeyringBackend
 ```
 
-- 键名与可选值以 `electron/config.mjs` 的 `SCHEMA` 为唯一真相；改新项要同时改
+- 键名与可选值以 `electron/config.ts` 的 `SCHEMA` 为唯一真相；改新项要同时改
   `src/lib/config.ts` 的 `FALLBACK` 与 `src/lib/prefs.ts` 的类型化 getter/setter（三处）。
 - **保注释**：程序只改写对应键的那一行，注释、顺序、你自己加的键都原样保留；行内 `# 注释` 也认。
 - 字体两项存的就是 **CSS font-family 列表**（如 `Source Han Sans, "Microsoft YaHei", sans-serif`）。
@@ -77,8 +77,8 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
 - 读盘时机：preload 用 `sendSync` 同步取一次（渲染层模块在 ESM import 阶段就实例化，
   异步装载会让启动期全落在默认值上）；之后每次改动整键写回。音量这类拖拽高频项合并 250ms 落盘。
 - 浏览器直接开 dev server 时没有桥，自动回落 localStorage（键 `quaver.conf.v1`），同一套页面脚本两处都能跑。
-- 打包态页面跑在**固定端口**（`main.mjs:STABLE_PORT`）：origin 稳定，Chromium 的 localStorage/IndexedDB/Cache
-  才能跨启动延续；端口被占时 `native-server.mjs` 自动回落系统分配端口（设置本就在 conf 里，不受影响）。
+- 打包态页面跑在**固定端口**（`main.ts:STABLE_PORT`）：origin 稳定，Chromium 的 localStorage/IndexedDB/Cache
+  才能跨启动延续；端口被占时 `native-server.ts` 自动回落系统分配端口（设置本就在 conf 里，不受影响）。
 
 自检：`pnpm run verify:config`（INI 引擎 + 渲染层映射，纯 Node，不用起浏览器）。
 
@@ -86,7 +86,7 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
 
 **凭证明文一个字节都不落盘。** 磁盘上只有密文 `credential.enc`，解密的钥匙在 KWallet /
 GNOME Keyring（Linux）、钥匙串（macOS）、凭据管理器 / DPAPI（Windows）里 —— 换机器、换用户、
-重装系统都解不开，也不会被「顺手打包一下家目录」带走。实现见 `electron/keyring.mjs`。
+重装系统都解不开，也不会被「顺手打包一下家目录」带走。实现见 `electron/keyring.ts`。
 
 - **归属翻转**：凭证的真相从 sidecar 挪到 Electron 主进程。主进程先把已存凭证塞进
   sidecar 的 stdin（`QCRED1 {json}` 一行），sidecar 之后每次登录/刷新/登出再从 stdout 交回来；
@@ -151,13 +151,13 @@ GNOME Keyring（Linux）、钥匙串（macOS）、凭据管理器 / DPAPI（Wind
 
 ```sh
 cd ui && ./scripts/stage-mpv.sh            # 默认按 uname -m；产物在 build-res/audio/mpv
-node electron/audio/bins.mjs --check build-res/audio   # 自检（验的就是生产解析路径）
+node electron/audio/bins.ts --check build-res/audio   # 自检（验的就是生产解析路径）
 ```
 
 `build-res/audio` 在仓库里只留一个 `.gitkeep`（`extraResources` 的 `from` 路径不存在会让 electron-builder 直接失败）；
 没暂存也能正常构建，运行期回落系统 mpv —— 随包是优化不是前提。
 
-运行期的三条硬约束（改之前先看 `electron/audio/bins.mjs` 头部注释）：
+运行期的三条硬约束（改之前先看 `electron/audio/bins.ts` 头部注释）：
 
 - 载荷是 `mpv/shared/bin/mpv`，**不能裸跑**（缺包内 so）；
 - 必须用**包内自带 loader + `lib/lib.path`** 声明的库路径启动，**绝不能改用宿主 `LD_LIBRARY_PATH`**
@@ -165,8 +165,8 @@ node electron/audio/bins.mjs --check build-res/audio   # 自检（验的就是�
 - 不要走它的 `AppRun`：sharun 启动器会跑包内钩子（自更新下载 appimageupdatetool、弹「要不要装 yt-dlp」），
   对 spawn 出来的子进程是灾难。loader 直启载荷 = 同一套运行时、零钩子。
 
-CI 两道断言：暂存后 `bins.mjs --check build-res/audio`；AppImage 产出后再解包，
-`bins.mjs --check squashfs-root/resources/audio` —— 跨架构/缺库不会报错、只会跑不起来（exec 126），
+CI 两道断言：暂存后 `bins.ts --check build-res/audio`；AppImage 产出后再解包，
+`bins.ts --check squashfs-root/resources/audio` —— 跨架构/缺库不会报错、只会跑不起来（exec 126），
 且 AppImage 只读挂载没法运行时 chmod 补救，必须在 CI 就验过。
 
 ## 约定
@@ -199,7 +199,7 @@ CI 两道断言：暂存后 `bins.mjs --check build-res/audio`；AppImage 产出
   过滤/排序只作用在 `all.slice()/filter()` 的副本上（就地 sort 会把「加入时间」永久弄丢）。
   中文用 `Intl.Collator("zh-Hans-CN")` 按拼音排。双击播的是**当前可见的那一列**（跟着眼睛走）；
   删除一行时两页都会把它从原序里摘掉（否则重排/筛选会把它放回来）。
-  选中态是「软洗底 + accent 系前景 + accent 描边」，已在 `verify-highlight-contrast.mjs` 里登记
+  选中态是「软洗底 + accent 系前景 + accent 描边」，已在 `verify-highlight-contrast.ts` 里登记
   （新加 accent 掺色的高亮态都得跑它）。
 - **插队播放 = 排队，不是切歌**（`player.enqueueNext`）：把歌插到**当前曲之后**，当前曲继续放，
   下一首轮到它 —— 不打断、不跳转；只有队列还空着（没播过）时才直接起播。右键菜单「插队播放」就是这个语义。
@@ -245,7 +245,7 @@ CI 两道断言：暂存后 `bins.mjs --check build-res/audio`；AppImage 产出
   再 `rounds=4` 去重补齐到 ~30 首后重画；第二批失败不算失败（保住首批）。**「换一批」走同一条 `load()`**：
   上游池子很大（实测 6 轮 30 首零重复），两批基本撞不上，不必排除上一批（上游也不吃排除参数）；
   取新批次**先攒在临时数组里、成了才整体换上** —— 换批失败时手上这批还在，不会一片空白。
-  按钮 `.guess-bar`（页头下方右对齐，`.ghost-btn--quiet`），取歌中禁用并改文案。断言见 `verify-guess.mjs`。
+  按钮 `.guess-bar`（页头下方右对齐，`.ghost-btn--quiet`），取歌中禁用并改文案。断言见 `verify-guess.ts`。
 - **登录页**：扫码通道用标签（`.tag-tabs` / `.tag`，与搜索页分类、歌手页标签同一组件）而不是下拉 ——
   三档一眼看全，也与全站标签语言一致。`data-ch` 的取值必须落在 sidecar 的 `QR_TYPES`（qq/wx/mobile）里，
   写错是 422 而不是静默失败（脚本交叉核对）。选中态**不复用** `.tag.sel` 的「白字 + 裸 accent 实心」：
@@ -255,7 +255,7 @@ CI 两道断言：暂存后 `bins.mjs --check build-res/audio`；AppImage 产出
   类变更」合并成一次样式重算，`transition` 压根不启动，表现就是**「第一次没有动画，第二次正常」**
   （第二次不再换父节点了）。队列面板因此把「形态（dock/float，只看内容区宽度，**关闭时也定好**）」与
   「开合（`.open`）」解耦，并在构造后补一帧 `requestAnimationFrame(syncMount)`（壳层是构造完才把它
-  append 进 DOM 的）；万一仍然换了父节点，就把 `.open` 推到下一帧再补。断言见 `verify-queue-panel-anim.mjs`。
+  append 进 DOM 的）；万一仍然换了父节点，就把 `.open` 推到下一帧再补。断言见 `verify-queue-panel-anim.ts`。
 - **拖拽排序（队列面板）的两条硬约束**：行的「视觉位移」用 `transform`、排序靠换 DOM 位置，
   于是有两个反直觉的坑 —— ① 监听（pointermove/up/cancel）一律挂 `window`，**不挂把手**：换位要
   `insertBefore`，元素被摘出来再插回去的那一瞬间浏览器会丢掉 `setPointerCapture` 的捕获，捕获一丢
@@ -267,7 +267,7 @@ CI 两道断言：暂存后 `bins.mjs --check build-res/audio`；AppImage 产出
   （`.qp-item.dragging:active { transform: none }`）。换位时的「邻行被挤开」是 FLIP：换位前量一次、
   换位后再量一次，用 WAAPI 从旧位置滑到新位置（量的是当前视觉位置，所以连续换位能平滑接上）；
   松手后列表已重建，再把落在最终槽位的新行从松手位置滑回去（`settle`）。纯逻辑（落点槽位、
-  贴边滚动速度）抽在 `lib/reorder.ts`，断言与单测见 `verify-queue-drag.mjs`。
+  贴边滚动速度）抽在 `lib/reorder.ts`，断言与单测见 `verify-queue-drag.ts`。
   另：拖拽期间**不许重建列表**（4Hz 的 notify 随时可能踩进来，整表重画会把正在拖的行连监听一起换掉），
   用 `dragRow` 闸门推迟到松手；若期间队列真的变过（`pendingRebuild`），DOM 下标已不对应 —— 本次排序作废。
 - **程序化滚动只许动自己的滚动容器**：`scrollIntoView()` 会把**所有**可滚祖先的 scrollport 一起滚，

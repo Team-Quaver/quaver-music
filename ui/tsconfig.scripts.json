@@ -1,0 +1,14 @@
+{
+  // Quaver — `scripts/**`（校验 / 探测脚本）的 TS 工程：在 tsconfig.node.json 之上**只放宽
+  // noImplicitAny**。
+  //
+  // 为什么单独一份：这些脚本是开发期断言工具，不是随包代码。大量回调（`page.evaluate`、
+  // `Array#map` 里的临时 lambda）本来就靠推断，逐个标参数类型只增噪声、换不到安全性；
+  // 而 `electron/**`（真正的运行时核心）走 tsconfig.node.json 的**完整 strict**。
+  // 除 noImplicitAny 外的 strict 检查（strictNullChecks / 类字段 / 索引签名…）在两边都开着。
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "noImplicitAny": false
+  },
+  "include": ["scripts/**/*.ts"]
+}

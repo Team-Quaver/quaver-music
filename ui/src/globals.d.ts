@@ -1,8 +1,8 @@
 // 由 vite.config.ts 的 define 注入（git tag 优先，回退 package.json version）
 declare const __APP_VERSION__: string;
 
-// 应用自更新桥（electron/preload.cjs 暴露；浏览器 dev 下不存在）。
-// 执行端在 ui/electron/update.mjs，编排见 src/lib/updater.ts。
+// 应用自更新桥（electron/preload.cts 暴露；浏览器 dev 下不存在）。
+// 执行端在 ui/electron/update.ts，编排见 src/lib/updater.ts。
 type UpdateInvokeMsg =
   | { op: "platform" }
   | { op: "fetch-release"; channel: "stable" | "nightly" }
@@ -23,7 +23,7 @@ interface UpdateProgressPayload {
   total: number;
 }
 
-// Sparkle 第三方插件桥（electron/preload.cjs 暴露；浏览器 dev 下不存在）。
+// Sparkle 第三方插件桥（electron/preload.cts 暴露；浏览器 dev 下不存在）。
 // 本文件是 ambient 声明文件（无 import/export），Window 直接全局合并。
 interface Window {
   quaverUpdate?: {
