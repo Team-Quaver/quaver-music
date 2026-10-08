@@ -9,7 +9,8 @@ import { app, ipcMain } from "electron";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { resolveMpv } from "./bins.mjs";
+import { probeRuntime, resolveMpv } from "./bins.mjs";
+import { formatOsVersion, machOMinOs, osVersionGt, parseOsVersion } from "./macho.mjs";
 import { MpvIpc } from "./mpv-ipc.mjs";
 
 const POS_BROADCAST_MS = 250; // 位置广播节流：4Hz 足够渲染层外推出平滑进度/歌词
@@ -37,6 +38,8 @@ export class AudioEngine {
     this.starting = null;              // 拉起中的 promise（并发去重）
     this.watchdog = null;              // mpv 看门狗子进程（父进程死亡时由它送 mpv 陪葬）
     this.bin = undefined;              // undefined = 未探测；null = 找不到；{path,source} = 命中
+    this.bundledProbe = undefined;     // 随包运行时自检结果（详见 resolveRuntime）
+    this.binNote = "";                 // 随包运行时不可用的原因（人话，进日志与 status.reason）
     /** @type {EngineState} */
     this.st = { pos: 0, dur: 0, paused: true, buffering: false, idle: true, volume: 0.8, muted: false };
     this.device = "auto";              // 音频设备（renderer 持久化，引擎记住以便 respawn 后复用）
@@ -140,6 +143,31 @@ export class AudioEngine {
     return this.bin;
   }
 
+  /** 解析运行时（带一次随包自检）。
+   *  为什么要真跑一遍：随包 mpv「文件在、能 exec」不等于「跑得起来」。最典型的是 macOS ——
+   *  上游按构建机系统版本出 macos-14/15/26 几档，最低系统版本（Mach-O 的 minos）写死在里面，
+   *  装高了在本机系统上被 dyld 直接拒（SIGABRT）；CI 恰好在够新的系统上，永远验不出来。
+   *  不认这一步的话，用户看到的只是「点了播放没反应」，日志里也只有一句 exited early。
+   *  认出来之后回落宿主 mpv：有就顶用（先能听歌），没有也把原因写进日志与 status.reason。 */
+  async resolveRuntime() {
+    const found = this.findBin();
+    if (!found || found.source !== "bundled") return found;
+    if (this.bundledProbe === undefined) this.bundledProbe = probeRuntime(found, 10000);
+    const probe = await this.bundledProbe;
+    if (probe.ok) return found;
+    // 门槛型的失败给一句能直接照做的诊断：读到载荷声明的 macOS 门槛 + 本机系统版本
+    const min = process.platform === "darwin" ? machOMinOs(found.payload) : null;
+    const running = process.platform === "darwin" ? parseOsVersion(process.getSystemVersion?.() ?? "") : null;
+    const why = osVersionGt(min, running)
+      ? `它要求 macOS ${formatOsVersion(min)}，本机是 ${formatOsVersion(running)}`
+      : `exit=${probe.status}${probe.signal ? `, signal=${probe.signal}` : ""}`;
+    this.binNote = `随包 mpv 起不来（${why}）`;
+    this.log(`[audio] ${this.binNote}；原始输出：`, probe.output.slice(0, 400));
+    this.log("[audio] 回落宿主 mpv（QUAVER_MPV 可显式指定一份能跑的）");
+    this.bin = resolveMpv({ bundledRoot: null }); // null = 跳过随包那层，走 env / PATH
+    return this.bin;
+  }
+
   /** 给 mpv 配看门狗：spawn 一个 ELECTRON_RUN_AS_NODE 的小进程，stdin 管道写端握在
    *  本进程手里 —— 父进程无论以何种方式死亡（正常退出/崩溃/SIGKILL/注销），管道断 →
    *  看门狗 SIGKILL mpv。兜 will-quit 跑不到的场景（注销时 mpv 成孤儿继续放歌）。 */
@@ -173,8 +201,11 @@ export class AudioEngine {
   async ensureStarted() {
     if (this.mpv && !this.mpv.dead) return this.mpv;
     if (this.starting) return this.starting;
-    const found = this.findBin();
-    if (!found) throw new Error("未找到 mpv 可执行文件（可用 QUAVER_MPV 指定路径）");
+    const found = await this.resolveRuntime();
+    if (!found) {
+      throw new Error("未找到 mpv 可执行文件（可用 QUAVER_MPV 指定路径）"
+        + (this.binNote ? `；${this.binNote}` : ""));
+    }
     this.starting = (async () => {
       // 排障口子：QUAVER_MPV_ARGS 追加 mpv 参数（空白分隔，如 "--ao=null"；测试/无声环境用）
       const extraArgs = (process.env.QUAVER_MPV_ARGS ?? "").split(/\s+/).filter(Boolean);
@@ -300,12 +331,13 @@ export class AudioEngine {
   async onInvoke(cmd) {
     switch (cmd?.cmd) {
       case "status": {
-        const found = this.findBin();
+        const found = await this.resolveRuntime();
         const running = this.mpv && !this.mpv.dead;
         return {
           ok: true, backend: "mpv",
           available: !!found,
-          reason: found ? "" : "未找到 mpv（安装 mpv、设置 QUAVER_MPV，或用随包运行时）",
+          // binNote 优先：随包起不来（已回落宿主 mpv）这件事必须让渲染层/日志看得见
+          reason: this.binNote || (found ? "" : "未找到 mpv（安装 mpv、设置 QUAVER_MPV，或用随包运行时）"),
           source: found?.source ?? "",          // env | bundled | path
           payload: found?.payload ?? "",
           version: running ? this.mpv.mpvVersion : "",

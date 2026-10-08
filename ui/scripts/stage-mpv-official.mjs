@@ -13,7 +13,7 @@
 // 用法：
 //   node scripts/stage-mpv-official.mjs [win32|darwin] [x64|arm64] [目标目录]
 //   平台/架构缺省按本机归一化；目标目录默认 ui/build-res/audio，产物落 <目录>/mpv/
-// 校验：脚本做 sha256 + 机器码校验；装完用生产解析路径真跑一次：
+// 校验：脚本做 sha256 + PE 机器码 +（macOS）Mach-O 最低系统版本校验；装完用生产解析路径真跑一次：
 //   cd ui && node electron/audio/bins.mjs --check build-res/audio
 import { createHash } from "node:crypto";
 import { cpSync, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
@@ -21,15 +21,15 @@ import { pipeline } from "node:stream/promises";
 import { join } from "node:path";
 import { platform as hostPlatform, arch as hostArch } from "node:process";
 import { spawnSync } from "node:child_process";
+import { formatOsVersion, machOMinOs, osVersionGt } from "../electron/audio/macho.mjs";
+import { ASSETS, MACOS_FLOOR } from "./mpv-assets.mjs";
 
-// —— 钉版本：升级时同时改 MPV_VERSION 与三个 sha256（GitHub API 的 asset digest 即 sha256）——
-const MPV_VERSION = "0.41.0";
-const BASE = `https://github.com/mpv-player/mpv/releases/download/v${MPV_VERSION}`;
-const ASSETS = {
-  "win32/x64":   { url: `${BASE}/mpv-v${MPV_VERSION}-x86_64-w64-mingw32.zip`,      sha256: "a49811c0752c108b8260636f9c6f6fcb97406641c98b30f1e7b500dfb20177de" },
-  "win32/arm64": { url: `${BASE}/mpv-v${MPV_VERSION}-aarch64-pc-windows-msvc.zip`, sha256: "a822abeffd0ac88951f4084f3425f949842aa17d616f880637ebe9041e482e97" },
-  "darwin/arm64": { url: `${BASE}/mpv-v${MPV_VERSION}-macos-15-arm.zip`,           sha256: "489cf6a54f57c54f86ad8d7cedaf5bb26848770d58dc059021214e2f689ee799" },
-};
+// 版本钉与资产表在 mpv-assets.mjs（纯数据，好让 verify-mpv 断言「mac 那份必须是最低档」）；
+// macOS 那份取 macos-14：上游按构建机的系统版本出 14 / 15 / 26 三档，Mach-O 的 minos 就是那个
+// 版本号 —— 塞 macos-15 那份给 macOS 14 的用户 = 一启动就被 dyld 拒（v0.41 实测 SIGABRT +
+// 「built for macOS 15.0 which is newer than running OS」）。跟 Windows 不同，这里没法靠「跑一次」
+// 发现 —— CI runner 是 macOS 15，跑得动，只有老系统的用户才炸 → 由 assertMacOSFloor 静态卡住。
+
 // mingw x64 与 msvc arm64：mingw 自带全套运行时 DLL（自包含），arm64 只有 msvc 构建
 // （静态链接）。mpv.pdb 是调试符号（>200MB），一律剥掉。
 
@@ -107,6 +107,22 @@ function checkPE(exe, want) { // want: 0x8664 | 0xaa64
   if (machine !== want) die(`${exe} 机器码 0x${machine.toString(16)} ≠ 0x${want.toString(16)}`);
 }
 
+/** macOS 载荷的最低系统版本核对。
+ *  上游按构建机系统版本发 macos-14 / 15 / 26 几份，Mach-O 里写死的 minos 就跟着抬 —— 装高了
+ *  在低版本系统上 dyld 直接 abort（SIGABRT，「built for macOS x.y which is newer than running OS」），
+ *  而 CI runner 恰好在够新的系统上，跑得动、验不出。所以门槛必须静态读出来卡在构建期。
+ *  顺带把实际门槛打进日志：将来升级 mpv 时，要能一眼看出地板有没有被抬高。 */
+function assertMacOSFloor(payload) {
+  const min = machOMinOs(payload);
+  if (!min) die(`${payload} 读不到 Mach-O 最低系统版本（布局变了？）`);
+  console.log(`→ 载荷最低系统版本：macOS ${formatOsVersion(min)}`);
+  if (osVersionGt(min, MACOS_FLOOR)) {
+    die(`随包 mpv 要求 macOS ${formatOsVersion(min)}，高于本项目地板 macOS ${formatOsVersion(MACOS_FLOOR)}`
+      + `\n  上游换更高版本的构建了？把 ASSETS 里 darwin/arm64 指向编号最低的那份资产，`
+      + `否则低版本 macOS 的用户一播放就 SIGABRT。`);
+  }
+}
+
 const USAGE = "用法: node scripts/stage-mpv-official.mjs [win32|darwin] [x64|arm64] [目标目录]";
 
 const plat = process.argv[2] ?? hostPlatform;
@@ -144,6 +160,7 @@ try {
     rmSync(dest, { recursive: true, force: true });
     mkdirSync(dest, { recursive: true });
     cpSync(app, join(dest, "mpv.app"), { recursive: true });
+    assertMacOSFloor(join(dest, "mpv.app", "Contents", "MacOS", "mpv"));
     console.log(`✓ 落盘 ${dest}（mpv.app）`);
   }
   console.log(`✓ 完成。验证：cd ui && node electron/audio/bins.mjs --check ${destRoot}`);
