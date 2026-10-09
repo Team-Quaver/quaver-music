@@ -120,7 +120,7 @@ interface AlbumBrief {
 interface AlbumDetailResp { album?: AlbumBrief; singers?: { name?: string }[] }
 interface AlbumSongsResp { song_list?: Song[]; total_num?: number }
 
-/** 专辑歌曲接口已经按专辑曲序返回；页面只复制数组，不按歌名/歌手等字段重排。 */
+/** 后端已按上游 index_album 归一化为专辑曲序；页面只复制数组，不按歌名/歌手等字段重排。 */
 function albumSongsInSourceOrder(list: AlbumSongsResp | null): Song[] {
   return list?.song_list ? [...list.song_list] : [];
 }
