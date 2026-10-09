@@ -7,7 +7,8 @@
 //   2. download：流式下载安装包 + 进度推送。AppImage 替换更新必须与本体同目录同文件系统
 //      （rename 原子替换跨不了挂载点），落盘位置由 mode 决定；
 //   3. 安装收尾：AppImage 原位替换（**文件名保持旧文件原名** —— 桌面项/Gear Lever/AppManager
-//      的 Exec 都指向旧路径，改名即断链）、Windows NSIS 静默安装、mac dmg / deb 交给系统打开；
+//      的 Exec 都指向旧路径，改名即断链）、Windows NSIS 静默安装（装完自动拉起新版）、
+//      mac dmg / deb 交给系统打开；
 //   4. 管理器联动：检测 AppImage 是否被 Gear Lever / AppManager 接管，可用时把更新交给它们。
 import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { spawn, execFile } from "node:child_process";
@@ -227,12 +228,16 @@ export function setupUpdaterIPC({ log }) {
         return { ok: true };
       }
 
-      // Windows：NSIS 静默安装（electron-builder oneClick 包认 /S；装完由安装器自行拉起新版）
+      // Windows：NSIS 静默安装（electron-builder oneClick 包认 /S）。
+      // 关键：oneClick 安装器默认只在**非静默**时 runAfterFinish（installSection.nsh：
+      // `${ifNot} ${Silent} ${orIf} ${isForceRun}` → StartApp）。更新走 /S 静默，不加 --force-run
+      // 就等于装完什么都不启动 —— 应用自己退出后再没人拉起新版。--force-run 让静默安装同样
+      // 拉起 quaver（更新时安装器会带 --updated 参数），首装与更新都落在这一条指令上。
       if (op === "install-windows") {
         const path = String(msg?.path ?? "");
         if (!/\.exe$/i.test(path)) return { ok: false, error: "不是安装程序" };
-        spawn(path, ["/S"], { detached: true, stdio: "ignore" }).unref();
-        log(`[quaver] update: NSIS installer launched (silent)`);
+        spawn(path, ["/S", "--force-run"], { detached: true, stdio: "ignore" }).unref();
+        log(`[quaver] update: NSIS installer launched (silent, force-run)`);
         return { ok: true };
       }
 
@@ -273,8 +278,19 @@ export function setupUpdaterIPC({ log }) {
         return { ok: true };
       }
 
+      // 重启。AppImage 原位替换后**不能**直接 app.relaunch()：默认重启的是 process.execPath，
+      // 而 AppImage 里它指向只读挂载点（/tmp/.mount_*/quaver）——旧镜像随宿主退出即卸载，重启
+      // 要么重跑旧构建、要么因挂载点消失压根起不来（这正是「替换更新看着没生效」的根因）。
+      // 把 execPath 指到 $APPIMAGE 本体，让运行时重新挂载刚替换好的新镜像（AppManager 那条
+      // 路之所以正常，就是它自己改写的是磁盘上的 AppImage 文件）。其余平台沿用默认。
       if (op === "relaunch") {
-        app.relaunch();
+        const appimage = process.env.APPIMAGE;
+        if (process.platform === "linux" && appimage) {
+          app.relaunch({ execPath: appimage });
+          log(`[quaver] update: relaunch via AppImage ${appimage}`);
+        } else {
+          app.relaunch();
+        }
         app.exit(0);
         return { ok: true };
       }

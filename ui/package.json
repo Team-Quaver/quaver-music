@@ -119,6 +119,10 @@
       ],
       "icon": "build-res/icon.png"
     },
+    "nsis": {
+      "oneClick": true,
+      "runAfterFinish": true
+    },
     "mac": {
       "target": [
         "dmg"

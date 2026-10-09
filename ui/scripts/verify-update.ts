@@ -317,6 +317,18 @@ section("渠道切换接线");
     re(settings, /getPlatformInfo\(\)\.then\(\(pf\) => \{[\s\S]{0,200}buildVer = pf\.version/));
 }
 
+// ——— 接线（源码级）：安装收尾的两条平台特性，别在重构里被悄悄抹掉 ———
+section("安装收尾接线");
+{
+  const up = noComments(readSrc("electron/update.ts"));
+  // oneClick NSIS 默认只在非静默时 runAfterFinish；更新走 /S 静默 → 少了 --force-run 就装完不启动
+  check("Windows: 静默安装器带 --force-run（否则静默装完没人拉起 quaver）",
+    re(up, /spawn\(path, \["\/S", "--force-run"\]/));
+  // AppImage 原位替换后 app.relaunch() 默认重启的是只读挂载点里的旧构建 → 必须指到 $APPIMAGE 本体
+  check("Linux: AppImage 重启把 execPath 指到 $APPIMAGE 本体",
+    re(up, /app\.relaunch\(\{ execPath: appimage \}\)/) && has(up, "process.env.APPIMAGE"));
+}
+
 console.log(failed ? `\n${failed} 项断言失败` : "\n全部通过");
 process.exit(failed ? 1 : 0);
 
