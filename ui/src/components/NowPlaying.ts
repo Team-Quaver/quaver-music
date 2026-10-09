@@ -29,7 +29,7 @@ import { icons } from "../lib/icons";
 import { getLyricScale, setLyricScale, LYRIC_SCALE_MAX, LYRIC_SCALE_MIN, LYRIC_SCALE_STEP } from "../lib/prefs";
 import { isFullscreen, setFullscreen, onFullscreenChange } from "../lib/fullscreen";
 import type { SparkleKaraokeProvider } from "@quaver/sparkle";
-import { sparkleKaraokeProvider, onSparkleChange, sparkleNpMenuItems } from "../sparkle/registry";
+import { sparkleKaraokeProvider, onSparkleChange } from "../sparkle/registry";
 import { syncNpView } from "../sparkle/np-view";
 export function NowPlaying(): HTMLElement {
   const el = document.createElement("div");
@@ -201,15 +201,6 @@ export function NowPlaying(): HTMLElement {
       size.querySelector<HTMLButtonElement>(".np-size-inc")!.onclick = () => zoomLyric(1);
       moreMenu.append(size);
       syncSizeRow(); // 先入树再同步：禁用态要在行上生效（syncSizeRow 查的是 moreMenu 内的行）
-    }
-    // Sparkle 插件追加项（⋮ 是扁平列表：label / disabled / run / danger / note 生效，
-    // sub 与缩略图在这个面上不渲染 —— 契约见 SDK 的 SparkleNpMenuCtx）。
-    // ctx 每次打开现算，带的是当时那首曲的只读快照（没在播时是 null）。
-    for (const it of sparkleNpMenuItems({ song: s ?? null })) {
-      const b = menuRow(it.label, it.disabled === true, it.run);
-      if (it.note) b.title = it.note;
-      if (it.danger) b.classList.add("danger");
-      moreMenu.append(b);
     }
     moreMenu.classList.add("open");
     moreBtn.setAttribute("aria-expanded", "true");

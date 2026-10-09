@@ -13,8 +13,7 @@ import {
 } from "./style-layer";
 import {
   sparkRecordDrop, sparkRecordInit, sparkRecordOf,
-  sparkRegisterKaraokeProvider, sparkRegisterNav, sparkRegisterNpMenuItem, sparkRegisterNpView, sparkRegisterNpWidget,
-  sparkRegisterPlaylistMenuItem,
+  sparkRegisterKaraokeProvider, sparkRegisterNav, sparkRegisterNpView, sparkRegisterNpWidget,
   sparkRegisterSettingsSection, sparkRegisterSongMenuItem, sparkRegisterSonglistGroup,
   sparkRegisterStreamSource, sparkRegisterTheme, sparkRegisterThemePack, sparkRegisterView,
   sparklePluginRoutes, sparkleThemes,
@@ -100,7 +99,7 @@ function makeContext(pluginId: string): SparkleContext {
     error: (...a: unknown[]) => console.error(`[sparkle:${pluginId}]`, ...a),
   };
   const pfx = `sparkle.${pluginId}.`;
-  const context = {
+  return {
     pluginId,
     registerView: (path, view) => sparkRegisterView(pluginId, path, view),
     registerNav: (item) => {
@@ -149,8 +148,6 @@ function makeContext(pluginId: string): SparkleContext {
     // 整页接管：不立即挂载 —— 由 np-view.ts 在正在播放页的 notify 里按 enabled() 决定
     registerNowPlayingView: (view) => sparkRegisterNpView(pluginId, view),
     registerSongMenuItem: (item) => sparkRegisterSongMenuItem(pluginId, item),
-    registerPlaylistMenuItem: (item) => sparkRegisterPlaylistMenuItem(pluginId, item),
-    registerNowPlayingMenuItem: (item) => sparkRegisterNpMenuItem(pluginId, item),
     registerStreamSource: (source) => sparkRegisterStreamSource(pluginId, source),
     registerKaraokeProvider: (provider) => sparkRegisterKaraokeProvider(pluginId, provider),
     storage: {
@@ -179,9 +176,6 @@ function makeContext(pluginId: string): SparkleContext {
       onChange: (cb) => onStyleChange(cb),
     },
   };
-  // 新版 SDK 的 SparkleContext 增加了两个菜单注册方法；用参数类型从注册函数推导，
-  // 这样宿主源码也能在旧版子模块检出下编译，运行时仍完整提供新版方法。
-  return context as SparkleContext;
 }
 
 // —— 生命周期 ——

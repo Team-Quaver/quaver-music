@@ -12,7 +12,6 @@ import { api } from "../lib/api";
 import { player, type Song } from "../player";
 import { deleteSonglist } from "../lib/playlists";
 import { toggleFavSonglist } from "../lib/favs";
-import { sparklePlaylistMenuItems } from "../sparkle/registry";
 import { openMenuAt, toast, type MenuItem } from "./SongMenu";
 
 /** 侧栏歌单条目最小契约（自建列表是上游原样对象，收藏列表是 FavPlaylist） */
@@ -94,14 +93,11 @@ export function openVirtualPlaylistMenu(
   title: string,
   fetchSongs: () => Promise<Song[]>,
   anchor?: HTMLElement,
-  id = "virtual",
 ) {
-  const items: MenuItem[] = [
+  openMenuAt(x, y, [
     { label: "立即播放", note: "替换当前队列", run: () => playSongsNow(title, fetchSongs) },
     { label: "插队播放", note: "排到当前曲之后", run: () => playSongsNext(title, fetchSongs) },
-  ];
-  items.push(...sparklePlaylistMenuItems({ id, title, kind: "virtual", songnum: 0 }));
-  openMenuAt(x, y, items, anchor);
+  ], anchor);
 }
 
 /** 在 (x, y) 打开歌单菜单（坐标一般是鼠标位置）。anchor = 右键的那个歌单条目 */
@@ -140,11 +136,5 @@ export function openPlaylistMenu(
       },
     });
   }
-  items.push(...sparklePlaylistMenuItems({
-    id: String(pl.id),
-    title: pl.title,
-    kind: opts.kind,
-    songnum: Number(pl.songnum) || 0,
-  }));
   openMenuAt(x, y, items, anchor);
 }
