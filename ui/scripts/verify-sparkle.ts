@@ -43,6 +43,9 @@ const src = {
   style: read("src/style.css"),
   npView: read("src/sparkle/np-view.ts"),
   styleLayer: read("src/sparkle/style-layer.ts"),
+  sparkleVersion: read("electron/sparkle-version.ts"),
+  md3Meta: read("../vendor/Sparkle/marketplace/md3/plugin.json"),
+  md3: read("../vendor/Sparkle/marketplace/md3/index.ts"),
   shuffle: read("src/lib/shuffle.ts"),
   flowMeta: read("../vendor/Sparkle/marketplace/flowscape/plugin.json"),
   flowIdx: read("../vendor/Sparkle/marketplace/flowscape/index.ts"),
@@ -61,6 +64,10 @@ function ok(name, cond, note = "") {
 ok("sdk: 导出 SparklePlugin 与 SparkleContext", has(src.types, "interface SparklePlugin") && has(src.types, "interface SparkleContext"));
 ok("sdk: 扩展点类型齐备", ["SparkleView", "SparkleNavItem", "SparkleSonglistGroup", "SparkleSettingsSection", "SparkleTheme", "SparkleNpWidget", "SparkleMenuItem", "SparkleStreamSource", "SparklePlayerFacade"].every((t) => has(src.types, t)));
 ok("sdk: definePlugin 存在", has(src.index, "definePlugin"));
+ok("sdk: 支持最低宿主版本与 Beta 开关", has(src.types, "minHostVersion?: string") && has(src.types, "allowBeta?: boolean"));
+ok("Lumen: 最低宿主版本为 1.4.0 且允许 Beta", has(src.md3Meta, '"minHostVersion": "1.4.0"') && has(src.md3Meta, '"allowBeta": true') && has(src.md3, 'minHostVersion: "1.4.0"') && has(src.md3, "allowBeta: true"));
+ok("版本比较：主进程安装前执行宿主版本门禁", has(src.mainMjs, "sparkleHostVersionError") && has(src.mainMjs, "minHostVersion"));
+ok("版本比较：Marketplace 构建透传最低宿主版本", has(src.mkBuild, "minHostVersion: meta.minHostVersion"));
 ok("sdk: die-for-you 走 registerSettingsSection", has(src.dfy, "registerSettingsSection") && has(src.dfy, "die-for-you"));
 ok("sdk: 作者指南存在且覆盖扩展点", has(src.guide, "registerStreamSource") && has(src.guide, "Marketplace") === false || true);
 ok("sdk: marketplace 文档固化索引格式", has(read("../vendor/Sparkle/docs/marketplace.md"), "download"));

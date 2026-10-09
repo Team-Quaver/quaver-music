@@ -23,11 +23,13 @@ Quaver Music，最早是为了解决 Linux 上 QQ 音乐官方客户端不好用
 
 # 功能特性
 
-- 🎉 百变：支持 Sparkle 插件，可用 Sparkle 插件支持
+- 🎉 百变：支持 Sparkle 插件，可用 Sparkle 插件更换主题，个性化自己的播放页，更换自己喜欢的后端播放源
 - 🖥 跨平台：支持 Windows（X86、ARM） / ARM macOS / Linux（X86、龙芯、ARM）
-- 📚 系统集成：支持 dBus MPRIS、Windows SMTC、macOS NowPlaying 与 Logind Inhibit、Windows 电源请求、macOS 电源断言
+- 📚 系统集成：支持 Dbus MPRIS、Windows SMTC、macOS NowPlaying 与 Logind Inhibit、Windows 电源请求、macOS 电源断言
 - 📔 丰富歌词：支持 QRC 和 LRC，逐字高亮和翻译
 - 🎨 自适应主题：基于封面背景 + Tint，支持深浅模式和跟随系统
+- 💪 持续维护：基于 Vibe Coding + 人力审核，为代码健康保驾护航（吗？）
+- 🆓 自由开源：基于 AGPLv3 协议
 
 # 截图
 
@@ -66,6 +68,8 @@ z：修补版本号
 | v1.2.0 | Ellen   | Phoebe         | Stable - FEP2*   |
 | v1.2.0 | Ellen   | Evanescia      | Stable - FEP3*   |
 | v1.4.0 | Ellen   | Aemeath        | Stable - FEP4*   |
+| v1.5.0 | Ellen   | Herta          | Stable - FEP5*   |
+| v1.6.0 | Ellen   | Denia          | Stable - FEP6*   |
 
 
 > PatchX：修复包版本 

@@ -1,0 +1,120 @@
+# Quaver — PR 模板校验
+#
+# 目的：把 pull_request_template.md 里「必填」的项真正强制起来。Markdown 模板本身没有
+# 校验能力，勾没勾全看自觉；这个 job 读 PR 正文（body），按照下面的规则判定，没过的直接
+# 让 check 红掉（把本 job 设成 required status check 即可硬拦合并）。
+#
+# 为什么用 pull_request_target 而不是 pull_request：
+#   给 PR 打/删 label 需要写权限，而 fork 来的 PR 在 pull_request 事件下拿到的 token 是只读的。
+#   pull_request_target 给的是 base 仓库的写权限 token。**安全前提**：本 job 绝不 checkout PR
+#   的代码、绝不执行 PR 里的任何东西 —— 正文只经 env 传进 shell（不做 ${{ }} 内联插值，避免
+#   脚本注入），全程只读 body + 调 gh 打 label。改动时务必守住这条线。
+name: PR Checks
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  template:
+    name: 模板检查
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate PR body
+        env:
+          # 经 env 传入，shell 里只当数据用；不要改成把 body 内联进 run 脚本。
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          # 复选框按标签里的关键词匹配（模板若改措辞，这里同步改）。
+          KEY_NO_DUP: "未重复"        # 确认无重复 PR —— 必须勾选
+          KEY_LLM_USED: "生成或辅助"   # 是否使用 LLM —— 该行必须存在（勾选则加标签）
+          KEY_LLM_REVIEW: "人工审查"   # 是否人工审查 LLM 代码 —— 必须勾选
+        run: |
+          set -euo pipefail
+
+          fail=0
+          note() { printf '::error::%s\n' "$1"; fail=1; }
+          ok()   { printf '::notice::%s\n' "$1"; }
+
+          # body 为空（有人把模板删光）直接判失败
+          if [ -z "${PR_BODY//[[:space:]]/}" ]; then
+            fail=1
+            printf '::error::PR 正文为空。请从 pull_request_template.md 生成正文后重新填写。\n'
+          fi
+
+          # 是否存在一个「已勾选」/「存在（勾没勾都算）」的复选框，按关键词匹配。
+          checked() { grep -qiE "^[[:space:]]*-[[:space:]]*\[[xX]\][[:space:]].*$1" <<< "$PR_BODY"; }
+          present() { grep -qiE "^[[:space:]]*-[[:space:]]*\[[ xX]\][[:space:]].*$1" <<< "$PR_BODY"; }
+
+          # ── 1) 目标版本（开发代号，单行必填）──
+          # 模板里的锚点是「开发代号：」，取该行冒号后的非空内容。
+          version=$(sed -n 's/.*开发代号[：:][[:space:]]*\(.*\)/\1/p' <<< "$PR_BODY" | head -n1 | xargs || true)
+          if [ -z "$version" ]; then
+            note "「目标版本」未填写：请在 PR 正文的「开发代号：」后填上开发代号（单行）。"
+          else
+            ok "目标版本：$version"
+          fi
+
+          # ── 2) 确认无重复 PR（必勾）──
+          if checked "$KEY_NO_DUP"; then
+            ok "已确认无重复 PR。"
+          else
+            note "「确认无重复 PR」未勾选：请搜索现有 PR 后勾上该项。"
+          fi
+
+          # ── 3) 是否使用 LLM（必答：该行必须存在）──
+          if present "$KEY_LLM_USED"; then
+            if checked "$KEY_LLM_USED"; then
+              ok "已声明：本次改动使用了 LLM 生成/辅助。"
+              LLM_USED=1
+            else
+              ok "已声明：本次改动未使用 LLM。"
+              LLM_USED=0
+            fi
+          else
+            note "「是否使用 LLM」未回答：请保留并勾选模板中的该项。"
+            LLM_USED=0
+          fi
+
+          # ── 4) 是否人工审查 LLM 代码（必勾）──
+          # 用过 LLM 的，人工审查是硬门槛；没用过的，也按「必填」要求勾上以确认无遗漏。
+          if checked "$KEY_LLM_REVIEW"; then
+            ok "已确认对 LLM 生成/辅助的代码做了人工审查。"
+          else
+            if [ "$LLM_USED" = "1" ]; then
+              note "本次声明使用了 LLM，但「人工审查 LLM 代码」未勾选：请审查后勾上。"
+            else
+              note "「是否人工审查 LLM 代码」未勾选：按必填要求请勾上该项。"
+            fi
+          fi
+
+          # ── label 反馈：失败贴 needs-info，通过则摘掉；用过 LLM 打 llm-assisted ──
+          gh label create needs-info   -R "$REPO" -c "D93F0B" -d "PR/Issue 信息不全，待补充" >/dev/null 2>&1 || true
+          gh label create llm-assisted -R "$REPO" -c "5319E7" -d "改动由 LLM 生成/辅助"     >/dev/null 2>&1 || true
+
+          if [ "$fail" = "1" ]; then
+            gh pr edit "$PR_NUMBER" -R "$REPO" --add-label needs-info >/dev/null 2>&1 || true
+            if [ "${LLM_USED:-0}" = "1" ]; then
+              gh pr edit "$PR_NUMBER" -R "$REPO" --add-label llm-assisted >/dev/null 2>&1 || true
+            else
+              gh pr edit "$PR_NUMBER" -R "$REPO" --remove-label llm-assisted >/dev/null 2>&1 || true
+            fi
+            echo "PR 模板检查未通过。"
+            exit 1
+          fi
+
+          gh pr edit "$PR_NUMBER" -R "$REPO" --remove-label needs-info >/dev/null 2>&1 || true
+          if [ "${LLM_USED:-0}" = "1" ]; then
+            gh pr edit "$PR_NUMBER" -R "$REPO" --add-label llm-assisted >/dev/null 2>&1 || true
+          fi
+          echo "PR 模板检查通过。"

@@ -7,6 +7,7 @@
 // 索引条目 category: "theme" | "plugin" | "extension"，缺省按 plugin；安装时把
 // category 写进 plugin.json，已装列表据此归入 主题/插件/扩展 三个标签。
 import { DEFAULT_MARKET_URL } from "@quaver/sparkle/market/default-index";
+import { getSparkleHostVersionError } from "../../electron/sparkle-version.ts";
 import { showPluginSettingsDialog } from "../components/PluginSettingsDialog";
 import { showLocalPluginDialog } from "../components/LocalPluginDialog";
 import { toast } from "../components/SongMenu";
@@ -24,7 +25,7 @@ import {
 
 interface MarketEntry {
   id: string; name: string; version: string; author?: string; description?: string;
-  category?: string; download: string; homepage?: string; hash?: string;
+  minHostVersion?: string; allowBeta?: boolean; category?: string; download: string; homepage?: string; hash?: string;
 }
 
 /** 索引条目分类；未知/缺省一律按 plugin（主题/扩展是显式声明才有的分类） */
@@ -411,6 +412,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
 
   const marketRow = (entry: MarketEntry, isInstalled: boolean) => {
     const cat = catOf(entry.category);
+    const hostVersionError = getSparkleHostVersionError(__APP_VERSION__, entry.minHostVersion, entry.allowBeta);
     const el = document.createElement("div");
     el.className = "sparkle-row";
     el.innerHTML = `
@@ -418,23 +420,31 @@ export function mountSparklePanel(section: HTMLElement): () => void {
       <div class="sparkle-main">
         <div class="sparkle-name">${esc(entry.name || entry.id)}<span class="ver">v${esc(entry.version)}${entry.author ? " · " + esc(entry.author) : ""}</span></div>
         ${entry.description ? `<div class="sparkle-desc">${esc(entry.description)}</div>` : ""}
+        ${hostVersionError ? `<div class="sparkle-desc">${esc(hostVersionError)}</div>` : ""}
       </div>
       <div class="sparkle-actions"></div>`;
     const actions = el.querySelector<HTMLElement>(".sparkle-actions")!;
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "ghost-btn ghost-btn--quiet sparkle-install";
-    btn.textContent = isInstalled ? "重新安装" : "安装";
+    btn.textContent = hostVersionError ? "版本不满足" : isInstalled ? "重新安装" : "安装";
+    if (hostVersionError) {
+      btn.disabled = true;
+      btn.title = hostVersionError;
+    }
     btn.onclick = async () => {
       const bridge = window.quaverSparkle;
-      if (!bridge) return;
+      if (!bridge || hostVersionError) {
+        if (hostVersionError) toast(hostVersionError, "err");
+        return;
+      }
       btn.disabled = true;
       btn.textContent = "下载中…";
       try {
         const res = await bridge.install({
           url: entry.download,
           sha256: entry.hash,
-          meta: { id: entry.id, name: entry.name, version: entry.version, author: entry.author, description: entry.description, category: cat },
+          meta: { id: entry.id, name: entry.name, version: entry.version, minHostVersion: entry.minHostVersion, allowBeta: entry.allowBeta, author: entry.author, description: entry.description, category: cat },
         });
         if (!res?.ok) toast(res?.error || "安装失败", "err");
         else toast(`已安装 ${entry.name || entry.id}（默认关闭，请在「${CAT_LABEL[cat]}」标签启用）`);
@@ -522,7 +532,12 @@ export function mountSparklePanel(section: HTMLElement): () => void {
           toast("插件形状不合法（default export 需为 SparklePlugin）", "err");
           return;
         }
-        meta = { id: plugin.id, name: plugin.name, version: plugin.version, author: plugin.author, description: plugin.description };
+        const hostVersionError = getSparkleHostVersionError(__APP_VERSION__, plugin.minHostVersion, plugin.allowBeta);
+        if (hostVersionError) {
+          toast(hostVersionError, "err");
+          return;
+        }
+        meta = { id: plugin.id, name: plugin.name, version: plugin.version, minHostVersion: plugin.minHostVersion, allowBeta: plugin.allowBeta, author: plugin.author, description: plugin.description };
       } catch (e) {
         toast("插件加载失败（不是合法的 ESM 单文件插件？）", "err");
         console.warn(e);

@@ -1,0 +1,86 @@
+# Quaver — 同步「问题反馈」表单里的版本号下拉
+#
+# 背景：.github/ISSUE_TEMPLATE/bug_report.yml 的版本号是一个下拉（dropdown），options 里
+# 列出所有可选的 Tag。GitHub Issue Form 不支持「动态拉 tag」，只能写死 —— 所以这里在每次
+# Release 发布时，用仓库当前的 v* tag 重建那段 options，并提交回默认分支。
+#
+# 触发：release: published。稳定 tag 在 build.yml 里是「先建草稿、人工 Publish」，beta tag
+# 直接 prerelease 上线 —— 两条路发布时都会发 published 事件，正好是「这个版本算数了」的时刻。
+# 另留 workflow_dispatch 手动兜底。
+#
+# 只改标记区间（# >>> auto-generated-options ... # <<< auto-generated-options），
+# 「其他（手动填写）」永远在区间外、排最后，脚本不碰。没变化就静默退出。
+name: Refresh issue versions
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-issue-versions
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: 重建版本下拉
+    runs-on: ubuntu-24.04
+    steps:
+      # 必须显式 checkout 默认分支：release 事件下 github.ref 指向 tag，直接 checkout 会
+      # 停在 tag 上，改动提交不回去。fetch-depth: 0 才会把全部 tag 拉下来。
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Rebuild dropdown from tags
+        env:
+          MAX_VERSIONS: "50"
+          TEMPLATE: .github/ISSUE_TEMPLATE/bug_report.yml
+        run: |
+          set -euo pipefail
+
+          BEGIN_RE='^[[:space:]]*# >>> auto-generated-options'
+          END_RE='^[[:space:]]*# <<< auto-generated-options'
+
+          # v* tag，按版本倒序（最新在前），只取前 MAX 个 —— 下拉太长没人看。
+          mapfile -t tags < <(git tag -l 'v*' | sort -Vr | head -n "$MAX_VERSIONS")
+          if [ "${#tags[@]}" -eq 0 ]; then
+            echo "没有 v* tag，跳过。" >&2
+            exit 0
+          fi
+
+          new_block=$(for t in "${tags[@]}"; do printf '        - %s\n' "$t"; done)
+
+          tmp=$(mktemp)
+          awk -v begin="$BEGIN_RE" -v end="$END_RE" -v block="$new_block" '
+            $0 ~ begin { print; print block; skip=1; next }
+            $0 ~ end   { skip=0 }
+            skip       { next }
+            { print }
+          ' "$TEMPLATE" > "$tmp"
+
+          if cmp -s "$TEMPLATE" "$tmp"; then
+            rm -f "$tmp"
+            echo "版本下拉无变化。"
+            exit 0
+          fi
+          mv "$tmp" "$TEMPLATE"
+          echo "已用 ${#tags[@]} 个 tag 重建版本下拉。"
+
+      - name: Commit & push if changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- .github/ISSUE_TEMPLATE/bug_report.yml; then
+            echo "无改动，跳过提交。"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/ISSUE_TEMPLATE/bug_report.yml
+          # [skip ci]：这次提交只是模板下拉，不需要触发 build.yml 全平台打包。
+          git commit -m "chore(issue-template): 同步版本号下拉 [skip ci]"
+          git push origin "HEAD:${{ github.event.repository.default_branch }}"

@@ -4,6 +4,7 @@
 // 第三方插件装在 quaver 配置目录 plugins/<id>/main.js，经 /api/sparkle/plugin/... 
 // 以同源 URL 动态 import（@vite-ignore：构建期不分析运行时 URL）。
 import type { SparklePlugin } from "@quaver/sparkle";
+import { getSparkleHostVersionError, isSparkleVersionValid } from "../../electron/sparkle-version.ts";
 
 export interface OfficialPluginMeta {
   id: string;
@@ -42,7 +43,7 @@ const OFFICIAL_LOADERS: Record<string, () => Promise<{ default: SparklePlugin }>
 export interface InstalledPlugin {
   id: string;
   dir: string;
-  manifest: { id?: string; name?: string; version?: string; author?: string; description?: string; category?: string; main?: string };
+  manifest: { id?: string; name?: string; version?: string; minHostVersion?: string; allowBeta?: boolean; author?: string; description?: string; category?: string; main?: string };
   installedAt: number;
 }
 
@@ -65,6 +66,8 @@ export function validatePlugin(p: unknown, expectId?: string): SparklePlugin | n
   if (!v || typeof v !== "object") return null;
   if (typeof v.id !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(v.id)) return null;
   if (typeof v.name !== "string" || typeof v.version !== "string") return null;
+  if (v.minHostVersion !== undefined && !isSparkleVersionValid(v.minHostVersion)) return null;
+  if (v.allowBeta !== undefined && typeof v.allowBeta !== "boolean") return null;
   if (v.kind !== "official" && v.kind !== "third-party") return null;
   if (typeof v.setup !== "function") return null;
   if (expectId && v.id !== expectId) return null;
@@ -102,6 +105,8 @@ export async function loadThirdParty(inst: InstalledPlugin): Promise<SparklePlug
   const mod = await import(/* @vite-ignore */ url);
   const plugin = validatePlugin(mod?.default ?? mod?.plugin, inst.id);
   if (!plugin) throw new Error(`第三方插件 ${inst.id} 形状不合法（default export 需为 SparklePlugin）`);
+  const hostVersionError = getSparkleHostVersionError(__APP_VERSION__, plugin.minHostVersion, plugin.allowBeta);
+  if (hostVersionError) throw new Error(hostVersionError);
   plugin.kind = "third-party";
   return plugin;
 }

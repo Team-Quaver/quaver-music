@@ -38,7 +38,7 @@
     "verify:keyring": "node scripts/verify-keyring.ts",
     "verify:daily": "node scripts/verify-daily.ts",
     "verify:guess": "node scripts/verify-guess.ts",
-    "verify:sparkle": "node scripts/verify-sparkle.ts",
+    "verify:sparkle": "node scripts/verify-sparkle-version.ts && node scripts/verify-sparkle.ts",
     "verify:static": "node scripts/verify-config.ts && node scripts/verify-prefs-map.ts && node scripts/verify-highlight-contrast.ts && node scripts/verify-song-menu.ts && node scripts/verify-list-tools.ts && node scripts/verify-queue-panel-anim.ts && node scripts/verify-queue-drag.ts && node scripts/verify-noselect.ts && node scripts/verify-user-vip.ts && node scripts/verify-sidebar.ts && node scripts/verify-playlist-menu.ts && node scripts/verify-systheme.ts && node scripts/verify-login.ts && node scripts/verify-keyring.ts && node scripts/verify-daily.ts && node scripts/verify-guess.ts && node scripts/verify-sparkle.ts && node scripts/verify-input-policy.ts && node scripts/verify-streaminfo.ts && node scripts/verify-hotkeys.ts && node scripts/verify-shuffle.ts && node scripts/verify-icon.ts && node scripts/verify-update.ts && node scripts/verify-songtiers.ts && node scripts/verify-mpv.ts && node scripts/verify-tray-title.ts && node scripts/verify-background.ts && node scripts/verify-menu-glass.ts && node scripts/verify-tint.ts && node scripts/verify-accent.ts",
     "mpris:build": "pnpm --dir ../vendor/Typhoeus/mpris install && pnpm --dir ../vendor/Typhoeus/mpris run build",
     "dist": "pnpm run build && pnpm run mpris:build && electron-builder --linux AppImage",

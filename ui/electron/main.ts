@@ -36,6 +36,7 @@ import {
   CredentialStore, credentialSummary, decodeHandoff, drainLines, encodeHandoff,
   evaluateKeyring, pickPasswordStore,
 } from "./keyring.ts";
+import { getSparkleHostVersionError } from "./sparkle-version.ts";
 // 注意：vite 不能在顶层 import——实测其在 Electron 主进程有副作用，会让 app.whenReady() 永不兑现。
 // 只在 createWindow 里动态 import()。
 
@@ -74,6 +75,11 @@ const log = (...a) => { const s = a.map((x) => (typeof x === "string" ? x : Stri
 const SPARKLE_PLUGINS_ROOT = String(process.env.QUAVER_SPARKLE_DIR ?? "").trim() || join(CONFIG_DIR, "plugins");
 const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
+const sparkleHostVersion = () => String(app.getVersion() || PKG_META.version || "0.0.0");
+
+/** 安装前的最终门禁：渲染层提示只是体验优化，真正的版本限制必须在主进程执行。 */
+const sparkleHostVersionError = (meta) => getSparkleHostVersionError(sparkleHostVersion(), meta?.minHostVersion, meta?.allowBeta);
+
 // 落盘一个第三方插件（market 下载与本地手装共用同一布局）：plugins/<id>/main.js + plugin.json
 const sparkleInstall = async (id, buf, meta) => {
   const dir = join(SPARKLE_PLUGINS_ROOT, id);
@@ -85,6 +91,8 @@ const sparkleInstall = async (id, buf, meta) => {
     id,
     name: String(meta?.name ?? id),
     version: String(meta?.version ?? "0.0.0"),
+    minHostVersion: meta?.minHostVersion ? String(meta.minHostVersion) : undefined,
+    allowBeta: meta?.allowBeta === true ? true : undefined,
     author: meta?.author ? String(meta.author) : undefined,
     description: meta?.description ? String(meta.description) : undefined,
     category,
@@ -745,6 +753,8 @@ ipcMain.handle("quaver:sparkle", async (_e, msg) => {
       const meta = msg?.meta ?? {};
       const id = String(meta?.id ?? "").trim();
       if (!SPARKLE_ID_RE.test(id)) return { ok: false, error: "插件 id 不合法" };
+      const versionError = sparkleHostVersionError(meta);
+      if (versionError) return { ok: false, error: versionError };
       const buf = Buffer.from(await (await fetch(url, { signal: AbortSignal.timeout(30000) })).arrayBuffer());
       if (msg?.sha256) {
         const want = String(msg.sha256).toLowerCase();
@@ -772,6 +782,8 @@ ipcMain.handle("quaver:sparkle", async (_e, msg) => {
       const meta = msg?.meta ?? {};
       const id = String(meta?.id ?? "").trim();
       if (!SPARKLE_ID_RE.test(id)) return { ok: false, error: "插件 id 不合法" };
+      const versionError = sparkleHostVersionError(meta);
+      if (versionError) return { ok: false, error: versionError };
       const buf = Buffer.from(String(msg?.dataBase64 ?? ""), "base64");
       if (!buf.length) return { ok: false, error: "插件内容为空" };
       await sparkleInstall(id, buf, meta);
