@@ -113,10 +113,14 @@ export function identityBadges(me: any, vip: any): string {
   return badges.join("");
 }
 
-// 音质档位 = Typhoeus TierId（vendor/Typhoeus/typhoeus/quality.py；后端按会员门控+回退协商）
+// 音质档位 = Typhoeus TierId（vendor/Typhoeus-go/typhoeus/quality.go；后端按会员门控+回退协商）
 // 旧整数表（128/320/flac → file_type）随 /song/urls 直连路径保留兼容，播放主链路已走 /stream/*。
+// 顺序对齐后端 tierTable 的 rank 升序；96ogg/192ogg 是 OGG 低阶档（流畅 96 / HQ 192，对应
+// 上游 O400·O4M0 / O600·O6M0），只有 OGG 加密孪生、无 mp3 形态。
 export const QUALITIES = {
+  "96ogg": "流畅音质 (OGG)",
   "128": "标准音质",
+  "192ogg": "高品质 HQ (OGG 192)",
   "320": "高品质 HQ",
   "320ogg": "高品质 HQ (OGG)",
   flac: "无损 SQ",
@@ -128,7 +132,7 @@ export const QUALITIES = {
 } as const;
 export type Quality = keyof typeof QUALITIES;
 
-// 默认音质存在 quaver.conf 的 [Quality] DefaultQuality（Auto｜128｜320｜320ogg｜flac｜640ogg｜atmos2｜atmos51｜atmos71｜master）
+// 默认音质存在 quaver.conf 的 [Quality] DefaultQuality（Auto｜96ogg｜128｜192ogg｜320｜320ogg｜flac｜640ogg｜atmos2｜atmos51｜atmos71｜master）
 // 表必须与后端 tierTable 全量对齐（getQuality 白名单 + 播放条菜单兜底数据源）：
 // 设置页列表是动态的（/stream/tiers all_tiers），点了一个表里没有的档，syncQ 回读会被白名单弹回「自动」。
 export function getQuality(): Quality | "auto" {
@@ -149,7 +153,8 @@ export const effectiveQuality = (): Quality | "auto" => sessionQuality ?? getQua
 
 /** 档位短标签（播放条音质胶囊用） */
 export const QUALITY_SHORT: Record<string, string> = {
-  auto: "自动", "128": "标准", "320": "HQ", "320ogg": "HQ·Ogg", flac: "SQ", "640ogg": "SQ·Ogg",
+  auto: "自动", "96ogg": "流畅·Ogg", "128": "标准", "192ogg": "HQ192·Ogg", "320": "HQ",
+  "320ogg": "HQ·Ogg", flac: "SQ", "640ogg": "SQ·Ogg",
   atmos2: "臻品", atmos51: "全景", atmos71: "全景7.1", master: "母带",
 };
 

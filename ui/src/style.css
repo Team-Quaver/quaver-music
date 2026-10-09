@@ -470,6 +470,10 @@ body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-b
 /* —— 搜索视图（#/search 落点页）—— */
 /* —— 分类标签组：搜索页（.search-tabs/.stab）与歌手页（.tag-tabs/.tag）共用同一套胶囊样式 —— */
 .search-tabs, .tag-tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+/* 搜索页标题贴住 Tag 栏的旧行内间距已移除：这里给一行式页头留出标题气口。
+   line-height 也按字号钉住，避免主题改全局行高后大标题显得上顶下挤。 */
+.search-head .page-title { margin: 2px 0 12px; line-height: 1.2; }
+.search-head .search-tabs { margin-bottom: 18px; }
 .stab, .tag {
   padding: 5px 14px; border-radius: 999px; border: 1px solid var(--line);
   background: transparent; color: var(--ink2); font-size: 13px; cursor: pointer;

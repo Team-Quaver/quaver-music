@@ -2085,7 +2085,7 @@ async function searchView(root: HTMLElement, q: URLSearchParams) {
   const kw = (q.get("keyword") || "").trim();
   const tab = SEARCH_TABS.find((t) => t.type === (q.get("type") ?? "0")) ?? SEARCH_TABS[0];
   const head = h("div", "search-head");
-  head.innerHTML = `<h1 class="page-title" style="margin:6px 0 4px">${kw ? `“${kw.replace(/</g, "&lt;")}”的搜索结果` : "搜索"}</h1>
+  head.innerHTML = `<h1 class="page-title">${kw ? `“${kw.replace(/</g, "&lt;")}”的搜索结果` : "搜索"}</h1>
     <div class="search-tabs">${SEARCH_TABS.map(
       (t) => `<button class="stab${t.type === tab.type ? " sel" : ""}" data-type="${t.type}" type="button">${t.label}</button>`,
     ).join("")}</div>`;

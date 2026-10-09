@@ -46,7 +46,7 @@ try {
   console.log("FAIL songtiers.ts 加载（Node ≥22.18 才能免 flag strip-types）:", e?.message ?? e);
   process.exit(1);
 }
-const Q = ["128", "320", "320ogg", "flac", "640ogg", "atmos2", "atmos51", "atmos71", "master"];
+const Q = ["96ogg", "128", "192ogg", "320", "320ogg", "flac", "640ogg", "atmos2", "atmos51", "atmos71", "master"];
 
 // —— 实测夹具（三首歌，见文件头注释）——
 const HALF_DREAM_FULL = {
@@ -78,16 +78,18 @@ ok("一个 size 字段都不认识（上游结构变了）→ null", mt.missingT
 // —— 边界：字段缺席 = 无从判定 = 不隐藏（resolve 自动回退兜底），只在 size==0 时隐藏 ——
 eqSet("只有 128 一个字段：无隐藏（其余无从判定）", mt.missingTiersOf(Q, { size_128mp3: 100 }), []);
 eqSet("size==0 命名档：隐藏该档", mt.missingTiersOf(Q, { size_128mp3: 100, size_flac: 0 }), ["flac"]);
+eqSet("OGG 低阶档按命名字段判定：192ogg/96ogg 无源即隐藏",
+  mt.missingTiersOf(Q, { size_128mp3: 100, size_192ogg: 0, size_96ogg: 0 }), ["192ogg", "96ogg"]);
 eqSet("size_new 非数组：臻品系不误杀", mt.missingTiersOf(Q, { size_128mp3: 10, size_new: 5 }), []);
 eqSet("size_new 截短：缺席档不误杀", mt.missingTiersOf(Q, { size_128mp3: 10, size_new: [163778412] }), []);
-eqSet("全零：全部隐藏（选择器只剩自动）", mt.missingTiersOf(Q, { size_128mp3: 0, size_320mp3: 0, size_flac: 0, size_new: [0, 0, 0, 0, 0, 0, 0] }),
+eqSet("全零：全部隐藏（选择器只剩自动）", mt.missingTiersOf(Q, { size_128mp3: 0, size_320mp3: 0, size_flac: 0, size_192ogg: 0, size_96ogg: 0, size_new: [0, 0, 0, 0, 0, 0, 0] }),
   Q);
 
 // —— 档位全集来自调用方（api.ts 传 QUALITIES 的键）——
 eqSet("qualities 子集：只判给定档位", mt.missingTiersOf(["flac"], { size_flac: 0, size_128mp3: 0 }), ["flac"]);
 
 // —— 会话存档瘦身键清单与判定消费的字段一致（漂移即红）——
-for (const k of ["size_128mp3", "size_320mp3", "size_flac", "size_new"])
+for (const k of ["size_128mp3", "size_320mp3", "size_flac", "size_192ogg", "size_96ogg", "size_new"])
   ok(`SONG_TIER_SIZE_KEYS 含 ${k}`, mt.SONG_TIER_SIZE_KEYS.includes(k));
 
 // ============ 2. 接线静态断言 ============

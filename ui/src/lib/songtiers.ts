@@ -1,11 +1,13 @@
 // Quaver — 单曲音质档位存在性（纯逻辑，零依赖：Node strip-types 可直接加载做真单测）。
 //
-// 上游歌曲对象的 file 元数据声明了这首歌有哪些音质：128/320/flac 有命名字段，
-// 臻品系（含 OGG 320/640）打包在 size_new 数组里。数组位置上游无文档 —— 位置语义经
-// 实测对账（2026-10：取全档位真实链接后 HEAD 实际字节数，与数组逐位吻合，三首歌交叉验证；
-// size==0 ⇔ 该档取链被上游拒绝 result=104003，含「无明文 FLAC 却有母带」的组合）：
+// 上游歌曲对象的 file 元数据声明了这首歌有哪些音质：128/320/flac 及 OGG 低阶档
+// （192ogg/96ogg）有命名字段，臻品系（含 OGG 320/640）打包在 size_new 数组里。数组位置
+// 上游无文档 —— 位置语义经实测对账（2026-10：取全档位真实链接后 HEAD 实际字节数，与数组
+// 逐位吻合，三首歌交叉验证；size==0 ⇔ 该档取链被上游拒绝 result=104003，含「无明文 FLAC
+// 却有母带」的组合）：
 //   [0]=master(AI00) [1]=atmos2(Q000) [2]=atmos51(Q001) [3]=320ogg(O800)
 //   [5]=640ogg(O801) [6]=atmos71(Q003)；其余位置属未入档位表的形态（NAC/DTS…），不消费。
+// OGG 低阶档用命名字段：192ogg ← size_192ogg(O600)、96ogg ← size_96ogg(O400)。
 //
 // 消费方：播放条音质选择器（PlayerBar）—— 这首歌没有的档位直接隐藏，换曲即重建；
 // auto 永远保留。会员锁定档不算「无源」：照样展示标 🔒，交给自动回退协商。
@@ -20,6 +22,7 @@ const SIZE_NEW_INDEX: Record<string, number> = {
 /** 命名 size 字段 → 档位 id */
 const SIZE_FIELD: Record<string, string> = {
   "128": "size_128mp3", "320": "size_320mp3", flac: "size_flac",
+  "192ogg": "size_192ogg", "96ogg": "size_96ogg",
 };
 
 /** 判定这首歌需要隐藏的档位（上游元数据确认无源），返回档位 id 集合。
@@ -43,4 +46,4 @@ export function missingTiersOf(qualities: readonly string[], file: any): Set<str
 }
 
 /** 档位存在性判定消费的 file 字段（会话存档瘦身据此决定留哪些，见 lib/session.ts） */
-export const SONG_TIER_SIZE_KEYS = ["size_128mp3", "size_320mp3", "size_flac", "size_new"] as const;
+export const SONG_TIER_SIZE_KEYS = ["size_128mp3", "size_320mp3", "size_flac", "size_192ogg", "size_96ogg", "size_new"] as const;

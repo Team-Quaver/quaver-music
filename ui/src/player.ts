@@ -621,7 +621,7 @@ class Player {
   //     降级成它档返回，只记其一会被「同一请求」绕回死循环。 ——
 
   /** 前端降级链（与后端 tierTable rank 降序对齐，见 vendor/Typhoeus-go/typhoeus/quality.go） */
-  private static readonly FALLBACK_CHAIN = ["master", "atmos71", "atmos51", "atmos2", "flac", "640ogg", "320ogg", "320", "128"];
+  private static readonly FALLBACK_CHAIN = ["master", "atmos71", "atmos51", "atmos2", "flac", "640ogg", "320ogg", "320", "192ogg", "128", "96ogg"];
 
   private handleStreamError(msg: string) {
     const s = this.current;
