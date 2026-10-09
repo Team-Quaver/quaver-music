@@ -53,8 +53,15 @@ await page.setViewport({ width: 1280, height: 840 });
 page.on("pageerror", (e) => console.log("[pageerror]", String(e)));
 // 封面域名拦截为本地 PNG（交替两色，便于确认「换曲真的换了图」）
 let flip = false;
+const inhibitCalls = [];
 await page.setRequestInterception(true);
 page.on("request", (req) => {
+  if (req.url().endsWith("/api/inhibit")) {
+    try { inhibitCalls.push(JSON.parse(req.postData() ?? "{}")); } catch { /* invalid test request is asserted by absence */ }
+    return req.respond({ status: 200, contentType: "application/json", body: JSON.stringify({
+      code: 0, msg: "ok", data: { supported: true, active: false, reason: "" },
+    }) });
+  }
   if (req.url().includes("y.gtimg.cn")) { flip = !flip; return req.respond({ status: 200, contentType: "image/png", body: flip ? PNG_A : PNG_B }); }
   req.continue();
 });
@@ -63,6 +70,15 @@ let fails = 0;
 const step = async (name, fn) => {
   try { const note = await fn(); console.log(`PASS ${name}${note ? " — " + note : ""}`); }
   catch (e) { fails++; console.log(`FAIL ${name}: ${e.message}`); }
+};
+
+const waitForInhibit = async (mode, active, from = 0) => {
+  const end = Date.now() + 8000;
+  while (Date.now() < end) {
+    if (inhibitCalls.slice(from).some((x) => x.mode === mode && x.active === active)) return;
+    await sleep(50);
+  }
+  throw new Error(`未收到 mode=${mode} active=${active} 请求`);
 };
 
 /** 桩一首歌进队列并展开本页（行级歌词态；kara 步骤自行挂逐字数据） */
@@ -166,27 +182,44 @@ await step("行级回退：karaoke 清空后回行级列表", async () => {
 await step("画廊按钮：开 = 展开并全屏、按钮点亮", async () => {
   await page.evaluate(() => { const p = window.__player; p.expanded = false; p.gallery = false; p.notifyPublic(); });
   await sleep(450);
+  const from = inhibitCalls.length;
   await page.click("#pb-gallery");
   await page.waitForFunction(() => window.__player.expanded && window.__player.gallery
     && document.querySelector(".np").classList.contains("open")
     && document.fullscreenElement != null, { timeout: 8000 });
   if (!(await page.$eval("#pb-gallery", (el) => el.classList.contains("on")))) throw new Error("按钮未点亮");
+  await waitForInhibit("idle", true, from);
+  if (inhibitCalls.slice(from).some((x) => x.mode === "sleep" && x.active)) throw new Error("画廊模式不应额外请求 sleep 抑制");
 });
 
 await step("画廊按钮再点：收起并退出全屏", async () => {
+  const from = inhibitCalls.length;
   await page.click("#pb-gallery");
   await page.waitForFunction(() => !window.__player.expanded && !window.__player.gallery
     && !document.querySelector(".np").classList.contains("open")
     && document.fullscreenElement == null, { timeout: 8000 });
+  await waitForInhibit("idle", false, from);
 });
 
 await step("ESC 收起：画廊态下 ESC = 收页 + 退全屏 + 灯灭", async () => {
   await page.click("#pb-gallery");
   await page.waitForFunction(() => window.__player.gallery && document.fullscreenElement != null, { timeout: 8000 });
+  const from = inhibitCalls.length;
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => !window.__player.expanded && !window.__player.gallery
     && document.fullscreenElement == null, { timeout: 8000 });
+  await waitForInhibit("idle", false, from);
   if (await page.$eval("#pb-gallery", (el) => el.classList.contains("on"))) throw new Error("按钮仍点亮");
+});
+
+await step("外部退出全屏：立即结束画廊抑制", async () => {
+  await page.click("#pb-gallery");
+  await page.waitForFunction(() => window.__player.gallery && document.fullscreenElement != null, { timeout: 8000 });
+  const from = inhibitCalls.length;
+  await page.evaluate(() => document.exitFullscreen());
+  await page.waitForFunction(() => !window.__player.gallery && document.fullscreenElement == null, { timeout: 8000 });
+  await waitForInhibit("idle", false, from);
+  if (await page.$eval("#pb-gallery", (el) => el.classList.contains("on"))) throw new Error("外部退出后画廊按钮仍点亮");
 });
 
 await browser.close();

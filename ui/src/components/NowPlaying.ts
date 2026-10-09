@@ -492,7 +492,13 @@ export function NowPlaying(): HTMLElement {
   onFullscreenChange((on) => {
     // 回同步：外部退出（WM/最大化钮）→ 画廊会话结束、本页不再认领；
     // 外部进入且画廊开着且本页开着 → 视作本页接管
-    if (!on) { npFullscreen = false; player.gallery = false; }
+    if (!on) {
+      npFullscreen = false;
+      if (player.gallery) {
+        player.gallery = false;
+        player.notifyPublic(); // 立即释放 idle 抑制并熄灭播放条按钮
+      }
+    }
     else if (player.expanded && player.gallery) npFullscreen = true;
   });
 
