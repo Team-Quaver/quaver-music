@@ -68,7 +68,7 @@ import { applyTint } from "./lib/tint";
 import { applyMenuGlass } from "./lib/menu-glass";
 import { cmyk2rgb, hsl2rgb, parseHex, rgb2cmyk, rgb2hsl, toHex, type RGB } from "./lib/color";
 import { checkAndPrompt, getPlatformInfo } from "./lib/updater";
-import { buildChannel, describeBuild, parseVersion } from "./lib/update-core";
+import { buildChannel, channelLabel, describeBuild, parseVersion } from "./lib/update-core";
 import { syncInhibit } from "./lib/inhibit";
 import {configInfo, resetConfig, revealConfig} from "./lib/config";
 import {vipCardHtml} from "./lib/vip";
@@ -1181,9 +1181,10 @@ async function settingsView(root: HTMLElement) {
         <div class="set-label">更新渠道</div>
         <div class="opt-cards" id="upd-channel-cards">
           <button class="opt-card" data-opt="stable" type="button">Stable</button>
+          <button class="opt-card" data-opt="beta" type="button">Beta</button>
           <button class="opt-card" data-opt="nightly" type="button">Nightly</button>
         </div>
-        <p class="muted set-hint">Stable：正式发布版；Nightly：main 分支的每夜滚动构建，功能更新但可能不稳定。两个渠道可以互相切换：选完会自动检查一次，即使版本号相同也会提示换上对应渠道的构建。</p>
+        <p class="muted set-hint">Stable：正式发布版；Beta：打了 beta 标记的预发布版；Nightly：main 分支的每夜滚动构建，功能更新但可能不稳定。三个渠道可以互相切换：选完会自动检查一次，即使版本号相同也会提示换上对应渠道的构建。</p>
         <p class="muted set-hint" id="upd-channel-note"></p>
         <div class="set-debug">
           <button class="ghost-btn" id="check-update" type="button">检查更新</button>
@@ -1681,10 +1682,10 @@ async function settingsView(root: HTMLElement) {
     () => (getAutoCheck() ? "on" : "off"),
     (v) => setAutoCheck(v === "on"),
   );
-  // 更新渠道（[Update] Channel）：stable=latest release ｜ nightly=滚动 Release「nightly」。
-  // 两个渠道可以互相切换 —— 判定不靠「谁版本号更大」，而靠「设置里的渠道 ≠ 当前构建所属渠道」
-  // （buildChannel 认版本串里的短 commit id），所以同版号甚至回退都要能提示，否则切到 nightly
-  // 就再也回不来（正式版不会为了某份 nightly 抬高版本号）。
+  // 更新渠道（[Update] Channel）：stable=latest release ｜ beta=tag 含 beta 的 prerelease ｜
+  // nightly=滚动 Release「nightly」。三个渠道可以互相切换 —— 判定不靠「谁版本号更大」，而靠
+  // 「设置里的渠道 ≠ 当前构建所属渠道」（buildChannel 认版本串里的短 sha / beta 段），所以同版号
+  // 甚至回退都要能提示，否则切到 nightly/beta 就再也回不来（正式版不会为了一份预发布抬高版本号）。
   let buildVer = __APP_VERSION__;
   const channelCards = wrap.querySelector<HTMLElement>("#upd-channel-cards")!;
   const channelNote = wrap.querySelector<HTMLElement>("#upd-channel-note")!;
@@ -1695,7 +1696,7 @@ async function settingsView(root: HTMLElement) {
     channelNote.classList.toggle("is-switch", sel !== built);
     channelNote.textContent = sel === built
       ? `当前运行 ${describeBuild(buildVer)}`
-      : `当前运行 ${describeBuild(buildVer)} · 已选 ${sel === "nightly" ? "Nightly" : "Stable"}，点下方「检查更新」完成切换`;
+      : `当前运行 ${describeBuild(buildVer)} · 已选 ${channelLabel(sel)}，点下方「检查更新」完成切换`;
   };
   channelCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
     b.onclick = () => {
@@ -1721,7 +1722,7 @@ async function settingsView(root: HTMLElement) {
     try {
       const r = await checkAndPrompt(getUpdateChannel());
       if (r.status === "error") updStatus.textContent = `检查失败：${r.error}`;
-      else if (r.status === "up-to-date") updStatus.textContent = `${r.channel === "nightly" ? "Nightly" : "Stable"} 渠道已是最新`;
+      else if (r.status === "up-to-date") updStatus.textContent = `${channelLabel(r.channel)} 渠道已是最新`;
       else if (r.info.switching) updStatus.textContent = `可切换到 ${r.info.decision.targetLabel}${r.info.skipped ? "（你已暂不切换）" : ""}`;
       else if (r.info.channel === "nightly") updStatus.textContent = `发现新的 Nightly 构建${r.info.skipped ? "（你已跳过此构建）" : ""}`;
       else updStatus.textContent = `发现新版本 ${r.info.decision.latestDisplay}${r.info.skipped ? "（你已跳过此版本）" : ""}`;

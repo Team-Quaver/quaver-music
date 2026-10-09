@@ -10,7 +10,7 @@
 //
 // 关闭语义：Esc / 点遮罩 = 「以后再说」，下载中先取消下载（AppImage 临时文件由主进程清理）。
 import { toast } from "./SongMenu";
-import { describeBuild, renderNotes } from "../lib/update-core";
+import { channelLabel, describeBuild, renderNotes } from "../lib/update-core";
 import {
   type UpdateInfo, type DownloadHandle, downloadUpdate, finalizeInstall,
   quitAndInstallWindows, relaunchApp, openReleases, fetchManagers, runManagerUpdate,
@@ -34,13 +34,16 @@ export function showUpdateDialog(info: UpdateInfo): void {
   const asset = info.picked?.asset ?? null;
   const selfInstallable = !!info.picked && (kind !== "appimage" || info.canReplaceAppimage);
 
-  // Nightly 是滚动构建，没有「版本号」可言：标题认渠道，构建时间放 meta 行（stable 同位置是发布时间）
+  // Nightly 是滚动构建，没有「版本号」可言：标题认渠道，构建时间放 meta 行（stable/beta 同位置是发布时间）
   const dateText = info.release.publishedAt ? new Date(info.release.publishedAt).toLocaleString() : "";
   const nightly = info.channel === "nightly";
+  const beta = info.channel === "beta";
+  const channelName = channelLabel(info.channel);
   // 换渠道（设置里选的渠道 ≠ 当前构建所属渠道）与同渠道升级是两种事：前者说「切换」，
   // 标题/按钮照此措辞 —— 版本号可能不升反降，别写成「发现新版本」骗人。
+  // Beta 有版本号（v1.5.0-beta.1），措辞跟 Stable 走、只换「Beta 版」字样；Nightly 没有版本号，认渠道。
   const titleHtml = info.switching
-    ? (nightly ? `切换到 <b>Nightly</b> 构建` : `切换到正式版 <b>${esc(info.decision.latestDisplay)}</b>`)
+    ? (nightly ? `切换到 <b>Nightly</b> 构建` : `切换到${beta ? " Beta 版" : "正式版"} <b>${esc(info.decision.latestDisplay)}</b>`)
     : (nightly ? `发现新的 <b>Nightly</b> 构建` : `发现新版本 <b>${esc(info.decision.latestDisplay)}</b>`);
   const metaText = `当前 ${esc(describeBuild(info.current))} → ${esc(info.decision.targetLabel)}`
     + (asset ? ` · ${fmtSize(asset.size)}` : "")
@@ -50,7 +53,7 @@ export function showUpdateDialog(info: UpdateInfo): void {
     : info.decision.relation === "downgrade"
       ? "目标版本比当前更低，切换后版本号会回退；配置、登录凭证与播放缓存都不受影响。"
       : info.decision.relation === "same"
-        ? `版本号与当前相同，只是换成 ${nightly ? "Nightly 滚动" : "Stable 正式"}构建。`
+        ? `版本号与当前相同，只是换成 ${nightly ? "Nightly 滚动" : beta ? "Beta 测试" : "Stable 正式"}构建。`
         : "";
   const mainLabel = info.switching ? "立即切换" : "立即更新";
   const skipLabel = info.switching ? "暂不切换" : "跳过此版本";
@@ -61,7 +64,7 @@ export function showUpdateDialog(info: UpdateInfo): void {
   layer.innerHTML = `
     <div class="upd-dialog" role="dialog" aria-modal="true" aria-label="${info.switching ? "切换更新渠道" : "发现新版本"}">
       <div class="upd-head">
-        <h3>${titleHtml} <span class="upd-badge ${info.channel}">${info.channel === "nightly" ? "Nightly" : "Stable"}</span></h3>
+        <h3>${titleHtml} <span class="upd-badge ${info.channel}">${channelName}</span></h3>
         <span class="muted upd-meta">${metaText}</span>
       </div>
       ${!info.picked ? `<p class="muted upd-warn">未找到适用于当前平台与架构的安装包，请到发布页手动下载。</p>` : ""}

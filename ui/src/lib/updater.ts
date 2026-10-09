@@ -3,7 +3,7 @@
 // 分工：纯逻辑（版本比较/安装包挑选/notes 渲染）在 update-core.ts；执行端（GitHub API 代理/
 // 流式下载/AppImage 原位替换/管理器联动）在主进程 electron/update.ts；本文件只串流程。
 //
-// 渠道口径见 update-core.ts 头注。两种意图分开：
+// 渠道口径见 update-core.ts 头注（Stable / Beta / Nightly 三个渠道可互相更换）。两种意图分开：
 //   - 同渠道升级：目标必须比当前新（自动检查默认开，绝不静默安装 —— 先弹窗展示更新日志，
 //     用户点「立即更新」才动文件；「跳过此版本」记进 Update.LastNotified）。
 //   - 渠道切换：设置里选的渠道 ≠ 当前构建所属渠道（buildChannel）→ 按「换一份构建」判定，
@@ -14,7 +14,7 @@
 // 「切换到正式版」—— 这是刻意的（「选中的渠道」就是唯一的意图信号，而它说 Stable），
 // 点「暂不切换」即记进 Update.LastNotified，不再打扰。
 import {
-  GITHUB_REPO, buildChannel, decideUpdate, normalizeRelease, parseVersion, pickAsset,
+  GITHUB_REPO, buildChannel, decideUpdate, normalizeRelease, parseVersion, pickAsset, pickBetaRelease,
   type AssetKind, type ReleaseAsset, type ReleaseInfo, type UpdateDecision,
 } from "./update-core";
 import { getAutoCheck, getUpdateChannel, getLastNotified, type UpdateChannel } from "./prefs";
@@ -72,6 +72,20 @@ export type CheckResult =
   | { status: "available"; channel: UpdateChannel; info: UpdateInfo }
   | { status: "error"; channel: UpdateChannel; error: string };
 
+/** 渠道还没有可发布版本的提示文案（stable / beta / nightly 各一档）。 */
+const noReleaseText = (channel: UpdateChannel): string =>
+  channel === "nightly" ? "Nightly 渠道还没有构建"
+  : channel === "beta" ? "Beta 渠道还没有预发布版本"
+  : "还没有正式发布版";
+
+/** GitHub API 请求 → 归一化后的目标 ReleaseInfo。
+ *  stable/nightly 各是一个固定接口；beta 没有「latest prerelease」接口，取列表后按 tag + prerelease 自己挑。 */
+async function fetchChannelRelease(channel: UpdateChannel, raw: unknown): Promise<{ release?: ReleaseInfo; error?: string }> {
+  if (channel !== "beta") return { release: normalizeRelease(raw) };
+  const release = pickBetaRelease(raw);
+  return release ? { release } : { error: noReleaseText(channel) };
+}
+
 export async function checkUpdate(channel: UpdateChannel = getUpdateChannel()): Promise<CheckResult> {
   try {
     const b = bridge();
@@ -81,18 +95,24 @@ export async function checkUpdate(channel: UpdateChannel = getUpdateChannel()): 
     if (b?.invoke) {
       const r = await b.invoke({ op: "fetch-release", channel });
       if (!r?.ok) return { status: "error", channel, error: r?.error ?? "GitHub API 请求失败" };
-      raw = r.release;
+      // beta 走列表（主进程不认版本号，原样递上来由渲染层挑）；其余是单个 release
+      raw = channel === "beta" ? r.releases : r.release;
     } else {
       // 浏览器 dev：api.github.com 允许跨域，检查这一步仍然能跑（下载/安装需壳层）
-      const path = channel === "nightly" ? "releases/tags/nightly" : "releases/latest";
+      // stable=latest（自动排除 prerelease）；nightly=精确 tag；beta=releases 列表
+      const path = channel === "nightly" ? "releases/tags/nightly" : channel === "beta" ? "releases?per_page=100" : "releases/latest";
       const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/${path}`, {
         headers: { Accept: "application/vnd.github+json" },
         signal: AbortSignal.timeout(15000),
       });
-      if (res.status === 404) return { status: "error", channel, error: channel === "nightly" ? "Nightly 渠道还没有构建" : "还没有正式发布版" };
+      if (res.status === 404) return { status: "error", channel, error: noReleaseText(channel) };
       if (!res.ok) return { status: "error", channel, error: `GitHub API HTTP ${res.status}` };
       raw = await res.json();
     }
+
+    const fetched = await fetchChannelRelease(channel, raw);
+    if (!fetched.release) return { status: "error", channel, error: fetched.error ?? "GitHub API 请求失败" };
+    const release = fetched.release;
 
     const pf = await pfP;
     const { platform, arch } = pf ?? guessPlatform();
@@ -102,7 +122,6 @@ export async function checkUpdate(channel: UpdateChannel = getUpdateChannel()): 
     const installedChannel = buildChannel(current);
     const switching = channel !== installedChannel;
 
-    const release = normalizeRelease(raw);
     const decision = decideUpdate(current, channel, release, { switch: switching });
     if ("error" in decision) return { status: "error", channel, error: decision.error };
 
@@ -203,9 +222,9 @@ export async function openReleases(channel: UpdateChannel): Promise<void> {
     await bridge().invoke({ op: "open-releases", channel });
     return;
   }
-  window.open(channel === "nightly"
-    ? `https://github.com/${GITHUB_REPO}/releases`
-    : `https://github.com/${GITHUB_REPO}/releases/latest`, "_blank");
+  window.open(channel === "stable"
+    ? `https://github.com/${GITHUB_REPO}/releases/latest`
+    : `https://github.com/${GITHUB_REPO}/releases`, "_blank");
 }
 
 // ——— Gear Lever / AppManager（AppImage 管理器）联动 ———

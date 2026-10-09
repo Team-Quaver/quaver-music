@@ -90,6 +90,7 @@ CI（`.github/workflows/build.yml`）产出 x86_64 / aarch64 双架构 AppImage�
 | 触发 | 版本号 | 发布 |
 | --- | --- | --- |
 | 打 `v*` tag | tag 去掉 `v` | Release **草稿**（人工核对后手动 Publish） |
+| 打含 `beta` 的 `v*` tag（如 `v1.5.0-beta.1`） | tag 去掉 `v` | Release **prerelease**（直接上线，供客户端 Beta 渠道识别） |
 | 每夜定时（每天 18:00 UTC）/ 手动勾 `nightly` | `<package.json 版本>-<短 commit id>-nightly` | 滚动 Release `nightly`（覆盖上一次） |
 | push main / PR | `package.json` 里的值 | 不发布，只出 artifact |
 
@@ -105,9 +106,11 @@ CI（`.github/workflows/build.yml`）产出 x86_64 / aarch64 双架构 AppImage�
 
 - **自动检查**（默认开）：启动后延迟检查一次，发现新版本**先弹窗展示更新日志**，点确认才开始下载
   安装，绝不静默更新。关掉后仍可手动「检查更新」。
-- **渠道 Stable / Nightly 可以互相切换**。换渠道不按「谁版本号更大」判 —— 选完会自动检查一次，
-  即使版本号相同也会提示换上对应渠道的构建（Nightly 构建切回 Stable 时版本号可能回退，弹窗会写明
-  这一点）。构建属于哪个渠道只看版本串里的短 commit id，不额外记录状态，所以换版本、重装都不会失配。
+- **渠道 Stable / Beta / Nightly 可以互相切换**。Stable 是正式发布版；Beta 是 tag 含 `beta`
+  （不区分大小写）且发布为 prerelease 的预发布版；Nightly 是每夜滚动构建。换渠道不按「谁版本号更大」
+  判 —— 选完会自动检查一次，即使版本号相同也会提示换上对应渠道的构建（预发布切回 Stable 时版本号
+  可能回退，弹窗会写明这一点）。构建属于哪个渠道只看版本串：Nightly 认短 commit id、Beta 认
+  prerelease 段里的 `beta`，不额外记录状态，所以换版本、重装都不会失配。
 - 找不到当前平台/架构的安装包时，弹窗只给「打开发布页」的出口。
 
 安装收尾按平台：**AppImage** 原位替换（文件名保持不变，桌面项与 Gear Lever/AppManager 的记录继续有效；

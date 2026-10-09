@@ -9,6 +9,7 @@
 
 import { cfg, cfgSet, cfgSetSoon } from "./config";
 import { parseHex, toHex } from "./color";
+import type { UpdateChannel } from "./update-core";
 
 export type ThemeMode = "system" | "light" | "dark";
 export type DecorMode = "csd" | "ssd";
@@ -447,9 +448,10 @@ export const HOTKEY_LABELS: Record<HotkeyAction, string> = {
 export const GLOBAL_HOTKEY_ACTIONS: HotkeyAction[] = ["toggle", "prev", "next", "volup", "voldown"];
 export const FOCUS_HOTKEY_ACTIONS: HotkeyAction[] = ["toggle", "quit", "prev", "next", "volup", "voldown"];
 
-// —— 应用更新（设置-通用）：自动检查开关 / 渠道（stable｜nightly）/ 已提醒版本标识。 ——
+// —— 应用更新（设置-通用）：自动检查开关 / 渠道（stable｜beta｜nightly）/ 已提醒版本标识。 ——
 // 检查与安装的执行端在主进程（electron/update.ts），编排见 src/lib/updater.ts。
-export type UpdateChannel = "stable" | "nightly";
+// UpdateChannel 的真相在 update-core（渠道判定的纯逻辑层），这里只为调用方便再导出。
+export type { UpdateChannel };
 
 export function getAutoCheck(): boolean {
   // 默认开：只有明确写 False 档才关闭，手误写进来的值回落默认
@@ -460,10 +462,11 @@ export function setAutoCheck(v: boolean) {
 }
 
 export function getUpdateChannel(): UpdateChannel {
-  return cfg("Update.Channel") === "nightly" ? "nightly" : "stable";
+  const v = cfg("Update.Channel");
+  return v === "nightly" || v === "beta" ? v : "stable";
 }
 export function setUpdateChannel(v: UpdateChannel) {
-  cfgSet({ "Update.Channel": v === "nightly" ? "nightly" : "stable" });
+  cfgSet({ "Update.Channel": v === "nightly" || v === "beta" ? v : "stable" });
 }
 
 /** 上次已提醒/被「跳过此版本」的版本标识（`渠道:版本`）：命中时启动检查不再弹窗，手动检查不受影响。 */

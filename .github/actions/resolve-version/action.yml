@@ -1,5 +1,5 @@
 # Quaver — 版本号三态解析（所有前端打包 job 共用）。
-#   打 v* tag  → tag 去掉 v
+#   打 v* tag  → tag 去掉 v（含 beta tag，如 v1.5.0-beta.1 → 1.5.0-beta.1，prerelease 段自带 beta）
 #   每夜版     → <package.json 版本>-<短 sha>-nightly
 #   其余       → package.json 里的版本
 # 必须在 vite build 之前解析：vite.config.ts 把它注入 __APP_VERSION__（关于页），

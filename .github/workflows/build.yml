@@ -23,8 +23,9 @@
 #
 # 触发：
 #   - push 到 main / PR：只出 artifact
-#   - 打 v* tag：额外创建正式 GitHub Release 的**草稿**（版本号 = tag 去掉 v），
-#     人工检查产物后手动 Publish
+#   - 打 v* tag：额外创建 GitHub Release（版本号 = tag 去掉 v）。
+#       tag 含 beta（如 v1.5.0-beta.1）→ 以 **prerelease** 直接上线，供客户端「Beta 渠道」识别；
+#       其余正式 tag                 → 先建 **草稿**，人工检查产物后手动 Publish
 #   - 每夜定时 / 手动勾 nightly：版本号 = <package.json 版本>-<短 commit id>-nightly，
 #     发布到滚动 Release「nightly」（覆盖昨天的）
 name: Build
@@ -673,18 +674,28 @@ jobs:
           merge-multiple: true
           path: out
 
-      - name: Publish GitHub Release (draft)
+      - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -la out/
           # -R 显式指定仓库：此 job 无 checkout，gh 靠 git 推断仓库会 fatal
-          # --draft：只建草稿不上线，人工核对产物/说明后到 Releases 页手动 Publish
-          gh release create "$GITHUB_REF_NAME" \
-            -R "$GITHUB_REPOSITORY" \
-            --draft \
-            --generate-notes \
-            out/Quaver-*
+          # -R 之外分两档：
+          #   tag 含 beta（不区分大小写）→ --prerelease 直接上线，客户端「Beta 渠道」据此识别；
+          #   其余正式 tag              → --draft 只建草稿，人工核对产物/说明后到 Releases 页手动 Publish
+          if [[ "$GITHUB_REF_NAME" =~ [Bb][Ee][Tt][Aa] ]]; then
+            gh release create "$GITHUB_REF_NAME" \
+              -R "$GITHUB_REPOSITORY" \
+              --prerelease \
+              --generate-notes \
+              out/Quaver-*
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              -R "$GITHUB_REPOSITORY" \
+              --draft \
+              --generate-notes \
+              out/Quaver-*
+          fi
 
   # ─────────────────────────── 每夜版 Release ───────────────────────────
   # 滚动发布：tag/release 名恒为 nightly，每次构建覆盖上一次（含旧 tag 清理），

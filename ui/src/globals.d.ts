@@ -5,13 +5,13 @@ declare const __APP_VERSION__: string;
 // 执行端在 ui/electron/update.ts，编排见 src/lib/updater.ts。
 type UpdateInvokeMsg =
   | { op: "platform" }
-  | { op: "fetch-release"; channel: "stable" | "nightly" }
+  | { op: "fetch-release"; channel: "stable" | "beta" | "nightly" }
   | { op: "download"; id: string; url: string; mode: "replace-appimage" | "installer" }
   | { op: "cancel-download"; id: string }
   | { op: "apply-appimage"; path: string }
   | { op: "install-windows"; path: string }
   | { op: "open-path"; path: string }
-  | { op: "open-releases"; channel: "stable" | "nightly" }
+  | { op: "open-releases"; channel: "stable" | "beta" | "nightly" }
   | { op: "appimage-managers" }
   | { op: "run-manager-update"; manager: "gearlever" | "appmanager" }
   | { op: "relaunch" }

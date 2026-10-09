@@ -125,8 +125,9 @@ eq("合法布尔值写入（睡眠禁止）", writeValues({ "Playing.InhibitSlee
 eq("自动检查默认开", defaults()["Update.AutoCheck"], "True");
 eq("更新渠道默认 stable", defaults()["Update.Channel"], "stable");
 eq("已提醒版本标识默认空", defaults()["Update.LastNotified"], "");
-eq("非法更新渠道被拒绝", writeValues({ "Update.Channel": "beta" }), []);
-eq("合法更新渠道写入", writeValues({ "Update.Channel": "nightly" }), ["Update.Channel"]);
+eq("非法更新渠道被拒绝", writeValues({ "Update.Channel": "canary" }), []);
+eq("合法更新渠道写入（nightly）", writeValues({ "Update.Channel": "nightly" }), ["Update.Channel"]);
+eq("合法更新渠道写入（beta）", writeValues({ "Update.Channel": "beta" }), ["Update.Channel"]);
 writeValues({ "Update.Channel": "stable" }); // 后续断言不受影响，回到默认
 writeValues({ "Playing.InhibitSleep": "True" }); // 后续断言不受影响，回到默认
 

@@ -124,6 +124,8 @@ P.setInhibitSleep(true);  eq("睡眠禁止开 → True", conf()["Playing.Inhibit
 P.setAutoCheck(false);        eq("自动检查关 → Update.AutoCheck=False", conf()["Update.AutoCheck"], "False");
 P.setAutoCheck(true);         eq("自动检查开 → True", conf()["Update.AutoCheck"], "True");
 P.setUpdateChannel("nightly"); eq("渠道 nightly → Update.Channel", conf()["Update.Channel"], "nightly");
+P.setUpdateChannel("beta");    eq("渠道 beta → Update.Channel", conf()["Update.Channel"], "beta");
+eq("渠道 beta 原样读回", P.getUpdateChannel(), "beta");
 P.setUpdateChannel("stable");  eq("渠道 stable → Update.Channel", conf()["Update.Channel"], "stable");
 P.setLastNotified("nightly:1.2.0-abc1234");
 eq("跳过版本标识原样存取", P.getLastNotified(), "nightly:1.2.0-abc1234");

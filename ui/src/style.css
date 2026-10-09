@@ -1805,6 +1805,10 @@ html[data-sparkle-scheme="dark"] { color-scheme: dark; }
   color: var(--cvg-accent, var(--acc));
   border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 45%, var(--line));
 }
+/* Beta：预发布，介于 Stable 与 Nightly 之间 —— 用固定的琥珀色把它和「正式版/每夜版」区分开，
+   不跟 accent 走（换主题/封面取色时仍要一眼认出这是测试版）。 */
+.upd-badge.beta { color: #b9770e; border-color: #b9770e73; }
+html[data-theme="dark"] .upd-badge.beta { color: #f0b24a; border-color: #f0b24a80; }
 .upd-meta { font-size: 12.5px; }
 .upd-warn { margin: 0 0 8px; font-size: 12.5px; }
 /* 换渠道弹窗的关系说明（同版号换一份构建 / 版本号回退）。回退那档标红 —— 与退出登录、

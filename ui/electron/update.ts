@@ -1,7 +1,8 @@
 // Quaver — 应用自更新（主进程执行端）。
 //
 // 渲染层（src/lib/updater.ts）负责版本比较与流程编排，这里只提供四类原子能力：
-//   1. fetch-release：GitHub Releases 代理（stable=latest release；nightly=滚动 tag「nightly」），
+//   1. fetch-release：GitHub Releases 代理（stable=latest release；beta=列表中 tag 含 beta 的 prerelease；
+//      nightly=滚动 tag「nightly」），
 //      归一化后交给渲染层解析 —— 主进程不认版本号，避免两边逻辑漂移；
 //   2. download：流式下载安装包 + 进度推送。AppImage 替换更新必须与本体同目录同文件系统
 //      （rename 原子替换跨不了挂载点），落盘位置由 mode 决定；
@@ -165,18 +166,27 @@ export function setupUpdaterIPC({ log }) {
         };
       }
 
-      // GitHub Releases 代理：404=渠道还没有版本；403 多为匿名 API 限流
+      // GitHub Releases 代理：404=渠道还没有版本；403 多为匿名 API 限流。
+      // beta 没有「latest prerelease」接口，取 releases 列表原样交给渲染层（主进程不认版本号，
+      // 由 update-core.pickBetaRelease 按「tag 含 beta 且 prerelease=true」挑最新那份）。
       if (op === "fetch-release") {
-        const channel = msg?.channel === "nightly" ? "nightly" : "stable";
-        const url = channel === "nightly" ? `${GITHUB_API}/tags/nightly` : `${GITHUB_API}/latest`;
+        const channel = msg?.channel === "nightly" ? "nightly" : msg?.channel === "beta" ? "beta" : "stable";
+        const url = channel === "nightly" ? `${GITHUB_API}/tags/nightly`
+          : channel === "beta" ? `${GITHUB_API}?per_page=100`
+          : `${GITHUB_API}/latest`;
         const res = await fetch(url, {
           headers: { Accept: "application/vnd.github+json", "User-Agent": "quaver-updater" },
           signal: AbortSignal.timeout(15000),
         });
-        if (res.status === 404) return { ok: false, error: `${channel === "nightly" ? "Nightly 渠道还没有构建" : "还没有正式发布版"}` };
+        if (res.status === 404) {
+          const why = channel === "nightly" ? "Nightly 渠道还没有构建" : channel === "beta" ? "Beta 渠道还没有预发布版本" : "还没有正式发布版";
+          return { ok: false, error: why };
+        }
         if (res.status === 403) return { ok: false, error: (await res.json().catch(() => null))?.message || "GitHub API 请求被限流，请稍后再试" };
         if (!res.ok) return { ok: false, error: `GitHub API HTTP ${res.status}` };
-        return { ok: true, release: await res.json() };
+        const data = await res.json();
+        if (channel === "beta") return { ok: true, releases: Array.isArray(data) ? data : [] };
+        return { ok: true, release: data };
       }
 
       // 下载。mode=replace-appimage：落 $APPIMAGE 同目录的隐藏临时文件（rename 才能原子替换）；
@@ -233,10 +243,10 @@ export function setupUpdaterIPC({ log }) {
       }
 
       if (op === "open-releases") {
-        const channel = msg?.channel === "nightly" ? "nightly" : "stable";
-        await shell.openExternal(channel === "nightly"
-          ? `https://github.com/${GITHUB_REPO}/releases`
-          : `https://github.com/${GITHUB_REPO}/releases/latest`);
+        const channel = msg?.channel === "nightly" ? "nightly" : msg?.channel === "beta" ? "beta" : "stable";
+        await shell.openExternal(channel === "stable"
+          ? `https://github.com/${GITHUB_REPO}/releases/latest`
+          : `https://github.com/${GITHUB_REPO}/releases`);
         return { ok: true };
       }
 

@@ -548,10 +548,10 @@ export const SCHEMA: SectionSpec[] = [
         key: "Channel",
         def: "stable",
         doc: [
-          "更新渠道：stable=正式发布版（默认）｜nightly=每夜构建",
+          "更新渠道：stable=正式发布版（默认）｜beta=tag 含 beta 的预发布版｜nightly=每夜构建",
           "（main 分支滚动 Release「nightly」，功能更新但可能不稳定）",
         ],
-        valid: (v: string) => ["stable", "nightly"].includes(v),
+        valid: (v: string) => ["stable", "beta", "nightly"].includes(v),
       },
       {
         key: "LastNotified",

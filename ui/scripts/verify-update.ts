@@ -55,15 +55,25 @@ const rel = (tag, assets = [], extra = {}) => ({
 
 // ——— 版本解析 ———
 section("版本解析");
-eq("纯 semver", C.parseVersion("1.2.3"), { semver: [1, 2, 3], sha: "", nightly: false });
-eq("容忍 v 前缀（git describe 态的 __APP_VERSION__）", C.parseVersion("v1.2.3"), { semver: [1, 2, 3], sha: "", nightly: false });
-eq("nightly 完整形态（resolve-version 输出）", C.parseVersion("1.2.0-abc1234-nightly"), { semver: [1, 2, 0], sha: "abc1234", nightly: true });
-eq("nightly 产物名形态（无 -nightly 后缀）", C.parseVersion("1.2.0-abc1234"), { semver: [1, 2, 0], sha: "abc1234", nightly: true });
+eq("纯 semver", C.parseVersion("1.2.3"), { semver: [1, 2, 3], pre: "", sha: "", nightly: false, beta: false });
+eq("容忍 v 前缀（git describe 态的 __APP_VERSION__）", C.parseVersion("v1.2.3"), { semver: [1, 2, 3], pre: "", sha: "", nightly: false, beta: false });
+eq("nightly 完整形态（resolve-version 输出）", C.parseVersion("1.2.0-abc1234-nightly"), { semver: [1, 2, 0], pre: "abc1234-nightly", sha: "abc1234", nightly: true, beta: false });
+eq("nightly 产物名形态（无 -nightly 后缀）", C.parseVersion("1.2.0-abc1234"), { semver: [1, 2, 0], pre: "abc1234", sha: "abc1234", nightly: true, beta: false });
+eq("beta 带序号", C.parseVersion("v1.5.0-beta.1"), { semver: [1, 5, 0], pre: "beta.1", sha: "", nightly: false, beta: true });
+eq("beta 大小写不敏感、无序号也认", C.parseVersion("1.5.0-Beta"), { semver: [1, 5, 0], pre: "beta", sha: "", nightly: false, beta: true });
 check("非版本串返回 null", C.parseVersion("nightly") === null && C.parseVersion("") === null);
+check("未知 prerelease（rc 等）保守返回 null，不误判成 stable", C.parseVersion("1.2.3-rc1") === null);
 eq("展示规范化去 v", C.normalizeVersion("v1.2.2"), "1.2.2");
 check("1.2.10 > 1.2.9（数值比较不是字符串）", C.cmpSemver([1, 2, 10], [1, 2, 9]) > 0);
 check("2.0.0 > 1.99.99", C.cmpSemver([2, 0, 0], [1, 99, 99]) > 0);
 eq("相等", C.cmpSemver([1, 2, 3], [1, 2, 3]), 0);
+// prerelease 段比较（semver §11）：正式版 > 预发布；beta.2 > beta.1；数字 < 字母数字
+check("正式版 > 预发布", C.cmpPre("", "beta.1") > 0);
+check("beta.2 > beta.1", C.cmpPre("beta.2", "beta.1") > 0);
+check("beta.10 > beta.9（数值比较）", C.cmpPre("beta.10", "beta.9") > 0);
+check("beta > beta.1（同前缀短者更小）", C.cmpPre("beta.1", "beta") > 0);
+check("完整版本比较含 prerelease", C.cmpVersion(C.parseVersion("1.5.0-beta.2"), C.parseVersion("1.5.0-beta.1")) > 0);
+check("同版号正式版 > beta", C.cmpVersion(C.parseVersion("1.5.0"), C.parseVersion("1.5.0-beta.1")) > 0);
 
 // ——— 更新判定：stable ———
 section("stable 渠道判定");
@@ -92,6 +102,50 @@ section("nightly 渠道判定");
   check("回滚（更高版号本地构建）→ 无更新", C.decideUpdate("1.2.2-aaa1111-nightly", "nightly", r).available === false);
   check("stable 构建跑 nightly 渠道：同版号 nightly 也提示", C.decideUpdate("1.2.0", "nightly", r).available === true);
   check("产物解析不出构建标识 → error", "error" in C.decideUpdate("1.2.0", "nightly", C.normalizeRelease({ tag_name: "nightly", assets: [{ name: "README.txt", size: 1, browser_download_url: "https://x/1" }] })));
+}
+
+// ——— 更新判定：beta ———
+section("beta 渠道判定");
+{
+  const betaRel = (tag, opts = {}) => C.normalizeRelease({
+    tag_name: tag, prerelease: true, published_at: "2026-10-07T02:00:00Z",
+    assets: [{ name: `Quaver-${tag.replace(/^v/, "")}-x86_64.AppImage`, size: 100, browser_download_url: `https://x/${tag}` }],
+    ...opts,
+  });
+
+  const d = C.decideUpdate("1.4.0", "beta", betaRel("v1.5.0-beta.2"));
+  check("正式版 → 更高 beta：有更新", d.available === true && d.relation === "upgrade", JSON.stringify(d));
+  eq("beta 展示用版本号", d.latestDisplay, "v1.5.0-beta.2");
+  eq("beta 跳过键", d.key, "beta:v1.5.0-beta.2");
+  check("beta.2 → beta.1（回退）不提示", C.decideUpdate("1.5.0-beta.2", "beta", betaRel("v1.5.0-beta.1")).available === false);
+  check("beta.1 → beta.2（同版号新序号）提示", C.decideUpdate("1.5.0-beta.1", "beta", betaRel("v1.5.0-beta.2")).available === true);
+  check("同一份 beta（同 tag）不提示", C.decideUpdate("1.5.0-beta.2", "beta", betaRel("v1.5.0-beta.2")).available === false);
+  check("同版号正式版 → beta：同渠道升级不提示（换渠道另判）", C.decideUpdate("1.5.0", "beta", betaRel("v1.5.0-beta.2")).available === false);
+  check("nightly 构建 → 更高 beta：顺带升版提示", C.decideUpdate("1.4.0-abc1234-nightly", "beta", betaRel("v1.5.0-beta.2")).available === true);
+  check("非 prerelease 的 beta tag → error（必须是预发布）", "error" in C.decideUpdate("1.4.0", "beta", betaRel("v1.5.0-beta.2", { prerelease: false })));
+  check("tag 不含 beta → error", "error" in C.decideUpdate("1.4.0", "beta", C.normalizeRelease({ tag_name: "v1.5.0", prerelease: true })));
+  check("坏 tag → error", "error" in C.decideUpdate("1.4.0", "beta", betaRel("beta")));
+}
+
+// ——— beta 渠道选版（GitHub 没有 latest-prerelease 接口，自己从列表里挑）———
+section("beta 渠道选版");
+{
+  const raw = (tag, prerelease, published = "2026-10-07T02:00:00Z") => ({
+    tag_name: tag, prerelease, published_at: published, body: "",
+    assets: [{ name: `Quaver-${tag.replace(/^v/, "")}-x86_64.AppImage`, size: 1, browser_download_url: `https://x/${tag}` }],
+  });
+  const list = [
+    raw("v1.5.0", false),                                 // 正式版 → 排除
+    raw("nightly", true),                                 // 每夜版（tag 不含 beta）→ 排除
+    raw("v1.5.0-beta.1", true, "2026-10-01T00:00:00Z"),
+    raw("v1.5.0-beta.2", true, "2026-10-05T00:00:00Z"),
+    raw("v1.4.0-beta.9", true, "2026-10-08T00:00:00Z"),   // 发布时间更晚但版本更低
+  ];
+  const picked = C.pickBetaRelease(list);
+  check("只认 prerelease 且 tag 含 beta", picked?.tag === "v1.5.0-beta.2", JSON.stringify(picked?.tag));
+  check("取 semver 最大（不按发布时间先后）", picked?.tag === "v1.5.0-beta.2");
+  check("没有符合的 → null", C.pickBetaRelease([raw("v1.5.0", false), raw("nightly", true)]) === null);
+  check("非法输入 → null", C.pickBetaRelease(null) === null && C.pickBetaRelease("x") === null);
 }
 
 // ——— 安装包匹配（平台 × 架构；CI 产物命名见 build.yml）———
@@ -168,9 +222,11 @@ section("更新日志渲染");
 section("构建渠道判定");
 check("纯 semver → stable（含 v 前缀）", C.buildChannel("1.2.3") === "stable" && C.buildChannel("v1.2.3") === "stable");
 check("带短 sha → nightly（两种写法都认）", C.buildChannel("1.2.0-abc1234-nightly") === "nightly" && C.buildChannel("1.2.0-abc1234") === "nightly");
+check("带 beta 段 → beta", C.buildChannel("v1.5.0-beta.1") === "beta" && C.buildChannel("1.5.0-Beta") === "beta");
 check("解析不出的脏串保守按 stable（例如 dev 的 git describe 残次品）", C.buildChannel("nightly") === "stable" && C.buildChannel("") === "stable");
 eq("构建描述：正式版", C.describeBuild("v1.2.3"), "Stable v1.2.3");
 eq("构建描述：nightly 带短 sha", C.describeBuild("1.2.0-abc1234-nightly"), "Nightly 1.2.0-abc1234");
+eq("构建描述：beta 带 prerelease 序号", C.describeBuild("1.5.0-beta.1"), "Beta v1.5.0-beta.1");
 
 // ——— 渠道切换判定（decideUpdate opts.switch）———
 // 与同渠道升级是两套判据：换渠道只排除「同一份构建」，同版号 / 回退都要能提示。
@@ -206,6 +262,24 @@ section("渠道切换判定");
   const same = C.decideUpdate("1.2.0-bbb2222-nightly", "nightly", nightlyRel, { switch: true });
   check("同一份 nightly 构建（同版号同 sha）→ 切换模式也不提示", same.available === false && same.relation === "same");
 
+  // beta 参与三向切换：stable ↔ beta ↔ nightly 都要能提示（含版本号回退 / 同版号换构建）
+  const betaRel = C.normalizeRelease({
+    tag_name: "v1.2.0-beta.1", prerelease: true, published_at: "2026-10-07T02:00:00Z",
+    assets: [{ name: "Quaver-1.2.0-beta.1-x86_64.AppImage", size: 100, browser_download_url: "https://x/b1" }],
+  });
+  const toB = C.decideUpdate("1.2.0", "beta", betaRel, { switch: true });
+  check("stable 同版号 → 切到 beta：提示（beta 有版号，标回退）", toB.available === true && toB.switching === true && toB.relation === "downgrade", JSON.stringify(toB));
+  eq("beta 切换目标标识", toB.targetLabel, "v1.2.0-beta.1");
+  eq("beta 切换键", toB.key, "switch:v1.2.0-beta.1");
+  const bBack = C.decideUpdate("1.2.0-beta.1", "stable", st("v1.1.0"), { switch: true });
+  check("beta 版号更高 → 切回 stable 标回退，但仍允许", bBack.available === true && bBack.relation === "downgrade");
+  const bToN = C.decideUpdate("1.2.0-beta.1", "nightly", nightlyRel, { switch: true });
+  check("beta → nightly：提示（换渠道）", bToN.available === true && bToN.switching === true);
+  const nToB = C.decideUpdate("1.2.0-bbb2222-nightly", "beta", betaRel, { switch: true });
+  check("nightly → beta：提示（换渠道）", nToB.available === true && nToB.switching === true);
+  const bSame = C.decideUpdate("1.2.0-beta.1", "beta", betaRel, { switch: true });
+  check("同一份 beta（同 tag）→ 切换模式也不提示", bSame.available === false && bSame.relation === "same");
+
   const upg = C.decideUpdate("1.2.0", "stable", st("v1.2.3"), { switch: false });
   check("switch:false 与不传等价（同渠道升级路径不变）", upg.available === true && upg.switching === false && upg.relation === "upgrade");
   check("坏版本号在切换模式下仍然报错", "error" in C.decideUpdate("nope", "nightly", nightlyRel, { switch: true }));
@@ -227,7 +301,9 @@ section("渠道切换接线");
   check("updater: 启动自动检查不弹换渠道提醒（仅打包态弹）",
     has(updater, "opts?.auto && (r.info.skipped || (r.info.switching && !r.info.packaged))"));
 
-  check("弹窗: 切换态换标题", has(dialog, "切换到 <b>Nightly</b> 构建") && has(dialog, "切换到正式版 <b>"));
+  check("弹窗: 切换态换标题（正式版/Beta 用版本号、Nightly 认渠道）",
+    has(dialog, "切换到 <b>Nightly</b> 构建") && has(dialog, '"正式版"} <b>') && has(dialog, '" Beta 版"'));
+  check("弹窗: 渠道徽标走 channelLabel（stable/beta/nightly 三态）", re(dialog, /const channelName = channelLabel\(info\.channel\)/));
   check("弹窗: 切换态换主按钮措辞", has(dialog, 'const mainLabel = info.switching ? "立即切换" : "立即更新"'));
   check("弹窗: 切换态换跳过措辞", has(dialog, 'const skipLabel = info.switching ? "暂不切换" : "跳过此版本"'));
   check("弹窗: 回退关系单独标 is-risk", has(dialog, "目标版本比当前更低") && has(dialog, 'dangerNote ? " is-risk" : ""'));
