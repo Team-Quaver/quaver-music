@@ -119,6 +119,12 @@ interface AlbumBrief {
 }
 interface AlbumDetailResp { album?: AlbumBrief; singers?: { name?: string }[] }
 interface AlbumSongsResp { song_list?: Song[]; total_num?: number }
+
+/** 专辑歌曲接口已经按专辑曲序返回；页面只复制数组，不按歌名/歌手等字段重排。 */
+function albumSongsInSourceOrder(list: AlbumSongsResp | null): Song[] {
+  return list?.song_list ? [...list.song_list] : [];
+}
+
 interface SingerInfoResp { base_info?: { name?: string; avatar?: string } }
 interface SingerDescResp { name?: string; pic?: string; foreign_name?: string; area?: string; birthday?: string; desc?: string }
 interface SingerSongsResp { song_list?: Song[]; total_num?: number }
@@ -828,7 +834,7 @@ async function albumView(root: HTMLElement, q: URLSearchParams) {
       api<AlbumSongsResp>(`/album/${encodeURIComponent(mid)}/songs?num=100`),
     ]);
     const alb = detail?.album ?? {};
-    const songs: Song[] = list?.song_list ?? [];
+    const songs = albumSongsInSourceOrder(list);
     root.innerHTML = "";
     const picMid = alb.pmid || alb.mid || mid;
     const singers: string = (alb.singer?.length ? alb.singer : detail?.singers ?? []).map((x) => x.name ?? "").join(" / ");
