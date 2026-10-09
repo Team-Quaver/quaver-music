@@ -1257,6 +1257,9 @@ html[data-theme="dark"] .vip-card .is-expired { color: #e66; }
 .sw-system { background: linear-gradient(135deg, #cfd2d6 0 50%, #1f2329 50% 100%); }
 .sw-light { background: #fff; }
 .sw-dark { background: #16181c; }
+/* 「系统强调色」的占位色块（高亮颜色第四档、主题方案的 color:"system" 哨兵）：
+   读到系统色时它带行内真色，读不到时用这道斜纹表示「跟随系统」，而不是某个具体色值。 */
+.sw-accent { background: repeating-linear-gradient(45deg, #0000 0 3px, currentColor 3px 6px); color: var(--ink2); }
 .opt-card.q { padding: 8px 14px; border-radius: 999px; font-size: 13px; }
 .opt-card.q .q-lock { font-size: 10px; color: #ff8a3c; font-style: normal; }
 #quality-grid { max-width: 452px; } /* 约束为 4+3 换行（对齐设计稿） */

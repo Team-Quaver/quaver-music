@@ -9,6 +9,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join, normalize, relative } from "node:path";
 import { configDir } from "../electron/config.ts";
 import { backgroundResponse } from "../electron/background.ts";
+import { accentPayload } from "../electron/accent.ts";
 
 const SIDECAR = process.env.QUAVER_API ?? "http://127.0.0.1:3200";
 
@@ -154,6 +155,16 @@ export function apiRelay(): Connect.NextHandleFunction {
       res.setHeader("content-type", r.type);
       res.setHeader("cache-control", "no-store"); // 换图后同 URL 也要拿到新的
       return res.end(r.body);
+    }
+    // 系统强调色（设置→外观→高亮颜色「系统强调色」档）：探测逻辑全在 electron/accent.ts
+    // （Noctalia / matugen / KDE / GNOME / GTK…），这里只回一个小 JSON —— 候选路径写死在那边，
+    // 不接受任何 query/参数。打包态在 native-server.ts 有同构实现（同一个 accentPayload）。
+    if (path === "accent") {
+      const r = accentPayload();
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.setHeader("cache-control", "no-store");
+      return res.end(JSON.stringify(r));
     }
     // Sparkle 已安装插件的文件服务（/api/sparkle/...，打包态在 native-server.ts 有同构实现）
     if (path.startsWith("sparkle/")) return serveSparkle("/" + path, res);

@@ -75,7 +75,8 @@ import {vipCardHtml} from "./lib/vip";
 import {mountSparklePanel} from "./sparkle/settings";
 import {onSparkleChange, sparkleActiveTheme, sparkleThemes} from "./sparkle/registry";
 import {sparkActivateTheme, sparkActiveThemeId} from "./sparkle/host";
-import {sparkSetTintChoice, sparkTintChoice, tintPolicyOf} from "./sparkle/theme-tint";
+import {sparkSetTintChoice, sparkTintChoice, tintPolicyOf, resolvePresetColor, TINT_PRESET_SYSTEM} from "./sparkle/theme-tint";
+import { currentAccent, refreshAccent } from "./lib/accent";
 import {backgroundPolicyOf} from "./sparkle/theme-background";
 import {menuGlassPolicyOf} from "./sparkle/theme-menus";
 import type { SparkleTintPreset } from "@quaver/sparkle";
@@ -1009,6 +1010,7 @@ async function settingsView(root: HTMLElement) {
         <div class="opt-cards" id="tint-cards">
           <button class="opt-card" data-opt="default" type="button">青色（默认）</button>
           <button class="opt-card" data-opt="cover" type="button">跟随封面</button>
+          <button class="opt-card" data-opt="system" type="button"><span class="sw sw-accent"></span>系统强调色</button>
           <div class="tint-slot" id="tint-slot">
             <button class="opt-card" data-opt="custom" type="button">自定义颜色</button>
             <!-- 当前自定义色的色块：动作按钮样式（虚边框）+ 点它展开/收起旁边的选择器；只在自定义档出现 -->
@@ -1355,7 +1357,9 @@ async function settingsView(root: HTMLElement) {
   // —— 高亮颜色（tint）：三档来源 + 自定义色的颜色选择器（HSL / CMYK / RGB + HEX） ——
   // 颜色真相只有一个 RGB：三个模式与 HEX 都只是它的不同表示，表示之间的换算走 lib/color.ts 的
   // 纯函数。落盘的永远是 HEX（prefs.setTintColor），样式侧由 lib/tint.ts 写 --cvg-accent/--cvg-glow。
-  const TINT_HINT = "青色：固定强调色，不随歌曲变化（默认）；跟随封面：取当前曲封面主色（换曲平滑过渡）；自定义颜色：自己挑，点色块展开颜色选择器，支持 HSL / CMYK / RGB 与 HEX。";
+  const TINT_HINT = "青色：固定强调色，不随歌曲变化（默认）；跟随封面：取当前曲封面主色（换曲平滑过渡）；"
+    + "系统强调色：跟随桌面配色（Noctalia / matugen 模板、KDE / GNOME / Windows / macOS 的系统强调色，"
+    + "读不到时先用默认青色）；自定义颜色：自己挑，点色块展开颜色选择器，支持 HSL / CMYK / RGB 与 HEX。";
   const tintCards = wrap.querySelector<HTMLElement>("#tint-cards")!;
   const tintChip = wrap.querySelector<HTMLButtonElement>("#tint-chip")!;
   const tintPop = wrap.querySelector<HTMLElement>("#tint-pop")!;
@@ -1491,7 +1495,18 @@ async function settingsView(root: HTMLElement) {
   const activeSparkTheme = sparkleActiveTheme;
   const tintPolicy = () => tintPolicyOf(activeSparkTheme());
 
-  /** 主题给的高亮方案卡：一张卡 = 色块 + 名字。色值已过 validPresets 校验（十六进制字面量）。 */
+  /** 系统强调色还没读到时补拉一次（回来后重画一次当前态）。
+   *  accentProbed 防自旋：拉不到也只拉一次 —— 「重画 → 又拉 → 又重画」会把设置页变成请求风暴；
+   *  后续的跟随由 lib/accent.ts 的轮询（哨兵方案/系统档激活时才开）负责。 */
+  let accentProbed = false;
+  const probeAccentOnce = () => {
+    if (accentProbed || currentAccent()?.color) return;
+    accentProbed = true;
+    void refreshAccent().then(() => paintTintPolicy());
+  };
+
+  /** 主题给的高亮方案卡：一张卡 = 色块 + 名字。色值已过 validPresets 校验（十六进制字面量或
+   *  "system" 哨兵）。哨兵那档的色块 = 当前读到的系统强调色（还没读到就用「系统」斜纹占位）。 */
   const renderSparkTintCards = (presets: readonly SparkleTintPreset[], themeId: string) => {
     tintSparkCards.innerHTML = "";
     for (const p of presets) {
@@ -1499,7 +1514,11 @@ async function settingsView(root: HTMLElement) {
       b.type = "button";
       b.className = "opt-card";
       b.dataset.preset = p.id;
-      b.innerHTML = `<span class="sw" style="background:${p.color}"></span>${escHtml(p.label)}`;
+      const hex = resolvePresetColor(p.color, currentAccent()?.color ?? null);
+      const sw = p.color === TINT_PRESET_SYSTEM
+        ? (hex ? `<span class="sw" style="background:${hex}"></span>` : `<span class="sw sw-accent"></span>`)
+        : `<span class="sw" style="background:${p.color}"></span>`;
+      b.innerHTML = `${sw}${escHtml(p.label)}`;
       b.onclick = () => {
         sparkSetTintChoice(themeId, p.id);
         applyTint();       // 换了方案立刻重写 CSS 变量
@@ -1521,6 +1540,15 @@ async function settingsView(root: HTMLElement) {
     // 色块只在「宿主管高亮色 + 自定义档」出现；离开该档时选择器一并收起
     tintChip.hidden = tintPolicy().mode !== "host" || mode !== "custom";
     setPopOpen(popOpen);
+    // 「系统强调色」档：把读到的来源/色值直接说给用户听（读不到也说明白为什么 + 怎么办）。
+    if (mode === "system" && tintPolicy().mode === "host") {
+      const a = currentAccent();
+      tintHint.textContent = a?.color
+        ? `系统强调色：已读到${a.label ? ` ${a.label} 的` : ""} ${a.color}，换桌面配色后自动跟随。`
+        : "系统强调色：暂时没读到（先用默认青色）。在 Noctalia / matugen 的模板里把颜色写到"
+          + " <配置目录>/system-theme.json，或在系统设置里挑一个强调色。";
+      probeAccentOnce(); // 值是异步来的：还没读到就先刷一次，回来重画（accentProbed 防自旋）
+    }
   };
 
   /** 整组的主刷新：决定三档卡、主题方案卡、说明文案各自出现与否（主题切换 / 插件启停都要重跑）。 */
@@ -1536,6 +1564,8 @@ async function settingsView(root: HTMLElement) {
     if (presets) {
       renderSparkTintCards(policy.presets, policy.themeId ?? "");
       syncSel(tintSparkCards, "preset", sparkTintChoice(policy.themeId) ?? policy.presets[0]?.id ?? "");
+      // 方案里有哨兵（color:"system"）且系统强调色还没到：补拉一次，回来重画方案卡的色块
+      if (policy.presets.some((p) => p.color === TINT_PRESET_SYSTEM)) probeAccentOnce();
     }
     tintHint.textContent = locked
       ? `当前 Sparkle 主题「${themeName}」自带配色，已接管高亮色；切到「默认」主题或让主题声明 tint 才可调。`

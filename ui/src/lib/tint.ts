@@ -1,14 +1,18 @@
 // Quaver — 界面高亮色（tint）：:root 上那几个染色变量的来源与写值。
 //
-// 三档（quaver.conf 的 [Style] Tint，设置→外观→高亮颜色）：
+// 四档（quaver.conf 的 [Style] Tint，设置→外观→高亮颜色）：
 //   default 固定青色（TINT_DEFAULT_COLOR）—— 默认档。不跟封面跑，色相稳定；
 //   cover   当前曲封面主色（extractCoverColor → toUiColors），换曲平滑跟随（:root 上有 transition）；
+//   system  系统强调色（Noctalia / matugen 模板、KDE / GNOME / GTK…，探测在 electron/accent.ts，
+//           渲染层经 lib/accent.ts 读同源 /api/accent，10s 轮询跟随；读不到回落默认青色）；
 //   custom  用户自选色（TintColor，HEX），设置页的颜色选择器按 HSL / CMYK / RGB 编辑。
 //
 // 但**主题优先于档位**：启用 Sparkle 主题后由它决定（契约见 sparkle/theme-tint.ts）——
 //   主题没声明 tint   → 主题自带强调色：本模块**让位**（清掉内联变量，回落 :root 的 --acc/--cyan）
-//   主题 tint=host    → 上面那三档照常
-//   主题 tint=presets → 用主题给的方案（用户在设置页挑，选择存在 localStorage）
+//   主题 tint=host    → 上面那四档照常
+//   主题 tint=presets → 用主题给的方案（用户在设置页挑，选择存在 localStorage）；
+//                       方案的 color 还可以写哨兵值 "system" = 跟随系统强调色（读不到时回落
+//                       第一套非哨兵方案，都没有则无色 —— 主题自己的强调色显出来）
 // 让位是必须的：这几个变量是行内样式，会压过主题的 html[data-sparkle-theme=…] 规则。
 //
 // 本模块是**全应用唯一的染色来源**，一次写两套变量（都由同一个源色派生）：
@@ -25,15 +29,28 @@
 import { coverUrl } from "./api";
 import { extractCoverColor, parseHex, toBarColors, toUiColors, type RGB } from "./color";
 import { getTintColor, getTintMode, TINT_DEFAULT_COLOR } from "./prefs";
+import { currentAccent, watchAccent } from "./accent";
 import { player } from "../player";
 import { onSparkleChange, sparkleActiveTheme } from "../sparkle/registry";
-import { pickPreset, sparkTintChoice, tintPolicyOf } from "../sparkle/theme-tint";
+import { pickPreset, resolvePresetColor, sparkTintChoice, tintPolicyOf } from "../sparkle/theme-tint";
 
 /** 封面取图尺寸：染色只取色彩倾向，300px 足够（与背景层、播放条同口径，CDN 缓存也共用）。 */
 const COVER_SIZE = 300;
 
 /** 封面档当前生效的图源：同曲重复触发不重取（extractCoverColor 有缓存，这是省一层 promise）。 */
 let coverPic = "";
+
+/** 系统强调色的轮询句柄：只在「用得上它」的时候开（档位或方案切走就停，不养常驻定时器）。 */
+let accentStop: (() => void) | null = null;
+
+/** 要不要开着系统强调色轮询（开了才会跟随换壁纸/换配色；不需要时停表）。 */
+function syncAccentWatch(wanted: boolean) {
+  if (wanted && !accentStop) accentStop = watchAccent(() => applyTint());
+  else if (!wanted && accentStop) {
+    accentStop();
+    accentStop = null;
+  }
+}
 
 /** 当前生效的 Sparkle 主题。解析在 sparkle/registry.ts:sparkleActiveTheme（那边不 import host，
  *  读的是 host 维护在 <html data-sparkle-theme> 上的公开真相）—— 设置页与背景层共用同一份。 */
@@ -67,26 +84,47 @@ export function applyTint() {
   // 而主题一般已经覆盖了 --acc/--cyan —— 高亮色于是自然跟着主题走。
   if (policy.mode === "off") {
     coverPic = "";
+    syncAccentWatch(false);
     paint(null);
     return;
   }
-  // 主题自带方案：用用户挑好的那套（没挑过 = 第一个），走自定义色那条通路应用
+  // 主题自带方案：用用户挑好的那套（没挑过 = 第一个）。
+  // 方案的 color 可以是哨兵值 "system" = 系统强调色（读不到时回落第一套非哨兵方案）。
   if (policy.mode === "presets") {
     coverPic = "";
     const chosen = pickPreset(policy.presets, sparkTintChoice(policy.themeId));
-    paint(chosen ? parseHex(chosen.color) : null);
+    const hex = chosen ? resolvePresetColor(chosen.color, currentAccent()?.color ?? null) : null;
+    // 哨兵方案要开着轮询（读到了会重算）；纯色方案用不上系统强调色，顺手停表。
+    syncAccentWatch(chosen?.color === "system");
+    if (hex) {
+      paint(parseHex(hex));
+      return;
+    }
+    // 读不到系统色（或方案色非法，validPresets 已挡了一道，这是双保险）：回落第一套非哨兵方案；
+    // 一套都没有 = 无色（--cvg-accent 回落 :root，主题自己的强调色显出来）。
+    const fb = policy.presets.find((p) => p.color !== "system");
+    paint(fb ? parseHex(fb.color) : null);
     return;
   }
 
-  // 以下 = 主题把高亮色交给宿主（或压根没启用主题）：用户的三档
+  // 以下 = 主题把高亮色交给宿主（或压根没启用主题）：用户的四档
   const mode = getTintMode();
 
   if (mode !== "cover") {
     coverPic = ""; // 离开封面档：作废在途取色（下面的回调还会复检一次档位）
+    if (mode === "system") {
+      // 系统强调色：同步读缓存（第一次要等 /api/accent 回来，期间先用默认青色顶着，
+      // watchAccent 的回调会在值到达时重算一次）。读不到也回落默认青色 —— 不能停在上一档的颜色上。
+      syncAccentWatch(true);
+      paint(parseHex(currentAccent()?.color ?? "") ?? parseHex(TINT_DEFAULT_COLOR));
+      return;
+    }
+    syncAccentWatch(false);
     paint(parseHex(mode === "custom" ? getTintColor() : TINT_DEFAULT_COLOR));
     return;
   }
 
+  syncAccentWatch(false);
   const pic = player.current ? coverUrl(player.current, COVER_SIZE) : "";
   if (!pic) {
     // 封面档但没有曲目：不是「保持不变」，而是明确回到无色（否则会停在上一档写下的颜色上）

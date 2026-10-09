@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { cmyk2rgb, hsl2rgb, isHexColor, parseHex, rgb2cmyk, rgb2hsl, toHex } from "../src/lib/color.ts";
 import { defaults, schemaIndex } from "../electron/config.ts";
-import { pickPreset, sparkTintChoice, tintPolicyOf, validPresets } from "../src/sparkle/theme-tint.ts";
+import { pickPreset, resolvePresetColor, sparkTintChoice, tintPolicyOf, validPresets } from "../src/sparkle/theme-tint.ts";
 
 let pass = 0, fail = 0;
 const section = (t) => console.log(`\n=== ${t} ===`);
@@ -76,7 +76,7 @@ eq("自定义色默认 = 主题青色", defaults()["Style.TintColor"], "#19c2d8"
 check("Style.Tint / Style.TintColor 都在 schema 里", "Style.Tint" in idx && "Style.TintColor" in idx);
 const tintValid = idx["Style.Tint"].valid;
 const hexValid = idx["Style.TintColor"].valid;
-check("档位值域三档放行", ["default", "cover", "custom"].every((v) => tintValid(v)));
+check("档位值域四档放行（default/cover/system/custom）", ["default", "cover", "system", "custom"].every((v) => tintValid(v)));
 check("档位值域收得住（大小写 / 空 / 未知值）", !tintValid("Default") && !tintValid("") && !tintValid("random"));
 check("颜色值域收得住：裸色名 / rgb() / 空串一律不合法（这个值会进 CSS 变量）",
   !hexValid("cyan") && !hexValid("rgb(0,0,0)") && !hexValid("") && !hexValid("var(--x)"));
@@ -99,7 +99,7 @@ const css = src("src/style.css");
 // 高亮颜色分组：从 id="tint-cards" 到下一个注释块（Sparkle 主题）之间就是这一组
 const tintBlock = /id="tint-cards"([\s\S]*?)<!-- Sparkle 主题/.exec(views)?.[1] ?? "";
 check("高亮颜色分组能取到（防正则失配让下面全绿）", tintBlock.length > 400, String(tintBlock.length));
-check("三档卡片齐全", ["default", "cover", "custom"].every((m) => tintBlock.includes(`data-opt="${m}"`)), tintBlock.replace(/\s+/g, " ").slice(0, 200));
+check("四档卡片齐全（含「系统强调色」）", ["default", "cover", "system", "custom"].every((m) => tintBlock.includes(`data-opt="${m}"`)), tintBlock.replace(/\s+/g, " ").slice(0, 200));
 check("色块按钮就在「自定义颜色」卡旁边（同一个定位锚里）",
   tintBlock.includes('id="tint-chip"') && tintBlock.indexOf('data-opt="custom"') < tintBlock.indexOf('id="tint-chip"'));
 check("选择器浮窗在同一锚点内（absolute 定位挂它）",
@@ -131,7 +131,8 @@ check("色相条拖动时用拖动值回填滑块（免得往返抖动）", view
 check("模式切换只重建通道行（不重渲染整页）", /colorMode = b\.dataset\.mode as ColorMode; renderFields\(\);/.test(views));
 
 check("prefs 里默认色与 schema 默认同值", prefs.includes('export const TINT_DEFAULT_COLOR = "#19c2d8";'));
-check("prefs 的档位白名单是三档", /const TINT_MODES: readonly string\[\] = \["default", "cover", "custom"\]/.test(prefs));
+check("prefs 的档位白名单是四档（含 system）",
+  /const TINT_MODES: readonly string\[\] = \["default", "cover", "system", "custom"\]/.test(prefs));
 check("prefs 的 setTintColor 解析不动就不写盘", /if \(!c\) return;/.test(prefs));
 check("prefs 的高频写走合并落盘（拖色相条/连打数字）", /cfgSetSoon\(\{ "Style\.TintColor": toHex\(c\) \}/.test(prefs));
 
@@ -169,6 +170,43 @@ check("色块与色相条的样式在位", css.includes(".tint-chip__sw") && css
 check("模式 tab 的选中态用高亮色（跟随 tint 自己）", /\.tint-mode\.sel \{[^}]*var\(--cvg-accent/.test(css));
 // 数字框的通用规则别把浮窗里的输入打成方块（.set-row__ctrl input 只在那一行内生效，这里另给一套）
 check("浮窗内的输入有自己的一套（不靠 .set-row__ctrl）", /\.tint-fields \.tint-field input, \.tint-hex-row input \{/.test(css));
+
+// —— 系统强调色（第四档 + presets 的 "system" 哨兵）———
+section("源码接线 · 系统强调色");
+const accentLib = src("src/lib/accent.ts");
+check("tint.ts 从 lib/accent 取系统强调色（探测在主进程 electron/accent.ts，经 /api/accent）",
+  tint.includes('from "./accent"') && tint.includes("currentAccent()"));
+check("系统档开着强调色轮询（换桌面配色自动跟随），离开该档停表",
+  /mode === "system"[\s\S]{0,200}syncAccentWatch\(true\)/.test(tint)
+  && /syncAccentWatch\(false\);\s*\n\s*const pic = player\.current/.test(tint));
+check("系统档读不到时回落默认青色（不停在上一档的颜色上）",
+  /parseHex\(currentAccent\(\)\?\.color \?\? ""\) \?\? parseHex\(TINT_DEFAULT_COLOR\)/.test(tint));
+check("哨兵方案读不到系统色时回落第一套非哨兵方案",
+  /policy\.presets\.find\(\(p\) => p\.color !== "system"\)/.test(tint));
+check("tint.ts 引用 theme-tint 的 resolvePresetColor（哨兵值的解析只有一份）",
+  tint.includes("resolvePresetColor("));
+check("accent 轮询只在用得上时开（不养常驻定时器）",
+  /function syncAccentWatch\(wanted: boolean\)/.test(tint)
+  && /if \(!listeners\.size && timer\)/.test(accentLib));
+check("views 的第四档卡就在封面档后面（顺序 = 用户读到文案的顺序）",
+  tintBlock.indexOf('data-opt="cover"') > -1
+  && tintBlock.indexOf('data-opt="system"') > tintBlock.indexOf('data-opt="cover"')
+  && tintBlock.indexOf('data-opt="system"') < tintBlock.indexOf('data-opt="custom"'));
+check("views 的系统档提示把读到的来源/色值说给用户听",
+  views.includes("已读到") && views.includes("暂时没读到"));
+check("views 的哨兵方案卡：读到系统色上真色，没读到用占位色块",
+  views.includes("TINT_PRESET_SYSTEM") && views.includes('class="sw sw-accent"'));
+check("views 补拉一次有防自旋（拉不到不重画循环）",
+  /let accentProbed = false/.test(views) && /if \(accentProbed \|\| currentAccent\(\)\?\.color\) return;/.test(views));
+check("css 有系统强调色的占位色块", css.includes(".sw-accent"));
+
+section("方案 color 的哨兵值（纯逻辑）");
+eq("哨兵方案通过校验（color:\"system\"）",
+  validPresets([{ id: "sys", label: "S", color: "system" }]), [{ id: "sys", label: "S", color: "system" }]);
+eq("resolvePresetColor：普通字面量规范化成 6 位", resolvePresetColor("#0FF", null), "#00ffff");
+eq("resolvePresetColor：哨兵 + 有系统色 → 系统色", resolvePresetColor("system", "#3584e4"), "#3584e4");
+eq("resolvePresetColor：哨兵 + 没系统色 → null（调用方回落）", resolvePresetColor("system", null), null);
+eq("resolvePresetColor：非法色 → null（双保险）", resolvePresetColor("red", "#ffffff"), null);
 
 // ================= 反向自证 =================
 section("反向自证（回归写法必须能被逮住）");
@@ -298,6 +336,12 @@ const noYield = (s) => !/policy\.mode === "off"/.test(s);
 check("…反向：applyTint 不为主题让位会被逮住",
   noYield("export function applyTint() { paint(parseHex(getTintColor())); }"));
 check("…当前实现确实让位", !noYield(tint));
+
+check("…反向：validPresets 拒收哨兵值会被逮住",
+  validPresets([{ id: "x", label: "X", color: "system" }]).length === 1);
+check("…反向：resolvePresetColor 把哨兵当非法色（恒 null）会被逮住", resolvePresetColor("system", "#123456") !== null);
+check("…反向：tint.ts 的系统档忘了开轮询（永远停在默认青）会被逮住",
+  !/mode === "system"[\s\S]{0,200}syncAccentWatch\(true\)/.test(tint.replace(/mode === "system"/, 'mode === "off"')));
 
 console.log(`\n${fail === 0 ? "✅" : "❌"} verify-tint: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

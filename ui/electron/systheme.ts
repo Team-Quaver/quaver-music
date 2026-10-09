@@ -52,14 +52,30 @@ const dconfDbPath = () => join(configHome(), "dconf", "user");
 /** GTK 命名色里能代表「窗口/视图底色」的几个（GTK4 的 libadwaita 命名 + GTK3 常见的 window_bg_color） */
 const GTK_BG_KEYS = ["window_bg_color", "theme_bg_color", "view_bg_color"];
 
+/** 探测函数的注入口（全部可选）：单测传假路径 / 假子进程用，生产调用一律缺省。 */
+export interface ProbeOpts {
+  desktop?: string;
+  kdeGlobals?: string;
+  gtkInis?: string[];
+  gtkCssDirs?: string[];
+  dconfDb?: string;
+  run?: typeof spawnSync;
+  timeoutMs?: number;
+  pollMs?: number;
+  /** mac / win 侧 */
+  platform?: NodeJS.Platform;
+  globalPrefs?: string;
+  personalizeKey?: string;
+}
+
 /** 读文本；读不到（不存在/无权限）返回空串，探测逻辑一律按「没这个来源」处理 */
-function readText(p) {
+function readText(p: string): string {
   try { return readFileSync(p, "utf8"); } catch { return ""; }
 }
 
 /** 取 INI 段里某个键的值。KDE 与 GTK 的 ini 都是平铺 `键=值`，段名与键名大小写不敏感；
  *  行首 # / ; 是注释，值尾的行内 # 注释一并剥掉。找不到返回空串。 */
-export function iniValue(text, section, key) {
+export function iniValue(text: string, section: string, key: string): string {
   let inSection = false;
   for (const raw of text.split("\n")) {
     const line = raw.trim();
@@ -79,7 +95,7 @@ export function iniValue(text, section, key) {
 }
 
 /** "239,240,241" → 是否浅色底（Rec.709 亮度取中灰为界）。格式不合法返回 null。 */
-export function isLightRGB(triple) {
+export function isLightRGB(triple: string): boolean | null {
   const m = /^(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})$/.exec((triple || "").trim());
   if (!m) return null;
   const [r, g, b] = m.slice(1).map(Number);
@@ -88,7 +104,7 @@ export function isLightRGB(triple) {
 }
 
 /** KDE 配色 → 深浅。窗口底色是配色的主背景，View 段兜底（少数方案只覆盖其一）。 */
-export function kdeTheme(text) {
+export function kdeTheme(text: string): "dark" | "light" | null {
   const v = iniValue(text, "Colors:Window", "BackgroundNormal") || iniValue(text, "Colors:View", "BackgroundNormal");
   const light = v ? isLightRGB(v) : null;
   return light === null ? null : light ? "light" : "dark";
@@ -96,7 +112,7 @@ export function kdeTheme(text) {
 
 /** GTK 设置 → 深浅。prefer-dark 只认「显式开」；关掉不等于浅色（主题名可能是 Adwaita-dark），
  *  所以关掉时继续看主题名 —— 两个键都读，与 GTK 自己的判定顺序一致。 */
-export function gtkTheme(text) {
+export function gtkTheme(text: string): "dark" | "light" | null {
   if (/^(true|1|yes)$/i.test(iniValue(text, "Settings", "gtk-application-prefer-dark-theme"))) return "dark";
   const name = iniValue(text, "Settings", "gtk-theme-name");
   if (!name) return null;
@@ -107,7 +123,7 @@ export function gtkTheme(text) {
  *  kdeglobals 只在 KDE 会话下认账 —— 别的桌面残留一份旧 KDE 配置会把结果带偏。
  *  opts 全为测试注入用（默认走真实路径与 XDG_CURRENT_DESKTOP）。 */
 /** hex "#rrggbb" → 是否浅色底（与 isLightRGB 同一把尺：Rec.709 亮度取中灰为界）。格式不合法返回 null。 */
-export function isLightHex(hex) {
+export function isLightHex(hex: string): boolean | null {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(hex ?? "").trim());
   if (!m) return null;
   const n = parseInt(m[1], 16);
@@ -117,7 +133,7 @@ export function isLightHex(hex) {
 
 /** gsettings 的 color-scheme 原始输出 → 深浅。
  *  只有 'prefer-dark' / 'prefer-light' 算表态；'default'（= 没偏好）返回 null 让它继续往下问。 */
-export function parseColorScheme(raw) {
+export function parseColorScheme(raw: unknown): "dark" | "light" | null {
   const v = String(raw ?? "").trim().replace(/^['"]|['"]$/g, "");
   if (v === "prefer-dark") return "dark";
   if (v === "prefer-light") return "light";
@@ -127,7 +143,7 @@ export function parseColorScheme(raw) {
 /** 问 gsettings 要 color-scheme（跨桌面的标准口子）。拿不到（没有 gsettings / 连不上会话总线）返回 null。
  *  必须带 timeout：这是 spawnSync，会话总线半死时它会一直挂着 —— 主进程（以及那个 10s 兜底轮询）
  *  会被它卡住，表现为整个应用假死。超时按「判不出来」处理。 */
-export function gsettingsColorScheme(opts = {}) {
+export function gsettingsColorScheme(opts: ProbeOpts = {}): "dark" | "light" | null {
   const run = opts.run ?? spawnSync;
   const r = run("gsettings", ["get", "org.gnome.desktop.interface", "color-scheme"],
     { encoding: "utf8", timeout: opts.timeoutMs ?? 2000 });
@@ -138,7 +154,7 @@ export function gsettingsColorScheme(opts = {}) {
 /** GTK 配色 css 里定义的窗口底色 → 深浅。
  *  取 `@define-color <window_bg_color|theme_bg_color|view_bg_color> #rrggbb` —— 主题生成器
  *  （noctalia / matugen / pywal / Gradience…）写的就是这几个命名色。认不出返回 null。 */
-export function gtkCssTheme(text) {
+export function gtkCssTheme(text: string): "dark" | "light" | null {
   const src = String(text ?? "");
   for (const key of GTK_BG_KEYS) {
     const m = new RegExp(`@define-color\\s+${key}\\s+(#[0-9a-fA-F]{6})`).exec(src);
@@ -151,7 +167,7 @@ export function gtkCssTheme(text) {
 
 /** 从 GTK 配置目录里挑**最后被写**的那份 css（同目录常有好几份：colors.css / <bar>.css / gtk.css）。
  *  返回路径；一份都没有返回 null。 */
-export function gtkCssNewest(dirs) {
+export function gtkCssNewest(dirs: string[]): string | null {
   let best = null; // { mtime, path }
   for (const dir of dirs) {
     let names;
@@ -168,14 +184,14 @@ export function gtkCssNewest(dirs) {
 }
 
 /** 那份最新 css 判出来的深浅（认不出返回 null）。 */
-export function gtkCssThemeFromDirs(dirs) {
+export function gtkCssThemeFromDirs(dirs: string[]): "dark" | "light" | null {
   const p = gtkCssNewest(dirs);
   return p ? gtkCssTheme(readText(p)) : null;
 }
 
 /** 探测当前系统深浅色（"dark" | "light"），拿不到返回 null。优先级见文件头。
  *  opts 全为测试注入用（默认走真实路径、真实 gsettings 与 XDG_CURRENT_DESKTOP）。 */
-export function readSystemTheme(opts = {}) {
+export function readSystemTheme(opts: ProbeOpts = {}): "dark" | "light" | null {
   const desktop = opts.desktop ?? process.env.XDG_CURRENT_DESKTOP ?? "";
   // 1) KDE 会话：kdeglobals 的窗口底色（只在 KDE 会话下认账 —— 别的桌面残留一份旧 KDE 配置会把结果带偏）
   if (/(^|[^a-z])(kde|plasma)([^a-z]|$)/i.test(desktop)) {
@@ -199,7 +215,7 @@ export function readSystemTheme(opts = {}) {
 /** 盯住全部来源，值真的变了才回调（返回停止函数）。
  *  文件侧用 watchFile（stat 轮询）而不是 watch：KDE 走 KConfig 重写、dconf 就地写，inode 会换，fs.watch 跟丢。
  *  再叠一个兜底轮询：gsettings 的值只落在 dconf 库里、未必动了文件 mtime，纯文件监视会漏（一次字符串比较而已）。 */
-export function watchSystemTheme(onChange, opts = {}) {
+export function watchSystemTheme(onChange: (theme: "dark" | "light" | null) => void, opts: ProbeOpts = {}): () => void {
   const files = [
     opts.kdeGlobals ?? kdeGlobalsPath(),
     ...(opts.gtkInis ?? gtkIniPaths()),
@@ -223,7 +239,7 @@ export function watchSystemTheme(onChange, opts = {}) {
 }
 
 /** 现有 GTK 配置目录里的全部 css（监视用；新出现的 css 由兜底轮询兜住） */
-function gtkCssFiles(opts) {
+function gtkCssFiles(opts: ProbeOpts): string[] {
   const out = [];
   for (const dir of opts.gtkCssDirs ?? gtkCssDirs()) {
     try {
@@ -244,13 +260,13 @@ const globalPrefsPath = () => join(homedir(), "Library", "Preferences", ".Global
 
 /** `defaults read -g AppleInterfaceStyle` 的输出 → "dark" | "light"（纯函数，可单测）。
  *  键存在时值是 "Dark"；键不存在（浅色）时输出为空 —— 空即浅色。 */
-export function parseAppleInterfaceStyle(stdout) {
+export function parseAppleInterfaceStyle(stdout: unknown): "dark" | "light" {
   return /dark/i.test(String(stdout ?? "")) ? "dark" : "light";
 }
 
 /** 读 macOS 菜单栏深浅。非 macOS、或系统里没有 defaults（spawn 自己失败）返回 null，交调用方兜底。
  *  opts 全为测试注入用。 */
-export function readMacShellTheme(opts = {}) {
+export function readMacShellTheme(opts: ProbeOpts = {}): "dark" | "light" | null {
   if ((opts.platform ?? process.platform) !== "darwin") return null;
   const run = opts.run ?? spawnSync;
   // 与 gsettings 同理必须带 timeout：spawnSync 挂住 = 主进程假死
@@ -262,7 +278,7 @@ export function readMacShellTheme(opts = {}) {
 /** 盯 .GlobalPreferences.plist 的 mtime，值真的变了才回调（返回停止函数）。
  *  与 watchSystemTheme 同款：用 watchFile 而不是 watch（cfprefsd 会重写文件、换 inode）。
  *  非 macOS 上 readMacShellTheme 恒为 null → 这个 watcher 静默不做事。 */
-export function watchMacShellTheme(onChange, opts = {}) {
+export function watchMacShellTheme(onChange: (theme: "dark" | "light") => void, opts: ProbeOpts = {}): () => void {
   const file = opts.globalPrefs ?? globalPrefsPath();
   let last = readMacShellTheme(opts);
   const tick = () => {
@@ -296,7 +312,7 @@ const WIN_WATCH_INTERVAL_MS = 2000;
 
 /** `reg query ...\Themes\Personalize` 的输出 → "light" | "dark"（外壳），认不出返回 null。
  *  只看 SystemUsesLightTheme（任务栏/通知区域 = 托盘所在的那层）；0x0 = 深色外壳，0x1 = 浅色外壳。 */
-export function parseWindowsPersonalize(output) {
+export function parseWindowsPersonalize(output: unknown): "dark" | "light" | null {
   const m = /systemuseslighttheme\s+REG_DWORD\s+0x([0-9a-fA-F]+)/i.exec(String(output ?? ""));
   if (!m) return null;
   return parseInt(m[1], 16) === 0 ? "dark" : "light";
@@ -308,7 +324,7 @@ export function parseWindowsPersonalize(output) {
  *  图标（两种底色上都看得见），也不要退回应用主题（那正是要修的坑）。
  *  opts 全为测试注入用。注意编码：reg.exe 在中文 Windows 上是 GBK 输出，但我们要匹配的键名与
  *  DWORD 都是 ASCII，按 utf8 解不会影响判断。 */
-export function readWindowsShellTheme(opts = {}) {
+export function readWindowsShellTheme(opts: ProbeOpts = {}): "dark" | "light" | null {
   if ((opts.platform ?? process.platform) !== "win32") return null;
   const run = opts.run ?? spawnSync;
   // 与 gsettings 同理必须带 timeout：spawnSync 挂住 = 主进程假死（这个还是 2s 一次的轮询）
@@ -321,7 +337,7 @@ export function readWindowsShellTheme(opts = {}) {
 /** 轮询注册表，值真的变了才回调（返回停止函数）。非 Windows 上直接返回空停止函数 —— 不建定时器，
  *  也不要让调用方去记「这个平台上它什么都不做」（watchSystemTheme 在非 Linux 上是同名空转的设计，
  *  这里反过来：Windows 是唯一有意义的平台）。 */
-export function watchWindowsShellTheme(onChange, opts = {}) {
+export function watchWindowsShellTheme(onChange: (theme: "dark" | "light") => void, opts: ProbeOpts = {}): () => void {
   if ((opts.platform ?? process.platform) !== "win32") return () => {};
   let last = readWindowsShellTheme(opts);
   const tick = () => {
@@ -339,7 +355,7 @@ export function watchWindowsShellTheme(onChange, opts = {}) {
 //   cd ui && node electron/systheme.ts
 // 托盘图标选错素材时先跑它：一眼看出是哪一层给了错值，还是所有层都没表态。
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
-  const show = (label, v) => console.log(`${label.padEnd(22)}${v ?? "(无)"}`);
+  const show = (label: string, v: unknown) => console.log(`${label.padEnd(22)}${v ?? "(无)"}`);
   const cssNewest = gtkCssNewest(gtkCssDirs());
   console.log(`XDG_CURRENT_DESKTOP    ${process.env.XDG_CURRENT_DESKTOP || "(空)"}`);
   show("kdeglobals →", kdeTheme(readText(kdeGlobalsPath())));

@@ -295,10 +295,11 @@ export const SCHEMA: SectionSpec[] = [
         key: "Tint",
         def: "default",
         doc: [
-          "界面高亮色（tint）的来源：default=固定青色 #19c2d8（**默认**，不随封面变化）｜cover=跟随当前曲封面主色（换曲平滑过渡）｜custom=自定义颜色",
+          "界面高亮色（tint）的来源：default=固定青色 #19c2d8（**默认**，不随封面变化）｜cover=跟随当前曲封面主色（换曲平滑过渡）｜",
+          "system=系统强调色（Noctalia / matugen 模板、KDE / GNOME / GTK 系统强调色，详见 electron/accent.ts 的来源表）｜custom=自定义颜色",
           "（自定义色的取值见 TintColor）。影响进度条/选中态/激活描边等一切 --cvg-accent/--cvg-glow 的消费点",
         ],
-        valid: (v: string) => ["default", "cover", "custom"].includes(v),
+        valid: (v: string) => ["default", "cover", "system", "custom"].includes(v),
       },
       {
         key: "TintColor",

@@ -173,11 +173,11 @@ export function setMenuBlur(v: boolean) {
 }
 
 // —— 界面高亮色（tint）：--cvg-accent / --cvg-glow 的来源 ——
-// 三档落在 quaver.conf 的 [Style] Tint（default=固定青色｜cover=跟随封面｜custom=自定义色），
-// 自定义色的取值落在 TintColor（#rrggbb）。这里同样**只**管「枚举 ⇄ 配置取值」：写 CSS 变量的
-// DOM 侧在 src/lib/tint.ts（prefs 被 player/api 反向依赖，不能反过来 import 渲染层模块）。
-export type TintMode = "default" | "cover" | "custom";
-const TINT_MODES: readonly string[] = ["default", "cover", "custom"];
+// 四档落在 quaver.conf 的 [Style] Tint（default=固定青色｜cover=跟随封面｜system=系统强调色｜
+// custom=自定义色），自定义色的取值落在 TintColor（#rrggbb）。这里同样**只**管「枚举 ⇄ 配置取值」：
+// 写 CSS 变量的 DOM 侧在 src/lib/tint.ts（prefs 被 player/api 反向依赖，不能反过来 import 渲染层模块）。
+export type TintMode = "default" | "cover" | "system" | "custom";
+const TINT_MODES: readonly string[] = ["default", "cover", "system", "custom"];
 
 /** 默认档的固定色 —— 就是主题里那条「播放进度条青色」（style.css 的 --cyan）。
  *  它是本功能的出厂色：不跟封面跑，也不随明暗主题换色相（只有亮度锚在主题 token 上）。 */

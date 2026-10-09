@@ -7,6 +7,7 @@ import { pipeline } from "node:stream/promises";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, isAbsolute, join, normalize, relative } from "node:path";
 import { backgroundResponse } from "./background.ts";
+import { accentPayload } from "./accent.ts";
 
 const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -176,6 +177,16 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
         res.setHeader("content-type", r.type);
         res.setHeader("cache-control", "no-store"); // 换图后同 URL 也要拿到新的
         return res.end(r.body);
+      }
+      // 系统强调色（设置→外观→高亮颜色「系统强调色」档）：探测逻辑全在 electron/accent.ts，
+      // 这里只回一个小 JSON —— 候选路径写死在那边，不接受任何 query/参数。
+      // dev/preview 在 src/relay.ts 有同构实现（同一个 accentPayload）。
+      if (sub === "/accent") {
+        const r = accentPayload();
+        res.statusCode = 200;
+        res.setHeader("content-type", "application/json");
+        res.setHeader("cache-control", "no-store");
+        return res.end(JSON.stringify(r));
       }
       // Sparkle 已安装插件的文件服务（必须在 sidecar 转发之前截住）
       if (sub.startsWith("/sparkle/")) return serveSparkle(sub, res, pluginsRoot);

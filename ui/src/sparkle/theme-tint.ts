@@ -8,17 +8,27 @@
 //
 // 契约（SDK 的 SparkleTheme.tint）：
 //   · 不声明          → off     ：主题自带强调色，宿主让位，设置页禁用「高亮颜色」整组
-//   · { mode:"host" } → host    ：宿主那三档继续生效（固定青色 / 跟随封面 / 自定义色）
-//   · { mode:"presets"} → presets：用户在主题给的方案里挑，宿主按自定义色应用选中的那套
+//   · { mode:"host" } → host    ：宿主那四档继续生效（固定青色 / 跟随封面 / 系统强调色 / 自定义色）
+//   · { mode:"presets"} → presets：用户在主题给的方案里挑，宿主按自定义色应用选中的那套。
+//                                  方案的 color 还可以写哨兵值 "system"（TINT_PRESET_SYSTEM）=
+//                                  跟随系统强调色（Noctalia / matugen / KDE / GNOME…，探测在
+//                                  electron/accent.ts）；读不到时宿主回落第一套非哨兵方案。
 //
 // 本文件是**纯策略 + 一点持久化**：策略解析全是纯函数（可在 node 里直接单测）；只有
 // 方案选择的读写碰 localStorage，且只在函数体内（导入本模块无副作用）。
 // 注意：这里的**值导入**必须写全 `.ts` —— 本模块是纯策略，护栏脚本要在 node 里直接 import
 // 它做单测，而 Node 的类型剥离不做路径改写（`import type` 会被整条擦除，所以 SDK 那个可以不带）。
 import type { SparkleTheme, SparkleTintPreset } from "@quaver/sparkle";
-import { parseHex } from "../lib/color.ts";
+import { parseHex, toHex } from "../lib/color.ts";
 
 export type SparkTintMode = "off" | "host" | "presets";
+
+/**
+ * 方案 color 的哨兵值：不是颜色字面量，而是「宿主读到的系统强调色」。
+ * 主题拿它做一档方案（如「跟随系统强调色」），宿主解析时替换成探测结果。
+ * 取不到系统强调色时回落第一套非哨兵方案 —— 主题的方案永远有得选。
+ */
+export const TINT_PRESET_SYSTEM = "system";
 
 export interface SparkTintPolicy {
   mode: SparkTintMode;
@@ -29,8 +39,9 @@ export interface SparkTintPolicy {
 }
 
 /**
- * 过滤主题给的方案：id 非空且不重复、label 非空、color 能解析成颜色字面量。
- * 主题是第三方代码，这些值会进 DOM（style 属性）与 CSS 变量 —— 一律先校验再信。
+ * 过滤主题给的方案：id 非空且不重复、label 非空、color 能解析成颜色字面量**或**是哨兵值
+ * "system"（= 跟随系统强调色）。主题是第三方代码，这些值会进 DOM（style 属性）与 CSS 变量
+ * —— 一律先校验再信。
  */
 export function validPresets(list: unknown): SparkleTintPreset[] {
   if (!Array.isArray(list)) return [];
@@ -40,11 +51,25 @@ export function validPresets(list: unknown): SparkleTintPreset[] {
     const p = raw as Partial<SparkleTintPreset> | null | undefined;
     if (!p || typeof p.id !== "string" || !p.id || seen.has(p.id)) continue;
     if (typeof p.label !== "string" || !p.label) continue;
-    if (typeof p.color !== "string" || !parseHex(p.color)) continue;
+    if (typeof p.color !== "string" || (p.color !== TINT_PRESET_SYSTEM && !parseHex(p.color))) continue;
     seen.add(p.id);
     out.push({ id: p.id, label: p.label, color: p.color });
   }
   return out;
+}
+
+/**
+ * 方案的 color → 实际色值（规范 6 位）。普通字面量照解析；哨兵值 "system" 换成
+ * 宿主读到的系统强调色（没有 = null，调用方回落第一套非哨兵方案）。
+ * 纯函数：sysHex 由渲染层从 lib/accent.ts 的缓存里同步取来传进来。
+ */
+export function resolvePresetColor(color: string, sysHex: string | null): string | null {
+  if (color === TINT_PRESET_SYSTEM) {
+    const c = sysHex ? parseHex(sysHex) : null;
+    return c ? toHex(c) : null;
+  }
+  const c = parseHex(color);
+  return c ? toHex(c) : null;
 }
 
 /**
