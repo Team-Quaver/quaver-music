@@ -22,6 +22,15 @@ import type {
   SparkleView,
 } from "@quaver/sparkle";
 
+// 这两个上下文在新版 SDK 中有同名导出；宿主保留结构定义，兼容旧版子模块检出。
+interface SparklePlaylistMenuCtx {
+  id: string;
+  title: string;
+  kind: "created" | "fav" | "virtual";
+  songnum: number;
+}
+interface SparkleNpMenuCtx { song: unknown | null }
+
 export interface SparklePluginRecord {
   pluginId: string;
   /** 反注册闭包（倒序执行） */
@@ -48,6 +57,15 @@ interface MenuItemEntry {
   pluginId: string;
   item: SparkleMenuItem | ((ctx: SparkleSongMenuCtx) => SparkleMenuItem);
 }
+/** 侧栏歌单右键菜单 / 正在播放页 ⋮ 菜单的追加项（与 song 那份同型，只是 ctx 不同） */
+interface PlaylistMenuItemEntry {
+  pluginId: string;
+  item: SparkleMenuItem | ((ctx: SparklePlaylistMenuCtx) => SparkleMenuItem);
+}
+interface NpMenuItemEntry {
+  pluginId: string;
+  item: SparkleMenuItem | ((ctx: SparkleNpMenuCtx) => SparkleMenuItem);
+}
 interface StreamSourceEntry { pluginId: string; source: SparkleStreamSource }
 interface KaraokeProviderEntry { pluginId: string; provider: SparkleKaraokeProvider }
 interface ViewEntry { pluginId: string; path: string; view: SparkleView }
@@ -61,6 +79,8 @@ const themePacks: ThemePackEntry[] = [];
 const npWidgets: NpWidgetEntry[] = [];
 const npViews: NpViewEntry[] = [];
 const menuItems: MenuItemEntry[] = [];
+const playlistMenuItems: PlaylistMenuItemEntry[] = [];
+const npMenuItems: NpMenuItemEntry[] = [];
 const streamSources: StreamSourceEntry[] = [];
 const karaokeProviders: KaraokeProviderEntry[] = [];
 const pluginViews = new Map<string, ViewEntry>(); // key: path
@@ -209,6 +229,26 @@ export function sparkRegisterSongMenuItem(pluginId: string, item: MenuItemEntry[
   emitChange();
 }
 
+export function sparkRegisterPlaylistMenuItem(pluginId: string, item: PlaylistMenuItemEntry["item"]) {
+  const entry: PlaylistMenuItemEntry = { pluginId, item };
+  playlistMenuItems.push(entry);
+  teardownOf(pluginId).push(() => {
+    const at = playlistMenuItems.indexOf(entry);
+    if (at >= 0) playlistMenuItems.splice(at, 1);
+  });
+  emitChange();
+}
+
+export function sparkRegisterNpMenuItem(pluginId: string, item: NpMenuItemEntry["item"]) {
+  const entry: NpMenuItemEntry = { pluginId, item };
+  npMenuItems.push(entry);
+  teardownOf(pluginId).push(() => {
+    const at = npMenuItems.indexOf(entry);
+    if (at >= 0) npMenuItems.splice(at, 1);
+  });
+  emitChange();
+}
+
 export function sparkRegisterStreamSource(pluginId: string, source: SparkleStreamSource) {
   const entry: StreamSourceEntry = { pluginId, source };
   streamSources.push(entry);
@@ -254,15 +294,34 @@ export const sparkleStreamSources = (): SparkleStreamSource[] => streamSources.m
 /** 逐字歌词提供器（首个注册者；无 = 宿主走纯 LRC 行级歌词） */
 export const sparkleKaraokeProvider = (): SparkleKaraokeProvider | null => karaokeProviders[0]?.provider ?? null;
 
-/** 歌曲右键菜单的插件追加项（ctx 逐次求值：函数型条目按当时上下文生成） */
-export function sparkleMenuItems(ctx: SparkleSongMenuCtx): SparkleMenuItem[] {
+/** 三处菜单追加项共用的求值：函数型条目按当时上下文现算；单个插件抛错只丢它那一项，
+ * 不让一个坏插件的菜单项把整张菜单带塌。 */
+function collectMenuItems<C>(
+  entries: { pluginId: string; item: SparkleMenuItem | ((ctx: C) => SparkleMenuItem) }[],
+  ctx: C,
+): SparkleMenuItem[] {
   const out: SparkleMenuItem[] = [];
-  for (const e of menuItems) {
+  for (const e of entries) {
     try {
-      out.push(typeof e.item === "function" ? e.item(ctx) : e.item);
+      out.push(typeof e.item === "function" ? (e.item as (c: C) => SparkleMenuItem)(ctx) : e.item);
     } catch (err) {
       console.warn(`[sparkle:${e.pluginId}] 菜单项生成失败`, err);
     }
   }
   return out;
+}
+
+/** 歌曲右键菜单的插件追加项（ctx 逐次求值：函数型条目按当时上下文生成） */
+export function sparkleMenuItems(ctx: SparkleSongMenuCtx): SparkleMenuItem[] {
+  return collectMenuItems(menuItems, ctx);
+}
+
+/** 侧栏（主菜单栏）歌单右键菜单的插件追加项 */
+export function sparklePlaylistMenuItems(ctx: SparklePlaylistMenuCtx): SparkleMenuItem[] {
+  return collectMenuItems(playlistMenuItems, ctx);
+}
+
+/** 正在播放页「更多操作」（⋮）菜单的插件追加项 */
+export function sparkleNpMenuItems(ctx: SparkleNpMenuCtx): SparkleMenuItem[] {
+  return collectMenuItems(npMenuItems, ctx);
 }
