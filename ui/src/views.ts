@@ -75,7 +75,7 @@ import {vipCardHtml} from "./lib/vip";
 import {mountSparklePanel} from "./sparkle/settings";
 import {onSparkleChange, sparkleActiveTheme, sparkleThemes} from "./sparkle/registry";
 import {sparkActivateTheme, sparkActiveThemeId} from "./sparkle/host";
-import {sparkSetTintChoice, sparkTintChoice, tintPolicyOf, resolvePresetColor, TINT_PRESET_SYSTEM} from "./sparkle/theme-tint";
+import {sparkSetTintChoice, sparkTintChoice, tintPolicyOf, resolvePresetColor, TINT_PRESET_SYSTEM, TINT_PRESET_COVER} from "./sparkle/theme-tint";
 import { currentAccent, refreshAccent } from "./lib/accent";
 import {backgroundPolicyOf} from "./sparkle/theme-background";
 import {menuGlassPolicyOf} from "./sparkle/theme-menus";
@@ -1506,7 +1506,7 @@ async function settingsView(root: HTMLElement) {
   };
 
   /** 主题给的高亮方案卡：一张卡 = 色块 + 名字。色值已过 validPresets 校验（十六进制字面量或
-   *  "system" 哨兵）。哨兵那档的色块 = 当前读到的系统强调色（还没读到就用「系统」斜纹占位）。 */
+   *  "system" / "cover" 哨兵）。系统哨兵没读到前用斜纹占位；封面哨兵用另一道斜纹表示动态取色。 */
   const renderSparkTintCards = (presets: readonly SparkleTintPreset[], themeId: string) => {
     tintSparkCards.innerHTML = "";
     for (const p of presets) {
@@ -1517,7 +1517,9 @@ async function settingsView(root: HTMLElement) {
       const hex = resolvePresetColor(p.color, currentAccent()?.color ?? null);
       const sw = p.color === TINT_PRESET_SYSTEM
         ? (hex ? `<span class="sw" style="background:${hex}"></span>` : `<span class="sw sw-accent"></span>`)
-        : `<span class="sw" style="background:${p.color}"></span>`;
+        : p.color === TINT_PRESET_COVER
+          ? `<span class="sw sw-cover"></span>`
+          : `<span class="sw" style="background:${p.color}"></span>`;
       b.innerHTML = `${sw}${escHtml(p.label)}`;
       b.onclick = () => {
         sparkSetTintChoice(themeId, p.id);

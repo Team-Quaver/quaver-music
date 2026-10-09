@@ -10,9 +10,9 @@
 //   · 不声明          → off     ：主题自带强调色，宿主让位，设置页禁用「高亮颜色」整组
 //   · { mode:"host" } → host    ：宿主那四档继续生效（固定青色 / 跟随封面 / 系统强调色 / 自定义色）
 //   · { mode:"presets"} → presets：用户在主题给的方案里挑，宿主按自定义色应用选中的那套。
-//                                  方案的 color 还可以写哨兵值 "system"（TINT_PRESET_SYSTEM）=
-//                                  跟随系统强调色（Noctalia / matugen / KDE / GNOME…，探测在
-//                                  electron/accent.ts）；读不到时宿主回落第一套非哨兵方案。
+//                                  方案的 color 还可以写哨兵值："system"（TINT_PRESET_SYSTEM）=
+//                                  跟随系统强调色；"cover"（TINT_PRESET_COVER）= 跟随当前封面主色。
+//                                  哨兵读不到时宿主回落第一套非哨兵方案。
 //
 // 本文件是**纯策略 + 一点持久化**：策略解析全是纯函数（可在 node 里直接单测）；只有
 // 方案选择的读写碰 localStorage，且只在函数体内（导入本模块无副作用）。
@@ -29,6 +29,9 @@ export type SparkTintMode = "off" | "host" | "presets";
  * 取不到系统强调色时回落第一套非哨兵方案 —— 主题的方案永远有得选。
  */
 export const TINT_PRESET_SYSTEM = "system";
+
+/** 方案 color 的哨兵值：不是颜色字面量，而是「宿主从当前曲封面提取的主色」。 */
+export const TINT_PRESET_COVER = "cover";
 
 export interface SparkTintPolicy {
   mode: SparkTintMode;
@@ -51,7 +54,8 @@ export function validPresets(list: unknown): SparkleTintPreset[] {
     const p = raw as Partial<SparkleTintPreset> | null | undefined;
     if (!p || typeof p.id !== "string" || !p.id || seen.has(p.id)) continue;
     if (typeof p.label !== "string" || !p.label) continue;
-    if (typeof p.color !== "string" || (p.color !== TINT_PRESET_SYSTEM && !parseHex(p.color))) continue;
+    if (typeof p.color !== "string" ||
+        (p.color !== TINT_PRESET_SYSTEM && p.color !== TINT_PRESET_COVER && !parseHex(p.color))) continue;
     seen.add(p.id);
     out.push({ id: p.id, label: p.label, color: p.color });
   }
@@ -59,13 +63,17 @@ export function validPresets(list: unknown): SparkleTintPreset[] {
 }
 
 /**
- * 方案的 color → 实际色值（规范 6 位）。普通字面量照解析；哨兵值 "system" 换成
- * 宿主读到的系统强调色（没有 = null，调用方回落第一套非哨兵方案）。
- * 纯函数：sysHex 由渲染层从 lib/accent.ts 的缓存里同步取来传进来。
+ * 方案的 color → 实际色值（规范 6 位）。普通字面量照解析；哨兵值 "system" 换成宿主读到的
+ * 系统强调色，"cover" 换成调用方传入的封面主色。哨兵没有对应色值时返回 null，调用方回落。
+ * 纯函数：sysHex 来自 lib/accent.ts 的同步缓存；coverHex 来自封面取色结果。
  */
-export function resolvePresetColor(color: string, sysHex: string | null): string | null {
+export function resolvePresetColor(color: string, sysHex: string | null, coverHex: string | null = null): string | null {
   if (color === TINT_PRESET_SYSTEM) {
     const c = sysHex ? parseHex(sysHex) : null;
+    return c ? toHex(c) : null;
+  }
+  if (color === TINT_PRESET_COVER) {
+    const c = coverHex ? parseHex(coverHex) : null;
     return c ? toHex(c) : null;
   }
   const c = parseHex(color);

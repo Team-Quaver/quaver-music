@@ -55,6 +55,18 @@ export function currentRoute() {
   return { path: path === "" ? "/" : "/" + path, query: new URLSearchParams(query) };
 }
 
+/** 把侧栏歌单条目与当前路由对齐：当前打开的那个歌单挂 .active。
+ *  侧栏歌单既可能在首次路由后才由登录数据画出来，也可能因增删/收藏变化重画，
+ *  所以路由切换与每次重画后都要同步一次。 */
+function syncSidebarActive() {
+  const currentHash = location.hash || "#/";
+  document.querySelectorAll<HTMLAnchorElement>(".playlists a.pl").forEach((a) => {
+    // href 可能是插件注册的自定义路由，因此按完整 hash 对齐，而不是只认 /playlist
+    const hrefHash = new URL(a.getAttribute("href") || "", location.href).hash || "#/";
+    a.classList.toggle("active", hrefHash === currentHash);
+  });
+}
+
 let mountedCleanup: (() => void) | null = null;
 // 动作打断：每次导航自增。晚到的旧渲染（慢视图 await 恢复后）按代际号判定已被打断，
 // 丢弃结果并补跑 cleanup，绝不允许覆盖新导航的页面。
@@ -87,6 +99,7 @@ export async function renderRoute() {
     const p = a.dataset.route || "/";
     a.classList.toggle("active", p === path);
   });
+  syncSidebarActive();
   mountedCleanup?.();
   mountedCleanup = null;
 
@@ -390,6 +403,7 @@ function renderSidebarPlaylists(box: HTMLElement) {
       box.append(a);
     }
   }
+  syncSidebarActive();
 }
 
 /** 侧栏歌单区重画（Sparkle 注册/反注册歌单组时调用）。登录前不重画（保持占位样式） */

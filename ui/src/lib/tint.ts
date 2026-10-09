@@ -11,8 +11,8 @@
 //   主题没声明 tint   → 主题自带强调色：本模块**让位**（清掉内联变量，回落 :root 的 --acc/--cyan）
 //   主题 tint=host    → 上面那四档照常
 //   主题 tint=presets → 用主题给的方案（用户在设置页挑，选择存在 localStorage）；
-//                       方案的 color 还可以写哨兵值 "system" = 跟随系统强调色（读不到时回落
-//                       第一套非哨兵方案，都没有则无色 —— 主题自己的强调色显出来）
+//                       方案的 color 还可以写哨兵值 "system"（跟随系统强调色）或
+//                       "cover"（跟随当前封面主色）；读不到时回落第一套非哨兵方案
 // 让位是必须的：这几个变量是行内样式，会压过主题的 html[data-sparkle-theme=…] 规则。
 //
 // 本模块是**全应用唯一的染色来源**，一次写两套变量（都由同一个源色派生）：
@@ -32,13 +32,16 @@ import { getTintColor, getTintMode, TINT_DEFAULT_COLOR } from "./prefs";
 import { currentAccent, watchAccent } from "./accent";
 import { player } from "../player";
 import { onSparkleChange, sparkleActiveTheme } from "../sparkle/registry";
-import { pickPreset, resolvePresetColor, sparkTintChoice, tintPolicyOf } from "../sparkle/theme-tint";
+import { TINT_PRESET_COVER, TINT_PRESET_SYSTEM, pickPreset, resolvePresetColor, sparkTintChoice, tintPolicyOf } from "../sparkle/theme-tint";
 
 /** 封面取图尺寸：染色只取色彩倾向，300px 足够（与背景层、播放条同口径，CDN 缓存也共用）。 */
 const COVER_SIZE = 300;
 
 /** 封面档当前生效的图源：同曲重复触发不重取（extractCoverColor 有缓存，这是省一层 promise）。 */
 let coverPic = "";
+/** 当前封面色属于哪条策略：host=用户四档里的封面档；preset=主题方案的 "cover" 哨兵档。
+ *  同一张封面从一条策略切到另一条时也要重画（只比对图源会漏掉这次切换）。 */
+let coverSource: "host" | "preset" | "" = "";
 
 /** 系统强调色的轮询句柄：只在「用得上它」的时候开（档位或方案切走就停，不养常驻定时器）。 */
 let accentStop: (() => void) | null = null;
@@ -84,25 +87,52 @@ export function applyTint() {
   // 而主题一般已经覆盖了 --acc/--cyan —— 高亮色于是自然跟着主题走。
   if (policy.mode === "off") {
     coverPic = "";
+    coverSource = "";
     syncAccentWatch(false);
     paint(null);
     return;
   }
   // 主题自带方案：用用户挑好的那套（没挑过 = 第一个）。
-  // 方案的 color 可以是哨兵值 "system" = 系统强调色（读不到时回落第一套非哨兵方案）。
+  // 方案的 color 可以是哨兵值："system" = 系统强调色，"cover" = 当前封面主色。
   if (policy.mode === "presets") {
-    coverPic = "";
     const chosen = pickPreset(policy.presets, sparkTintChoice(policy.themeId));
+
+    // 封面哨兵和宿主封面档一样要异步取色；不落入下面的静态方案分支，否则每次都会清掉在途请求。
+    if (chosen?.color === TINT_PRESET_COVER) {
+      syncAccentWatch(false);
+      const pic = player.current ? coverUrl(player.current, COVER_SIZE) : "";
+      if (!pic) {
+        // 没在播时明确回到无色，不沿用上一档/上一曲的颜色。
+        coverPic = "";
+        coverSource = "";
+        paint(null);
+        return;
+      }
+      if (pic === coverPic && coverSource === "preset") return; // 同一图源且策略未变：空转
+      coverPic = pic;
+      coverSource = "preset";
+      void extractCoverColor(pic).then((rgb) => {
+        // 取色在途时主题 / 方案可能已切换；回调按当时的选中项复检，防止旧图源抢写颜色。
+        const now = tintPolicyOf(activeSparkTheme());
+        if (now.mode !== "presets") return;
+        const nowChosen = pickPreset(now.presets, sparkTintChoice(now.themeId));
+        if (coverPic === pic && coverSource === "preset" && nowChosen?.color === TINT_PRESET_COVER) paint(rgb);
+      });
+      return;
+    }
+
+    coverPic = "";
+    coverSource = "";
     const hex = chosen ? resolvePresetColor(chosen.color, currentAccent()?.color ?? null) : null;
     // 哨兵方案要开着轮询（读到了会重算）；纯色方案用不上系统强调色，顺手停表。
-    syncAccentWatch(chosen?.color === "system");
+    syncAccentWatch(chosen?.color === TINT_PRESET_SYSTEM);
     if (hex) {
       paint(parseHex(hex));
       return;
     }
     // 读不到系统色（或方案色非法，validPresets 已挡了一道，这是双保险）：回落第一套非哨兵方案；
     // 一套都没有 = 无色（--cvg-accent 回落 :root，主题自己的强调色显出来）。
-    const fb = policy.presets.find((p) => p.color !== "system");
+    const fb = policy.presets.find((p) => p.color !== TINT_PRESET_SYSTEM && p.color !== TINT_PRESET_COVER);
     paint(fb ? parseHex(fb.color) : null);
     return;
   }
@@ -112,6 +142,7 @@ export function applyTint() {
 
   if (mode !== "cover") {
     coverPic = ""; // 离开封面档：作废在途取色（下面的回调还会复检一次档位）
+    coverSource = "";
     if (mode === "system") {
       // 系统强调色：同步读缓存（第一次要等 /api/accent 回来，期间先用默认青色顶着，
       // watchAccent 的回调会在值到达时重算一次）。读不到也回落默认青色 —— 不能停在上一档的颜色上。
@@ -132,11 +163,12 @@ export function applyTint() {
     paint(null);
     return;
   }
-  if (pic === coverPic) return; // 同一张封面：已应用过，空转
+  if (pic === coverPic && coverSource === "host") return; // 同一图源且策略未变：空转
   coverPic = pic;
+  coverSource = "host";
   // extractCoverColor 有 url 缓存，与背景层各取一份不重复请求网络
   void extractCoverColor(pic).then((rgb) => {
-    if (coverPic === pic && getTintMode() === "cover" && tintPolicyOf(activeSparkTheme()).mode === "host") paint(rgb);
+    if (coverPic === pic && coverSource === "host" && getTintMode() === "cover" && tintPolicyOf(activeSparkTheme()).mode === "host") paint(rgb);
   });
 }
 

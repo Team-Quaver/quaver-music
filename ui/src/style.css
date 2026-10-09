@@ -40,7 +40,8 @@ html[data-theme="dark"] {
 /* ===================== 浮层菜单的玻璃（唯一来源：data-menu-glass） =====================
    消费方（七处，一处定义）：.ctx-menu（侧栏歌单 / 歌曲右键菜单）、.pb-qpop（音质）、
    .pb-lpop（播放模式）、.pb-volpop（音量）、.np-menu（正在播放页「更多操作」）、
-   .np-qinfo（音频流信息）、.tint-pop（设置页颜色选择器）。
+   .np-qinfo（音频流信息）、.tint-pop（设置页颜色选择器）；模态弹窗 .upd-dialog
+   （更新 / 本地插件 / 插件设置）也吃同一组令牌，随这棵开关与主题接管一起走。
 
    这也解释了「菜单看起来完全没有模糊」的四个叠加成因（按重要性排）：
      ① **[已修，最致命] 压缩器把无前缀的 backdrop-filter 吃掉了** —— 见下面那段 ⚠️：
@@ -258,16 +259,19 @@ input:focus, textarea:focus, select:focus {
 .sep { border: 0; border-top: 1px dashed var(--sep); margin: 4px 6px; }
 
 .playlists { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; margin: 0 -4px; padding: 0 4px; }
-.pl { display: flex; gap: 9px; align-items: center; padding: 6px 7px; border-radius: 8px; min-height: 44px;
+.pl { display: flex; gap: 9px; align-items: center; padding: 4px 7px; border-radius: 8px; min-height: 40px;
   transition: background .14s, transform .1s ease,
     gap .24s cubic-bezier(.22,.61,.36,1), padding .24s cubic-bezier(.22,.61,.36,1); }
 .pl:hover { background: var(--hover); }
 .pl:active { transform: scale(.97); }
+/* 当前打开的歌单：与导航选中同一套底色；不再画左侧强调条，缩态下只靠封面 + 底色认项 */
+.pl.active { background: color-mix(in srgb, var(--cvg-glow, var(--nav-active)) 16%, var(--nav-active)); }
+.pl.active .pname { color: var(--ink); }
 .pl .thumb { width: 32px; height: 32px; flex: 0 0 auto; border-radius: 6px; background: var(--ph2); overflow: hidden; }
 .pl .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 /* 歌单名同理走 max-width（初值 200px 比展开态的可用宽大，不会截内容） */
-.pname { min-width: 0; max-width: 200px; overflow: hidden; display: flex; flex-direction: column; gap: 1px; font-size: 13px; color: var(--ink3); }
-.pl .ptitle, .pl .psub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pname { min-width: 0; max-width: 200px; overflow: hidden; display: flex; flex-direction: column; gap: 0; font-size: 13px; color: var(--ink3); }
+.pl .ptitle, .pl .psub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.18; }
 .pl .psub { font-size: 11px; color: var(--idx); }
 .pl-empty { color: var(--idx); font-size: 12px; padding: 8px; }
 /* 侧栏歌单分组标题（我创建的歌单 / 收藏的歌单）：随列表滚动，只作分区不吸顶 */
@@ -1260,6 +1264,13 @@ html[data-theme="dark"] .vip-card .is-expired { color: #e66; }
 /* 「系统强调色」的占位色块（高亮颜色第四档、主题方案的 color:"system" 哨兵）：
    读到系统色时它带行内真色，读不到时用这道斜纹表示「跟随系统」，而不是某个具体色值。 */
 .sw-accent { background: repeating-linear-gradient(45deg, #0000 0 3px, currentColor 3px 6px); color: var(--ink2); }
+/* 主题 Tint 方案的「封面颜色」哨兵：不是固定色，用双色棋纹表示取自当前封面。 */
+.sw-cover {
+  background:
+    conic-gradient(from 135deg, currentColor 0 25%, #0000 0 50%, currentColor 0 75%, #0000 0);
+  color: var(--cvg-accent, var(--cyan));
+  opacity: .78;
+}
 .opt-card.q { padding: 8px 14px; border-radius: 999px; font-size: 13px; }
 .opt-card.q .q-lock { font-size: 10px; color: #ff8a3c; font-style: normal; }
 #quality-grid { max-width: 452px; } /* 约束为 4+3 换行（对齐设计稿） */
@@ -1524,12 +1535,13 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 .set-view .set-about { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 32px 0; }
 
 /* ===================== 浮层菜单的玻璃（共享规则） =====================
-   七处菜单的底片 / 描边 / 模糊 / 内高光只在这一条里定义：改玻璃观感只动文件顶部那几个
+   七处菜单 + 三个模态弹窗（更新/本地插件/插件设置，共用 .upd-dialog）的底片 / 描边 /
+   模糊 / 内高光只在这一条里定义：改玻璃观感只动文件顶部那几个
    --menu-* 令牌。各菜单自己的规则从此只管定位 / 尺寸 / 开合动画 —— 不再各写一份
    `background + border + box-shadow + backdrop-filter`（改造前是七份，且不透明度各不同，
    所以才会出现「有的菜单看着糊、有的看着是实心」）。
    模糊只写无前缀的 backdrop-filter —— 别补 -webkit-，原因见文件顶部那段。 */
-.ctx-menu, .pb-qpop, .pb-lpop, .pb-volpop, .tint-pop, .np-menu, .np-qinfo {
+.ctx-menu, .pb-qpop, .pb-lpop, .pb-volpop, .tint-pop, .np-menu, .np-qinfo, .upd-dialog {
   background: var(--menu-surface);
   border: 1px solid var(--menu-line);
   box-shadow: var(--menu-shadow), inset 0 1px 0 var(--menu-edge);
@@ -1773,9 +1785,11 @@ html[data-sparkle-scheme="dark"] { color-scheme: dark; }
 .upd-dialog {
   width: min(580px, 92vw); max-height: 82vh;
   display: flex; flex-direction: column;
-  background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+  border-radius: 16px;
   padding: 18px 20px 14px;
-  box-shadow: 0 18px 60px rgb(0 0 0 / .35);
+  /* 底片 / 描边 / 模糊来自上方共享玻璃规则（随 MenuBlur 三态与主题接管走）；
+     模态比浮层菜单更深一层投影，另保留玻璃上缘内高光 */
+  box-shadow: 0 18px 60px rgb(0 0 0 / .35), inset 0 1px 0 var(--menu-edge);
 }
 .upd-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
 .upd-head h3 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 8px; }
@@ -1783,7 +1797,10 @@ html[data-sparkle-scheme="dark"] { color-scheme: dark; }
   font-size: 11px; font-weight: 600; letter-spacing: .4px;
   padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--ink2);
 }
-.upd-badge.nightly { color: var(--acc); border-color: color-mix(in srgb, var(--acc) 45%, var(--line)); }
+.upd-badge.nightly {
+  color: var(--cvg-accent, var(--acc));
+  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 45%, var(--line));
+}
 .upd-meta { font-size: 12.5px; }
 .upd-warn { margin: 0 0 8px; font-size: 12.5px; }
 /* 换渠道弹窗的关系说明（同版号换一份构建 / 版本号回退）。回退那档标红 —— 与退出登录、
@@ -1791,7 +1808,7 @@ html[data-sparkle-scheme="dark"] { color-scheme: dark; }
 .upd-warn.upd-switch.is-risk { color: #c62828; }
 html[data-theme="dark"] .upd-warn.upd-switch.is-risk { color: #e66; }
 /* 设置页渠道说明：选中的渠道与当前构建不是一个 → 点亮，提示还差一次「检查更新」 */
-#upd-channel-note.is-switch { color: var(--acc); }
+#upd-channel-note.is-switch { color: var(--cvg-accent, var(--acc)); }
 .upd-notes {
   flex: 1; min-height: 0; overflow: auto;
   border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
@@ -1810,7 +1827,7 @@ html[data-theme="dark"] .upd-warn.upd-switch.is-risk { color: #e66; }
   padding: 8px 10px; overflow: auto; font-size: 12px;
 }
 .upd-notes pre code { background: none; padding: 0; }
-.upd-notes a { color: var(--acc); text-decoration: none; }
+.upd-notes a { color: var(--cvg-accent, var(--acc)); text-decoration: none; }
 .upd-notes a:hover { text-decoration: underline; }
 .upd-bar { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; }
 .upd-bar i {
@@ -1819,7 +1836,7 @@ html[data-theme="dark"] .upd-warn.upd-switch.is-risk { color: #e66; }
 }
 .upd-bar i::after {
   content: ""; position: absolute; inset: 0 auto 0 0; width: var(--w, 0%);
-  background: var(--acc); border-radius: 99px; transition: width .2s ease;
+  background: var(--cvg-accent, var(--acc)); border-radius: 99px; transition: width .2s ease;
 }
 .upd-bar span { font-size: 12px; white-space: nowrap; }
 .upd-foot { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
@@ -1829,7 +1846,7 @@ html[data-theme="dark"] .upd-warn.upd-switch.is-risk { color: #e66; }
 .upd-managers .ghost-btn { padding: 6px 10px; font-size: 12px; }
 .upd-primary {
   padding: 8px 18px; border-radius: 9px; border: 1px solid transparent;
-  background: var(--acc); color: #fff; cursor: pointer; font-weight: 600;
+  background: var(--cvg-accent, var(--acc)); color: #fff; cursor: pointer; font-weight: 600;
 }
 .upd-primary:hover { filter: brightness(1.08); }
 .upd-notes img { max-width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); }
@@ -1855,11 +1872,16 @@ html[data-theme="dark"] .upd-warn.upd-switch.is-risk { color: #e66; }
 }
 
 /* —— 本地插件警告弹窗（components/LocalPluginDialog.ts）——
-   层与开闭动画整套复用上面的 .upd-*（含 .leaving 门闩），只有外观换成红色渐变警示：
-   自持深红底 + 浅字，明暗两态下都可读，不随主题变量走（危险语义不参与换肤）。 */
+   层与开闭动画整套复用上面的 .upd-*（含 .leaving 门闩），外观 = 红色警示 + 同一套玻璃：
+   半透明深红渐变底片顺着共享规则的 backdrop 模糊走，与普通弹窗同一套玻璃语言；
+   色相仍是自持深红 + 浅字，不随主题变量走（危险语义不参与换肤）。
+   关掉毛玻璃（MenuBlur off）时退回实底 —— 半透明红压不住底下内容。 */
 .upd-dialog.danger {
-  background: linear-gradient(160deg, #5a1015 0%, #2b0609 52%, #47101a 100%);
+  background: linear-gradient(160deg, rgb(90 16 21 / .84) 0%, rgb(43 6 9 / .82) 52%, rgb(71 16 26 / .84) 100%);
   border-color: rgb(229 72 77 / .45);
+}
+html[data-menu-glass="off"] .upd-dialog.danger {
+  background: linear-gradient(160deg, #5a1015 0%, #2b0609 52%, #47101a 100%);
 }
 .upd-dialog.danger h3 { color: #ffe9e9; }
 .upd-dialog.danger .upd-badge.danger { color: #ff9b9e; border-color: rgb(255 155 158 / .5); }
