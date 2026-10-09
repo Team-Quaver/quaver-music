@@ -671,6 +671,25 @@ function albumCardsHtml(albums: AlbumBrief[]): string {
   }).join("");
 }
 
+// 歌手专辑接口的返回顺序不是发行时间顺序，且单页最多返回 30 张；必须分页拉全后再排序。
+async function fetchSingerAlbums(mid: string, pageSize = 30): Promise<SingerAlbumsResp | null> {
+  const albums: AlbumBrief[] = [];
+  let total = 0;
+  try {
+    for (let page = 1; ; page++) {
+      const d = (await api<SingerAlbumsResp>(`/singer/${encodeURIComponent(mid)}/albums?num=${pageSize}&page=${page}`)) ?? {};
+      const batch = d.album_list ?? [];
+      albums.push(...batch);
+      if (typeof d.total === "number") total = d.total;
+      // total 缺失或为 0 时继续请求，直到接口返回空页，避免漏掉后续专辑。
+      if (!batch.length || (total > 0 && albums.length >= total)) break;
+    }
+  } catch {
+    if (!albums.length) return null;
+  }
+  return { album_list: albums, total: total || albums.length };
+}
+
 // —— 歌手页（点击行内歌手跳转的落点）：信息头 + 分类标签（热歌 / 新歌 / 专辑） ——
 // 三块内容一次性并拉，标签只决定「显示哪一块」：切换不重新请求、不重置 .route 滚动位置。
 // 默认落在「热歌」。信息头仍与歌单/专辑页同一套（左图右文、上对齐）。
@@ -692,7 +711,7 @@ async function singerView(root: HTMLElement, q: URLSearchParams) {
     api<SingerDescResp>(`/singer/${encodeURIComponent(mid)}/desc`).catch(() => null),
     api<SingerSongsResp>(`/singer/${encodeURIComponent(mid)}/songs?num=50&page=1&order=1`).catch(() => null),
     api<SingerSongsResp>(`/singer/${encodeURIComponent(mid)}/songs?num=30&page=1&order=2`).catch(() => null),
-    api<SingerAlbumsResp>(`/singer/${encodeURIComponent(mid)}/albums?num=30`).catch(() => null),
+    fetchSingerAlbums(mid),
   ]);
   root.innerHTML = "";
 
@@ -779,20 +798,10 @@ async function singerAlbumsView(root: HTMLElement, q: URLSearchParams) {
   const name = q.get("name") || "歌手";
   root.append(h("div", "rows", `<div class="muted">加载中…</div>`));
   if (!mid) { root.querySelector<HTMLElement>(".rows")!.innerHTML = `<div class="muted">缺少歌手 mid</div>`; return; }
-  // 分页拉全：上游单页封顶 30（num 再大也只回 30），循环条件按 total + 空批兜底
-  const albums: AlbumBrief[] = [];
-  let total = 0;
-  try {
-    for (let page = 1; ; page++) {
-      const d = (await api<SingerAlbumsResp>(`/singer/${encodeURIComponent(mid)}/albums?num=30&page=${page}`)) ?? {};
-      const batch = d.album_list ?? [];
-      albums.push(...batch);
-      total = d.total ?? 0;
-      if (!batch.length || albums.length >= total) break;
-    }
-  } catch (e) {
-    if (!albums.length) { root.innerHTML = ""; root.append(h("div", "rows muted", `加载失败：${errText(e)}`)); return; }
-  }
+  const albumData = await fetchSingerAlbums(mid);
+  const albums = albumData?.album_list ?? [];
+  const total = albumData?.total ?? albums.length;
+  if (!albumData) { root.innerHTML = ""; root.append(h("div", "rows muted", "加载失败：无法获取专辑列表")); return; }
   root.innerHTML = "";
   const avatar = `https://y.gtimg.cn/music/photo_new/T001R300x300M000${mid}.jpg`;
   mountHead(root, {
