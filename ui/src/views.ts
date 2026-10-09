@@ -93,6 +93,12 @@ interface AlbumBrief {
 }
 interface AlbumDetailResp { album?: AlbumBrief; singers?: { name?: string }[] }
 interface AlbumSongsResp { song_list?: Song[]; total_num?: number }
+
+/** 后端已按上游 index_album 归一化为专辑曲序；页面只复制数组，不按歌名/歌手等字段重排。 */
+function albumSongsInSourceOrder(list: AlbumSongsResp | null): Song[] {
+  return list?.song_list ? [...list.song_list] : [];
+}
+
 interface SingerInfoResp { base_info?: { name?: string; avatar?: string } }
 interface SingerDescResp { name?: string; pic?: string; foreign_name?: string; area?: string; birthday?: string; desc?: string }
 interface SingerSongsResp { song_list?: Song[]; total_num?: number }

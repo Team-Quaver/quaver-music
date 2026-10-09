@@ -2,7 +2,6 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/vendor/QQMusicApi" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/vendor/Sparkle" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/vendor/Typhoeus" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/vendor/Typhoeus-go" vcs="Git" />
