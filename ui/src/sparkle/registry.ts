@@ -29,7 +29,15 @@ interface SparklePlaylistMenuCtx {
   kind: "created" | "fav" | "virtual";
   songnum: number;
 }
-interface SparkleNpMenuCtx { song: unknown | null }
+interface SparkleNpMenuCtx {
+  song: {
+    mid: string;
+    name: string;
+    singer?: { name: string; mid?: string }[];
+    album?: { name?: string; mid?: string; pmid?: string };
+    interval?: number;
+  } | null;
+}
 
 export interface SparklePluginRecord {
   pluginId: string;

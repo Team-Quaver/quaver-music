@@ -84,6 +84,11 @@ const playerFacade: SparklePlayerFacade = {
   on(cb) { return player.on(cb); },
 };
 
+type SparkleContextCompat = SparkleContext & {
+  registerPlaylistMenuItem(item: Parameters<typeof sparkRegisterPlaylistMenuItem>[1]): void;
+  registerNowPlayingMenuItem(item: Parameters<typeof sparkRegisterNpMenuItem>[1]): void;
+};
+
 // —— SparkleContext 工厂 ——
 
 /**
@@ -93,14 +98,14 @@ const playerFacade: SparklePlayerFacade = {
  * 返回当前态，不抛 —— 插件常基于上一帧状态做后续判断，activate 失败不该
  * 把它的 setup 炸掉）。插件**不能**直接操作别人注入的 <style>。
  */
-function makeContext(pluginId: string): SparkleContext {
+function makeContext(pluginId: string): SparkleContextCompat {
   const log = {
     info: (...a: unknown[]) => console.info(`[sparkle:${pluginId}]`, ...a),
     warn: (...a: unknown[]) => console.warn(`[sparkle:${pluginId}]`, ...a),
     error: (...a: unknown[]) => console.error(`[sparkle:${pluginId}]`, ...a),
   };
   const pfx = `sparkle.${pluginId}.`;
-  const context = {
+  const context: SparkleContextCompat = {
     pluginId,
     registerView: (path, view) => sparkRegisterView(pluginId, path, view),
     registerNav: (item) => {
@@ -179,9 +184,7 @@ function makeContext(pluginId: string): SparkleContext {
       onChange: (cb) => onStyleChange(cb),
     },
   };
-  // 新版 SDK 的 SparkleContext 增加了两个菜单注册方法；用参数类型从注册函数推导，
-  // 这样宿主源码也能在旧版子模块检出下编译，运行时仍完整提供新版方法。
-  return context as SparkleContext;
+  return context;
 }
 
 // —— 生命周期 ——
