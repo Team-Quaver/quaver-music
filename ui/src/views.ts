@@ -185,6 +185,66 @@ function mountHead(root: HTMLElement, opts: {
   return head;
 }
 
+/** 下翻吸顶单行条：信息头滚出视口后，封面/头像 + 标题缩成一行固定在内容区顶部；
+ *  右侧槽给页面的常驻控件（歌单页搜索/排序、歌手页分类标签）—— 控件跟着条一起吸顶。
+ *  条本身 position:sticky 常驻在信息头与内容之间（占位即原工具条/标签行），布局无跳动；
+ *  未吸顶时左侧缩略信息隐藏（不与大信息头重复），吸顶后浮现。 */
+function mountStickyBar(root: HTMLElement, opts: { artHtml?: string; round?: boolean; name?: string } = {}) {
+  const bar = h("div", "sticky-bar");
+  if (opts.name || opts.artHtml) {
+    bar.innerHTML = `
+      <div class="sticky-bar__lead">
+        ${opts.artHtml ? `<div class="sticky-bar__art${opts.round ? " round" : ""}">${opts.artHtml}</div>` : ""}
+        <span class="sticky-bar__name">${escHtml(opts.name ?? "")}</span>
+      </div>`;
+  }
+  const right = h("div", "sticky-bar__right");
+  bar.append(right);
+  root.append(bar);
+  return { bar, right, off: trackStuck(bar, routeScroller(root)) };
+}
+
+/** 吸顶头下缘化开带的高度（与 style.css 的 .sticky-bar/.sticky-head::after 一致） */
+const STICKY_FADE = 22;
+
+/** 视图所在滚动容器（`.route`）；拿不到时退回自身 */
+const routeScroller = (root: HTMLElement) => root.closest<HTMLElement>(".route") ?? root;
+
+/**
+ * 吸顶状态跟踪：贴住滚动容器顶缘 → 元素加 `.stuck`，并把吸顶头高度写到 `.content-body`
+ * 的 `--stuck-h`（供其 ::before 在滚动条槽下补一条同色底；滚动条占 10px 布局且画在滚动
+ * 内容之上，吸顶条自己够不到那条缝）。
+ * 判定基准必须是**滚动容器顶缘**：`.route` 的顶不在视口 0。早期写成 `rect.top <= 0`
+ * 导致 `.stuck` 永不生效（没有雾层、也不浮现缩略信息）。
+ * 返回退订函数（路由切换时由 renderRoute 调）。
+ */
+function trackStuck(el: HTMLElement, scroller: HTMLElement) {
+  const host = el.closest<HTMLElement>(".content-body") ?? el.closest<HTMLElement>(".content") ?? el;
+  let raf = 0;
+  const sync = () => {
+    raf = 0;
+    const stuck = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top <= 1;
+    el.classList.toggle("stuck", stuck);
+    // +STICKY_FADE：吸顶头下缘还有 22px 的化开带（CSS .sticky-*::after），
+    // 补条要一起铺到那儿并同样化开，滚动条槽才不会在化开带处出现硬边。
+    host.style.setProperty("--stuck-h", stuck ? `${Math.round(el.getBoundingClientRect().height) + STICKY_FADE}px` : "0px");
+  };
+  const onScroll = () => {
+    if (raf) return;
+    raf = requestAnimationFrame(sync);
+  };
+  scroller.addEventListener("scroll", onScroll, { passive: true });
+  window.addEventListener("resize", onScroll);
+  sync();
+  return () => {
+    scroller.removeEventListener("scroll", onScroll);
+    window.removeEventListener("resize", onScroll);
+    if (raf) cancelAnimationFrame(raf);
+    el.classList.remove("stuck");
+    host.style.removeProperty("--stuck-h");
+  };
+}
+
 // —— 首页：大标题 + 推荐歌单卡片网格（官方推荐 CGI，无需登录态） ——
 // 上游歌单简介夹带 <br> 等展示标记；首页精选只取纯文本，避免把接口 HTML 带进页面。
 const plainText = (s: unknown) => String(s ?? "")
@@ -267,9 +327,11 @@ function homeStatus(box: HTMLElement, title: string, note: string, retry?: () =>
 // —— 首页：页头 + 双栏领区（今日精选 / 新歌速递）+ 发丝线分隔的推荐网格 ——
 // 两个数据源并行、独立降级：任一失败不影响另一块，各自原地给重试。
 async function homeView(root: HTMLElement) {
-  root.append(h("div", "home-pagehead", `
+  const homeHead = h("div", "sticky-head home-pagehead", `
     <h1 class="page-title">首页</h1>
-    <p class="muted">从歌单和新歌开始，开启今日</p>`));
+    <p class="muted">从歌单和新歌开始，开启今日</p>`);
+  root.append(homeHead);
+  const offHead = trackStuck(homeHead, routeScroller(root));
 
   const lead = h("div", "home-lead");
 
@@ -381,6 +443,7 @@ async function homeView(root: HTMLElement) {
   };
 
   await Promise.all([loadPlaylists(), loadNewSongs()]);
+  return offHead; // 吸顶跟踪退订交给 renderRoute
 }
 
 // —— 歌单页收藏按钮（在线收藏写接口：PlaylistFavWrite Fav/CancelFavPlaylist） ——
@@ -479,6 +542,10 @@ async function playlistView(root: HTMLElement, q: URLSearchParams) {
     }, cleanups).catch(() => null),
   });
 
+  // 吸顶单行条：小封面 + 标题在左，工具条（搜索/排序）由下方挪进条内右侧 —— 下翻时整体固定
+  const sticky = mountStickyBar(root, { artHtml: logo ? `<img src="${logo}" alt=""/>` : "", name: info?.title ?? name });
+  cleanups.push(sticky.off);
+
   const rows = h("div", "rows");
   if (!all.length) {
     root.append(rows);
@@ -497,7 +564,8 @@ async function playlistView(root: HTMLElement, q: URLSearchParams) {
       player.markActive(); // 重排后当前曲可能换了行位置
     },
   });
-  root.append(tools.el, rows);
+  sticky.right.append(tools.el); // 工具条住进吸顶条右侧（搜索/排序下翻常驻）
+  root.append(rows);
   // 右键菜单的「从歌单删除」只给自有歌单（写接口要 dirid，读详情用 disstid —— 两者不同源）
   const metaEl = head.querySelector<HTMLElement>(".pl-meta");
   const myId = await getMyMusicid().catch(() => null);
@@ -637,6 +705,9 @@ async function singerView(root: HTMLElement, q: URLSearchParams) {
     desc: detail?.desc || "",
   });
 
+  // 吸顶单行条：小头像 + 歌手名在左，分类标签（热歌/新歌/专辑）挪进条内右侧 —— 下翻时整体固定
+  const sticky = mountStickyBar(root, { artHtml: `<img src="${avatar}" alt=""/>`, round: true, name: displayName });
+
   const songs: Song[] = songData?.song_list ?? [];
   const hotKeys = new Set(songs.map((s) => s.mid));
   // 最新发布（order=2 按发行时间倒序）：与热门同列风格，去掉与热门完全重合的条目
@@ -649,7 +720,8 @@ async function singerView(root: HTMLElement, q: URLSearchParams) {
     (t) => `<button class="tag" type="button" data-tab="${t.key}">${t.label}</button>`,
   ).join("");
   const body = h("div", "tag-body");
-  root.append(tabs, body);
+  sticky.right.append(tabs); // 标签栏住进吸顶条右侧
+  root.append(body);
 
   const songPanel = (list: Song[], empty: string) => {
     const p = h("div", "tag-panel");
@@ -689,6 +761,7 @@ async function singerView(root: HTMLElement, q: URLSearchParams) {
     select(b.dataset.tab!);
   }));
   select("hot");
+  return () => sticky.off(); // 滚动监听退订交给 renderRoute
 }
 
 // —— 歌手全部专辑页：信息头复用歌手页样式 + 全部分页拉取专辑网格 ——
@@ -763,12 +836,15 @@ async function albumView(root: HTMLElement, q: URLSearchParams) {
 
 // —— 列表页公共壳 ——
 function listPage(root: HTMLElement, title: string, note?: string) {
-  root.append(h("h1", "page-title", title));
-  if (note) root.append(h("p", "muted page-note", note));
+  const head = h("div", "sticky-head"); // 标题（+副题）吸顶：下翻时固定在内容区顶部
+  head.append(h("h1", "page-title", title));
+  if (note) head.append(h("p", "muted page-note", note));
+  root.append(head);
+  const offHead = trackStuck(head, routeScroller(root)); // --stuck-h 随之更新
   const rows = h("div", "rows", `<div class="muted">加载中…</div>`);
   rows.id = "rows";
   root.append(rows);
-  return rows;
+  return { rows, off: offHead };
 }
 
 /**
@@ -781,7 +857,7 @@ function listPage(root: HTMLElement, title: string, note?: string) {
  * 取新批次**先攒在临时数组里、成了才整体换上**：换批失败时手上这批还在，不会一片空白。
  */
 async function guessView(root: HTMLElement) {
-  const box = listPage(root, "猜你喜欢", "你的品味，懂你意思");
+  const { rows: box, off: offHead } = listPage(root, "猜你喜欢", "你的品味，懂你意思");
   // 换一批：页头下方、右侧对齐（与列表工具条同一版式语言）
   const bar = h("div", "guess-bar");
   const btn = document.createElement("button");
@@ -835,6 +911,7 @@ async function guessView(root: HTMLElement) {
 
   btn.addEventListener("click", () => void load());
   await load();
+  return offHead; // 吸顶跟踪退订
 }
 
 async function dailyView(root: HTMLElement) {
@@ -842,7 +919,7 @@ async function dailyView(root: HTMLElement) {
   // 每天由服务端重生成 30 首，disstid 每天都变 —— 所以后端按 dirid 取（见 /recommend/daily），
   // 前端只管拿详情，结构与普通歌单完全一致（info/songs/total/hasmore）。
   // 以前这页是假的：拿「我喜欢」按日期种子随机凑 30 首（官方接口未开放时的占位），现已接真接口。
-  const box = listPage(root, "每日 30 首", "QQ 音乐「每日30首」：每天按你的口味重算 30 首");
+  const { rows: box, off: offHead } = listPage(root, "每日 30 首", "QQ 音乐「每日30首」：每天按你的口味重算 30 首");
   const note = root.querySelector<HTMLElement>(".page-note");
   try {
     const d = (await api<DailyResp>("/recommend/daily?page=1&num=100")) ?? {}; // 30 首一把拿全，不用翻页
@@ -858,15 +935,19 @@ async function dailyView(root: HTMLElement) {
   } catch (e) {
     box.innerHTML = `<div class="muted">${errText(e)} — 需要先登录</div>`;
   }
+  return offHead; // 吸顶跟踪退订
 }
 
 /** 两次预载列表是否同一批曲（同序同 mid）：一样就不重画，避免打断滚动 */
 const sameMids = (a: Song[], b: Song[]) => a.length === b.length && a.every((x, i) => x.mid === b[i]?.mid);
 
 async function likedView(root: HTMLElement) {
-  root.append(h("h1", "page-title", "我喜欢 "));
+  const head = h("div", "sticky-head"); // 标题吸顶：下翻时固定在内容区顶部
+  head.append(h("h1", "page-title", "我喜欢 "));
   const cnt = h("span", "muted cnt");
-  root.querySelector("h1")!.append(cnt);
+  head.querySelector("h1")!.append(cnt);
+  root.append(head);
+  const offHead = trackStuck(head, routeScroller(root));
   const box = h("div", "rows", `<div class="muted">加载中…</div>`);
 
   let items: Song[] = []; // 原序 = 收藏顺序（服务端返回的顺序），工具条只读它
@@ -939,6 +1020,7 @@ async function likedView(root: HTMLElement) {
   const ok = await player.loadLoved();
   if (!ok) {
     offList();
+    offHead();
     if (!cached) {
       tools.el.remove(); // 拉不到就别摆一排没用的控件
       box.innerHTML = `<div class="muted">加载失败 — 需要先登录</div>`;
@@ -948,7 +1030,7 @@ async function likedView(root: HTMLElement) {
   const fresh: Song[] = player.likedCache ?? [];
   if (!sameMids(painted, fresh)) adopt(fresh);
   player.syncLovedSoon(); // 进页顺带一次小窗对账：TTL 内不整单重载也能纠漂移
-  return () => offList();
+  return () => { offList(); offHead(); };
 }
 
 // —— 设置页（对齐设计稿：外观设置 / 播放设置 / 调试 三区；不触碰侧栏与播放条） ——
@@ -959,6 +1041,7 @@ async function settingsView(root: HTMLElement) {
   const decodeRow = (name: string, label: string, disabled = false) =>
     `<label><input type="radio" name="decode" value="${name}"${disabled ? " disabled" : ""}/>${label}${disabled ? ` <span class="muted soon">敬请期待</span>` : ""}</label>`;
 
+  root.classList.add("settings-page"); // 让设置页内部自己滚动（见 style.css 的 .settings-page）
   root.append(h("h1", "page-title", "设置"));
   // 分区标签：只切显隐，不重渲染（各面板绑定一次常驻有效）
   const tabs = h("div", "set-tabs", `

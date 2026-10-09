@@ -360,6 +360,7 @@ body.side-collapsed .side-resizer { display: none; }
     color-mix(in srgb, var(--panel) 55%, transparent) 45%,
     transparent 100%);
   border-radius: 14px 14px 0 0; pointer-events: none;
+  transition: opacity .18s ease;
 }
 /* 内容区顶带：常驻搜索框所在的独立一行（不再与页面标题同带浮层）。
    顶带本身就是 CSD 按钮簇所在的水平区间——右缘永远为其预留避让位（SSD 下不预留），
@@ -369,6 +370,7 @@ body.side-collapsed .side-resizer { display: none; }
    只是当条带可用宽 < 搜索框宽+簇宽 时（极窄窗）才会被幽灵项推开，届时装不下的将是胶囊本身（可接受）。 */
 .content-top {
   flex: 0 0 auto; position: relative; display: flex; align-items: center; min-height: 42px; padding: 6px 24px 4px;
+  transition: background-color .18s ease;
 }
 /* CSD 顶带拖拽：把手是顶带内的**独立层** .top-drag，而不是 .content-top 整块。
    原因：drag 矩形会吞掉落在其下的所有指针事件，而 no-drag 的豁免只在**同一子树内**成立——
@@ -390,8 +392,24 @@ body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-b
 /* 路由视图区：renderRoute 只重建这里，搜索框（顶带流内）不受影响。
    .content-body = route 与停靠态队列面板的横向 flex 容器：面板停靠时 route 让宽，
    面板不挂载（浮窗态/关闭）时 route 独占整行 —— 主页/搜索/歌手页随宽度整体缩放。 */
-.content-body { flex: 1; min-height: 0; display: flex; min-width: 0; }
-.route { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 6px 24px 20px; }
+.content-body { flex: 1; min-height: 0; display: flex; min-width: 0; position: relative; }
+/* 滚动条槽下的吸顶补条：滚动条占 10px 布局、且画在滚动内容之上，吸顶条自己最多铺到
+   .route 的 padding box（右边差一条 10px 的竖缝，露的是内容卡底色 —— 回顶时拇指又正好在
+   最上端，看着像"被滚动条切了一刀"）。这一层挂在滚动容器**外面**（.content-body），
+   铺满整宽、只覆盖吸顶头的垂直范围，于是滚动条槽下面也是吸顶头的颜色。
+   高度由 JS 写 --stuck-h（= 当前吸顶头高度 + 22px 化开带；未吸顶时为 0）；底缘那 22px
+   化开，与吸顶头自己的下缘化开带对齐。z-index:-1：在内容卡底色之上、路线内容之下
+   （行是透明的，所以高度必须严格等于吸顶头范围才不露色）。 */
+.content-body::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; z-index: -1; pointer-events: none;
+  height: var(--stuck-h, 0px);
+  background: linear-gradient(to bottom,
+    var(--sticky-veil) calc(100% - 22px),
+    transparent 100%);
+}
+.route { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; --route-pad-top: 6px; padding: var(--route-pad-top) 24px 20px;
+  /* 滚动槽常驻：列表从"不滚"变"可滚"时，吸顶头与条内控件不会左右跳一下 */
+  scrollbar-gutter: stable; }
 /* ContentView 进入动画：只让视图容器的直接子元素淡入上移，容器本身保持稳定 ——
    滚动位置 / 容器背景不闪，避免「整个 ContentView 刷新」的观感。entering class 常驻
    在本次导航的视图 host（.route > .entering，renderRoute 每次导航换新发放）上，
@@ -582,6 +600,87 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 .sec-row .sec-title { margin: 0; }
 .sec-more { font-size: 12.5px; color: var(--ink2); text-decoration: none; white-space: nowrap; }
 .sec-more:hover { color: var(--cvg-accent, var(--acc)); }
+
+/* —— 下翻吸顶：单行紧凑条（歌单/歌手页）与吸顶页头（首页/每日30首/我喜欢/猜你喜欢） ——
+   条挂在 .route（滚动容器）内用 position:sticky 吸顶。底色不用平涂，而是**两层雾**：
+     ::before 盖满条身（薄雾 + 模糊，滚动内容不再透字）；
+     ::after  从条底再往下 22px 渐变到透明（底与模糊一起衰减），列表由雾层下缘渐入。
+   合起来就是「从上到下的模糊渐变」。只给底片做渐变是不够的（模糊不受背景透明度约束），
+   所以化开带同时打 mask，让 backdrop-filter 的结果一起衰减。
+   注意 backdrop-filter 每个选择器只写一次（压缩器会折叠重复声明，Chromium 无 -webkit- 别名，
+   见文件顶「浮层菜单的玻璃」）；mask 补 -webkit- 前缀（老 QtWebEngine 认前缀版）。 */
+:root {
+  /* 吸顶雾的厚/薄两档：实测 α≈.9 仍能看出滚动内容的灰影（白字 10% 透光就够显眼），
+     故收到 α≈.98 → .96 的上下渐变 —— 条身基本压死，只在下缘化开带留渐变。
+     颜色用 --bg 掺 --panel：既提不透明度，又保持与主题面板同色。 */
+  --sticky-veil: color-mix(in srgb, var(--bg) 96%, var(--panel));
+  --sticky-veil-soft: color-mix(in srgb, var(--bg) 88%, var(--panel));
+}
+.sticky-bar, .sticky-head {
+  /* 负 top 把停靠位上移到滚动容器上缘：sticky 的 0 点是 .route 内容盒顶（低 6px），
+     留 0 会让滚动内容从条上方那条缝里裸着滑过去（见 --route-pad-top）。 */
+  position: sticky; top: calc(-1 * var(--route-pad-top, 6px));
+  /* 负 margin-top 把**未吸顶时**的位置也提到容器上缘：只靠负 top，回顶（scrollTop=0）
+     时元素还在文档流里、那条 6px 内边距就露在顶带与头之间（实测 7px 的缝：看着就是
+     「最顶部没吸上去」）。margin 与 top 等量抵消后，回顶与吸顶两个位置都是 gap=0。 */
+  margin-top: calc(-1 * var(--route-pad-top, 6px));
+}
+.sticky-bar { z-index: 6; display: flex; align-items: center; gap: 10px; margin-right: -24px; margin-bottom: 14px; margin-left: -24px; padding: 8px 24px; }
+/* 吸顶页头（列表页标题）：占位即原标题行，下翻时贴顶，吃同一套雾层 */
+.sticky-head { z-index: 5; margin-right: -24px; margin-bottom: 14px; margin-left: -24px; padding: 8px 24px 14px; }
+/* —— 顶带（CSD 按钮簇 + 搜索框）与吸顶头「完美接壤」 ——
+   吸顶条/吸顶页头一旦贴顶，它就是内容区的第一块表面，顶带就该与它连成同一块头：
+     ① 顶带铺上与条身同色的实底（同一个 --sticky-veil）——两者同色相接，没有「玻璃带 + 实心条」
+        的色阶缝；
+     ② 撤掉顶带自带的 112px 内容渐隐（.content::before）——否则它会给吸顶头下方的列表再叠一层
+        灰雾，看起来像没盖严；渐隐交给吸顶头自己的下缘化开带。
+   未吸顶时保持原样（顶带玻璃底 + 内容渐隐）。状态从 DOM 用 :has 派生，不需要 JS 同步，
+   路由切换/渲染中断都不会残留。 */
+.content:has(.sticky-bar.stuck) .content-top,
+.content:has(.sticky-head) .content-top { background-color: var(--sticky-veil); }
+.content:has(.sticky-bar.stuck)::before,
+.content:has(.sticky-head)::before { opacity: 0; }
+
+/* 条内文字/控件抬到雾层之上（两个伪元素是 z-index:0 的底片） */
+.sticky-bar > *, .sticky-head > * { position: relative; z-index: 1; }
+.sticky-bar::before, .sticky-head::before,
+.sticky-bar::after, .sticky-head::after {
+  content: ""; position: absolute; z-index: 0; pointer-events: none;
+  backdrop-filter: blur(18px) saturate(1.35);
+}
+.sticky-bar::before, .sticky-head::before {
+  inset: 0;
+  background: linear-gradient(to bottom, var(--sticky-veil) 0%, var(--sticky-veil-soft) 100%);
+}
+.sticky-bar::after, .sticky-head::after {
+  left: 0; right: 0; top: 100%; height: 22px;
+  background: linear-gradient(to bottom,
+    var(--sticky-veil-soft) 0%,
+    color-mix(in srgb, var(--sticky-veil-soft) 42%, transparent) 55%,
+    transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
+}
+/* 未吸顶时条还在信息头下方（占位即原工具条/标签行），两层雾都收起来 */
+.sticky-bar::before, .sticky-bar::after { opacity: 0; transition: opacity .18s ease; }
+.sticky-bar.stuck::before, .sticky-bar.stuck::after { opacity: 1; }
+.sticky-bar__lead {
+  display: flex; align-items: center; gap: 9px; min-width: 0; max-width: 32%;
+  opacity: 0; transform: translateY(3px); transition: opacity .18s ease, transform .18s ease;
+}
+.sticky-bar.stuck .sticky-bar__lead { opacity: 1; transform: none; }
+.sticky-bar__art { width: 30px; height: 30px; flex: 0 0 auto; border-radius: 7px; overflow: hidden; background: var(--ph2); }
+.sticky-bar__art.round { border-radius: 50%; }
+.sticky-bar__art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sticky-bar__name { font-size: 13.5px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sticky-bar__right { margin-left: auto; min-width: 0; }
+/* 住进吸顶条后取消原工具条/标签行的独立间距，并把控件收紧到一行放得下（空间留给左侧缩略信息） */
+.sticky-bar .list-tools { margin: 0; }
+.sticky-bar .lt-search { width: clamp(120px, 18vw, 200px); }
+.sticky-bar .lt-sg { padding: 4px 10px; }
+.sticky-bar .tag-tabs { margin: 0; justify-content: flex-end; }
+.sticky-head .page-title { margin: 2px 0 0; }
+.sticky-head .page-note { margin: 0; }
 
 /* SPA 页面大标题（对齐设计稿：首页 = 超大深灰粗体） */
 .page-title { margin: 6px 0 18px; font-size: 26px; font-weight: 800; letter-spacing: .5px; color: var(--ink); }
@@ -1239,7 +1338,7 @@ html:not([data-theme="dark"]) .ghost-btn.danger:hover { background: #fdecec; bor
 html[data-theme="dark"] .vip-card .is-expired { color: #e66; }
 
 /* ===================== 设置视图（对齐设计稿：分区标题 + 选项卡组 + 单选 + 下拉） ===================== */
-.set-view { max-width: 640px; padding-bottom: 12px; }
+.set-view { width: 100%; min-width: 0; padding-bottom: 12px; }
 .set-hint { margin: 6px 0 0; font-size: 11.5px; line-height: 1.5; }
 
 /* 选项卡按钮组（外观模式 / 窗口装饰 / 默认音质共用） */
@@ -1321,9 +1420,11 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 
 /* ===================== 首页布局（页头 + 双栏领区 + 发丝线分隔的推荐网格） ===================== */
 /* 页头：标题 + 一句副标题（副标题继承 .page-title 的下边距节奏） */
-.home-pagehead { margin-bottom: 4px; }
+.home-pagehead { margin-bottom: 4px; padding-bottom: 0; }
+.home-pagehead.sticky-head { margin-bottom: 4px; padding-bottom: 12px; }
 .home-pagehead .page-title { margin-bottom: 2px; }
 .home-pagehead p { margin: 0 0 16px; font-size: 12.5px; }
+.home-pagehead.sticky-head p { margin-bottom: 0; }
 
 /* 领区双栏：内容区够宽时并排，不够则自动堆成一列 */
 .home-lead {
@@ -1391,6 +1492,23 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 .card-play:hover { background: var(--cvg-accent, var(--acc)); }
 
 /* ===================== 设置页布局（分区标签 + 发丝线分组 + 标签/控件同一行） ===================== */
+/* 设置页标题与选项卡固定：route 不再整体滚动，只有下方内容（.set-view）滚动。
+   这里借 :has 识别当前路由，无需在切走设置页时回改 #route 的类名。 */
+.route:has(> .entering.settings-page) {
+  display: flex;
+  overflow-y: hidden;
+}
+.route > .entering.settings-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.settings-page .set-view {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
 /* 分区标签：只切显隐不重渲染；下边发丝线与内容区接续 */
 .set-tabs { display: flex; align-items: center; gap: 4px; margin: 0 0 8px; border-bottom: 1px solid var(--line); }
 .set-tab {

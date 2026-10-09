@@ -104,7 +104,10 @@ ok("views: 歌单页用组件（source = 服务端原序 all）",
 ok("views: 我喜欢页也用组件（source = 收藏顺序 items）",
   re(noComments(likedView), /const tools = songListTools\(\{\s*source: \(\) => items,\s*hint: "在我喜欢内搜索"/));
 ok("views: 两页都把工具条插在列表之前（工具条在上、行在下）",
-  has(plView, "root.append(tools.el, rows)") && has(likedView, "root.append(tools.el, box)"));
+  // 歌单页：工具条住进吸顶条右侧（sticky.right 在 rows 之前 append，工具条仍在列表上方）
+  has(plView, "sticky.right.append(tools.el);") && has(plView, "root.append(rows);")
+  && plView.indexOf("sticky.right.append(tools.el);") < plView.lastIndexOf("root.append(rows);")
+  && has(likedView, "root.append(tools.el, box)"));
 ok("views: 两页都在首帧主动画一次", (views.match(/tools\.(repaint|refreshCount)\(\)/g) ?? []).length >= 2);
 ok("我喜欢: 拉不到数据（未登录）时把工具条摘掉，不摆死控件",
   re(noComments(likedView), /if \(!cached\) \{\s*tools\.el\.remove\(\);/));
