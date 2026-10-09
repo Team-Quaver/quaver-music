@@ -558,16 +558,7 @@ async function playlistView(root: HTMLElement, q: URLSearchParams) {
 
 // 专辑卡网格（歌手页「专辑」标签 / 歌手全部专辑页共用同一套卡面）
 function albumCardsHtml(albums: AlbumBrief[]): string {
-  const orderedAlbums = albums
-    .map((album, index) => ({ album, index, releaseTime: Date.parse(album.time_public?.trim() || "") }))
-    .sort((a, b) => {
-      const aTime = Number.isNaN(a.releaseTime) ? Number.NEGATIVE_INFINITY : a.releaseTime;
-      const bTime = Number.isNaN(b.releaseTime) ? Number.NEGATIVE_INFINITY : b.releaseTime;
-      return bTime - aTime || a.index - b.index;
-    })
-    .map(({ album }) => album);
-
-  return orderedAlbums.map((x) => {
+  return albums.map((x) => {
     const pm: string = x.pmid || x.mid || "";
     const cover = pm ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${pm.split("_")[0]}.jpg` : "";
     const sub = [x.album_type, x.time_public].filter(Boolean).join(" · ");
