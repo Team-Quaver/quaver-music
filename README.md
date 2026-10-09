@@ -34,7 +34,7 @@ Quaver Music，最早是为了解决 Linux 上 QQ 音乐官方客户端不好用
 #### 深浅模式/主页
 
 <p align="center">
-  <img src="img/1-2.webp" width="480">
+  <img src="img/1-4.webp" width="480">
 </p>
 
 #### 正在播放页
