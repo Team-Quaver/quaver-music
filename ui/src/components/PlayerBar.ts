@@ -337,7 +337,6 @@ export function PlayerBar(): HTMLElement {
       lastLoop = loopSig;
       const loopName = player.mode === "off" ? "顺序播放" : player.mode === "all" ? "列表循环" : "单曲循环";
       loop.innerHTML = player.shuffle ? icons.shuffle : player.mode === "off" ? icons.loopOff : player.mode === "all" ? icons.loopAll : icons.loopOne;
-      loop.classList.toggle("on", player.mode !== "off" || player.shuffle);
       // 「列表循环」与「单曲循环」的图形只差一个 9px 的「1」，光看图标分不出来 —— 把模式名挂到
       // title / aria-label 上，悬停与读屏都能确认当前处于哪一档（点按钮开菜单，四档里选一）。
       const shufNote = player.shuffle ? "随机播放 开（每日一套顺序）" : "随机播放 关";
