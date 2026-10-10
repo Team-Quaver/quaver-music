@@ -510,6 +510,9 @@ export function NowPlaying(): HTMLElement {
     //  - 无展开迁移但 gallery 刚被播放条置真（本页已开着）→ 立即进全屏
     if (open !== lastExpanded) {
       lastExpanded = open;
+      // 顶栏随播放页展开而隐藏：释放搜索焦点，让候选关闭、ESC 交回播放页。
+      const focused = document.activeElement;
+      if (open && focused instanceof HTMLElement && focused.closest(".content-top")) focused.blur();
       if (open && player.gallery && !isFullscreen()) { npFullscreen = true; setFullscreen(true); }
       else if (!open) {
         player.gallery = false;

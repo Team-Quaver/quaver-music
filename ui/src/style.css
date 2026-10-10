@@ -449,10 +449,10 @@ body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-b
    顶带是独立一行，不再浮在页面标题上——任意窗口宽度下都不会遮挡标题/歌手名；
    右缘避让位由 .content-top 的 padding-right 统一给出。
    整个搜索组要高于 route 里的吸顶条：候选面板是它的后代，单独写 z-index 不能越过
-   父级层叠顺序；这里给 top-center 建一个高于吸顶条（5/6）、低于 CSD 按钮（90）的层。 */
+   父级层叠顺序；搜索组（10）高于吸顶条（5/6），低于正在播放页（50）。 */
 /* 顶带居中组：wrapper 与胶囊同宽、margin auto 精确居中；返回钮绝对挂在胶囊左缘之外
    （落在左侧 134px 幽灵预留位内），胶囊位置不随按钮显隐移动。 */
-.top-center { position: relative; z-index: 70; width: clamp(180px, 26vw, 260px); margin: 0 auto; }
+.top-center { position: relative; z-index: 10; width: clamp(180px, 26vw, 260px); margin: 0 auto; }
 .searchbar { position: relative; z-index: 6; width: 100%; margin: 0; }
 .top-back {
   position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%);
@@ -884,6 +884,11 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
   transition: transform .34s cubic-bezier(.32,.72,.24,1), opacity .3s ease;
 }
 .np.open { opacity: 1; pointer-events: auto; transform: none; }
+/* 展开播放页（含画廊/插件接管）时隐藏主界面顶栏，保留其占位以免底下的列表跳动。
+   CSD 按钮和拖拽条的层级比播放页高，必须同时隐藏，避免透出或截获窗口拖拽。 */
+body:has(> .np.open) .content-top,
+body:has(> .np.open) .winbtns,
+body:has(> .np.open) .win-dragtop { visibility: hidden; }
 /* 背景双层交叉淡化（见 NowPlaying.ts applyBg）：DOM 序天然 B 在 A 上 —— B 淡入盖住
    A 的旧图，过渡结束 A 原地换新图再让 B 退场，换曲全程无透明缝隙。禁止给两层挂
    z-index：提到 z1 会盖住 z-auto 的 .np-scrim（kara 模式左缘渐变蒙版随之消失）。

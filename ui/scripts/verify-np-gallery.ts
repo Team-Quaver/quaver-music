@@ -5,6 +5,7 @@
 //  - np 背景双层（A 垫底 / B 淡入）就位与换曲交接（A 接管、B 退场），全程不操纵 z-index
 //    —— 背景层一旦盖住 .np-scrim，kara 模式左缘渐变蒙版（歌词可读性背光）就没了
 //  - 画廊模式（播放条按钮）：开 = 展开本页 + 全屏；再点 = 收起 + 退全屏 + 按钮熄灭
+//  - 展开/画廊时 CSD、搜索及候选隐藏；收起恢复；主页面候选仍盖过吸顶区
 //  - ESC 收起本页 = 同步退出画廊全屏
 //  - kara 冒烟：AMLL 元素挂载、行级隐藏、左缘渐变蒙版仍在、karaoke 清空回退行级
 import puppeteer from "puppeteer-core";
@@ -81,6 +82,23 @@ const waitForInhibit = async (mode, active, from = 0) => {
   throw new Error(`未收到 mode=${mode} active=${active} 请求`);
 };
 
+const checkTopbar = async (visible: boolean) => {
+  const state = await page.evaluate(() => {
+    const selectors = [".winbtns", ".win-dragtop", ".content-top", ".searchbar"];
+    return selectors.map((selector) => {
+      const el = document.querySelector<HTMLElement>(selector)!;
+      const cs = getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return { selector, visible: cs.visibility === "visible" && cs.display !== "none",
+        hit: !!hit && el.contains(hit) };
+    });
+  });
+  if (state.some((x) => x.visible !== visible || (!visible && x.hit))) {
+    throw new Error(`顶栏应${visible ? "显示" : "隐藏且不能命中"}：${JSON.stringify(state)}`);
+  }
+};
+
 /** 桩一首歌进队列并展开本页（行级歌词态；kara 步骤自行挂逐字数据） */
 const setupSong = (mid) => page.evaluate((mid) => {
   const p = window.__player;
@@ -97,6 +115,33 @@ const setupSong = (mid) => page.evaluate((mid) => {
 await page.goto(`${BASE}/index.html#/`, { waitUntil: "networkidle2" });
 await sleep(1500); // 等 initSparkle（amll 官方插件动态 import）
 
+await step("主页面：搜索历史候选覆盖吸顶区（含无 backdrop-filter 的主题）", async () => {
+  await page.evaluate(() => {
+    localStorage.setItem("quaver.search.history.v1", JSON.stringify(["晴天", "周杰伦", "七里香"]));
+    const spacer = document.createElement("div");
+    spacer.style.height = "1000px";
+    document.querySelector(".route > .entering")!.append(spacer);
+    document.querySelector<HTMLElement>(".route")!.scrollTop = 300;
+  });
+  await page.click(".searchbar input");
+  await page.waitForSelector(".sb-item", { visible: true, timeout: 4000 });
+  for (const noBackdrop of [false, true]) {
+    const hit = await page.evaluate((off) => {
+      const content = document.querySelector<HTMLElement>(".content")!;
+      content.style.backdropFilter = off ? "none" : "";
+      const item = document.querySelectorAll<HTMLElement>(".sb-item")[1];
+      const r = item.getBoundingClientRect();
+      const header = document.querySelector(".sticky-head")!.getBoundingClientRect();
+      const y = r.y + r.height / 2;
+      const target = document.elementFromPoint(r.x + r.width / 2, y);
+      return { overlaps: y >= header.top && y <= header.bottom, hit: !!target && item.contains(target) };
+    }, noBackdrop);
+    if (!hit.overlaps || !hit.hit) throw new Error(`候选被吸顶区遮挡：${JSON.stringify(hit)}, noBackdrop=${noBackdrop}`);
+  }
+  await page.evaluate(() => { document.querySelector<HTMLElement>(".content")!.style.backdropFilter = ""; });
+  await checkTopbar(true);
+});
+
 await step("展开本页：A 垫底层可见且被压在 scrim 之下", async () => {
   await setupSong("A");
   await page.waitForFunction(() => {
@@ -105,6 +150,19 @@ await step("展开本页：A 垫底层可见且被压在 scrim 之下", async ()
   }, { timeout: 8000 });
   const top = await page.evaluate(() => String(document.elementFromPoint(640, 100)?.className ?? ""));
   if (top.includes("np-bg")) throw new Error("np-bg 盖在了 scrim 之上（层叠被操纵）");
+});
+
+await step("展开播放页：隐藏顶栏与候选、释放搜索焦点；ESC 收起后恢复", async () => {
+  await checkTopbar(false);
+  const focused = await page.evaluate(() => !!document.activeElement?.closest(".content-top"));
+  if (focused) throw new Error("隐藏的搜索框仍占用焦点");
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => !window.__player.expanded, { timeout: 4000 });
+  await checkTopbar(true);
+  await page.click(".searchbar input");
+  await page.waitForSelector(".sb-item", { visible: true, timeout: 4000 });
+  await setupSong("A");
+  await sleep(400);
 });
 
 await step("背景层零 z-index 操纵（scrim 渐变蒙版不被顶掉）", async () => {
@@ -188,6 +246,7 @@ await step("画廊按钮：开 = 展开并全屏、按钮点亮", async () => {
     && document.querySelector(".np").classList.contains("open")
     && document.fullscreenElement != null, { timeout: 8000 });
   if (!(await page.$eval("#pb-gallery", (el) => el.classList.contains("on")))) throw new Error("按钮未点亮");
+  await checkTopbar(false);
   await waitForInhibit("idle", true, from);
   if (inhibitCalls.slice(from).some((x) => x.mode === "sleep" && x.active)) throw new Error("画廊模式不应额外请求 sleep 抑制");
 });
@@ -199,6 +258,7 @@ await step("画廊按钮再点：收起并退出全屏", async () => {
     && !document.querySelector(".np").classList.contains("open")
     && document.fullscreenElement == null, { timeout: 8000 });
   await waitForInhibit("idle", false, from);
+  await checkTopbar(true);
 });
 
 await step("ESC 收起：画廊态下 ESC = 收页 + 退全屏 + 灯灭", async () => {
@@ -209,6 +269,7 @@ await step("ESC 收起：画廊态下 ESC = 收页 + 退全屏 + 灯灭", async 
   await page.waitForFunction(() => !window.__player.expanded && !window.__player.gallery
     && document.fullscreenElement == null, { timeout: 8000 });
   await waitForInhibit("idle", false, from);
+  await checkTopbar(true);
   if (await page.$eval("#pb-gallery", (el) => el.classList.contains("on"))) throw new Error("按钮仍点亮");
 });
 
