@@ -100,7 +100,9 @@ ok("css: .np-widgets 有样式且仅展开态显示", has(src.style, ".np-widget
 
 // ============ 4. 设置页与生命周期 ============
 ok("views: Sparkle tab 不再是 WIP 文案", !has(src.views, "working in progress") && !has(src.views, "Sparkle（WIP）"));
+ok("views: 花火插件与花火面具使用本地化名称", has(src.views, "data-tab=\"plugins\" type=\"button\">花火插件</button>") && has(src.views, "<div class=\"set-label\">花火面具") && has(src.views, 'mkCard("", "Quaver Design")') && !has(src.views, ">Sparkle 主题 <") && !has(src.views, "当前 Sparkle 主题") && !has(src.views, "高亮色由 Sparkle 主题"));
 ok("views: settingsView 返回 sparkle 清理函数", re(noComments(src.views), /mountSparklePanel\(sparklePanel\)/) && re(noComments(src.views), /offSparkle\(\)/));
+ok("settings: 面向用户的桥接和格式提示不暴露 Sparkle 名称", has(src.settings, "当前环境不支持花火插件功能") && has(src.settings, "插件格式不合法") && !has(src.settings, "没有 Sparkle 桥") && !has(src.settings, "需为 SparklePlugin"));
 ok("settings: 四标签齐备且相互隔离（主题/插件/扩展/Marketplace）", ["theme", "plugin", "extension", "market"].every((c) => has(src.settings, `data-cat="${c}"`)) && has(src.settings, "catOf") && has(src.settings, "已装主题") && has(src.settings, "已装插件") && has(src.settings, "已装扩展"));
 ok("settings: 插件设置不常驻页面（收进齿轮弹窗）", !re(noComments(src.settings), /sparkle-sections/) && has(read("src/components/PluginSettingsDialog.ts"), "插件设置") && re(noComments(src.settings), /showPluginSettingsDialog/));
 ok("settings: 行内齿轮按钮（动作区最左）", has(src.settings, "sparkle-gear") && has(src.style, ".sparkle-gear") && re(noComments(src.settings), /actions\.append\(gearBtn\(/));

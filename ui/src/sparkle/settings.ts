@@ -462,7 +462,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     const bridge = window.quaverSparkle;
     marketList.innerHTML = "";
     if (!bridge) {
-      marketList.innerHTML = `<div class="sparkle-empty">当前环境没有 Sparkle 桥（浏览器 dev / 未升级的 Electron 壳层），Marketplace 不可用</div>`;
+      marketList.innerHTML = `<div class="sparkle-empty">当前环境不支持花火插件功能（浏览器 dev / 未升级的 Electron 壳层），Marketplace 不可用</div>`;
       return;
     }
     if (market.loading) {
@@ -529,7 +529,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
         const mod = await import(/* @vite-ignore */ url);
         const plugin = validatePlugin(mod?.default ?? mod?.plugin);
         if (!plugin) {
-          toast("插件形状不合法（default export 需为 SparklePlugin）", "err");
+          toast("插件格式不合法", "err");
           return;
         }
         const hostVersionError = getSparkleHostVersionError(__APP_VERSION__, plugin.minHostVersion, plugin.allowBeta);
@@ -559,7 +559,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
   localBtn.onclick = () => { void installLocalFlow(); };
   if (!window.quaverSparkle) {
     localBtn.disabled = true;
-    localBtn.title = "浏览器 dev 环境没有 Sparkle 桥";
+    localBtn.title = "浏览器 dev 环境不支持花火插件功能";
   }
   marketRefresh.onclick = () => { void refreshAll(); };
   // Marketplace 内部分类筛选：chips 只过滤列表，不改变「一份索引一处拉取」的结构

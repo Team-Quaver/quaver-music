@@ -1073,7 +1073,7 @@ async function settingsView(root: HTMLElement) {
     <button class="set-tab" data-tab="playback" type="button">播放</button>
     <button class="set-tab" data-tab="hotkeys" type="button">热键</button>
     <button class="set-tab" data-tab="general" type="button">通用</button>
-    <button class="set-tab" data-tab="plugins" type="button">Sparkle</button>`);
+    <button class="set-tab" data-tab="plugins" type="button">花火插件</button>`);
   root.append(tabs);
   const wrap = h("div", "set-view");
   wrap.innerHTML = `
@@ -1164,9 +1164,9 @@ async function settingsView(root: HTMLElement) {
         <p class="muted set-hint" id="menu-glass-hint"></p>
       </div>
 
-      <!-- Sparkle 主题：卡片由下方 renderSparkleThemes 动态填充（无插件主题时整组隐藏） -->
+      <!-- 花火面具：卡片由下方 renderSparkleThemes 动态填充（无插件主题时整组隐藏） -->
       <div class="set-group" id="sparkle-theme-group" hidden>
-        <div class="set-label">Sparkle 主题 <span class="set-note-inline">来自插件；覆盖在上方模式之上，未覆盖的变量跟随明暗</span></div>
+        <div class="set-label">花火面具 <span class="set-note-inline">来自插件；覆盖在上方模式之上，未覆盖的变量跟随明暗</span></div>
         <div class="opt-cards" id="sparkle-theme-cards"></div>
       </div>
 
@@ -1451,7 +1451,7 @@ async function settingsView(root: HTMLElement) {
     const locked = bgPolicy().mode === "off";
     bgCards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = locked; });
     bgHint.textContent = locked
-      ? `当前 Sparkle 主题「${sparkleActiveTheme()?.name ?? ""}」自带背景，已接管；切到「默认」主题，或让主题声明 background 才可调。`
+      ? `当前花火面具「${sparkleActiveTheme()?.name ?? ""}」自带背景，已接管；切到「默认」主题，或让主题声明 background 才可调。`
       : bgHintBase;
     paintBgMode(); // 顺带把按钮显隐与滑块可用性收口（那里也要叠加 locked）
   };
@@ -1678,9 +1678,9 @@ async function settingsView(root: HTMLElement) {
       if (policy.presets.some((p) => p.color === TINT_PRESET_SYSTEM)) probeAccentOnce();
     }
     tintHint.textContent = locked
-      ? `当前 Sparkle 主题「${themeName}」自带配色，已接管高亮色；切到「默认」主题或让主题声明 tint 才可调。`
+      ? `当前花火面具「${themeName}」自带配色，已接管高亮色；切到「默认」主题或让主题声明 tint 才可调。`
       : presets
-        ? `高亮色由 Sparkle 主题「${themeName}」提供，从上面挑一套。`
+        ? `高亮色由花火面具「${themeName}」提供，从上面挑一套。`
         : TINT_HINT;
     paintTintMode(); // 顺带把 chip / 选择器的可用性收口
   };
@@ -1712,7 +1712,7 @@ async function settingsView(root: HTMLElement) {
   const paintMenuGlass = () => {
     syncSel(menuGlassCards, "opt", getMenuBlur() ? "on" : "off");
     menuGlassHint.textContent = menuGlassPolicy().mode === "off"
-      ? `当前 Sparkle 主题「${activeSparkTheme()?.name ?? ""}」自带菜单外观，已接管；切到「默认」主题或让主题声明 menus 才可调。`
+      ? `当前花火面具「${activeSparkTheme()?.name ?? ""}」自带菜单外观，已接管；切到「默认」主题或让主题声明 menus 才可调。`
       : MENU_GLASS_HINT;
   };
   /** 整组的主刷新：主题接管时这组留在原位但禁用（整组消失会让人找不到）。 */
@@ -1760,7 +1760,7 @@ async function settingsView(root: HTMLElement) {
       };
       return b;
     };
-    sparkleThemeCards.append(mkCard("", "默认"));
+    sparkleThemeCards.append(mkCard("", "Quaver Design"));
     for (const t of themes) sparkleThemeCards.append(mkCard(t.id, t.name));
     syncSparkleThemeSel();
     paintTintPolicy(); // 主题列表变了（插件启停）→ 高亮色那组的可用性也要跟着重算
