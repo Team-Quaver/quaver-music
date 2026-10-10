@@ -65,7 +65,7 @@ ok("sdk: 导出 SparklePlugin 与 SparkleContext", has(src.types, "interface Spa
 ok("sdk: 扩展点类型齐备", ["SparkleView", "SparkleNavItem", "SparkleSonglistGroup", "SparkleSettingsSection", "SparkleTheme", "SparkleNpWidget", "SparkleMenuItem", "SparkleStreamSource", "SparklePlayerFacade"].every((t) => has(src.types, t)));
 ok("sdk: definePlugin 存在", has(src.index, "definePlugin"));
 ok("sdk: 支持最低宿主版本与 Beta 开关", has(src.types, "minHostVersion?: string") && has(src.types, "allowBeta?: boolean"));
-ok("Lumen: 最低宿主版本为 1.4.0 且允许 Beta", has(src.md3Meta, '"minHostVersion": "1.4.0"') && has(src.md3Meta, '"allowBeta": true') && has(src.md3, 'minHostVersion: "1.4.0"') && has(src.md3, "allowBeta: true"));
+ok("Lumen: 最低宿主版本为 1.4.1 且允许 Beta", has(src.md3Meta, '"minHostVersion": "1.4.1"') && has(src.md3Meta, '"allowBeta": true') && has(src.md3, 'minHostVersion: "1.4.1"') && has(src.md3, "allowBeta: true"));
 ok("版本比较：主进程安装前执行宿主版本门禁", has(src.mainMjs, "sparkleHostVersionError") && has(src.mainMjs, "minHostVersion"));
 ok("版本比较：Marketplace 构建透传最低宿主版本", has(src.mkBuild, "minHostVersion: meta.minHostVersion"));
 ok("sdk: die-for-you 走 registerSettingsSection", has(src.dfy, "registerSettingsSection") && has(src.dfy, "die-for-you"));

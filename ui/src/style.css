@@ -446,10 +446,12 @@ body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-b
 
 /* 常驻搜索框：小号胶囊，居于内容区顶带（.content-top）正中。
    顶带是独立一行，不再浮在页面标题上——任意窗口宽度下都不会遮挡标题/歌手名；
-   右缘避让位由 .content-top 的 padding-right 统一给出。z-index 低于下拉(60)。 */
+   右缘避让位由 .content-top 的 padding-right 统一给出。
+   整个搜索组要高于 route 里的吸顶条：候选面板是它的后代，单独写 z-index 不能越过
+   父级层叠顺序；这里给 top-center 建一个高于吸顶条（5/6）、低于 CSD 按钮（90）的层。 */
 /* 顶带居中组：wrapper 与胶囊同宽、margin auto 精确居中；返回钮绝对挂在胶囊左缘之外
    （落在左侧 134px 幽灵预留位内），胶囊位置不随按钮显隐移动。 */
-.top-center { position: relative; width: clamp(180px, 26vw, 260px); margin: 0 auto; }
+.top-center { position: relative; z-index: 70; width: clamp(180px, 26vw, 260px); margin: 0 auto; }
 .searchbar { position: relative; z-index: 6; width: 100%; margin: 0; }
 .top-back {
   position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%);
