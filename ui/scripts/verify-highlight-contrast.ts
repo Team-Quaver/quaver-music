@@ -105,6 +105,7 @@ const pct = (b, what) => {
 const ghost = blockOf(".pb-ghost.on");
 const love = blockOf(".pb-ghost#pb-love.on");
 const pill = blockOf(".pb-q.active");
+const playHover = blockOf(".pb-play:hover");
 
 console.log("=== style.css 实际取值 ===");
 const F_GHOST = pct(ghost, ".pb-ghost.on 前景");
@@ -118,6 +119,8 @@ if (!ghost.includes("var(--ink)")) bad(".pb-ghost.on 前景没锚到 --ink（裸
 if (/background\s*:/.test(pill)) bad(".pb-q.active 改了 background —— 胶囊的底必须保持 --ph2");
 if (!pill.includes("var(--ink)")) bad(".pb-q.active 前景没锚到 --ink");
 if (!/border-color:\s*var\(--cvg-accent/.test(pill)) bad(".pb-q.active 描边不是实心 accent");
+if (/opacity\s*:/.test(playHover)) bad(".pb-play:hover 不可用 opacity 合成层覆盖 backdrop-filter 播放条");
+if (!/background:\s*color-mix\(in srgb, var\(--ink\)/.test(playHover)) bad(".pb-play:hover 应使用局部底色混合提供 hover 反馈");
 if (love.replace(/\s/g, "") !== "color:#e8465a;") bad(`.pb-ghost#pb-love.on 应保持原样 color:#e8465a（固定色本就够对比），现为：${love.trim()}`);
 if (fails) { console.log("\n结构不对，先修 CSS 再跑对比度"); process.exit(1); }
 

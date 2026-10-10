@@ -11,7 +11,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { cmyk2rgb, hsl2rgb, isHexColor, parseHex, rgb2cmyk, rgb2hsl, toHex } from "../src/lib/color.ts";
+import { cmyk2rgb, hsl2rgb, isHexColor, parseHex, rgb2cmyk, rgb2hsl, toBarColors, toHex } from "../src/lib/color.ts";
 import { defaults, schemaIndex } from "../electron/config.ts";
 import { pickPreset, resolvePresetColor, sparkTintChoice, tintPolicyOf, validPresets } from "../src/sparkle/theme-tint.ts";
 
@@ -47,6 +47,9 @@ eq("toHex 逐通道补零", toHex({ r: 1, g: 2, b: 3 }), "#010203");
 eq("toHex 夹紧越界并取整", toHex({ r: 300, g: -5, b: 25.6 }), "#ff001a");
 eq("真相规范化：parseHex → toHex 收敛成小写 6 位", toHex(parseHex("#0FF")!), "#00ffff");
 check("isHexColor 与 parseHex 同判据", isHexColor("#19c2d8") && !isHexColor("cyan") && !isHexColor(""));
+eq("未染色时播放进度回退色不透出底层", toBarColors(null).soft, "rgb(25,194,216)");
+check("染色后的播放进度填充也使用不透明 RGB",
+  /^rgb\(\d+,\d+,\d+\)$/.test(toBarColors({ r: 186, g: 94, b: 170 }).soft));
 
 // ================= HSL =================
 section("HSL（h 0..360，s/l 0..1）");
@@ -97,8 +100,8 @@ const tint = src("src/lib/tint.ts");
 const shell = src("src/shell.ts");
 const css = src("src/style.css");
 
-// 高亮颜色分组：从 id="tint-cards" 到下一个注释块（Sparkle 主题）之间就是这一组
-const tintBlock = /id="tint-cards"([\s\S]*?)<!-- Sparkle 主题/.exec(views)?.[1] ?? "";
+// 高亮颜色分组：从 id="tint-cards" 到菜单毛玻璃设置前的注释之间就是这一组
+const tintBlock = /id="tint-cards"([\s\S]*?)<!-- 浮层菜单的毛玻璃/.exec(views)?.[1] ?? "";
 check("高亮颜色分组能取到（防正则失配让下面全绿）", tintBlock.length > 400, String(tintBlock.length));
 check("四档卡片齐全（含「系统强调色」）", ["default", "cover", "system", "custom"].every((m) => tintBlock.includes(`data-opt="${m}"`)), tintBlock.replace(/\s+/g, " ").slice(0, 200));
 check("色块按钮就在「自定义颜色」卡旁边（同一个定位锚里）",
@@ -253,6 +256,7 @@ check("PlayerBar 不再自己从封面取色（那条通路等于绕过本设置
 check("PlayerBar 也不再写 --np-hl（染色统一由 tint.ts 产出）", !bar.includes("--np-hl"));
 check("PlayerBar 不再订阅封面换色（少一条重复的取色链）", !bar.includes("paintTint"));
 check("进度条已播区读 tint 的变量", /\.pb-fill \{[^}]*background: var\(--cvg-bar-fill/.test(css));
+check("进度条 CSS 回退色不透出底层", /\.pb-fill \{[^}]*background: var\(--cvg-bar-fill, rgb\(25,194,216\)\)/.test(css));
 check("拖拽 seek 的边线也读 tint 的变量", /\.player\.scrubbing \.pb-fill \{[^}]*var\(--cvg-bar-line/.test(css));
 
 // 旧通路必须真的消失，且别误伤同前缀的另一个 token（--tint-row 是主题的条目底色）

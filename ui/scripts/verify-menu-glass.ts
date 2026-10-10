@@ -114,6 +114,9 @@ check("共享规则吃令牌：底片 / 描边 / 阴影 + 内高光",
   /background: var\(--menu-surface\);/.test(shared)
   && /border: 1px solid var\(--menu-line\);/.test(shared)
   && /box-shadow: var\(--menu-shadow\), inset 0 1px 0 var\(--menu-edge\);/.test(shared));
+check("正在播放页音质胶囊也读取菜单模糊开关", /\.np-qpill \{[^}]*backdrop-filter: var\(--menu-filter\);/.test(css));
+check("关闭菜单毛玻璃时音质胶囊退回实底", /html\[data-menu-glass="off"\] \.np-qpill \{[^}]*background: #14171f;/.test(css));
+check("正在播放背景保留纹理供菜单二次模糊", /\.np-bg \{[^}]*filter: blur\(24px\)/.test(css));
 
 // —— 这一条是本次「菜单完全没有模糊」的真凶，必须钉死 ——
 // lightningcss（Vite 8 的 CSS 压缩器）把同一逻辑属性的重复声明按后者优先折叠，它不认前缀；

@@ -50,7 +50,8 @@ html[data-theme="dark"] {
         backdrop root，模糊只采样播放条内部，条外一片空白（→ 已改成 .player::before，见该处注释）；
      ③ 底片不透明度 0.78~0.85（--volpop / .np-menu 的 #10131cd9），透出来的不到四分之一，
         模糊就算生效也被实色底片吃掉 → 现在压到 0.62~0.66，对齐侧栏/播放条那档；
-     ④ .np-menu 底下的 .np-bg 本来就是 blur(60px) 的封面，再糊一遍没有增量（本页只靠透色显玻璃）；
+     ④ .np-menu 底下的 .np-bg 原先 blur(60px)，已近乎没有纹理可供二次模糊；现在降低背景模糊，
+        让菜单的 backdrop-filter 能形成可见的毛玻璃层次；
      ⑤ 默认配置下背景层是 off（纯色底）+ 内容卡是实白 —— 模糊纯色 = 纯色，结构上无从体现
         （设置页的提示语里点了这一条：想看出玻璃感，先把「背景」打开）。
 
@@ -724,7 +725,7 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 }
 .pb-fill {
   height: 100%; width: calc(100% * var(--pf, 0));
-  background: var(--cvg-bar-fill, rgba(25,194,216,.75));
+  background: var(--cvg-bar-fill, rgb(25,194,216));
   transition: background-color .5s ease;
 }
 .pb-left, .pb-mid, .pb-right { position: relative; z-index: 1; }
@@ -825,7 +826,8 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 }
 .pb-btn:hover { background: var(--press); }
 .pb-play { width: 40px; height: 40px; background: var(--ink); color: var(--bg); }
-.pb-play:hover { opacity: .85; }
+/* 避免 opacity 在 backdrop-filter 播放条上方创建独立合成层；hover 只改变按钮自己的底色。 */
+.pb-play:hover { background: color-mix(in srgb, var(--ink) 85%, var(--cvg-bar-fill, var(--bg))); }
 .pb-right { display: flex; align-items: center; gap: 2px; }
 .pb-time { font-size: 11px; color: var(--ink2); margin-right: 6px; font-variant-numeric: tabular-nums; }
 /* 激活态：只改前景色，不加底片、不加描边 —— 控制条这一排是「裸图标 + 一个实心主按钮
@@ -888,7 +890,7 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
    .show 即「该层可见」 */
 .np-bg {
   position: absolute; inset: -80px; background-size: cover; background-position: center;
-  filter: blur(60px) saturate(1.6) brightness(1.08);
+  filter: blur(24px) saturate(1.6) brightness(1.08);
   transform: scale(1.05);
   opacity: 0; transition: opacity .45s ease;
 }
@@ -906,9 +908,11 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
   height: 24px; min-width: 44px; padding: 0 10px; border-radius: 999px; cursor: pointer;
   border: 1px solid #ffffff2e; background: #ffffff14; color: #fffb;
   font: inherit; font-size: 11px; font-weight: 600; letter-spacing: .2px; white-space: nowrap;
+  backdrop-filter: var(--menu-filter);
   transition: background .12s, color .12s, border-color .12s;
 }
 .np-qpill:hover, .np-qpill.open { background: #ffffff1f; color: #fff; border-color: #ffffff4d; }
+html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffffff1f; }
 /* 音频流信息浮窗：锚在音质胶囊上方（右缘对齐胶囊右缘），同 .np-menu 深玻璃 + 开合动画。 */
 .np-qinfo {
   position: absolute; right: 36px; bottom: calc(100% + 8px); z-index: 5;

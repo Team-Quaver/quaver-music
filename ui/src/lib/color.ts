@@ -128,14 +128,14 @@ export function cmyk2rgb(v: CMYK): RGB {
 }
 
 export function toBarColors(c: RGB | null) {
-  if (!c) return { soft: "rgba(25,194,216,.75)", line: "rgb(19,150,168)" };
+  if (!c) return { soft: "rgb(25,194,216)", line: "rgb(19,150,168)" };
   const hsl = rgb2hsl(c);
   // 饱和度：低彩度(<0.12)视为灰封面——保留灰调但压深做对比；否则拉到明显有色
   const s = hsl.s < 0.12 ? Math.min(0.18, hsl.s * 1.5) : Math.max(hsl.s, 0.5);
   const fill = hsl2rgb(hsl.h, s, 0.6); // 中亮度：深色文字压在上面仍有 ~6:1 对比
   const line = hsl2rgb(hsl.h, Math.min(1, s * 1.15), 0.4);
   return {
-    soft: `rgba(${fill.r},${fill.g},${fill.b},.9)`,
+    soft: `rgb(${fill.r},${fill.g},${fill.b})`,
     line: `rgb(${line.r},${line.g},${line.b})`,
   };
 }
