@@ -1,11 +1,13 @@
 // Quaver — 歌曲列表工具条：本地搜索 + 排序（歌单页 / 我喜欢共用）
 //
 // 需求口径：排序 = 默认 / 歌曲名正倒 / 歌手正倒，**全部本地生效**（不回源）。
-// 两条不能动的约束：
+// 三条不能动的约束：
 //  1. **原序不许动**：「默认」= 服务端给的顺序 —— 歌单是 orderlist（= 加入歌单的时间），
 //     我喜欢是收藏顺序。所以过滤/排序一律作用在副本上，source() 那份数组只读
 //     （就地 sort 会把「加入时间」这类信息永久弄丢，再也拿不回来）。
 //  2. 控件靠右（版式在 style.css 的 .list-tools），命中计数在左。
+//  3. 排序胶囊**就是歌手页分类标签那一套**（.tag-tabs > .tag，选中态 .sel）：全站「一排胶囊
+//     筛选器」只有一个组件、一处样式 —— 主题/插件要改这类控件只改一处，不会漏掉工具条这一排。
 //
 // 调用方只需给两样东西：读原序的取值器 + 渲染回调（拿到筛排后的列表）。
 // 用**函数**取原序而不是直接传数组：删除一行后调用方改的是自己那份数组的内容，
@@ -49,10 +51,10 @@ export function songListTools(opts: SongListToolsOptions): SongListTools {
       <input class="lt-kw" type="search" placeholder="${opts.hint ?? "在列表内搜索"}" autocomplete="off" spellcheck="false" aria-label="在列表内搜索" />
       <button class="lt-clr" type="button" title="清空" aria-label="清空搜索" hidden>✕</button>
     </span>
-    <div class="lt-sort" role="group" aria-label="排序方式">
-      <button class="lt-sg" type="button" data-sort="default" aria-pressed="true">默认</button>
-      <button class="lt-sg" type="button" data-sort="name" aria-pressed="false">歌曲名<i class="dir"></i></button>
-      <button class="lt-sg" type="button" data-sort="singer" aria-pressed="false">歌手<i class="dir"></i></button>
+    <div class="lt-sort tag-tabs" role="group" aria-label="排序方式">
+      <button class="lt-sg tag" type="button" data-sort="default" aria-pressed="true">默认</button>
+      <button class="lt-sg tag" type="button" data-sort="name" aria-pressed="false">歌曲名<i class="dir"></i></button>
+      <button class="lt-sg tag" type="button" data-sort="singer" aria-pressed="false">歌手<i class="dir"></i></button>
     </div>`;
 
   const kwEl = el.querySelector<HTMLInputElement>(".lt-kw")!;
@@ -92,6 +94,8 @@ export function songListTools(opts: SongListToolsOptions): SongListTools {
     timer = 0;
     for (const b of sortBtns) {
       const on = b.dataset.sort === sortKey;
+      // .sel 给样式（与歌手页分类标签共用 .tag.sel 这一套），.on 留给校验脚本/后续钩子
+      b.classList.toggle("sel", on);
       b.classList.toggle("on", on);
       b.setAttribute("aria-pressed", String(on));
       const dir = b.querySelector<HTMLElement>(".dir");

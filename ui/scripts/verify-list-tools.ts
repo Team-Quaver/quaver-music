@@ -80,8 +80,8 @@ ok("perf: 逐字符输入按 120ms 合并，立即画的场合先吃掉排队那
   has(code, "INPUT_DEBOUNCE_MS = 120")
   && re(code, /timer = window\.setTimeout\(paint, INPUT_DEBOUNCE_MS\)/)
   && re(code, /function paint\(\) \{\s*window\.clearTimeout\(timer\);/));
-ok("空态: 组件只负责给列表，空态文案由调用方兜（两页都写了）",
-  (views.match(/没有匹配的歌曲/g) ?? []).length === 2);
+ok("空态: 组件只负责给列表，空态文案由调用方兜（歌单/我喜欢，以及歌手页的条内搜索）",
+  (views.match(/没有匹配的歌曲/g) ?? []).length === 3);
 ok("空态: 回调带上 filtering，调用方能区分「搜索没命中」与「本来就没收藏」",
   has(toolsSrc, "paint: (list: any[], state: { filtering: boolean }) => void")
   && has(toolsSrc, "opts.paint(visible(), { filtering: !!kw.trim() })")
@@ -94,7 +94,7 @@ ok("css: 计数在左、控件被推到右缘（.lt-count 用 margin-right: auto
   /\.lt-count \{[^}]*margin-right:\s*auto/.test(css));
 ok("DOM: 顺序 = 计数 → 搜索 → 排序（靠 auto margin 分居两端）",
   toolsSrc.indexOf('class="lt-count"') < toolsSrc.indexOf('class="sb-field lt-search"')
-  && toolsSrc.indexOf('class="sb-field lt-search"') < toolsSrc.indexOf('class="lt-sort"'));
+  && toolsSrc.indexOf('class="sb-field lt-search"') < toolsSrc.indexOf('class="lt-sort tag-tabs"'));
 ok("css: 搜索框宽度钳制（不会铺满整行）", /\.list-tools \.lt-search \{[^}]*width:\s*clamp\(/.test(css));
 ok("css: 搜索框复用顶带胶囊 .sb-field（不另造输入框样式）", has(toolsSrc, 'class="sb-field lt-search"'));
 
@@ -107,7 +107,7 @@ ok("views: 两页都把工具条插在列表之前（工具条在上、行在下
   // 歌单页：工具条住进吸顶条右侧（sticky.right 在 rows 之前 append，工具条仍在列表上方）
   has(plView, "sticky.right.append(tools.el);") && has(plView, "root.append(rows);")
   && plView.indexOf("sticky.right.append(tools.el);") < plView.lastIndexOf("root.append(rows);")
-  && has(likedView, "root.append(tools.el, box)"));
+  && has(likedView, "sticky.right.append(tools.el)") && has(likedView, "root.append(box)"));
 ok("views: 两页都在首帧主动画一次", (views.match(/tools\.(repaint|refreshCount)\(\)/g) ?? []).length >= 2);
 ok("我喜欢: 拉不到数据（未登录）时把工具条摘掉，不摆死控件",
   re(noComments(likedView), /if \(!cached\) \{\s*tools\.el\.remove\(\);/));
@@ -126,7 +126,7 @@ for (const dead of [".pl-tools", ".pl-search", ".pl-clr", ".pl-count", "sg-row",
 }
 
 // ============ 选择器 ↔ CSS 三边自洽 ============
-for (const sel of [".list-tools", ".lt-search", ".lt-clr", ".lt-count", ".lt-sort", ".lt-sg", ".lt-sg.on", ".lt-sg .dir"]) {
+for (const sel of [".list-tools", ".lt-search", ".lt-clr", ".lt-count", ".lt-sort", ".lt-sg", ".lt-sg .dir"]) {
   ok(`css: ${sel} 有定义`, has(css, sel));
 }
 // .lt-kw 是**只给 JS 取值的查询钩子**（样式统一由 .sb-field input 提供，复用顶带胶囊），
@@ -140,14 +140,18 @@ for (const c of used) {
 ok("css: 输入框不自带样式，统一继承 .sb-field input（.lt-kw 只是查询钩子）",
   has(css, ".sb-field input") && !has(css, ".lt-kw"));
 
-// ============ 高亮态走既有口径 + 已在对比度脚本里登记 ============
-const sg = css.match(/\.lt-sg\.on \{([^}]*)\}/)?.[1] ?? "";
-ok("css: .lt-sg.on = 软洗底 + accent 系前景 + accent 描边（不铺实心 accent）",
-  /background:[^;]*color-mix\([^;]*transparent/.test(sg)
-  && /border-color:[^;]*var\(--cvg-accent/.test(sg)
-  && /(?<![-\w])color:[^;]*var\(--ink\)/.test(sg));
-ok("contrast: .lt-sg.on 已登记进 verify-highlight-contrast（新加 accent 掺色的高亮态都要跑它）",
-  has(contrast, '".lt-sg.on"'));
+// ============ 排序胶囊 = 歌手页分类标签那一个组件（一份样式，主题改一处覆盖全站） ============
+ok("css: 排序胶囊复用 .tag-tabs / .tag（不是自造一套胶囊）",
+  has(toolsSrc, 'class="lt-sort tag-tabs"') && has(toolsSrc, 'class="lt-sg tag"')
+  && has(css, ".stab, .tag {") && has(css, ".stab.sel, .tag.sel {"));
+ok("js: 选中态挂 .sel（样式走 .tag.sel），同时保留 .on 供脚本/钩子读",
+  /b\.classList\.toggle\("sel", on\);/.test(noComments(toolsSrc))
+  && /b\.classList\.toggle\("on", on\);/.test(noComments(toolsSrc)));
+ok("css: .lt-sg 只留排版（方向箭头），不再自带一套胶囊底色/选中态",
+  !/\.lt-sg \{[^}]*border-radius/.test(css) && !has(css, ".lt-sg.on")
+  && /\.lt-sg \.dir \{/.test(css));
+ok("contrast: 该口径已在 verify-highlight-contrast 里登记（.tag.sel 一族）",
+  has(contrast, ".tag.sel"));
 
 console.log(`\n${checks - fails}/${checks} passed${fails ? ` — ${fails} FAILED` : ""}`);
 process.exit(fails ? 1 : 0);

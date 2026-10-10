@@ -156,13 +156,11 @@ await step("吸顶：歌手页信息头缩成单行贴顶、缩略头像+名字�
   const r = await page.evaluate(() => {
     const route = document.querySelector<HTMLElement>(".route")!;
     const bar = document.querySelector<HTMLElement>(".sticky-bar");
-    const blank = { missing: true, stuck: false, gap: 0, leadOpacity: "0", leadArt: false, leadName: "", tabsInBar: false, veilAlpha: 0 };
+    const blank = { missing: true, stuck: false, gap: 0, leadOpacity: "0", leadArt: false, leadName: "", tabsInBar: false, veil: "none", veilLayer: "none" };
     if (!bar) return blank;
     const rb = route.getBoundingClientRect(), bb = bar.getBoundingClientRect();
     const lead = bar.querySelector<HTMLElement>(".sticky-bar__lead");
     const name = lead?.querySelector(".sticky-bar__name")?.textContent ?? "";
-    const veil = getComputedStyle(bar, "::before").backgroundImage;
-    const m = /\/\s*([\d.]+)\)\s+\d/.exec(veil);
     return {
       missing: false,
       stuck: bar.classList.contains("stuck"),
@@ -171,7 +169,8 @@ await step("吸顶：歌手页信息头缩成单行贴顶、缩略头像+名字�
       leadArt: !!lead?.querySelector("img"),
       leadName: name.trim(),
       tabsInBar: !!bar.querySelector(".tag-tabs"),
-      veilAlpha: m ? Number(m[1]) : NaN,
+      veil: getComputedStyle(bar).backgroundImage,
+      veilLayer: getComputedStyle(bar, "::before").backgroundImage,
     };
   });
   if (r.missing) throw new Error("歌手页没有 .sticky-bar");
@@ -182,56 +181,51 @@ await step("吸顶：歌手页信息头缩成单行贴顶、缩略头像+名字�
   if (r.leadOpacity !== "1") throw new Error(`缩略信息未浮现：opacity=${r.leadOpacity}`);
   if (!r.leadArt || !r.leadName) throw new Error(`缩略头像/名字缺失：art=${r.leadArt} name=${JSON.stringify(r.leadName)}`);
   if (!r.tabsInBar) throw new Error("分类标签没进吸顶条右侧");
-  if (!(r.veilAlpha > 0.9)) throw new Error(`雾层太透：α=${r.veilAlpha}`);
-  // 顶带（CSD 按钮簇 + 搜索框）与吸顶条「完美接壤」：同色实底 + 撤掉顶带自带的 112px 渐隐
+  // 吸顶条自己**不铺块**（节点本身无底），底片是一段**纯渐变**：起点 α≈.45（接顶带那条
+  // .content::before 在同一 y 上的浓淡）、末端透明。旧版是近乎不透明的实底 + 下缘化开带，
+  // 暗色下就是页头区域的一大片方块阴影 —— 不能退回去。
+  if (r.veil !== "none") throw new Error(`吸顶条节点上铺了底色层：background-image=${r.veil}`);
+  const veilMatch = /\/\s*([\d.]+)\)/.exec(r.veilLayer);
+  const veilTop = veilMatch ? Number(veilMatch[1]) : NaN;
+  if (!(veilTop > 0.25 && veilTop < 0.65)) throw new Error(`吸顶底片不是「纯渐变」：起点 α=${veilTop}（应在 .25~.65，实底就会压出方块阴影）`);
+  if (!/transparent|0\)/.test(r.veilLayer)) throw new Error(`吸顶底片没有淡到透明：${r.veilLayer}`);
   const seam = await page.evaluate(() => {
     const content = document.querySelector<HTMLElement>(".content")!;
     const top = content.querySelector<HTMLElement>(".content-top")!;
     const route = content.querySelector<HTMLElement>(".route")!;
+    const bar = content.querySelector<HTMLElement>(".sticky-bar")!;
+    const cs = getComputedStyle(bar);
     return {
       bandBottom: Math.round(top.getBoundingClientRect().bottom),
       routeTop: Math.round(route.getBoundingClientRect().top),
       bandBg: getComputedStyle(top).backgroundColor,
       fade: getComputedStyle(content, "::before").opacity,
-    };
-  });
-  if (seam.bandBottom !== seam.routeTop) throw new Error(`顶带与内容区不接壤：bandBottom=${seam.bandBottom} routeTop=${seam.routeTop}`);
-  // 滚动条槽补条：滚动条占 10px 布局且画在内容之上，吸顶条够不到，靠 .content-body::before
-  // （高度 = --stuck-h）补同色底。--stuck-h 必须 = 吸顶头高 + 22px 化开带，否则槽里会露底色/露硬边。
-  const gutter = await page.evaluate(() => {
-    const content = document.querySelector<HTMLElement>(".content")!;
-    const bar = content.querySelector<HTMLElement>(".sticky-bar")!;
-    const body = content.querySelector<HTMLElement>(".content-body")!;
-    const route = content.querySelector<HTMLElement>(".route")!;
-    return {
-      stuckH: getComputedStyle(body).getPropertyValue("--stuck-h").trim(),
-      barH: Math.round(bar.getBoundingClientRect().height),
+      barBg: cs.backgroundColor,
       gutterW: route.offsetWidth - route.clientWidth,
       sbGutter: getComputedStyle(route).scrollbarGutter,
     };
   });
-  const stuckNum = parseFloat(gutter.stuckH) || 0;
-  if (Math.abs(stuckNum - (gutter.barH + 22)) > 2) {
-    throw new Error(`--stuck-h 与吸顶头高度不符（滚动条槽补条会错位）：${gutter.stuckH} vs ${gutter.barH}+22`);
-  }
-  if (gutter.sbGutter !== "stable") throw new Error(`.route 未常驻滚动槽：scrollbar-gutter=${gutter.sbGutter}`);
-  if (!(alphaOf(seam.bandBg) > 0.9)) throw new Error(`吸顶时顶带没换成与条身同色的实底：${seam.bandBg}`);
-  if (seam.fade !== "0") throw new Error(`吸顶时顶带 112px 渐隐未撤掉（会与吸顶雾层叠成灰雾）：opacity=${seam.fade}`);
-  // 回到顶部要复原：顶带玻璃底 + 渐隐层回来
+  if (seam.bandBottom !== seam.routeTop) throw new Error(`顶带与内容区不接壤：bandBottom=${seam.bandBottom} routeTop=${seam.routeTop}`);
+  if (alphaOf(seam.barBg) > 0.05) throw new Error(`吸顶条自带底色（会形成方块阴影）：${seam.barBg}`);
+  if (alphaOf(seam.bandBg) > 0.05) throw new Error(`吸顶时顶带被铺了底色：${seam.bandBg}`);
+  if (seam.fade !== "1") throw new Error(`顶带那层 112px 纯渐变被撤了（吸顶底就是它）：opacity=${seam.fade}`);
+  if (seam.sbGutter !== "stable") throw new Error(`.route 未常驻滚动槽：scrollbar-gutter=${seam.sbGutter}`);
+  // 回顶：吸顶条收起缩略信息，顶带/渐变保持原样（本就不随吸顶改底色）
   await page.evaluate(() => { document.querySelector<HTMLElement>(".route")!.scrollTop = 0; });
   await sleep(320);
   const back = await page.evaluate(() => {
     const content = document.querySelector<HTMLElement>(".content")!;
+    const bar = content.querySelector<HTMLElement>(".sticky-bar")!;
     return {
       bandBg: getComputedStyle(content.querySelector<HTMLElement>(".content-top")!).backgroundColor,
       fade: getComputedStyle(content, "::before").opacity,
+      stuck: bar.classList.contains("stuck"),
     };
   });
   if (alphaOf(back.bandBg) > 0.5) throw new Error(`回顶后顶带底色没复原：${back.bandBg}`);
   if (back.fade !== "1") throw new Error(`回顶后渐隐层没复原：opacity=${back.fade}`);
-  const backH = await page.evaluate(() => getComputedStyle(document.querySelector<HTMLElement>(".content-body")!).getPropertyValue("--stuck-h").trim());
-  if (backH !== "0px") throw new Error(`回顶后滚动条槽补条没收起：--stuck-h=${backH}`);
-  return `gap=${r.gap}px, 缩略=「${r.leadName}」, 标签贴右, 雾层 α=${r.veilAlpha}, 顶带接壤(底 α=${alphaOf(seam.bandBg)}/渐隐=${seam.fade}), 槽补条 --stuck-h=${gutter.stuckH}(槽宽 ${gutter.gutterW}px)`;
+  if (back.stuck) throw new Error("回顶后 .stuck 没摘掉");
+  return `gap=${r.gap}px, 缩略=「${r.leadName}」, 标签贴右, 条身无底 + 底片纯渐变(起点 α=${veilTop}), 顶带无底(α=${alphaOf(seam.bandBg)}/渐隐=${seam.fade}), 槽宽 ${seam.gutterW}px`;
 });
 
 await step("吸顶页头：首页回顶与下翻都贴死顶带（不留 .route 顶内边距的缝）", async () => {
@@ -259,18 +253,11 @@ await step("吸顶页头：首页回顶与下翻都贴死顶带（不留 .route 
   if (top.gap !== 0) bad.push(`回顶未贴死：gap=${top.gap}px（要负 margin-top 抵消 --route-pad-top）`);
   if (down.gap !== 0) bad.push(`下翻未贴死：gap=${down.gap}px`);
   if (top.bandBottom !== top.routeTop) bad.push(`顶带与内容区不接壤：${top.bandBottom}/${top.routeTop}`);
-  if (!(alphaOf(top.bandBg) > 0.9)) bad.push(`顶带没换成吸顶同色实底：${top.bandBg}`);
-  if (top.fade !== "0") bad.push(`顶带 112px 渐隐未撤：${top.fade}`);
-  const headH = await page.evaluate(() => {
-    const content = document.querySelector<HTMLElement>(".content")!;
-    const head = content.querySelector<HTMLElement>(".sticky-head")!;
-    return { h: Math.round(head.getBoundingClientRect().height), stuckH: getComputedStyle(content.querySelector<HTMLElement>(".content-body")!).getPropertyValue("--stuck-h").trim() };
-  });
-  if (Math.abs((parseFloat(headH.stuckH) || 0) - (headH.h + 22)) > 2) {
-    bad.push(`吸顶页头没铺滚动条槽补条：--stuck-h=${headH.stuckH} vs ${headH.h}+22`);
-  }
+  if (alphaOf(top.bandBg) > 0.05) bad.push(`顶带被铺了底色（吸顶页头不铺块）：${top.bandBg}`);
+  if (alphaOf(down.bandBg) > 0.05) bad.push(`下翻时顶带被铺了底色：${down.bandBg}`);
+  if (top.fade !== "1" || down.fade !== "1") bad.push(`顶带 112px 纯渐变被撤：${top.fade}/${down.fade}`);
   if (bad.length) throw new Error(bad.join("; "));
-  return `回顶 gap=${top.gap}px / 下翻 gap=${down.gap}px，顶带同色接壤（α=${alphaOf(top.bandBg)}），槽补条 --stuck-h=${headH.stuckH}`;
+  return `回顶 gap=${top.gap}px / 下翻 gap=${down.gap}px，页头无底色，顶带纯渐变（渐隐=${down.fade}）`;
 });
 
 await step("截图存档（三档关键尺寸）", async () => {

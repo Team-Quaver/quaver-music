@@ -210,9 +210,11 @@ note(`扫描面：封面灰度 0-255 × 遮罩 0.35/0.45/0.55 = ${SURFACES.lengt
 // 底色是 glow 的低比例洗底（压在页面底 --bg 上）。所以要比的是「前景 vs 洗底之后的实际底色」。
 // 为什么不能铺实心 accent + 白字：see 下面的回归对照（最坏 1.07:1）。
 const MIX_CASES = [
-  { sel: ".lt-sg.on", name: "列表工具条 · 排序胶囊", px: "12.5px" },
   { sel: ".login-wrap .tag.sel", name: "登录页 · 登录方式标签", px: "13px" },
 ];
+// 注：列表工具条的排序胶囊（歌单页/我喜欢）已并入 .tag / .tag.sel 这一套（见 ListTools.ts）——
+// 它就是歌手页分类标签的同一个组件，所以不再单列一份「软洗底」口径；它的选中态数值
+// 与 .tag.sel / .stab.sel / .opt-card.sel 一起记在下面的「回归对照」里。
 for (const C of MIX_CASES) {
   console.log(`\n=== ${C.name} ${C.sel}（软洗底 + accent 系前景）===`);
   const block = blockOf(C.sel);
@@ -252,7 +254,7 @@ for (const C of MIX_CASES) {
 // ================= 回归对照（本次未动，仅记录）=================
 console.log("\n=== 回归对照（未改动，仅记录数值）===");
 const raw = COVERS.map((p) => ratio(p.accent, [255, 255, 255]));
-console.log(`  「白字 + 裸 accent 实心」= .tag.sel / .stab.sel / .opt-card.sel 现有口径\n       最坏 ${f2(Math.min(...raw))}:1 / 最好 ${f2(Math.max(...raw))}:1`);
+console.log(`  「白字 + 裸 accent 实心」= .tag.sel / .stab.sel / .opt-card.sel / 列表工具条排序胶囊（现用 .tag）\n       最坏 ${f2(Math.min(...raw))}:1 / 最好 ${f2(Math.max(...raw))}:1`);
 if (Math.min(...raw) < 3) console.log("       ← 亮色相封面下不可读。要收敛就同样把底色锚到 --ink（如 color-mix(in srgb, accent 34%, var(--ink))）");
 
 console.log(fails ? `\n${fails} 项未达标` : "\nALL PASS");

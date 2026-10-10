@@ -349,12 +349,18 @@ body.side-collapsed .side-resizer { display: none; }
   background: var(--panel); border: 1px solid var(--panel-line);
   backdrop-filter: blur(24px) saturate(1.4); /* 无前缀！见文件顶部「别补 -webkit-」那段 */
 }
-/* 顶部渐隐层：从上缘 panel 实色往下渐隐到透明——CSD 按钮簇与搜索栏所在的顶部带
-   由此获得「标题栏」质感，与下方内容自然过渡而非硬切。盖在 content-top / route 顶部
-   之上（z:1），但 pointer-events:none 不挡交互；搜索框 z:6、CSD 按钮 z:90 都在其上。
-   route 滚动时顶部内容从渐变下缘滑入，形成自然的渐隐入屏。 */
+/* 顶部渐隐层 = **吸顶底**：全内容区唯一的那层渐变。从最上缘（CSD 按钮簇/搜索栏所在的
+   顶带）一路往下淡到透明，所以顶带、吸顶条/吸顶页头、以及右缘滚动条槽吃的是同一段渐变，
+   中间没有第二层底、没有色阶缝，也没有方块边缘——设置页一直是这个观感。
+   高度跟着吸顶区走：JS 把当前吸顶区高度写进 --stuck-h（未吸顶/无吸顶区时为 0），
+   于是首页那种「标题+副题」的高页头也在渐变覆盖内；短页头由 min-height 兜住。
+   它在滚动容器**外面**：左/右都到内容卡边，那 10px 滚动条槽也在渐变里 —— 吸顶底不会
+   被滚动条裁掉一条边（旧版把底片画在吸顶节点自己身上，最多铺到 padding box，右缘就断）。
+   盖在 route 之上（z:1），pointer-events:none 不挡交互；搜索框 z:6、CSD 按钮 z:90、吸顶条
+   z:5/6 都在其上，所以条内文字/控件不会被它压住。 */
 .content::before {
-  content: ""; position: absolute; top: 0; left: 0; right: 0; height: 112px; z-index: 1;
+  content: ""; position: absolute; top: 0; left: 0; right: 0; z-index: 1;
+  height: calc(46px + var(--stuck-h, 0px)); min-height: 112px;
   background: linear-gradient(to bottom,
     var(--panel) 0%,
     color-mix(in srgb, var(--panel) 55%, transparent) 45%,
@@ -393,20 +399,6 @@ body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-b
    .content-body = route 与停靠态队列面板的横向 flex 容器：面板停靠时 route 让宽，
    面板不挂载（浮窗态/关闭）时 route 独占整行 —— 主页/搜索/歌手页随宽度整体缩放。 */
 .content-body { flex: 1; min-height: 0; display: flex; min-width: 0; position: relative; }
-/* 滚动条槽下的吸顶补条：滚动条占 10px 布局、且画在滚动内容之上，吸顶条自己最多铺到
-   .route 的 padding box（右边差一条 10px 的竖缝，露的是内容卡底色 —— 回顶时拇指又正好在
-   最上端，看着像"被滚动条切了一刀"）。这一层挂在滚动容器**外面**（.content-body），
-   铺满整宽、只覆盖吸顶头的垂直范围，于是滚动条槽下面也是吸顶头的颜色。
-   高度由 JS 写 --stuck-h（= 当前吸顶头高度 + 22px 化开带；未吸顶时为 0）；底缘那 22px
-   化开，与吸顶头自己的下缘化开带对齐。z-index:-1：在内容卡底色之上、路线内容之下
-   （行是透明的，所以高度必须严格等于吸顶头范围才不露色）。 */
-.content-body::before {
-  content: ""; position: absolute; left: 0; right: 0; top: 0; z-index: -1; pointer-events: none;
-  height: var(--stuck-h, 0px);
-  background: linear-gradient(to bottom,
-    var(--sticky-veil) calc(100% - 22px),
-    transparent 100%);
-}
 .route { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; --route-pad-top: 6px; padding: var(--route-pad-top) 24px 20px;
   /* 滚动槽常驻：列表从"不滚"变"可滚"时，吸顶头与条内控件不会左右跳一下 */
   scrollbar-gutter: stable; }
@@ -441,6 +433,14 @@ body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-b
 ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--ink2) 55%, transparent); background-clip: padding-box; border: 3px solid transparent; }
 /* 注意：不要再给这些滚动区加 scrollbar-width/scrollbar-color——新版 Chromium（≥121，含 Electron）
    一旦设置就会整体禁用 ::-webkit-scrollbar 自定义样式，细圆条会被浏览器默认款顶掉。 */
+/* —— 内容区滚动条「静止不画滑块」 ——
+   .route 常驻滚动槽（scrollbar-gutter: stable，见下），这条 10px 的槽就贴在右侧、
+   顶着顶带那层渐变；吸顶层不铺色，槽里若始终画着一条灰滑块，回顶/短文（滑块几乎满高）
+   时右缘就拖出一条灰带 —— 观感差（也就是常说的「滚动条避让」那条边）。
+   改成悬浮式：静止时滑块全透明（槽位照旧占着，版式不跳），只有指针压到滚动条上才浮现。
+   其它滚动区（.playlists/.qp-list/.sb-drop）不在顶带渐变的边上，保持全局的常显细条。 */
+.route::-webkit-scrollbar-thumb { background: transparent; transition: background .15s ease; }
+.route::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--ink2) 45%, transparent); }
 .content h2 { margin: 0 0 14px; font-size: 18px; }
 .muted { color: var(--ink2); }
 
@@ -557,28 +557,18 @@ body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-b
    两者都只在本地已拉的列表上生效（不回源）：排序要的「加入时间 / 收藏顺序」就是服务端原序，
    再去问一次上游只会把原序弄丢。搜索框复用顶带的 .sb-field 胶囊（同一套聚焦环/尺寸），这里只给宽度。
    版式：**控件靠右**，命中计数在左 —— 中间空档由计数的 auto margin 吃掉，
-   所以计数为空（没在筛选）时搜索与排序照样贴在右缘。 */
+   所以计数为空（没在筛选）时搜索与排序照样贴在右缘。
+   排序胶囊复用歌手页分类标签那一套（.lt-sort 就是 .tag-tabs，按钮就是 .tag，选中 .sel）：
+   全站同类控件只此一份样式，主题/插件改一处即可覆盖（含工具条这一排）。 */
 .list-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin: 0 0 14px; }
 .list-tools .lt-search { flex: 0 1 auto; width: clamp(180px, 26vw, 280px); }
+.list-tools .tag-tabs { margin: 0; } /* 这排住在工具条里，不需要 .tag-tabs 的下外边距 */
 .lt-count { margin-right: auto; font-size: 12px; color: var(--idx); font-variant-numeric: tabular-nums; }
 .lt-clr { border: 0; background: transparent; color: var(--idx); cursor: pointer; font-size: 12px; line-height: 1; padding: 0 1px; }
 .lt-clr:hover { color: var(--ink); }
 .lt-sort { display: flex; align-items: center; gap: 6px; }
-.lt-sg {
-  display: inline-flex; align-items: center; gap: 3px;
-  padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line);
-  background: transparent; color: var(--ink2); font-size: 12.5px; cursor: pointer;
-}
-.lt-sg:hover { background: var(--hover); color: var(--ink); }
-/* 选中态 = 软洗底 + accent 系前景 + accent 描边（既有「次级开关 / 选中」口径，
-   与 .qp-item.cur / .opt-card.sel 同一套；不铺实心 accent —— 白字压裸 accent 在亮色相封面下会塌）。
-   前景只把**亮度**锚到 --ink，accent 只贡献色相；上限由 verify-highlight-contrast.mjs 解出。 */
-.lt-sg.on {
-  background: color-mix(in srgb, var(--cvg-glow, var(--acc)) 14%, transparent);
-  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 55%, var(--line));
-  color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 26%, var(--ink));
-  font-weight: 600;
-}
+/* 只留方向箭头（胶囊本体交给 .tag / .tag.sel，见「分类标签组」那段） */
+.lt-sg { display: inline-flex; align-items: center; gap: 3px; }
 .lt-sg .dir { font-size: 10px; opacity: .85; }
 .fav-btn {
   display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border-radius: 999px;
@@ -602,20 +592,17 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 .sec-more:hover { color: var(--cvg-accent, var(--acc)); }
 
 /* —— 下翻吸顶：单行紧凑条（歌单/歌手页）与吸顶页头（首页/每日30首/我喜欢/猜你喜欢） ——
-   条挂在 .route（滚动容器）内用 position:sticky 吸顶。底色不用平涂，而是**两层雾**：
-     ::before 盖满条身（薄雾 + 模糊，滚动内容不再透字）；
-     ::after  从条底再往下 22px 渐变到透明（底与模糊一起衰减），列表由雾层下缘渐入。
-   合起来就是「从上到下的模糊渐变」。只给底片做渐变是不够的（模糊不受背景透明度约束），
-   所以化开带同时打 mask，让 backdrop-filter 的结果一起衰减。
-   注意 backdrop-filter 每个选择器只写一次（压缩器会折叠重复声明，Chromium 无 -webkit- 别名，
-   见文件顶「浮层菜单的玻璃」）；mask 补 -webkit- 前缀（老 QtWebEngine 认前缀版）。 */
-:root {
-  /* 吸顶雾的厚/薄两档：实测 α≈.9 仍能看出滚动内容的灰影（白字 10% 透光就够显眼），
-     故收到 α≈.98 → .96 的上下渐变 —— 条身基本压死，只在下缘化开带留渐变。
-     颜色用 --bg 掺 --panel：既提不透明度，又保持与主题面板同色。 */
-  --sticky-veil: color-mix(in srgb, var(--bg) 96%, var(--panel));
-  --sticky-veil-soft: color-mix(in srgb, var(--bg) 88%, var(--panel));
-}
+   条挂在 .route（滚动容器）里用 position:sticky 贴顶；占位就是原来那一行（工具条/标签行/标题行），
+   所以贴不贴顶版式都不跳。吸顶区照旧保留：小封面 + 标题（条里右侧还是常驻控件）。
+   底色**没有**（节点本身不画底片）：压住下滚内容的是 .content::before —— 从 CSD 顶带一路
+   淡下来的那一层全宽渐变，本页吸顶区高度由 JS 写进 --stuck-h、把它的高度撑到吸顶区下缘。
+     旧版是「近乎不透明的实底雾 + 下缘 22px 化开带」，暗色下等于在内容卡顶上压出一整块比
+     卡片更暗的方块 —— 页头越高（首页 = 标题 + 副题）那块越大，看着就是一大片阴影；
+     而且底片画在吸顶节点自己身上（最多铺到 padding box），右缘会被 10px 滚动条槽裁掉一条。
+   不做模糊：.content 自己带 backdrop-filter、已经是 backdrop root，子元素（含伪元素）的
+   backdrop-filter 取不到滚动内容当底图（Chromium 的嵌套 backdrop-filter 限制），
+   实测这里 blur 不生效 —— 所以只靠渐变本身压内容，别再指望它。
+   条内文字/控件天然在渐变之上：条自带 z-index 5/6，而渐变那层是 z-index 1。 */
 .sticky-bar, .sticky-head {
   /* 负 top 把停靠位上移到滚动容器上缘：sticky 的 0 点是 .route 内容盒顶（低 6px），
      留 0 会让滚动内容从条上方那条缝里裸着滑过去（见 --route-pad-top）。 */
@@ -626,44 +613,9 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
   margin-top: calc(-1 * var(--route-pad-top, 6px));
 }
 .sticky-bar { z-index: 6; display: flex; align-items: center; gap: 10px; margin-right: -24px; margin-bottom: 14px; margin-left: -24px; padding: 8px 24px; }
-/* 吸顶页头（列表页标题）：占位即原标题行，下翻时贴顶，吃同一套雾层 */
+/* 吸顶页头（列表页标题）：占位即原标题行，下翻时贴顶 */
 .sticky-head { z-index: 5; margin-right: -24px; margin-bottom: 14px; margin-left: -24px; padding: 8px 24px 14px; }
-/* —— 顶带（CSD 按钮簇 + 搜索框）与吸顶头「完美接壤」 ——
-   吸顶条/吸顶页头一旦贴顶，它就是内容区的第一块表面，顶带就该与它连成同一块头：
-     ① 顶带铺上与条身同色的实底（同一个 --sticky-veil）——两者同色相接，没有「玻璃带 + 实心条」
-        的色阶缝；
-     ② 撤掉顶带自带的 112px 内容渐隐（.content::before）——否则它会给吸顶头下方的列表再叠一层
-        灰雾，看起来像没盖严；渐隐交给吸顶头自己的下缘化开带。
-   未吸顶时保持原样（顶带玻璃底 + 内容渐隐）。状态从 DOM 用 :has 派生，不需要 JS 同步，
-   路由切换/渲染中断都不会残留。 */
-.content:has(.sticky-bar.stuck) .content-top,
-.content:has(.sticky-head) .content-top { background-color: var(--sticky-veil); }
-.content:has(.sticky-bar.stuck)::before,
-.content:has(.sticky-head)::before { opacity: 0; }
-
-/* 条内文字/控件抬到雾层之上（两个伪元素是 z-index:0 的底片） */
-.sticky-bar > *, .sticky-head > * { position: relative; z-index: 1; }
-.sticky-bar::before, .sticky-head::before,
-.sticky-bar::after, .sticky-head::after {
-  content: ""; position: absolute; z-index: 0; pointer-events: none;
-  backdrop-filter: blur(18px) saturate(1.35);
-}
-.sticky-bar::before, .sticky-head::before {
-  inset: 0;
-  background: linear-gradient(to bottom, var(--sticky-veil) 0%, var(--sticky-veil-soft) 100%);
-}
-.sticky-bar::after, .sticky-head::after {
-  left: 0; right: 0; top: 100%; height: 22px;
-  background: linear-gradient(to bottom,
-    var(--sticky-veil-soft) 0%,
-    color-mix(in srgb, var(--sticky-veil-soft) 42%, transparent) 55%,
-    transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
-}
-/* 未吸顶时条还在信息头下方（占位即原工具条/标签行），两层雾都收起来 */
-.sticky-bar::before, .sticky-bar::after { opacity: 0; transition: opacity .18s ease; }
-.sticky-bar.stuck::before, .sticky-bar.stuck::after { opacity: 1; }
+/* 吸顶条/页头自己**不画底片**：底片是 .content::before 那一层全宽渐变（见上）。 */
 .sticky-bar__lead {
   display: flex; align-items: center; gap: 9px; min-width: 0; max-width: 32%;
   opacity: 0; transform: translateY(3px); transition: opacity .18s ease, transform .18s ease;
@@ -673,14 +625,14 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 .sticky-bar__art.round { border-radius: 50%; }
 .sticky-bar__art img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .sticky-bar__name { font-size: 13.5px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sticky-bar__right { margin-left: auto; min-width: 0; }
+.sticky-bar__right { display: flex; align-items: center; gap: 10px; margin-left: auto; min-width: 0; }
 /* 住进吸顶条后取消原工具条/标签行的独立间距，并把控件收紧到一行放得下（空间留给左侧缩略信息） */
 .sticky-bar .list-tools { margin: 0; }
 .sticky-bar .lt-search { width: clamp(120px, 18vw, 200px); }
-.sticky-bar .lt-sg { padding: 4px 10px; }
 .sticky-bar .tag-tabs { margin: 0; justify-content: flex-end; }
 .sticky-head .page-title { margin: 2px 0 0; }
 .sticky-head .page-note { margin: 0; }
+
 
 /* SPA 页面大标题（对齐设计稿：首页 = 超大深灰粗体） */
 .page-title { margin: 6px 0 18px; font-size: 26px; font-weight: 800; letter-spacing: .5px; color: var(--ink); }
@@ -1240,7 +1192,7 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
    原来是 <select> 下拉：三档要展开才知道有啥，且样式与全站标签语言不一致。
    选中态不复用 .tag.sel 的「白字 + 裸 accent 实心」——登录页是关卡，白字压 accent 在浅色 accent
    （暗色主题的 --acc 就是浅绿）或亮色相封面染色下只有 ~1-2:1。按本仓库「次级开关/选中」口径收敛：
-   软洗底 + accent 系前景（亮度锚回 --ink）+ accent 描边，与 .lt-sg.on / .qp-item.cur 同一套。 */
+   软洗底 + accent 系前景（亮度锚回 --ink）+ accent 描边，与 .qp-item.cur / .opt-card.sel 同一套。 */
 .login-wrap .tag-tabs { justify-content: center; margin: 20px 0 0; }
 .login-wrap .tag.sel {
   background: color-mix(in srgb, var(--cvg-glow, var(--acc)) 14%, transparent);
