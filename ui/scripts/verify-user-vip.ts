@@ -1,24 +1,10 @@
 // 我的页（/user）会员信息与进出场动效的校验
 //
-// 这是本项目第一个**直接 import TS 模块**的校验脚本：Node ≥22.18 默认开启类型剥离，
-// src/lib/vip.ts 是纯函数、零运行时状态，可以拿来做真单测 —— 日期解析这种事，对着源码写
-// 正则断言等于没测。唯一的例外是 escHtml（b24baba 起挪进 api.ts 且带浏览器端依赖链），
-// Node 的类型剥离解析不了工程里的无扩展名导入 —— 见下方临时模块拼接的注释。
-//
-// 覆盖四块：
-//   1. **上游字段口径**：档位表里的字段名必须在真实抓包的 /user/vip 响应（下方 FIXTURE）里真实存在，
-//      且挂在正确的层（star/ystar 在顶层响应，不在 identity 里 —— 写错不报错，只少一行）。
-//      后端（vendor/Typhoeus-go）对这条 CGI 是 RawMessage 原样透传、不做强类型建模，
-//      字段真相只存在于上游响应本身，所以跨源参照用抓包而不再对某份模型文档。
-//   2. **时间口径**：+08:00 解析（换 TZ 结果必须一致，否则非 UTC+8 机器上「已过期」会假阳性）、
-//      脏值（"2026-02-31" 会被 V8 静默进位成 03-03，实测）必须拒掉、上游两种格式都能读。
-//   3. **展示口径**：过期/未过期文案、到期取最晚一档、**只读不买**（purchase_url/buy_url/
-//      my_vip_url 一律不进 DOM）、续费只留一句指路官方客户端。
-//   4. **动效接线**：进场分级淡入 + 退出离场早于跳转（且跳转不许被动画或请求卡住）。
+// 直接 import 纯 TS 模块，验证三类会员独立身份/时间、到期徽章消失与展示。
+// Go 的原始字段映射与真实 HTTP 链路在后端测试中验证。
 //
 // 用法：node scripts/verify-user-vip.ts
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -27,39 +13,16 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
 const EASE = "cubic-bezier(.22,.61,.36,1)"; // 全站唯一一套缓动，新增动效必须用它
 
-// 真实抓包（2026-09-19 本机 sidecar :3200 /user/vip，压缩后原样保存）——
-// 兼作展示口径的输入与「字段口径」的跨源参照（第 1、3 段共用）。
-const FIXTURE = JSON.parse(`{"auto_down":0,"can_renew":1,"max_dir_num":2000,"max_song_num":1000000,"song_limit_msg":"","svip":1,"star":0,"star_start":"","star_end":"","ystar":0,"ystar_start":"","ystar_end":"","identity":{"vip":1,"huge_vip":1,"huge_vip_start":"2026-07-25 18:40:17","huge_vip_end":"2026-09-25 18:40:17","year_flag":0,"huge_year_flag":0,"twelve":0,"twelve_start":"","twelve_end":"","child_vip":0,"exp_vip":0,"group_vip_flag":0,"group_vip_start":"","group_vip_end":"","cp_lover_flag":0,"cp_lover_start":"","cp_lover_end":"","ad_vip_flag":0,"eight":1,"eight_start":"2026-05-25","eight_end":"2026-09-26","level":6,"next_level":7,"icon":"http://y.gtimg.cn/mediastyle/global/vip_icon/lv_6.png","purchase_url":"http://y.qq.com/m/client/mall/myvip.html?"},"userinfo":{"buy_url":"https://y.qq.com/n2/m/myservice/index.html?_scrollhide=1&_hidehd=1&entry=1&tab1=svip&tab2=eight","my_vip_url":"https://y.qq.com/n2/m/myservice/index.html?_scrollhide=1&_hidehd=1&entry=1","score":20426,"expire":0,"music_level":10}}`);
-
-// vip.ts 的唯一 import 是 api.ts 的 escHtml，而 api.ts 又连着 prefs/config 一串浏览器端
-// 依赖 —— Node 的类型剥离模式解析不了工程里的无扩展名导入，直 import 必炸。
-// 处理：剥掉 import 行、注入同款 escHtml，落临时 .mts 模块加载（临时目录随用随删）。
-// 注入体必须与 api.ts 的实现逐字符同构 —— 语义动了这里就是假单测。
-const escHtmlStubSrc =
-  `const escHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ` +
-  `({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);`;
-{
-  const probe = new Function("return " + escHtmlStubSrc.slice("const escHtml =".length))();
-  if (probe('<a b="c">&d\'') !== '&lt;a b=&quot;c&quot;&gt;&amp;d&#39;') {
-    console.log("❌ escHtml 注入体与 api.ts 实现语义不一致 —— 先同步再跑校验");
-    process.exit(1);
-  }
-}
-
-let vip, vipUrl;
-{
-  const src = read("src/lib/vip.ts").replace(/^import[^\n]*\n/m, "");
-  const dir = mkdtempSync(join(tmpdir(), "verify-vip-"));
-  vipUrl = pathToFileURL(join(dir, "vip.mts")).href;
-  writeFileSync(join(dir, "vip.mts"), escHtmlStubSrc + "\n" + src);
-  try {
-    vip = await import(vipUrl);
-  } catch (e) {
-    console.log(`❌ 加载不了 src/lib/vip.ts（本脚本靠 Node 的类型剥离跑真单测）\n   ${e.message}\n` +
-      "   提示：Node ≥22.18 默认开启类型剥离；更早的版本请加 --experimental-strip-types 再跑。");
-    process.exit(1);
-  }
-}
+// 稳定接口契约样例：超会与绿豪的结束时间不同，不能互相借用。
+const FIXTURE = {
+  svip: 0, svip_start: "", svip_end: "", svip_year_flag: 0,
+  identity: { vip: 1, vip_start: "2026-01-01", vip_end: "2026-12-31", year_flag: 0,
+    huge_vip: 1, huge_vip_start: "2026-07-25 18:40:17", huge_vip_end: "2026-09-25 18:40:17",
+    huge_year_flag: 0, level: 6, eight: 1, eight_end: "2027-01-01" },
+  userinfo: { expire: 1790000000, buy_url: "https://example.com/buy", my_vip_url: "https://example.com/vip" },
+};
+const vipUrl = pathToFileURL(join(root, "src/lib/vip.ts")).href;
+const vip = await import(vipUrl);
 const views = read("src/views.ts");
 const css = read("src/style.css");
 
@@ -78,7 +41,7 @@ const eq = (name, got, want) => ok(name, JSON.stringify(got) === JSON.stringify(
 const calDays = (a, b) => Math.round((Date.UTC(a[0], a[1] - 1, a[2]) - Date.UTC(b[0], b[1] - 1, b[2])) / 86400_000);
 
 // ============ 1. 上游字段口径（对照抓包响应） ============
-section("上游字段口径（对照抓包 FIXTURE）");
+section("接口契约（会员独立字段）");
 const src = read("src/lib/vip.ts");
 const tableSrc = src.slice(src.indexOf("export const VIP_TIERS"), src.indexOf("];", src.indexOf("export const VIP_TIERS")));
 const tiers = tableSrc.split("\n").map((l) => l.trim()).filter((l) => l.startsWith("{ label:"))
@@ -91,7 +54,7 @@ const tiers = tableSrc.split("\n").map((l) => l.trim()).filter((l) => l.startsWi
     year: /yearFlag:\s*"([^"]+)"/.exec(l)?.[1] ?? "",
   }));
 ok("能从源码里解出档位表", tiers.length === vip.VIP_TIERS.length && tiers.length === 3, `${tiers.length} 档`);
-eq("档位表就三行：超级会员 / 豪华绿钻 / 绿钻（后者兜底）",
+eq("档位表就三行：超级会员 / 豪华绿钻 / 绿钻",
   vip.VIP_TIERS.map((t) => t.label), ["超级会员", "豪华绿钻", "绿钻"]);
 ok("档位表字段名与模块导出一致",
   JSON.stringify(tiers.map((t) => [t.label, t.where, t.flag, t.start, t.end]).flat())
@@ -110,8 +73,6 @@ for (const t of tiers) {
 }
 ok("档位字段名全部存在于所指的那一层", missing.length === 0, missing.join(", ") || `${tiers.length} 档字段全中`);
 ok("档位没有挂错层（huge_vip 只属于 identity，svip 只属于顶层）", wrongLayer.length === 0, wrongLayer.join(", "));
-ok("星级会员两档确实挂在顶层（防后人「顺手」挪进 identity）",
-  tiers.filter((t) => t.flag === "star" || t.flag === "ystar").every((t) => t.where === "root"));
 
 // ============ 2. 时间口径 ============
 section("时间口径（+08:00 墙钟 / 脏值）");
@@ -145,50 +106,68 @@ section("展示口径（到期/过期/只读不买）");
 // 输入 = 顶部那份抓包 FIXTURE（2026-09-19 本机 sidecar :3200 /user/vip）
 const NOW = Date.parse("2026-09-19T13:56:11+08:00");
 const ov = vip.vipOverview(FIXTURE, NOW);
-ok("只列身份徽章那一套：超级会员 + 豪华绿钻（绿钻被 hideIf 顶掉）",
-  ov.rows.map((r) => r.label).join(" / ") === "超级会员 / 豪华绿钻", ov.rows.map((r) => r.label).join(" / "));
-ok("八平台/十二平台/星级/家庭组… 协议档位不再出现",
-  !/八平台|十二平台|星级|家庭组|情侣|儿童|体验|广告/.test(ov.rows.map((r) => r.label).join("")));
-eq("顺序 = 身份高低（超级会员在前），不按到期日重排", ov.rows.map((r) => r.label), ["超级会员", "豪华绿钻"]);
-eq("超级会员按上游原样显示（上游没给它的到期字段，不编）", [ov.rows[0].end, ov.rows[0].state], ["", ""]);
-eq("豪华绿钻的到期时间与剩余天数",
-  [ov.rows[1].end, ov.rows[1].state, ov.rows[1].expired], ["2026-09-25 18:40", `${calDays([2026, 9, 25], [2026, 9, 19])} 天后到期`, false]);
-eq("「会员有效至」只认展示档位（八平台的 09-26 不再把它带跑偏）",
-  [ov.until.text, ov.until.state, ov.until.expired], ["2026-09-25 18:40", `${calDays([2026, 9, 25], [2026, 9, 19])} 天后到期`, false]);
-eq("超级会员 / 等级", [ov.svip, ov.level, ov.empty], [true, 6, false]);
-eq("只有绿钻的账号照样显示绿钻（hideIf 只在豪华绿钻在场时让位，卡片不许说谎）",
-  [vip.vipOverview({ identity: { vip: 1 } }, NOW).rows.map((r) => r.label),
-   vip.vipOverview({ identity: { vip: 1, huge_vip: 1 } }, NOW).rows.map((r) => r.label)],
-  [["绿钻"], ["豪华绿钻"]]);
-
-// 过期：flag 仍在、end 已过去 —— 这正是「过期会员时间显示」的主场景
+eq("三种权益各自展示，不用上级标记吞掉下级记录", ov.rows.map((r) => r.label), ["豪华绿钻", "绿钻"]);
+eq("绿豪不会变成超会", [ov.svip, vip.vipBadgeHtml(FIXTURE, NOW)], [false, '<i class="badge green">豪华绿钻</i>']);
+eq("主到期时间属于当前最高有效权益，不取更晚的绿钻/音乐包/通用 expire",
+  [ov.until.label, ov.until.text], ["豪华绿钻", "2026-09-25 18:40"]);
+eq("等级", [ov.level, ov.empty], [6, false]);
+const BOTH = { ...FIXTURE, svip: 1, svip_start: "2026-08-01", svip_end: "2026-09-20" };
+const both = vip.vipOverview(BOTH, NOW);
+eq("超会、绿豪、绿钻各用自己的时间", both.rows.map((r) => r.end), ["2026-09-20", "2026-09-25 18:40", "2026-12-31"]);
+eq("超会不能显示成绿豪的到期时间", [both.until.label, both.until.text], ["超级会员", "2026-09-20"]);
+const afterSuper = Date.parse("2026-09-21T12:00:00+08:00");
+eq("超会已过期但绿豪有效时降级徽章", vip.vipBadgeHtml(BOTH, afterSuper), '<i class="badge green">豪华绿钻</i>');
+eq("过期超会保留历史时间但不再开通", [vip.vipOverview(BOTH, afterSuper).svip, vip.vipOverview(BOTH, afterSuper).rows[0].active], [false, false]);
+eq("绿豪过期但绿钻有效时显示绿钻", vip.vipBadgeHtml(FIXTURE, Date.parse("2026-10-10T12:00:00+08:00")), '<i class="badge green">绿钻</i>');
+eq("三档全部过期即没有会员徽章", vip.vipBadgeHtml(BOTH, Date.parse("2027-01-02T00:00:00+08:00")), "");
 const EXPIRE_END = "2025-01-01 00:00:00";
-const old = vip.vipOverview({ identity: { vip: 1, huge_vip: 1, huge_vip_end: EXPIRE_END } }, NOW);
-eq("已过期的档位标出来且给天数", [old.rows[0].expired, old.rows[0].state], [true, `已过期 ${-calDays([2025, 1, 1], [2026, 9, 19])} 天`]);
-eq("有效至落在一个过去的时间上 → 整体过期", [old.until.expired, old.until.text], [true, "2025-01-01"]);
-const today = vip.vipOverview({ identity: { huge_vip: 1, huge_vip_end: "2026-09-19" } }, NOW);
-eq("到期日就是今天（时刻还没到）：算「今天到期」不算过期", [today.until.expired, today.until.state], [false, "今天到期"]);
-const empty = vip.vipOverview({}, NOW);
-eq("没有任何会员记录", [empty.empty, empty.until, empty.rows.length], [true, null, 0]);
-eq("响应是 null（上游没答）也不炸", (() => { const o = vip.vipOverview(null, NOW); return [o.empty, o.until, o.rows.length]; })(), [true, null, 0]);
-eq("userinfo.expire 兜底（秒）", vip.vipOverview({ userinfo: { expire: 1790000000 } }, NOW).until.ms, 1790000000 * 1000);
-eq("userinfo.expire 兜底（毫秒量级也能认）", vip.vipOverview({ userinfo: { expire: 1790000000000 } }, NOW).until.ms, 1790000000000);
-eq("expire=0 / 明显越界的一律当没给", [vip.vipOverview({ userinfo: { expire: 0 } }, NOW).until, vip.vipOverview({ userinfo: { expire: 12345 } }, NOW).until], [null, null]);
-
+const expired = { svip: 1, svip_end: EXPIRE_END, identity: { vip: 1, vip_end: EXPIRE_END, huge_vip: 1, huge_vip_end: EXPIRE_END } };
+eq("过期标志位仍为 1 也无徽章", vip.vipBadgeHtml(expired, NOW), "");
+eq("字符串零不是有效会员", vip.vipBadgeHtml({ svip: "0", identity: { vip: "0", huge_vip: "0" } }, NOW), "");
+eq("有未来时间但标志关闭，不凭时间捏造会员", vip.vipBadgeHtml({ svip: 0, svip_end: "2027-01-01" }, NOW), "");
+eq("未来才生效不显示会员", vip.vipBadgeHtml({ svip: 1, svip_start: "2027-01-01", svip_end: "2028-01-01" }, NOW), "");
+eq("无效日期不给会员标志", vip.vipBadgeHtml({ svip: 1, svip_end: "2026-02-31" }, NOW), "");
+eq("精确到期时刻即无会员标志", vip.vipBadgeHtml({ svip: 1, svip_end: "2026-09-19 13:56:11" }, NOW), "");
+ok("只有日期的到期当天仍有效", vip.vipBadgeHtml({ identity: { huge_vip: 1, huge_vip_end: "2026-09-19" } }, NOW).includes("豪华绿钻"));
+eq("空响应无记录", [vip.vipOverview(null, NOW).empty, vip.vipOverview({}, NOW).until], [true, null]);
+eq("userinfo.expire 不分配给任何会员类型", vip.vipOverview({ userinfo: { expire: 1790000000 } }, NOW).until, null);
+const unknownDate = { svip: 1, identity: { huge_vip: 1, huge_vip_end: "2027-01-01" } };
+eq("超会缺时间不能借绿豪时间", vip.vipOverview(unknownDate, NOW).until, null);
 const card = vip.vipCardHtml(FIXTURE, NOW);
-ok("卡片渲染到期时间", card.includes("会员有效至") && card.includes("2026-09-25 18:40"));
-ok("卡片渲染档位明细（超级会员 + 豪华绿钻，八平台不露面）",
-  card.includes("超级会员") && card.includes("豪华绿钻") && !card.includes("八平台") && !card.includes("十二平台"));
-ok("续费提醒原文（去官方客户端）", card.includes(vip.VIP_RENEW_HINT) && vip.VIP_RENEW_HINT === "如需续费/订阅，请前往 QQ 音乐官方客户端");
-ok("只读不买：上游购买入口一个都不进 DOM",
-  !/myvip\.html|myservice|purchaseUrl|buy_url|my_vip_url/.test(card), "fixture 里那三个 URL 都没露头");
-ok("未过期时不吓人（不出现「已过期」）", !card.includes("已过期"));
-const cardOld = vip.vipCardHtml({ identity: { huge_vip: 1, huge_vip_end: EXPIRE_END }, svip: 1 }, NOW);
-ok("过期时卡片与文案带过期态", cardOld.includes("已过期") && cardOld.includes("vip-card expired") && cardOld.includes("is-expired"));
-ok("上游没响应时说实话，不假装有数据",
-  vip.vipCardHtml(null).includes("会员信息暂时读不到") && !vip.vipCardHtml(null).includes("会员有效至"));
-ok("vip.ts 里没有任何购买入口字段被消费（注释里提到不算）",
-  !/purchase_url|buy_url|my_vip_url/.test(noComments(src)));
+ok("卡片明确展示绿豪的有效期", card.includes("豪华绿钻有效至") && card.includes("2026-09-25 18:40"));
+ok("卡片不出现不存在的超级会员", !card.includes("超级会员"));
+ok("未知到期时间明确说明", vip.vipCardHtml(unknownDate, NOW).includes("超级会员已开通，上游未返回该权益的到期时间"));
+ok("卡片不渲染购买链接", !card.includes("example.com"));
+ok("续费只引导官方客户端", card.includes(vip.VIP_RENEW_HINT));
+const cardOld = vip.vipCardHtml(expired, NOW);
+ok("历史权益保留过期态", cardOld.includes("已过期") && cardOld.includes("vip-card expired"));
+ok("无响应有明确提示", vip.vipCardHtml(null).includes("会员信息暂时读不到"));
+ok("徽章接线使用相同的有效期判定", read("src/lib/api.ts").includes("badges.push(vipBadgeHtml(vip))"));
+
+// 页面停留跨越到期时刻：即使接口没有重新请求，也要移除徽章。
+const originalNow = Date.now, originalTimeout = globalThis.setTimeout, originalClear = globalThis.clearTimeout;
+const originalDocument = globalThis.document;
+let clock = NOW, scheduled, scheduledDelay, painted = "", visibleRefresh;
+Date.now = () => clock;
+globalThis.setTimeout = (cb, ms) => { scheduled = cb; scheduledDelay = ms; return 1; };
+globalThis.clearTimeout = () => { scheduled = undefined; };
+globalThis.document = {
+  addEventListener(_, cb) { visibleRefresh = cb; },
+  removeEventListener() { visibleRefresh = undefined; },
+};
+try {
+  const brief = { svip: 1, svip_end: "2026-09-19 13:56:12" };
+  const stop = vip.watchVip(brief, () => { painted = vip.vipBadgeHtml(brief); });
+  ok("页面打开时安排精确到期刷新", painted.includes("超级会员") && scheduledDelay === 1000);
+  clock += 1000;
+  scheduled();
+  eq("无需重进页面，到期立即移除标志", painted, "");
+  stop();
+  ok("离页清理会员计时器和恢复监听", scheduled === undefined && visibleRefresh === undefined);
+} finally {
+  Date.now = originalNow; globalThis.setTimeout = originalTimeout; globalThis.clearTimeout = originalClear;
+  if (originalDocument === undefined) delete globalThis.document; else globalThis.document = originalDocument;
+}
 
 // ============ 4. 动效与接线 ============
 section("动效接线（进场分级 / 离场跳转）");

@@ -5,6 +5,7 @@
 // （file:// 与壳层加载均兼容），旧的多页入口（daily.html 等）保留为薄跳转层。
 import "./style.css";
 import { api, upPic, identityBadges } from "./lib/api";
+import { watchVip } from "./lib/vip.ts";
 import { favSonglists, loadFavSonglists, onFavSonglistsChange } from "./lib/favs";
 import { getSidebarCollapsed, setSidebarCollapsed, getSidebarWidth, setSidebarWidth } from "./lib/prefs";
 import { bindHResizer } from "./lib/resizer";
@@ -431,7 +432,11 @@ async function bootSidebar() {
       : icons.userPh;
     document.getElementById("nick")!.textContent = base.name;
     // 徽章数据驱动：会员最高档（橙=超级会员/绿=绿钻系）+ 音乐人（蓝）
-    document.getElementById("badges")!.innerHTML = identityBadges(me, vip);
+    const badges = document.getElementById("badges")!;
+    watchVip(vip, () => {
+      const html = identityBadges(me, vip);
+      if (badges.innerHTML !== html) badges.innerHTML = html;
+    });
 
     // 我喜欢（dirid=201 固定）不进歌单列表——导航栏已有入口
     const pl: any = await api("/user/created-songlists").catch(() => null);

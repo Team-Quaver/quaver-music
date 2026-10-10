@@ -1,8 +1,9 @@
 // Quaver — 会员（VIP）展示口径：/user/vip 的原样数据 → 界面上的到期时间与档位明细
 //
-// 数据源：/user/vip → 上游 `VipLogin.VipLoginInter` / `vip_login_base` 的原始 JSON
-// （Go 后端 vendor/Typhoeus-go 对该 CGI 原样透传，不做强类型建模）。字段挂在哪一层、
-// 叫什么，以真实响应为准 —— 写错了不会报错，只会静静地少一行。
+// 数据源：Go /user/vip 的稳定契约，来自官方 SRFVipQuery_V2。
+// 旧 vip_login_base.svip 是绿豪，不能直接消费；Go 已按实际权益分别映射。
+// 超会 svip_start/end，绿豪 identity.huge_vip_start/end，绿钻 identity.vip_start/end。
+// 不跨权益借用时间，不从历史时间记录推断开通状态。
 //
 // 两条硬口径：
 //
@@ -13,39 +14,26 @@
 //
 // 2. **只看不买**：上游同时给了 identity.purchase_url / userinfo.buy_url / userinfo.my_vip_url，
 //    这里一律不渲染。续费/订阅只指路 QQ 音乐官方客户端（VIP_RENEW_HINT），本项目不做支付入口。
-import { escHtml } from "./api";
+import { escHtml } from "./html.ts";
 
 /** 上游墙钟时区（北京时间）与常用时长 */
 const SH_MS = 8 * 3600_000;
 const DAY_MS = 86400_000;
 
-/**
- * 会员档位表。flag = 生效标志字段，start/end = 起止时间字段。
- * `where` 指出字段挂在哪一层：identity = UserVipInfoResponse.identity（VipIdentity）；
- * root = UserVipInfoResponse 顶层（超级会员 `svip` 与星级那两档都在顶层，不在 identity 里 —— 别想当然）。
- *
- * **只列身份徽章那一套**（超级会员 / 豪华绿钻，绿钻兜底）—— 上游还有八平台/十二平台/星级/
- * 家庭组/情侣/儿童/体验/广告会员一堆协议档位，但客户端里用户看到的就是这两枚徽章；
- * 全摊出来只会让人以为买了别的套餐，而且「会员有效至」会被某个更晚的附属权益带跑偏
- * （实测：eight_end=2026-09-26 比 huge_vip_end=2026-09-25 晚一天，有效期就显示成 09-26 了）。
- * 顺序即展示优先级（高 → 低），卡片按表序出，不再按到期日重排。
- */
+/** 三个独立权益，顺序只用于最高有效会员徽章与卡片主标题。 */
 export interface VipTierDef {
   label: string;
   where: "identity" | "root";
   flag: string;
-  start?: string;
-  end?: string;
-  /** 「年费」标志字段：不是独立档位，是同一档的计费形态（corner 小标用） */
-  yearFlag?: string;
-  /** 该标志非 0 时本档让位（绿钻是豪华绿钻的降级形态，两个都在就只显示后者 —— 与 identityBadges 同一套口径） */
-  hideIf?: string;
+  start: string;
+  end: string;
+  yearFlag: string;
 }
 
 export const VIP_TIERS: VipTierDef[] = [
-  { label: "超级会员", where: "root", flag: "svip" },
+  { label: "超级会员", where: "root", flag: "svip", start: "svip_start", end: "svip_end", yearFlag: "svip_year_flag" },
   { label: "豪华绿钻", where: "identity", flag: "huge_vip", start: "huge_vip_start", end: "huge_vip_end", yearFlag: "huge_year_flag" },
-  { label: "绿钻", where: "identity", flag: "vip", hideIf: "huge_vip" },
+  { label: "绿钻", where: "identity", flag: "vip", start: "vip_start", end: "vip_end", yearFlag: "year_flag" },
 ];
 
 /** 续费/订阅指路文案：不做内购，只提醒去官方客户端 */
@@ -114,6 +102,7 @@ export interface VipRow {
   /** 年费形态（huge_year_flag 之类） */
   year: boolean;
   expired: boolean;
+  active: boolean;
   /** 到期时间展示串（空 = 该档上游只给了标志位、没给时间） */
   end: string;
   /** 生效时间展示串（只在 title 里提示） */
@@ -127,67 +116,79 @@ export interface VipOverview {
   svip: boolean;
   /** 会员等级（identity.level，0 = 上游没给） */
   level: number;
-  /** 所有档位里最晚的到期时间 = 「会员有效至」；一个到期时间都没有 → null */
-  until: { text: string; ms: number; expired: boolean; state: string } | null;
+  /** 最高有效权益自己的到期时间；无有效权益时显示最高历史记录。 */
+  until: { label: string; text: string; ms: number; expired: boolean; state: string } | null;
   rows: VipRow[];
   /** 完全没有任何会员记录 */
   empty: boolean;
 }
 
-/** 一份 /user/vip 响应 → 权益卡数据（纯函数，`now` 可注入便于测试） */
+const tierSource = (vip: any, t: VipTierDef): any => t.where === "root" ? vip ?? {} : vip?.identity ?? {};
+
+/** 日期未给时信标志；已给但无效、尚未生效或已到期时绝不显示徽章。 */
+export function vipTierActive(vip: any, t: VipTierDef, now: number = Date.now()): boolean {
+  const src = tierSource(vip, t);
+  if (Number(src[t.flag]) !== 1) return false;
+  for (const [key, edge] of [[t.start, "start"], [t.end, "end"]] as const) {
+    const raw = String(src[key] ?? "").trim();
+    if (!raw || raw === "0") continue;
+    const ms = parseVipTime(raw, edge);
+    if (ms === null || (edge === "start" ? now < ms : now >= ms)) return false;
+  }
+  return true;
+}
+
+/** 侧栏/我的页共用，仅显示最高有效会员；音乐人徽章由调用方独立处理。 */
+export function vipBadgeHtml(vip: any, now: number = Date.now()): string {
+  const tier = VIP_TIERS.find((t) => vipTierActive(vip, t, now));
+  return tier ? `<i class="badge ${tier.flag === "svip" ? "orange" : "green"}">${escHtml(tier.label)}</i>` : "";
+}
+
+/** 页面保持打开时也在权益边界更新；每分钟校时，并在窗口恢复时立即重算。 */
+export function watchVip(vip: any, render: () => void): () => void {
+  let timer: ReturnType<typeof setTimeout>;
+  const refresh = () => {
+    clearTimeout(timer);
+    render();
+    const now = Date.now();
+    const edges = VIP_TIERS.flatMap((t) => {
+      const src = tierSource(vip, t);
+      return [parseVipTime(src[t.start]), parseVipTime(src[t.end], "end")];
+    }).filter((ms): ms is number => ms !== null && ms > now);
+    timer = setTimeout(refresh, Math.min(60_000, ...edges.map((ms) => ms - now)));
+  };
+  refresh();
+  document.addEventListener("visibilitychange", refresh);
+  return () => { clearTimeout(timer); document.removeEventListener("visibilitychange", refresh); };
+}
+
+/** 一份 /user/vip 响应 → 权益卡数据（纯函数，now 可注入）。 */
 export function vipOverview(vip: any, now: number = Date.now()): VipOverview {
-  const at = (where: "identity" | "root") => (where === "identity" ? vip?.identity ?? {} : vip ?? {});
-  const rows: VipRow[] = [];
-  let untilMs: number | null = null;
-  let untilText = ""; // 展示串单独留：不能拿收过边的毫秒去格式化（见 parseVipTime 的 edge 说明）
-
-  for (const t of VIP_TIERS) {
-    const src = at(t.where);
-    // hideIf：被更高一档「吃掉」的降级形态（绿钻 vs 豪华绿钻）整档让位，不占行
-    if (t.hideIf && Number(src?.[t.hideIf] ?? 0) !== 0) continue;
-    const flag = Number(src?.[t.flag] ?? 0);
-    const startRaw = t.start ? src?.[t.start] : undefined;
-    const endRaw = t.end ? src?.[t.end] : undefined;
-    // 到期用 "end" 语义解析（只有日期的串收到当天 23:59:59），展示串则按上游原样格式化 ——
-    // 别拿收边后的毫秒去格式化，否则 "2026-09-26" 会显示成 "2026-09-26 23:59"。
-    const startMs = t.start ? parseVipTime(startRaw, "start") : null;
-    const endMs = t.end ? parseVipTime(endRaw, "end") : null;
-    if (!flag && startMs === null && endMs === null) continue; // 没这一档，不占一行
+  const records = VIP_TIERS.flatMap((t) => {
+    const src = tierSource(vip, t);
+    const startMs = parseVipTime(src[t.start]);
+    const endMs = parseVipTime(src[t.end], "end");
+    if (Number(src[t.flag] ?? 0) !== 1 && startMs === null && endMs === null) return [];
+    const active = vipTierActive(vip, t, now);
     const st = endMs === null ? null : vipExpiryState(endMs, now);
-    rows.push({
-      label: t.label,
-      year: t.yearFlag ? Number(src?.[t.yearFlag] ?? 0) !== 0 : false,
-      expired: st?.expired ?? false,
-      end: endMs === null ? "" : fmtVipTime(endRaw),
-      start: startMs === null ? "" : fmtVipTime(startRaw),
-      state: st?.text ?? "",
-    });
-    if (endMs !== null && (untilMs === null || endMs > untilMs)) {
-      untilMs = endMs;
-      untilText = fmtVipTime(endRaw);
-    }
-  }
-
-  // 兜底：所有档位都没给到期时间时用 userinfo.expire（实测常见 0 = 上游没填）。
-  // 单位不稳（秒 / 毫秒都见过），按量级判；越界（<2000 年或 >2100 年）当没给。
-  if (untilMs === null) {
-    const exp = Number(vip?.userinfo?.expire ?? 0);
-    const ms = exp > 1e11 ? exp : exp * 1000; // 1e11 ms ≈ 1973 年：超过它当毫秒
-    if (Number.isFinite(ms) && ms > 946684800000 && ms < 4102444800000) {
-      untilMs = ms;
-      untilText = fmtVipWall(ms);
-    }
-  }
-
-  // 顺序 = 档位表顺序（超级会员 → 豪华绿钻 → 绿钻），不按到期日重排：
-  // 就这两三行，身份高低比「谁先到期」更该决定先后。
-  const st = untilMs === null ? null : vipExpiryState(untilMs, now);
+    const row: VipRow = {
+      label: t.label, year: Number(src[t.yearFlag] ?? 0) === 1,
+      active, expired: st?.expired ?? false,
+      start: startMs === null ? "" : fmtVipTime(src[t.start]),
+      end: endMs === null ? "" : fmtVipTime(src[t.end]),
+      state: st?.expired ? st.text : startMs !== null && now < startMs ? "尚未生效" : active ? st?.text ?? "已开通" : "未开通",
+    };
+    return [{ row, endMs }];
+  });
+  // 主时间始终属于主权益，不取 max，也不从 userinfo.expire/音乐包借时间。
+  const primary = records.find((r) => r.row.active) ?? records[0];
   return {
-    svip: Number(vip?.svip ?? 0) !== 0,
+    svip: vipTierActive(vip, VIP_TIERS[0]!, now),
     level: Number(vip?.identity?.level ?? 0),
-    until: untilMs === null || st === null ? null : { text: untilText, ms: untilMs, expired: st.expired, state: st.text },
-    rows,
-    empty: rows.length === 0 && Number(vip?.svip ?? 0) === 0,
+    until: primary && primary.endMs !== null
+      ? { label: primary.row.label, text: primary.row.end, ms: primary.endMs, expired: primary.row.expired, state: primary.row.state }
+      : null,
+    rows: records.map((r) => r.row), empty: records.length === 0,
   };
 }
 
@@ -208,10 +209,10 @@ export function vipCardHtml(vip: any, now: number = Date.now()): string {
 
   const bad = " is-expired";
   const main = ov.until
-    ? `<div class="vip-main"><span>会员有效至</span><b class="vip-until${ov.until.expired ? bad : ""}">${escHtml(ov.until.text)}</b>
+    ? `<div class="vip-main"><span>${escHtml(ov.until.label)}有效至</span><b class="vip-until${ov.until.expired ? bad : ""}">${escHtml(ov.until.text)}</b>
         <span class="vip-state${ov.until.expired ? bad : ""}">${escHtml(ov.until.state)}</span></div>`
-    : ov.svip
-      ? `<div class="vip-main"><span class="vip-empty">会员已开通，上游未返回到期时间。</span></div>`
+    : ov.rows.some((r) => r.active)
+      ? `<div class="vip-main"><span class="vip-empty">${escHtml(ov.rows.find((r) => r.active)!.label)}已开通，上游未返回该权益的到期时间。</span></div>`
       : `<div class="vip-main"><span class="vip-empty">当前账号没有会员订阅记录。</span></div>`;
 
   const rows = ov.rows.length
@@ -219,7 +220,7 @@ export function vipCardHtml(vip: any, now: number = Date.now()): string {
         .map(
           (r) => `<li class="vip-row${r.expired ? " expired" : ""}">
         <span class="vip-name">${escHtml(r.label)}${r.year ? `<i class="vip-tag">年费</i>` : ""}</span>
-        <span class="vip-dt"${r.start ? ` title="${escHtml(r.start)} 起"` : ""}>${r.end ? `至 ${escHtml(r.end)}` : "已开通"}</span>${r.state
+        <span class="vip-dt"${r.start ? ` title="${escHtml(r.start)} 起"` : ""}>${r.end ? `至 ${escHtml(r.end)}` : r.active ? "已开通" : "未开通"}</span>${r.state
             ? `<span class="vip-state${r.expired ? bad : ""}">${escHtml(r.state)}</span>`
             : ""}</li>`,
         )

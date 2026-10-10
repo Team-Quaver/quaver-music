@@ -71,7 +71,7 @@ import { checkAndPrompt, getPlatformInfo } from "./lib/updater";
 import { buildChannel, channelLabel, describeBuild, parseVersion } from "./lib/update-core";
 import { syncInhibit } from "./lib/inhibit";
 import {configInfo, resetConfig, revealConfig} from "./lib/config";
-import {vipCardHtml} from "./lib/vip";
+import { vipCardHtml, watchVip } from "./lib/vip.ts";
 import {mountSparklePanel} from "./sparkle/settings";
 import {onSparkleChange, sparkleActiveTheme, sparkleThemes} from "./sparkle/registry";
 import {sparkActivateTheme, sparkActiveThemeId} from "./sparkle/host";
@@ -148,7 +148,7 @@ interface UserMeResp {
 }
 type LoginChannel = "mobile" | "qq" | "wx";
 interface QrResp { img?: string; identifier?: string }
-interface QrStatusResp { event?: number; done?: boolean }
+interface QrStatusResp { event?: number; done?: boolean; error?: string }
 
 export const BACK_SVG = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6l-6 6 6 6"/></svg>`;
 
@@ -907,16 +907,30 @@ async function albumView(root: HTMLElement, q: URLSearchParams) {
       alb.time_public,
       list?.total_num ? `${list.total_num} 首` : "",
     ].filter(Boolean);
+    const albumName = alb.name ?? "专辑";
+    const albumArt = picMid
+      ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${picMid.split("_")[0]}.jpg`
+      : "";
     mountHead(root, {
-      artHtml: picMid ? `<img src="https://y.gtimg.cn/music/photo_new/T002R300x300M000${picMid.split("_")[0]}.jpg" alt=""/>` : "",
-      name: alb.name ?? "专辑",
+      artHtml: albumArt ? `<img src="${albumArt}" alt=""/>` : "",
+      name: albumName,
       meta: metaParts.join(" · "),
       desc: alb.desc || "",
     });
+    // 专辑页与歌手/歌单页使用同一套吸顶条；专辑只需要在左侧保留封面 + 标题，
+    // 不把歌手、发行日期、歌曲数等详情重复塞进吸顶区。
+    const sticky = mountStickyBar(root, {
+      artHtml: albumArt ? `<img src="${albumArt}" alt=""/>` : "",
+      name: albumName,
+    });
     const box = h("div", "rows");
     root.append(box);
-    if (!songs.length) { box.innerHTML = `<div class="muted">没有取到歌曲</div>`; return; }
+    if (!songs.length) {
+      box.innerHTML = `<div class="muted">没有取到歌曲</div>`;
+      return sticky.off;
+    }
     renderSongRows(box, songs, { showArtist: true, showAlbum: false, onPlay: (s, i, all) => player.playList(all, i) });
+    return sticky.off;
   } catch (e) {
     root.innerHTML = ""; root.append(h("div", "rows muted", `加载失败：${errText(e)}`));
   }
@@ -2160,17 +2174,27 @@ async function userView(root: HTMLElement) {
       <p class="muted">UID: ${escHtml(base.encrypted_uin ?? "")}</p>
       ${vipCardHtml(vip)}
       <button id="logout" class="ghost-btn danger">退出登录</button>`;
+    const stopVip = watchVip(vip, () => {
+      const badges = wrap.querySelector<HTMLElement>(".badges")!;
+      const badgeHtml = identityBadges(home, vip);
+      if (badges.innerHTML !== badgeHtml) badges.innerHTML = badgeHtml;
+      const card = wrap.querySelector<HTMLElement>(".vip-card")!;
+      const cardHtml = vipCardHtml(vip);
+      if (card.outerHTML !== cardHtml) card.outerHTML = cardHtml;
+    });
     const btn = wrap.querySelector<HTMLButtonElement>("#logout")!;
     let leaving = false;
     btn.onclick = async () => {
       if (leaving) return; // 连点：只开一趟登出
       leaving = true;
+      stopVip();
       btn.disabled = true;
       btn.textContent = "正在退出…";
       // 离场动画与登出请求并行：动画短、请求可能慢，两个都不许把跳转卡住
       await Promise.all([exitMe(wrap), settleIn(api("/login/logout", { method: "POST" }), 1500)]);
       location.href = "/login.html";
     };
+    return stopVip;
   } catch {
     location.hash = "#/login";
   }
@@ -2181,7 +2205,7 @@ async function loginView(root: HTMLElement) {
   root.innerHTML = `
     <div class="login-wrap">
       <h2>扫码登录</h2>
-      <p class="muted">用手机 QQ 音乐 App 或微信扫码。凭证由本机加密保存（KWallet / 钥匙串 / 凭据管理器等系统密钥管理器），磁盘上不留明文，也不进浏览器。</p>
+      <p class="muted">用手机 QQ 音乐 App、QQ 或微信扫码。凭证由本机加密保存（KWallet / 钥匙串 / 凭据管理器等系统密钥管理器），磁盘上不留明文，也不进浏览器。</p>
       <!-- 登录方式用标签区分（不是下拉）：复用搜索页/歌手页那套 .tag 组件，三档一眼看全，
            data-ch 的取值必须与 sidecar 的 QR_TYPES（qq/wx/mobile）对齐，写错是 422 不是静默失败 -->
       <div class="tag-tabs" id="channel" role="tablist" aria-label="登录方式">
@@ -2203,36 +2227,53 @@ async function loginView(root: HTMLElement) {
   let channel = (tabs[0]?.dataset.ch ?? "mobile") as LoginChannel;
   let timer: number | undefined;
   let stopped = false;
+  let generation = 0;
 
   async function start() {
     window.clearInterval(timer);
+    const current = ++generation;
+    const loginChannel = channel;
+    let polling = false;
     qr.innerHTML = `<div class="muted">生成中…</div>`;
     lstate.textContent = "";
     let d: QrResp;
     try {
-      d = await api<QrResp>(`/login/qrcode/${channel}`);
+      d = await api<QrResp>(`/login/qrcode/${loginChannel}`);
     } catch (e) {
+      if (stopped || current !== generation) return;
       qr.innerHTML = `<div class="muted">${/429|backoff|频繁/.test(errText(e)) ? "操作太快，等 60-90s 再重试" : errText(e)}</div>`;
       return;
     }
-    if (stopped) return;
+    if (stopped || current !== generation) return;
     qr.innerHTML = `<img src="${d.img}" alt="登录二维码"/>`;
     lstate.textContent = "等待扫码…";
 
     timer = window.setInterval(async () => {
-      if (stopped) { window.clearInterval(timer); return; }
+      if (stopped || current !== generation || polling) return;
+      polling = true;
       try {
-        const c = await api<QrStatusResp>(`/login/qrcode/${channel}/status?identifier=${encodeURIComponent(d.identifier ?? "")}`);
-        if (c.event === 1) return; // SCAN
+        const c = await api<QrStatusResp>(`/login/qrcode/${loginChannel}/status?identifier=${encodeURIComponent(d.identifier ?? "")}`);
+        if (stopped || current !== generation) return;
+        if (c.error) {
+          lstate.textContent = c.error;
+          if (c.done) window.clearInterval(timer);
+          return;
+        }
+        if (c.event === 1) { lstate.textContent = "等待扫码…"; return; } // SCAN
         if (c.event === 2) { lstate.textContent = "已扫码，请在手机上确认"; return; }
         if (c.event === 3) { lstate.textContent = "二维码已过期，点「重新生成」"; window.clearInterval(timer); return; }
         if (c.event === 4) { lstate.textContent = "已拒绝登录"; window.clearInterval(timer); return; }
         if (c.event === 0 && c.done) {
           window.clearInterval(timer);
           lstate.textContent = "✅ 登录成功，正在返回…";
-          setTimeout(() => (location.href = "/index.html"), 800);
+          setTimeout(() => { if (!stopped && current === generation) location.href = "/index.html"; }, 800);
         }
-      } catch { /* 瞬时网络抖动，下一轮再试 */ }
+      } catch (e) {
+        if (stopped || current !== generation) return;
+        lstate.textContent = `登录请求失败：${errText(e)}。可点「重新生成」重试。`;
+      } finally {
+        polling = false;
+      }
     }, 2000);
   }
 

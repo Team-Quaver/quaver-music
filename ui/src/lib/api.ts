@@ -1,5 +1,8 @@
 // Quaver — 浏览器侧 API 封装（全部走同源 /api 中继 → Python sidecar :3200）
 // 响应信封：{code:0,msg:"ok",data:...}；错误 {code:-1,msg:...} + HTTP 状态。
+import { escHtml } from "./html.ts";
+export { escHtml } from "./html.ts";
+import { vipBadgeHtml } from "./vip.ts";
 import { getFallbackSort } from "./prefs";
 import { cfg, cfgSet } from "./config";
 import { missingTiersOf } from "./songtiers";
@@ -42,10 +45,6 @@ export const writeSongType = (type?: number) => Math.max(0, Number(type ?? 1) - 
 // 同一首歌的不同版本在界面上长得一模一样 —— 故展示一律走 songTitle()。
 // subtitle 是另一回事：它是「《小时代》电影主题曲」这类一句话说明，与 title 上的括号后缀不重叠，
 // 展示时作为标题行的次级文本追加（见 songs.ts 的 .rt-sub）。
-/** HTML 转义（文本节点与双引号属性值都安全）；入参宽容（unknown），null/undefined 归空串 */
-export const escHtml = (s: unknown) =>
-  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-
 /** 剥掉 search 接口 highlight=true 漏进任意字符串字段的 <em> 标签 */
 export const stripEm = (s: unknown) => String(s ?? "").replace(/<\/?em>/gi, "");
 
@@ -106,9 +105,7 @@ export const fmtTime = (sec: number) => {
 // 配色约定：绿=豪华绿钻/绿钻，橙=超级会员，蓝=音乐人（.badge.green/.orange/.blue）。
 export function identityBadges(me: any, vip: any): string {
   const badges: string[] = [];
-  if (vip?.svip) badges.push(`<i class="badge orange">超级会员</i>`);
-  else if (vip?.identity?.huge_vip) badges.push(`<i class="badge green">豪华绿钻</i>`);
-  else if (vip?.identity?.vip) badges.push(`<i class="badge green">绿钻</i>`);
+  badges.push(vipBadgeHtml(vip));
   if (me?.base_info?.is_singer) badges.push(`<i class="badge blue">音乐人</i>`);
   return badges.join("");
 }
