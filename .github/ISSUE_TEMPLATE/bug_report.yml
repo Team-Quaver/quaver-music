@@ -28,6 +28,7 @@ body:
       description: 选择你实际使用的版本（Tag）。如果列表中没有对应版本，请选择「其他（手动填写）」，并在下一项补充。
       options:
         # >>> auto-generated-options (refresh-issue-versions 维护，勿手改) >>>
+        - v1.4.5
         - v1.4.4
         - v1.4.3
         - v1.4.2
@@ -41,9 +42,6 @@ body:
         - v1.3.3
         - v1.3.2
         - v1.3.1
-        - v1.3.0-Evanescia-TyphoeusGo-Early-Alpha-loong-aosc
-        - v1.3.0-Evanescia-TyphoeusGo-Early-Alpha
-        - v1.3.0-Ellen-Evanescia-TyphoeusGo-Early-Alpha-260930
         - v1.3.0
         - v1.2.3
         - v1.2.2
@@ -51,12 +49,6 @@ body:
         - v1.2.0
         - v1.1.2
         - v1.1.1
-        - v1.1.0-smtc-nowplay-test
-        - v1.1.0-smtc
-        - v1.1.0-plugins-test
-        - v1.1.0-ellen-cyrene-dynamic-lyrics-test
-        - v1.1.0-ellen-cyrene-cross-test
-        - v1.1.0-ellen-cyrene-cp-test
         - v1.1.0
         - v1.0.6
         - v1.0.5
@@ -65,7 +57,6 @@ body:
         - v1.0.2
         - v1.0.1
         - v1.0.0-rc
-        - v1.0.0-firstlook-alpha1
         - v1.0.0-ellen-chisa-alpha3
         - v1.0.0-ellen-chisa-alpha2-2
         - v1.0.0-ellen-chisa-alpha2-1
