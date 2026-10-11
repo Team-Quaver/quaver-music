@@ -13,12 +13,15 @@ import { apiRelay } from "./src/relay.ts";
 // 为什么要有 CI 这一路：CI 是浅克隆，`git describe` 拿不到 tag，而 electron-builder 的
 // 版本号是 CI 另外传的（tag 发布 / 每夜版带 commit id）—— 不给注入口的话，
 // 「关于」页会一直显示 package.json 里的 0.0.1，和产物文件名对不上。
+// describe 必须钉 --match "v*"：滚动 Release 的 tag 名就叫 nightly，且永远比最新版 tag 新，
+// 不排除的话本地构建的 __APP_VERSION__ 会是裸字符串 "nightly" —— 不是合法 semver，
+// Sparkle 的 minHostVersion 门对所有声明最低版本的插件一律误拒。
 function appVersion(): string {
   const root = fileURLToPath(new URL(".", import.meta.url));
   const explicit = process.env.QUAVER_VERSION?.trim();
   if (explicit) return explicit;
   try {
-    return execSync("git describe --tags --abbrev=0", { cwd: root, encoding: "utf8" }).trim();
+    return execSync('git describe --tags --abbrev=0 --match "v*"', { cwd: root, encoding: "utf8" }).trim();
   } catch {
     return "v" + (JSON.parse(readFileSync(root + "package.json", "utf8")).version as string);
   }

@@ -52,9 +52,23 @@ export function compareSparkleVersions(a: unknown, b: unknown): number | null {
   return 0;
 }
 
+/** nightly 构建（CI 版本 = <包版本>-<短sha>-nightly，产物名形态省略 -nightly 后缀）。
+ *  prerelease 段与 update-core.ts 的 parseVersion 同一口径：短 commit id（十六进制 7-10 位）。 */
+export function isSparkleNightly(value: unknown): boolean {
+  // 裸 "nightly"：滚动 tag 名。老构建的 git describe 命中过它，把 "nightly" 原样注入
+  // __APP_VERSION__ —— 与 update-core 的口径对齐，认作 nightly 而不是「解析失败的版本」。
+  if (value === "nightly") return true;
+  const v = parseSparkleVersion(value);
+  return !!v?.prerelease.length && /^([0-9a-f]{7,10})(-nightly)?$/.test(v.prerelease.join("-"));
+}
+
 export function isSparkleVersionAtLeast(current: unknown, minimum: unknown, allowBeta = false): boolean {
   const comparison = compareSparkleVersions(current, minimum);
   if (comparison !== null && comparison >= 0) return true;
+  // Nightly 是 main 的末端，但 CI 版本号沿用包版本（只在发布时抬），SemVer 排序上永远低于
+  // 下一版线 —— 插件把 minHostVersion 指向未发布版本（1.4.1 + allowBeta）时，下面的同 x.y.z
+  // 门在 nightly 上永不成立，可那份代码恰恰只在 nightly 里。所以 nightly 视为高于一切最低版本。
+  if (isSparkleNightly(current)) return true;
   if (!allowBeta) return false;
 
   // allowBeta 只放行「当前版本是目标正式版本的预发布版」这一种情况，不能让更旧的 Beta 越过最低版本。
