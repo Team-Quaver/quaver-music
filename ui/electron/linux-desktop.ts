@@ -16,8 +16,14 @@
 //   • xdg-desktop-portal（GlobalShortcuts）同样按 ID 找桌面文件，1.21+ 解析不到直接拒会话。
 //   • AppImage 只有被集成工具（AppImageLauncher 等）接管时才把内部的 desktop 文件/图标装进用户
 //     目录；裸跑（直接执行 AppImage）时什么都没有。开发态更不会有任何东西替我们装。
+//   • distro 包（electron-builder 的 deb/rpm/pacman，装到 /opt/<productName>，带
+//     resources/package-type）**已经**把可见的 <ID>.desktop 装在 /usr/share/applications，还带一份
+//     /usr/share/icons/hicolor/.../apps/<ID>.png。这种布局里没有任何 AppRun，用户目录再写一份不是
+//     「补装」而是**遮蔽**：XDG 搜索顺序里 $XDG_DATA_HOME 在 /usr/share 之前，用户那份赢，包升级
+//     换了 Exec 也轮不到它生效。所以系统条目在场时本模块整件事都不做（见 findSystemDesktopEntry）。
 //
 // 自装策略（只动自己的命名空间，幂等，失败不致命）：
+//   • 系统级（包管理器装的）可见 <ID>.desktop 存在 → 全部让位，并清掉自己以前写下的那份托管文件；
 //   • hicolor/<size>/apps/<app_id>.png —— 每次启动都对齐（内容一致就跳过，不刷 mtime）；
 //   • applications/<app_id>.desktop —— 三种情况（幂等，失败不致命）：
 //       带我们 X-Quaver-Managed 标记 → 整份强制对齐（自己上次写的那份内容漂移也修回来）；
@@ -25,7 +31,7 @@
 //         为准，避免启动器里出现重复项）；
 //       其余（缺失 / Icon 是通配名等坏值 / 被 Hidden 或 NoDisplay 藏起来了）→ 改写成**可见**条目：
 //         身份文件必须可见，否则 Noctalia 这类壳整条丢弃，app_id 反查不到就丢图标（见上）。
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { readdir as readdirAsync } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
@@ -37,6 +43,31 @@ export const DESKTOP_ID = "red.0w0.quaver"; // = appId = app_id = WM_CLASS（.de
 export function xdgDataHome(env = process.env, home = homedir()) {
   const xdg = String(env.XDG_DATA_HOME ?? "").trim();
   return xdg || join(home, ".local", "share");
+}
+
+/** 系统级 XDG data 根：$XDG_DATA_DIRS 优先，默认 /usr/local/share:/usr/share（XDG 规范的默认值）。 */
+export function xdgDataDirs(env = process.env) {
+  const dirs = String(env.XDG_DATA_DIRS ?? "").trim();
+  return (dirs || "/usr/local/share:/usr/share").split(":").filter(Boolean);
+}
+
+/**
+ * 包管理器装好的 <ID>.desktop（第一个**可见**的那份），没有返回 null。
+ * 找到它就意味着「有人替我们装过了」，而且是比我更权威的人：那份文件属于包，升级时跟着包一起换。
+ * 用户目录里的副本会把它整个盖住（$XDG_DATA_HOME 在 XDG_DATA_DIRS 之前），所以系统条目在场时
+ * 我们连写都不写——这不只是避免重复项，是避免用一个过期的 Exec 顶掉包管理器的真相。
+ * 隐藏条目（NoDisplay/Hidden）不算数：Noctalia 会整条丢弃（见模块头 #4626），那种情况照旧由我们收编。
+ */
+export function findSystemDesktopEntry(desktopId, env = process.env) {
+  for (const root of xdgDataDirs(env)) {
+    const file = join(root, "applications", `${desktopId}.desktop`);
+    try {
+      if (!existsSync(file)) continue;
+      if (readDesktopHidden(readFileSync(file, "utf8"))) continue;
+      return file;
+    } catch { /* 读不动就当这个根没有，继续看下一个 */ }
+  }
+  return null;
 }
 
 // desktop 文件值转义：反斜杠与换行按 spec 转义；本项目自己的字段不会出现这些，防御性兜一下
@@ -144,8 +175,10 @@ async function syncHicolorIcons({ iconSourceDir, dataHome, desktopId }) {
 }
 
 /**
- * 安装/升级桌面集成。policy：desktop 文件「Icon 已正确且条目可见 → 让位，否则收编」，图标「对齐为准」。
- * 返回 { desktopFile, desktopAction: "kept"|"written"|"absent", iconsWritten }，全程不抛（失败靠日志观察）。
+ * 安装/升级桌面集成。policy：系统级（包管理器装的）可见条目在场 → 全让位；否则 desktop 文件
+ * 「Icon 已正确且条目可见 → 让位，否则收编」，图标「对齐为准」。
+ * 返回 { desktopFile, desktopAction: "kept"|"written"|"absent"|"system"|"system-cleaned",
+ * systemDesktopFile, iconsWritten }，全程不抛（失败靠日志观察）。
  */
 export async function installLinuxDesktopIntegration({
   desktopId = DESKTOP_ID,
@@ -155,10 +188,31 @@ export async function installLinuxDesktopIntegration({
   categories,
   iconSourceDir,
   dataHome = xdgDataHome(),
+  env = process.env, // 系统 XDG_DATA_DIRS 的来源（测试注入，免得踩到宿主机真装了包）
   refreshCache = true, // 测试注入 false：不对外部 gtk-update-icon-cache 产生时序依赖
   log = () => {},
 }) {
-  const result = { desktopFile: null, desktopAction: "absent", iconsWritten: [] };
+  const result = { desktopFile: null, desktopAction: "absent", systemDesktopFile: null, iconsWritten: [] };
+  const appsDir = join(dataHome, "applications");
+  const file = join(appsDir, `${desktopId}.desktop`);
+  result.desktopFile = file;
+  // 包管理器装的可见系统条目在场 → 本模块整件事都不做（图标也是它那份包的一部分）。而且要顺手清掉
+  // 自己以前写下的托管文件：留着的后果是启动器一直用一个死的 Exec —— 真踩过：rpm 装到
+  // /opt/<productName>，我们按「解包 AppImage」猜出的 /opt/<productName>/AppRun 根本不存在。
+  const systemEntry = findSystemDesktopEntry(desktopId, env);
+  if (systemEntry) {
+    result.systemDesktopFile = systemEntry;
+    result.desktopAction = "system";
+    try {
+      if (existsSync(file) && readDesktopEntryValue(readFileSync(file, "utf8"), "X-Quaver-Managed") === "true") {
+        rmSync(file, { force: true });
+        result.desktopAction = "system-cleaned";
+      }
+    } catch (e) {
+      log("[quaver] linux-desktop: 清理被系统条目盖住的旧副本失败:", String(e));
+    }
+    return result;
+  }
   try {
     result.iconsWritten = await syncHicolorIcons({ iconSourceDir, dataHome, desktopId });
     if (result.iconsWritten.length && refreshCache) refreshIconCache(join(dataHome, "icons", "hicolor"));
@@ -167,9 +221,6 @@ export async function installLinuxDesktopIntegration({
   }
   try {
     const content = desktopEntryContent({ desktopId, name, comment, exec, categories });
-    const appsDir = join(dataHome, "applications");
-    const file = join(appsDir, `${desktopId}.desktop`);
-    result.desktopFile = file;
     const existing = existsSync(file) ? readFileSync(file, "utf8") : null;
     const existingIcon = existing == null ? null : readDesktopIcon(existing);
     // 三种情况：我们的托管文件（带 X-Quaver-Managed）→ 整份强制对齐（Exec 漂移也修回来）；

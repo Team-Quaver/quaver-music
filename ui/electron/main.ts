@@ -1025,12 +1025,18 @@ app.whenReady().then(() => {
   // 任务栏分组与门户鉴权的唯一链路。打包态只有被集成工具接管才有人装、开发态永远没人装。
   // 异步放行不挡启动；失败只在日志记账（图标显示退化，不影响功能）。
   if (process.platform === "linux") {
-    // Exec 指向「当前这份应用」：打包态 = AppImage 本体（$APPIMAGE 由运行时注入；从解包目录
-    // 直跑时退回 AppRun），开发态 = 当前 electron + 仓库 ui/ 目录
+    // Exec 指向「当前这份应用」：打包态优先 AppImage 本体（$APPIMAGE 由运行时注入）；解包目录直跑
+    // 时退回同目录的 AppRun —— 这里的 existsSync **不能省**：distro 包（deb/rpm/pacman）装到
+    // /opt/<productName>，那份布局里只有可执行文件，没有 AppRun，盲猜出来的路径是个死链接（踩过：
+    // 桌面项里写死 /opt/Quaver Music/AppRun，点不开）；其余按可执行文件本身走，开发态 = 当前
+    // electron + 仓库 ui/ 目录
+    const appRun = join(dirname(process.execPath), "AppRun");
     const exec = process.env.APPIMAGE
       ? `${quoteExecPath(process.env.APPIMAGE)} --no-sandbox %U`
       : app.isPackaged
-        ? `${quoteExecPath(join(dirname(process.execPath), "AppRun"))} --no-sandbox %U`
+        ? existsSync(appRun)
+          ? `${quoteExecPath(appRun)} --no-sandbox %U`
+          : `${quoteExecPath(process.execPath)} %U`
         : `${quoteExecPath(process.execPath)} ${quoteExecPath(UI_ROOT)} %U`;
     installLinuxDesktopIntegration({
       desktopId: DESKTOP_ID,
@@ -1041,6 +1047,8 @@ app.whenReady().then(() => {
       log,
     }).then((r) => {
       if (r.desktopAction === "written") log("[quaver] linux-desktop: 已写", r.desktopFile);
+      if (r.desktopAction === "system") log("[quaver] linux-desktop: 让位给系统条目", r.systemDesktopFile);
+      if (r.desktopAction === "system-cleaned") log("[quaver] linux-desktop: 让位给系统条目并清掉旧副本", r.systemDesktopFile);
       if (r.iconsWritten.length) log("[quaver] linux-desktop: hicolor 图标已同步:", r.iconsWritten.join(" "));
     }).catch((e) => log("[quaver] linux-desktop failed:", String(e)));
   }

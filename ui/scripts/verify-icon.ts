@@ -11,11 +11,11 @@
 //     文件 / 对集成工具的条目让位）；托盘图的 PNG 产物与 SVG 设计源逐像素核对（主色 + 形状）。
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { inflateSync } from "node:zlib";
 import {
-  DESKTOP_ID, desktopEntryContent, installLinuxDesktopIntegration, quoteExecPath,
-  readDesktopEntryValue, readDesktopHidden, readDesktopIcon, xdgDataHome,
+  DESKTOP_ID, desktopEntryContent, findSystemDesktopEntry, installLinuxDesktopIntegration, quoteExecPath,
+  readDesktopEntryValue, readDesktopHidden, readDesktopIcon, xdgDataDirs, xdgDataHome,
 } from "../electron/linux-desktop.ts";
 import { TRAY_ICON_FILES, TRAY_ICON_PT, trayIconFile } from "../electron/tray-icon.ts";
 
@@ -159,6 +159,13 @@ const mainSrc = readFileSync(join(UI, "electron", "main.ts"), "utf8");
 check("主进程不再调用 setDesktopName（真相唯一在 package.json；两处赋值迟早写岔。注释提到 API 名不算）",
   !/\bsetDesktopName\s*\(/.test(mainSrc));
 check("whenReady 接了 linux-desktop 自装", mainSrc.includes("installLinuxDesktopIntegration"));
+// distro 包（deb/rpm/pacman）装到 /opt/<productName>，那份布局里没有 AppRun：盲猜 join(execPath, "AppRun")
+// 会写出一条点不开的桌面项。Exec 的这条分支必须存在性检查。
+check("主进程猜 AppRun 前做 existsSync（rpm/deb/pacman 布局里没有 AppRun）",
+  /const appRun = join\(dirname\(process\.execPath\), "AppRun"\)/.test(mainSrc)
+    && /existsSync\(appRun\)/.test(mainSrc));
+check("打包态没有 AppRun 时退回可执行文件本身（不再是 AppRun 死路径）",
+  /existsSync\(appRun\)[\s\S]{0,80}quoteExecPath\(process\.execPath\)/.test(mainSrc));
 check("BrowserWindow 仍带 X11 窗口图标", /icon:\s*buildRes\("icon\.png"\)/.test(mainSrc));
 
 // ——— 图标素材 ———
@@ -296,6 +303,9 @@ writeFileSync(join(iconsSrc, "ignored.txt"), "x");
 const spec = {
   desktopId: DESKTOP_ID, name: "Quaver Music", comment: "测试", exec: '"/opt/q" %U',
   iconSourceDir: iconsSrc, dataHome, refreshCache: false,
+  // 系统 XDG 根注入一个空目录：宿主机真装了 distro 包（/usr/share/applications/<ID>.desktop）时，
+  // 不注入就会走「让位给系统条目」那条线，与本节要验的自装逻辑无关 —— 那条线单独测，见下。
+  env: { XDG_DATA_DIRS: join(ROOT, "sys-empty") },
 };
 const r1 = await installLinuxDesktopIntegration(spec);
 const desktopFile = join(dataHome, "applications", `${DESKTOP_ID}.desktop`);
@@ -359,6 +369,51 @@ check("修回后 Exec 恢复正确", readFileSync(desktopFile, "utf8") === deskt
 // 素材目录缺失：不抛、desktop 照装（图标走系统 fallback）
 const r6 = await installLinuxDesktopIntegration({ ...spec, iconSourceDir: join(ROOT, "nope"), dataHome: join(ROOT, "data2") });
 check("素材目录缺失不致命", r6.iconsWritten.length === 0 && r6.desktopAction === "written");
+
+// distro 包（electron-builder 的 deb/rpm/pacman，装到 /opt/<productName>）已经带一份可见的
+// <ID>.desktop 在 /usr/share/applications。用户目录里再写一份不是补装而是遮蔽（XDG 里
+// $XDG_DATA_HOME 优先），包升级换了 Exec 也轮不到生效 —— 真踩过：包管理器的条目好好的
+// Exec="/opt/Quaver Music/red.0w0.quaver"，被用户目录那份 Exec="/opt/Quaver Music/AppRun" 顶掉。
+section("系统条目在场：整件事都不做，并清掉自己以前的遮蔽副本");
+const sysRoot = join(ROOT, "sysdata");
+const sysFile = join(sysRoot, "applications", `${DESKTOP_ID}.desktop`);
+const sysContent = '[Desktop Entry]\nName=Quaver Music\nExec="/opt/Quaver Music/red.0w0.quaver" %U\n'
+  + "Type=Application\nIcon=red.0w0.quaver\nCategories=Audio;\n";
+mkdirSync(dirname(sysFile), { recursive: true });
+writeFileSync(sysFile, sysContent);
+const sysEnv = { XDG_DATA_DIRS: sysRoot };
+eq("xdgDataDirs 默认按 XDG 规范（/usr/local/share:/usr/share）", xdgDataDirs({}), ["/usr/local/share", "/usr/share"]);
+eq("xdgDataDirs 尊重 XDG_DATA_DIRS（多根按序）", xdgDataDirs({ XDG_DATA_DIRS: "/a:/b" }), ["/a", "/b"]);
+eq("findSystemDesktopEntry 命中系统条目", findSystemDesktopEntry(DESKTOP_ID, sysEnv), sysFile);
+eq("findSystemDesktopEntry 找不到时返回 null", findSystemDesktopEntry(DESKTOP_ID, { XDG_DATA_DIRS: join(ROOT, "nope") }), null);
+
+// 先摆上「上一版跑过留下的死 Exec 副本」——这正是用户目录遮蔽系统条目的现场
+const sysDataHome = join(ROOT, "data-sys");
+const staleFile = join(sysDataHome, "applications", `${DESKTOP_ID}.desktop`);
+mkdirSync(dirname(staleFile), { recursive: true });
+writeFileSync(staleFile, desktopEntryContent({
+  desktopId: DESKTOP_ID, name: "Quaver Music", comment: "测试",
+  exec: `${quoteExecPath(join(sysRoot, "AppRun"))} --no-sandbox %U`,
+}));
+const rs1 = await installLinuxDesktopIntegration({ ...spec, dataHome: sysDataHome, env: sysEnv });
+eq("系统条目在场 → 让位并清掉旧副本", rs1.desktopAction, "system-cleaned");
+eq("让位时报告系统条目路径", rs1.systemDesktopFile, sysFile);
+check("旧副本已被清掉（留着就继续遮蔽系统条目）", !existsSync(staleFile));
+check("系统条目内容一字未动（那份属于包管理器）", readFileSync(sysFile, "utf8") === sysContent);
+eq("让位时不碰用户目录的图标（包已经装了）", rs1.iconsWritten, []);
+check("用户目录里没留下 icons/", !existsSync(join(sysDataHome, "icons")));
+
+// 干净用户目录（没被上一版写脏的机器）→ 只报告让位，什么都不创建
+const rs2 = await installLinuxDesktopIntegration({ ...spec, dataHome: join(ROOT, "data-sys2"), env: sysEnv });
+eq("干净用户目录 → 让位（system）", rs2.desktopAction, "system");
+check("让位时不创建 applications 目录", !existsSync(join(ROOT, "data-sys2", "applications")));
+
+// 系统条目被 Hidden 藏起来 → 不算「装好了」，照旧由我们收编成可见条目（#4626 同因）
+writeFileSync(sysFile, sysContent + "Hidden=true\n");
+const rs3 = await installLinuxDesktopIntegration({ ...spec, dataHome: join(ROOT, "data-sys3"), env: sysEnv });
+eq("被隐藏的系统条目不让位（照旧自装）", rs3.desktopAction, "written");
+check("收编后的条目可见", !readDesktopHidden(readFileSync(join(ROOT, "data-sys3", "applications", `${DESKTOP_ID}.desktop`), "utf8")));
+writeFileSync(sysFile, sysContent);
 
 // GTK 缓存：图标有实际写入时必须刷 icon-theme.cache（有 cache 的系统不会自动重扫新文件）
 check("图标写入后会触发 gtk-update-icon-cache（GNOME 侧新图标立即可见的前提）",
