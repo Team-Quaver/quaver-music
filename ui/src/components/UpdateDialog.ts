@@ -5,16 +5,16 @@
 // 两种意图共用本弹窗，措辞由 info.switching / info.decision.relation 决定：
 //   同渠道升级 = 「发现新版本」+「立即更新」；换渠道 = 「切换到 …」+「立即切换」，
 //   回退还要多一句版本号会变小的提示（配置/凭证/缓存不受影响）。
-// 阶段机：confirm → downloading → ready（重启 / 退出安装 / 已打开安装包）。三种安装口径：
-//   AppImage = 原位替换文件后提示重启；Windows = 退出并静默安装；deb/rpm/dmg = 下载后用
-//   系统默认应用打开（Linux 走 xdg-open），剩下的在发行版安装器里完成。
+// 阶段机：confirm → downloading → ready（重启 / 退出安装 / 已下载待打开 / 已打开安装包）。三种安装口径：
+//   AppImage = 原位替换文件后提示重启；Windows = 退出并静默安装；deb/rpm = 下载到「下载」目录后**不自动**
+//   打开，弹窗里给「打开安装包」（xdg-open）与「打开所在目录」两个选择；dmg = 交给系统挂载。
 //
 // 关闭语义：Esc / 点遮罩 = 「以后再说」，下载中先取消下载（AppImage 临时文件由主进程清理）。
 import { toast } from "./SongMenu";
 import { channelLabel, describeBuild, renderNotes } from "../lib/update-core";
 import {
   type UpdateInfo, type DownloadHandle, downloadUpdate, finalizeInstall,
-  quitAndInstallWindows, relaunchApp, openReleases,
+  quitAndInstallWindows, relaunchApp, openReleases, openPath,
 } from "../lib/updater";
 import { setLastNotified } from "../lib/prefs";
 
@@ -78,6 +78,7 @@ export function showUpdateDialog(info: UpdateInfo): void {
         <button class="ghost-btn" data-act="skip" type="button">${skipLabel}</button>
         <button class="ghost-btn" data-act="later" type="button">以后再说</button>
         <span class="upd-spacer"></span>
+        <button class="ghost-btn" data-act="open-dir" type="button" hidden>打开所在目录</button>
         <button class="upd-primary" data-act="main" type="button">${mainLabel}</button>
       </div>
     </div>`;
@@ -89,6 +90,7 @@ export function showUpdateDialog(info: UpdateInfo): void {
   const skipBtn = layer.querySelector<HTMLButtonElement>('[data-act="skip"]')!;
   const laterBtn = layer.querySelector<HTMLButtonElement>('[data-act="later"]')!;
   const mainBtn = layer.querySelector<HTMLButtonElement>('[data-act="main"]')!;
+  const openDirBtn = layer.querySelector<HTMLButtonElement>('[data-act="open-dir"]')!;
   const warnBox = layer.querySelectorAll<HTMLElement>(".upd-warn");
 
   // 覆盖层与 Esc 都是「以后再说」；下载中先取消下载。
@@ -135,6 +137,7 @@ export function showUpdateDialog(info: UpdateInfo): void {
     warnBox.forEach((w) => (w.hidden = true));
     skipBtn.hidden = true;
     laterBtn.hidden = true;
+    openDirBtn.hidden = true;
     handle = downloadUpdate(info, (received, total) => {
       const pct = total ? Math.min(100, Math.floor((received / total) * 100)) : 0;
       barFill.style.setProperty("--w", `${pct}%`);
@@ -159,10 +162,26 @@ export function showUpdateDialog(info: UpdateInfo): void {
           void quitAndInstallWindows(path).catch((e: unknown) => toast(`更新失败：${errText(e)}`, "err"));
           close();
         });
-      } else {
-        // deb/rpm/dmg：主进程已用系统默认应用（xdg-open）打开安装包，剩下的在发行版安装器中完成
+      } else if (step.type === "installer-downloaded") {
+        // deb/rpm：只落盘到「下载」目录 —— 不自动拉起安装器。用户点「打开安装包」才交系统（xdg-open），
+        // 旁边的「打开所在目录」则在文件管理器里定位它。
+        const dir = step.path.replace(/[\\/][^\\/]*$/, "");
         notes.hidden = false;
-        notes.innerHTML = `<p class="muted">已用系统默认应用打开安装包，请在弹出的安装器中完成更新。</p>`;
+        notes.innerHTML = `<p class="muted">安装包已下载到 <code>${esc(dir)}</code>。点「打开安装包」交给系统安装器，或先打开所在目录。</p>`;
+        skipBtn.hidden = true;
+        laterBtn.hidden = false;
+        laterBtn.textContent = "稍后";
+        openDirBtn.hidden = false;
+        openDirBtn.onclick = () => { void openPath(dir).catch((e: unknown) => toast(`无法打开目录：${errText(e)}`, "err")); };
+        setMain("打开安装包", true, () => {
+          void openPath(step.path)
+            .then(() => close())
+            .catch((e: unknown) => toast(`无法打开安装包：${errText(e)}`, "err"));
+        });
+      } else {
+        // dmg：主进程已交给系统挂载
+        notes.hidden = false;
+        notes.innerHTML = `<p class="muted">已打开安装包，请在系统界面中完成安装。</p>`;
         skipBtn.hidden = true;
         laterBtn.hidden = true;
         setMain("关闭", true, close);
@@ -177,6 +196,8 @@ export function showUpdateDialog(info: UpdateInfo): void {
       skipBtn.hidden = false;
       laterBtn.hidden = false;
       laterBtn.textContent = "以后再说";
+      openDirBtn.hidden = true;
+      openDirBtn.onclick = null;
       warnBox.forEach((w) => (w.hidden = false));
       setMain(selfInstallable ? mainLabel : "打开发布页", true, selfInstallable ? startInstall : () => close());
     }

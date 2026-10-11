@@ -177,6 +177,8 @@ async function syncHicolorIcons({ iconSourceDir, dataHome, desktopId }) {
 /**
  * 安装/升级桌面集成。policy：系统级（包管理器装的）可见条目在场 → 全让位；否则 desktop 文件
  * 「Icon 已正确且条目可见 → 让位，否则收编」，图标「对齐为准」。
+ * **只碰带 X-Quaver-Managed 标记的文件**：用户自己复制一份改启动参数（Exec 加 --xxx、或换 Icon）
+ * 属于用户自己的条目，本模块一个字都不动 —— 那也正是 XDG 允许的用法。
  * 返回 { desktopFile, desktopAction: "kept"|"written"|"absent"|"system"|"system-cleaned",
  * systemDesktopFile, iconsWritten }，全程不抛（失败靠日志观察）。
  */
@@ -199,6 +201,8 @@ export async function installLinuxDesktopIntegration({
   // 包管理器装的可见系统条目在场 → 本模块整件事都不做（图标也是它那份包的一部分）。而且要顺手清掉
   // 自己以前写下的托管文件：留着的后果是启动器一直用一个死的 Exec —— 真踩过：rpm 装到
   // /opt/<productName>，我们按「解包 AppImage」猜出的 /opt/<productName>/AppRun 根本不存在。
+  // 清理**只认自己那枚标记**：用户复制系统条目、自己改启动参数的那份没有 X-Quaver-Managed，
+  // 一律不碰（它本来就该赢 —— 用户目录优先正是这么用的）。
   const systemEntry = findSystemDesktopEntry(desktopId, env);
   if (systemEntry) {
     result.systemDesktopFile = systemEntry;
