@@ -191,6 +191,19 @@ CI 两道断言：暂存后 `bins.ts --check build-res/audio`；AppImage 产出�
 `bins.ts --check squashfs-root/resources/audio` —— 跨架构/缺库不会报错、只会跑不起来（exec 126），
 且 AppImage 只读挂载没法运行时 chmod 补救，必须在 CI 就验过。
 
+## Crotchet 调试模式
+
+环境变量 `QUAVER_CROTCHET=1` 打开（值为纯数字时同时充当调试端口，如 `QUAVER_CROTCHET=9300`）：
+
+- **前后端日志一条流水线**：渲染层 console（含未捕获异常）、preload 错误、渲染进程崩溃
+  全部并入 `electron-dev.log`（打包态在配置目录，开发态在 `ui/electron-dev.log`）——
+  主进程与 sidecar（`[sidecar]` 前缀）本来就在这份文件里，一个文件看全前后端；
+- **本地安装插件免警告**：跳过「添加本地插件」的 5 秒警告弹窗，直接进入文件选择
+  （仅跳过 UI 守门，插件形状/宿主版本校验照常执行）；
+- **Chrome Inspect 性能评估**：Chromium 开 `remote-debugging-port`（默认 9222），
+  Chrome 打开 `chrome://inspect` 或直接访问 `http://127.0.0.1:9222` 即可连上，
+  Performance 面板做火焰图/长任务分析。
+
 ## 约定
 
 - 切视图只重建 `.content` 内容区；播放条/歌词页/侧栏常驻，音频不中断。
