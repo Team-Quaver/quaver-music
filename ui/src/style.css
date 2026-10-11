@@ -633,6 +633,13 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 .sticky-bar .list-tools { margin: 0; }
 .sticky-bar .lt-search { width: clamp(120px, 18vw, 200px); }
 .sticky-bar .tag-tabs { margin: 0; justify-content: flex-end; }
+/* 吸顶条最右的「播放全部」：紧凑 ghost 按钮（图标比文字小一号），永远靠右缘 */
+.sticky-bar .sticky-playall {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 12px; font-size: 12.5px; white-space: nowrap;
+}
+.sticky-bar .sticky-playall .sp-ico { display: inline-flex; }
+.sticky-bar .sticky-playall .sp-ico svg { width: 12px; height: 12px; }
 .sticky-head .page-title { margin: 2px 0 0; }
 .sticky-head .page-note { margin: 0; }
 

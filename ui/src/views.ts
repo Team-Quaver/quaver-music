@@ -8,6 +8,7 @@ import { getCachedSonglist, loadSonglistDetail, noteSonglistWrite, onSonglistCha
 import { pushHistory } from "./components/SearchBox";
 import { playNowWithToast, toast } from "./components/SongMenu";
 import { player, type Song } from "./player";
+import { icons } from "./lib/icons";
 import {
   BG_BLUR_MAX,
   BG_BLUR_MIN,
@@ -208,6 +209,22 @@ function mountStickyBar(root: HTMLElement, opts: { artHtml?: string; round?: boo
   bar.append(right);
   root.append(bar);
   return { bar, right, off: trackStuck(bar, routeScroller(root)) };
+}
+
+/** 吸顶条最右侧的「播放全部」：整队列替换、从第一首开播。
+ *  getVisible() 返回**此刻实际可见**的列表（搜索筛后 / 排序后 / 当前 Tag 面板），
+ *  所以按钮天然尊重排序与分类；空列表置灰，调用方在重画后调 sync() 刷新可用态。 */
+function playAllButton(getVisible: () => Song[]) {
+  const btn = h("button", "ghost-btn sticky-playall",
+    `<span class="sp-ico" aria-hidden="true">${icons.play}</span>播放全部`) as HTMLButtonElement;
+  btn.type = "button";
+  const sync = () => { btn.disabled = !getVisible().length; };
+  sync();
+  btn.addEventListener("click", () => {
+    const list = getVisible().filter((s) => s?.mid);
+    if (list.length) player.playList(list, 0);
+  });
+  return { el: btn, sync };
 }
 
 /** 视图所在滚动容器（`.route`）；拿不到时退回自身 */
@@ -563,6 +580,7 @@ async function playlistView(root: HTMLElement, q: URLSearchParams) {
     source: () => all,
     hint: "在歌单内搜索",
     paint: (list) => {
+      playAll.sync(); // 筛排结果变了 → 「播放全部」可用态跟着走
       painted = list; // 记下真正上屏的序列（筛排副本），列表级重画据此去重
       if (!list.length) { rows.innerHTML = `<div class="muted">没有匹配的歌曲</div>`; return; }
       renderSongRows(rows, list, hooksFor());
@@ -570,6 +588,8 @@ async function playlistView(root: HTMLElement, q: URLSearchParams) {
     },
   });
   sticky.right.append(tools.el); // 工具条住进吸顶条右侧（搜索/排序下翻常驻）
+  const playAll = playAllButton(() => tools.visible()); // 吃当前筛选+排序后的可见列表
+  sticky.right.append(playAll.el); // 「播放全部」固定在吸顶条最右
   root.append(rows);
   // 右键菜单的「从歌单删除」只给自有歌单（写接口要 dirid，读详情用 disstid —— 两者不同源）
   const metaEl = head.querySelector<HTMLElement>(".pl-meta");
@@ -774,6 +794,14 @@ async function singerView(root: HTMLElement, q: URLSearchParams) {
   ).join("");
   const body = h("div", "tag-body");
   sticky.right.append(search, tabs); // 条内右侧：搜索框 + 分类标签（一起吸顶）
+  // 「播放全部」放吸顶条最右：播**当前 Tag 面板 + 搜索筛选**后的可见列表；
+  // 专辑面板没有可播歌列（是卡片网格不是歌），置灰。各曲目面板重画时上报自己的可见列表。
+  let activeTab = "hot";
+  let activePanel: HTMLElement | null = null;
+  const panelSongs = new Map<HTMLElement, Song[]>();
+  const playAll = playAllButton(() =>
+    activePanel && activeTab !== "album" ? panelSongs.get(activePanel) ?? [] : []);
+  sticky.right.append(playAll.el);
   root.append(body);
 
   // 三个面板各自记住了「重画」函数：关键词一变就按原数组重筛重画（序号连续、空态文案分清
@@ -785,6 +813,8 @@ async function singerView(root: HTMLElement, q: URLSearchParams) {
     p.append(rows);
     const paint = () => {
       const list = src().filter(hitSong);
+      panelSongs.set(p, list); // 上报可见列表给「播放全部」（当前面板才被读）
+      playAll.sync();
       if (!list.length) {
         rows.innerHTML = `<div class="muted">${query() ? "没有匹配的歌曲" : empty}</div>`;
         return;
@@ -848,8 +878,12 @@ async function singerView(root: HTMLElement, q: URLSearchParams) {
   clrEl.addEventListener("click", () => { kwEl.value = ""; kwEl.focus(); runFilter(); });
 
   const select = (key: string) => {
+    const idx = SINGER_TABS.findIndex((t) => t.key === key);
+    activeTab = key;
+    activePanel = idx >= 0 ? panels[idx] : null;
     panels.forEach((p, i) => (p.hidden = SINGER_TABS[i].key !== key));
     tabs.querySelectorAll<HTMLElement>(".tag").forEach((b) => b.classList.toggle("sel", b.dataset.tab === key));
+    playAll.sync(); // 切到专辑 Tag → 没有可播列表，按钮置灰
   };
   // 切换动画门闩（.tab-anim 见 style.css）：首次点击才挂上，首屏入场交给 .route>.entering；
   // 重复点当前标签直接返回，否则会把已显示的面板重播一次、看着像闪了一下。
@@ -929,6 +963,8 @@ async function albumView(root: HTMLElement, q: URLSearchParams) {
       box.innerHTML = `<div class="muted">没有取到歌曲</div>`;
       return sticky.off;
     }
+    const playAll = playAllButton(() => songs); // 专辑序固定（发行序），整张一键开播
+    sticky.right.append(playAll.el);
     renderSongRows(box, songs, { showArtist: true, showAlbum: false, onPlay: (s, i, all) => player.playList(all, i) });
     return sticky.off;
   } catch (e) {
@@ -1091,6 +1127,7 @@ async function likedView(root: HTMLElement) {
     source: () => items,
     hint: "在我喜欢内搜索",
     paint: (songs, st) => {
+      playAll.sync(); // 筛排结果变了 → 「播放全部」可用态跟着走
       painted = songs; // 记下真正上屏的序列（筛排副本），列表级重画据此去重
       if (!songs.length) {
         box.innerHTML = `<div class="muted">${st.filtering ? "没有匹配的歌曲" : "还没有收藏的歌曲"}</div>`;
@@ -1105,6 +1142,8 @@ async function likedView(root: HTMLElement) {
     },
   });
   sticky.right.append(tools.el); // 工具条住进吸顶条右侧（与歌单/歌手页同一位置）
+  const playAll = playAllButton(() => tools.visible()); // 吃当前搜索+排序后的可见列表
+  sticky.right.append(playAll.el); // 「播放全部」固定在吸顶条最右
   root.append(box);
   const adopt = (songs: Song[]) => { items = songs; tools.repaint(); };
 
