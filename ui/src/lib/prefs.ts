@@ -476,3 +476,28 @@ export function getLastNotified(): string {
 export function setLastNotified(v: string) {
   cfgSet({ "Update.LastNotified": v.slice(0, 128) });
 }
+
+// —— Sparkle 插件黑名单（[Sparkle] Blacklist）——
+// 逗号分隔的插件 id（kebab-case，与插件目录名 / plugin.json 的 id 同一形状）；空串 = 不拉黑。
+// 这里**只**管「配置取值 ⇄ id 列表」：谁被拉黑、拉的哪一步在 src/sparkle/policy.ts —— 启动
+// 路径（sparkle/init.ts）与运行期开关（sparkle/host.ts 的 enableSparklePlugin）查同一份。
+// 形状判定必须与 electron/config.ts 的 SPARKLE_ID_RE 一致（写错的段直接丢弃，不流进加载器）。
+const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+/** 黑名单 id 列表（去重、保序；手改配置文件写进来的非法段会被丢掉）。 */
+export function getSparkleBlacklist(): string[] {
+  const out: string[] = [];
+  for (const raw of cfg("Sparkle.Blacklist", "").split(",")) {
+    const id = raw.trim();
+    if (id && SPARKLE_ID_RE.test(id) && !out.includes(id)) out.push(id);
+  }
+  return out;
+}
+export function setSparkleBlacklist(ids: string[]) {
+  const kept: string[] = [];
+  for (const raw of ids) {
+    const id = String(raw ?? "").trim();
+    if (id && SPARKLE_ID_RE.test(id) && !kept.includes(id)) kept.push(id);
+  }
+  cfgSet({ "Sparkle.Blacklist": kept.join(",") });
+}

@@ -213,6 +213,22 @@ const isBackgroundImagePath = (v: string): boolean =>
  *  `var(--x)` 一律不合法，它被关进「颜色常量」这一种可能里。渲染层读回来统一归一成小写 6 位。 */
 export const isHexColor = (v: string): boolean => /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(v ?? "").trim());
 
+/** Sparkle 插件 id 的形状（同时也是插件目录名 / plugin.json 的 id / main.ts 的 SPARKLE_ID_RE）： */
+export const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+/** [Sparkle] Blacklist 的取值 = 逗号分隔的插件 id 列表（空串 = 无黑名单）。 */
+export function parsePluginIdList(raw: unknown): string[] {
+  return String(raw ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** 黑名单值域：每段都得是合法插件 id（手滑写错的整条列表回落空，不静默吞进半截 id）；
+ *  换行会撕开 INI 段结构，直接拒。 */
+export const isPluginIdList = (v: string): boolean =>
+  !/[\r\n\u0000]/.test(v) && parsePluginIdList(v).every((id) => SPARKLE_ID_RE.test(id));
+
 /** schema 里一个键的完整描述：默认值、文件内注释、值域校验器。 */
 export interface KeySpec {
   key: string;
@@ -528,6 +544,21 @@ export const SCHEMA: SectionSpec[] = [
           "避免 Chromium 静默退成 basic_text 的假加密）｜亦可手填 gnome-libsecret｜kwallet6｜kwallet5｜kwallet｜basic",
         ],
         valid: (v: string) => ["auto", "gnome-libsecret", "kwallet6", "kwallet5", "kwallet", "basic"].includes(v),
+      },
+    ],
+  },
+  {
+    section: "Sparkle",
+    keys: [
+      {
+        key: "Blacklist",
+        def: "",
+        doc: [
+          "插件加载黑名单：逗号分隔的插件 id（形如 flowscape,md3；id 与插件目录名/plugin.json 的 id 一致），",
+          "命中的插件一律不加载 —— 预装插件与第三方插件一视同仁，安全模式下同样生效。留空=不拉黑任何插件。",
+          "例：Blacklist=flowscape,die-for-you ；只认 kebab-case id，写错的整条列表会被拒绝并回落为空",
+        ],
+        valid: isPluginIdList,
       },
     ],
   },

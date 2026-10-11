@@ -3,6 +3,7 @@
 // 用 void 不阻塞首帧 —— 插件的视图/侧栏项/设置区在首帧后补挂，属渐进增强。
 import { applySparkleTheme, disableSparklePlugin, enableSparklePlugin, sparkEnabledIds, sparkOfficialOffIds } from "./host";
 import { listInstalledThirdParty, loadOfficial, loadThirdParty, OFFICIAL_META } from "./loader";
+import { sparkBlockReason, sparkRedflag } from "./policy";
 import { initStyleLayer } from "./style-layer";
 
 /** 官方插件默认启用：启用集合里没有、用户也没显式停用过（official-off 标记）的
@@ -33,10 +34,16 @@ export async function initSparkle(): Promise<void> {
   // 那张 style 会一直缺席到下一次注册表变化（表现为「重启后第一张主题没生效」）。
   initStyleLayer();
   const enabled = new Set(sparkEnabledIds());
+  // 安全模式（QUAVER_REDFLAG=1）：只放行预装插件。第三方插件连磁盘列表都不读 —— 插件
+  // 代码一行不 import，坏插件也就没机会把启动搞黄（这就是「干净载入」）。
+  const redflag = sparkRedflag();
+  if (redflag) console.warn("[sparkle] 安全模式（QUAVER_REDFLAG=1）：仅加载预装插件，第三方插件全部禁用");
 
   // 官方插件：meta 表是展示真相，加载表有对应 loader 才能启
   for (const meta of OFFICIAL_META) {
     if (!enabled.has(meta.id)) continue;
+    const blocked = sparkBlockReason({ id: meta.id, kind: "official" });
+    if (blocked) { console.warn(`[sparkle] 预装插件 ${meta.id} 未加载：${blocked}`); continue; }
     try {
       await enableSparklePlugin(await loadOfficial(meta.id));
     } catch (e) {
@@ -44,8 +51,8 @@ export async function initSparkle(): Promise<void> {
     }
   }
 
-  // 第三方插件：经 quaverSparkle 桥拿安装列表（无桥 = 浏览器 dev，跳过）
-  const installed = await listInstalledThirdParty();
+  // 第三方插件：经 quaverSparkle 桥拿安装列表（无桥 = 浏览器 dev，跳过）；安全模式直接空表
+  const installed = redflag ? [] : await listInstalledThirdParty();
   for (const inst of installed) {
     if (!enabled.has(inst.id)) continue;
     try {

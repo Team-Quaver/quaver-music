@@ -55,6 +55,9 @@ const FALLBACK: ConfigSnapshot = {
   // 列在这里只是为了与 SCHEMA 的默认值保持一一对应，别让两种环境的取值表分叉。
   "Security.CredentialStore": "auto",
   "Security.KeyringBackend": "auto",
+  // [Sparkle] 只有插件子系统读（src/sparkle/policy.ts 经 prefs 暴露 getter）——
+  // 列在这里是为了与 SCHEMA 一一对应，别让浏览器 dev 与桌面端的行为分叉。
+  "Sparkle.Blacklist": "",
   "Update.AutoCheck": "True",
   "Update.Channel": "stable",
   "Update.LastNotified": "",

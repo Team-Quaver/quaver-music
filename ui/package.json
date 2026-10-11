@@ -3,6 +3,8 @@
   "productName": "Quaver Music",
   "desktopName": "red.0w0.quaver.desktop",
   "description": "又一个第三方 QQ 音乐客户端",
+  "license": "AGPL-3.0-only",
+  "homepage": "https://github.com/team-quaver/quaver-music",
   "author": "ne0w0r1d",
   "repository": {
     "type": "git",
@@ -40,7 +42,7 @@
     "verify:guess": "node scripts/verify-guess.ts",
     "verify:flowscape-lyrics": "node ../vendor/Sparkle/scripts/build-marketplace.mjs && node scripts/verify-flowscape-lyrics.ts",
     "verify:sparkle": "node scripts/verify-sparkle-version.ts && node scripts/verify-sparkle.ts",
-    "verify:static": "node scripts/verify-config.ts && node scripts/verify-prefs-map.ts && node scripts/verify-highlight-contrast.ts && node scripts/verify-song-menu.ts && node scripts/verify-list-tools.ts && node scripts/verify-queue-panel-anim.ts && node scripts/verify-queue-drag.ts && node scripts/verify-noselect.ts && node scripts/verify-user-vip.ts && node scripts/verify-sidebar.ts && node scripts/verify-playlist-menu.ts && node scripts/verify-systheme.ts && node scripts/verify-login.ts && node scripts/verify-keyring.ts && node scripts/verify-daily.ts && node scripts/verify-guess.ts && node scripts/verify-sparkle.ts && node scripts/verify-input-policy.ts && node scripts/verify-streaminfo.ts && node scripts/verify-hotkeys.ts && node scripts/verify-shuffle.ts && node scripts/verify-icon.ts && node scripts/verify-update.ts && node scripts/verify-songtiers.ts && node scripts/verify-mpv.ts && node scripts/verify-tray-title.ts && node scripts/verify-background.ts && node scripts/verify-menu-glass.ts && node scripts/verify-tint.ts && node scripts/verify-accent.ts",
+    "verify:static": "node scripts/verify-config.ts && node scripts/verify-prefs-map.ts && node scripts/verify-highlight-contrast.ts && node scripts/verify-song-menu.ts && node scripts/verify-list-tools.ts && node scripts/verify-queue-panel-anim.ts && node scripts/verify-queue-drag.ts && node scripts/verify-noselect.ts && node scripts/verify-user-vip.ts && node scripts/verify-sidebar.ts && node scripts/verify-playlist-menu.ts && node scripts/verify-systheme.ts && node scripts/verify-login.ts && node scripts/verify-keyring.ts && node scripts/verify-daily.ts && node scripts/verify-guess.ts && node scripts/verify-sparkle.ts && node scripts/verify-input-policy.ts && node scripts/verify-streaminfo.ts && node scripts/verify-hotkeys.ts && node scripts/verify-shuffle.ts && node scripts/verify-icon.ts && node scripts/verify-update.ts && node scripts/verify-songtiers.ts && node scripts/verify-mpv.ts && node scripts/verify-tray-title.ts && node scripts/verify-background.ts && node scripts/verify-menu-glass.ts && node scripts/verify-tint.ts && node scripts/verify-accent.ts && node scripts/verify-redflag.ts",
     "mpris:build": "pnpm --dir ../vendor/Typhoeus/mpris install && pnpm --dir ../vendor/Typhoeus/mpris run build",
     "dist": "pnpm run build && pnpm run mpris:build && electron-builder --linux AppImage",
     "verify:np-gallery": "node scripts/verify-np-gallery.ts",
@@ -57,7 +59,8 @@
     "verify:menu-glass": "node scripts/verify-menu-glass.ts",
     "verify:tint": "node scripts/verify-tint.ts",
     "verify:accent": "node scripts/verify-accent.ts",
-    "verify:mpv": "node scripts/verify-mpv.ts"
+    "verify:mpv": "node scripts/verify-mpv.ts",
+    "verify:redflag": "node scripts/verify-redflag.ts"
   },
   "build": {
     "appId": "red.0w0.quaver",
@@ -112,7 +115,26 @@
       "category": "Audio",
       "executableName": "red.0w0.quaver",
       "icon": "build-res/icons",
+      "synopsis": "第三方 QQ 音乐客户端",
       "maintainer": "ne0w0r1d <ne0w0r1d@users.noreply.github.com>"
+    },
+    "deb": {
+      "packageName": "quaver-music",
+      "packageCategory": "sound",
+      "depends": ["mpv"],
+      "recommends": [],
+      "artifactName": "Quaver-${version}-${arch}.deb"
+    },
+    "rpm": {
+      "packageName": "quaver-music",
+      "depends": ["mpv"],
+      "artifactName": "Quaver-${version}-${arch}.rpm"
+    },
+    "pacman": {
+      "packageName": "quaver-music",
+      "depends": ["mpv"],
+      "compression": "zstd",
+      "artifactName": "Quaver-${version}-${arch}.pkg.tar.zst"
     },
     "win": {
       "target": [

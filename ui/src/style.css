@@ -1772,6 +1772,10 @@ html[data-sparkle-scheme="dark"] { color-scheme: dark; }
    勾选色跟设置页其它交互元素同口径 —— 封面染色 Tint（未播放时回落主题强调色）。 */
 .sparkle-switch { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--ink2); }
 .sparkle-switch input { accent-color: var(--cvg-accent, var(--acc)); width: 15px; height: 15px; cursor: pointer; }
+/* 上锁的开关（安全模式 / [Sparkle] Blacklist）：画出来但不可点，文字位显示原因。
+   压暗 + not-allowed 是「不可用」的固定语言；原因本身随行文（见 settings.ts 的 lock）。 */
+.sparkle-switch.is-locked { opacity: .6; cursor: not-allowed; }
+.sparkle-switch.is-locked input { cursor: not-allowed; }
 /* 行内垃圾桶（卸载）：与齿轮同尺寸的图标按钮，同样是**中性实底**（不透明，与「只改前景
    不加底」的次级按钮区分开）。hover 转红是破坏性动作的固定提示色 —— 语义色优先于 Tint 高亮。 */
 .sparkle-uninstall {
@@ -1788,6 +1792,8 @@ html[data-sparkle-scheme="dark"] { color-scheme: dark; }
 .sparkle-install { padding: 4px 12px; font-size: 12px; }
 .sparkle-empty { color: var(--idx); font-size: 12px; padding: 6px 2px; }
 .sparkle-warn { margin: 6px 0 0; font-size: 11.5px; line-height: 1.5; }
+/* 安全模式横幅：贴在分类标签下，页面顶部就能看到（开关为什么全锁着） */
+.sparkle-lock-note { margin: 0 0 10px; padding: 7px 11px; border-radius: 9px; border: 1px solid var(--line); background: var(--hover); color: var(--ink2); }
 .sparkle-market-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 /* 固定索引源：只读展示（UI 内不可改），等宽字 + 弱化底色 */
 .sparkle-src {

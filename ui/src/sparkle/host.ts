@@ -13,6 +13,7 @@ import { addNavItem, repaintSidebarPlaylists } from "../shell";
 import { applyTint } from "../lib/tint";
 import { applyBackground } from "../lib/ambient";
 import { applyMenuGlass } from "../lib/menu-glass";
+import { sparkBlockReason } from "./policy";
 import {
   activateStyle, mountStyleLayer, onStyleChange, resetStyle, stylePacks, styleState,
 } from "./style-layer";
@@ -202,6 +203,13 @@ export const isSparkleActive = (id: string) => !!sparkRecordOf(id);
 export async function enableSparklePlugin(plugin: SparklePlugin): Promise<boolean> {
   const { id } = plugin;
   if (sparkRecordOf(id) || broken.has(id)) return sparkRecordOf(id) !== undefined;
+  // 加载策略（安全模式 / [Sparkle] Blacklist）的唯一闸口：init 的启动路径与设置页的手动
+  // 开关都从这儿过。放在 setup 之前 —— 被拦的插件一行代码都不执行。
+  const blocked = sparkBlockReason(plugin);
+  if (blocked) {
+    console.warn(`[sparkle:${id}] 拒绝加载：${blocked}`);
+    return false;
+  }
   const record: SparklePluginRecord = { pluginId: id, teardown: [] };
   sparkRecordInit(record); // 先入表：setup 内 register* 的 teardown 才有落点
   try {

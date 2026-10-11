@@ -90,6 +90,14 @@ if (CROTCHET) log("[crotchet] 调试模式已开启", CROTCHET_DEBUG_PORT ? `(in
 const SPARKLE_PLUGINS_ROOT = String(process.env.QUAVER_SPARKLE_DIR ?? "").trim() || join(CONFIG_DIR, "plugins");
 const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
+// ——— Sparkle 安全模式（干净载入）———
+// QUAVER_REDFLAG=1：只加载随宿主打包的预装插件，第三方插件全部禁用。加载侧的闸口在
+// 渲染层（src/sparkle/policy.ts，开关随 config-sync 快照下发，见 preload.cts）；主进程同时
+// 把「安装 / 添加本地插件」的入口一并上锁 —— 安全模式下装新插件没有意义（装完也不会被加载）。
+const redflagRaw = String(process.env.QUAVER_REDFLAG ?? "").trim().toLowerCase();
+const REDFLAG = redflagRaw !== "" && redflagRaw !== "0" && redflagRaw !== "false";
+if (REDFLAG) log("[sparkle] 安全模式（QUAVER_REDFLAG=1）：仅加载预装插件，第三方插件全部禁用");
+
 const sparkleHostVersion = () => String(app.getVersion() || PKG_META.version || "0.0.0");
 
 /** 安装前的最终门禁：渲染层提示只是体验优化，真正的版本限制必须在主进程执行。 */
@@ -696,7 +704,7 @@ ipcMain.on("quaver:config-sync", (e) => {
   try {
     const { values, warnings } = readValues();
     for (const w of warnings) log("[quaver] config:", w);
-    e.returnValue = { ok: true, dir: CONFIG_DIR, path: configFile(), values, writable: configDirOk, crotchet: CROTCHET };
+    e.returnValue = { ok: true, dir: CONFIG_DIR, path: configFile(), values, writable: configDirOk, crotchet: CROTCHET, redflag: REDFLAG };
   } catch (err) {
     log("[quaver] config-sync failed:", String(err));
     e.returnValue = { ok: false, error: String(err) };
@@ -709,7 +717,7 @@ ipcMain.handle("quaver:config", (_e, msg) => {
     if (op === "all") {
       const { values, warnings } = readValues();
       for (const w of warnings) log("[quaver] config:", w);
-      return { ok: true, dir: CONFIG_DIR, path: configFile(), values, writable: configDirOk, crotchet: CROTCHET };
+      return { ok: true, dir: CONFIG_DIR, path: configFile(), values, writable: configDirOk, crotchet: CROTCHET, redflag: REDFLAG };
     }
     if (op === "set") {
       const written = writeValues(msg?.patch ?? {});
@@ -771,6 +779,7 @@ ipcMain.handle("quaver:sparkle", async (_e, msg) => {
       return { ok: true, plugins: out };
     }
     if (op === "install") {
+      if (REDFLAG) return { ok: false, error: "安全模式（QUAVER_REDFLAG=1）下不允许安装插件" };
       const url = String(msg?.url ?? "");
       if (!/^https?:\/\//.test(url)) return { ok: false, error: "download URL 必须是 http(s)" };
       const meta = msg?.meta ?? {};
@@ -801,6 +810,7 @@ ipcMain.handle("quaver:sparkle", async (_e, msg) => {
       return { ok: true, name: basename(r.filePaths[0]), dataBase64: buf.toString("base64") };
     }
     if (op === "install-local") {
+      if (REDFLAG) return { ok: false, error: "安全模式（QUAVER_REDFLAG=1）下不允许安装插件" };
       // 第二步：渲染层已校验插件形状并回传本体与元数据；这里只负责落盘（与 market install 同布局）
       const meta = msg?.meta ?? {};
       const id = String(meta?.id ?? "").trim();

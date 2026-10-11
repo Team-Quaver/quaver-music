@@ -40,6 +40,9 @@ interface Window {
     /** 第二步：渲染层校验插件形状后回传本体（base64）与元数据，主进程落盘 */
     installLocal(msg: { dataBase64: string; meta?: Record<string, unknown> }): Promise<{ ok: boolean; id?: string; error?: string }>;
   };
+  /** Sparkle 安全模式（QUAVER_REDFLAG=1）：主进程读环境变量后经 preload 下发。
+   *  加载策略见 src/sparkle/policy.ts；浏览器 dev 下不存在 → 恒 false。 */
+  quaverRedflag?: boolean;
   /** 自定义背景图（设置→外观→背景）：选图与回显。图片本体走同源 /api/bg，不经这里。 */
   quaverBackground?: {
     pick(): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;

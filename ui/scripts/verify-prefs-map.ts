@@ -265,6 +265,22 @@ await reload({ "Style.BackgroundBlur": "0" });
 eq("0 是合法值（不模糊），不许被当成空值", P.getBackgroundBlur(), 0);
 await reload({ "Style.Background": "cover", "Style.BackgroundBlur": "70", "Style.BackgroundImage": "" });
 
+// ——— Sparkle 插件黑名单（[Sparkle] Blacklist）———
+section("Sparkle 黑名单映射");
+await reload({});
+eq("未配置 = 不拉黑", P.getSparkleBlacklist(), []);
+await reload({ "Sparkle.Blacklist": "flowscape,md3" });
+eq("逗号分隔读回", P.getSparkleBlacklist(), ["flowscape", "md3"]);
+await reload({ "Sparkle.Blacklist": " flowscape , md3 , flowscape " });
+eq("去空格 + 去重（保序）", P.getSparkleBlacklist(), ["flowscape", "md3"]);
+await reload({ "Sparkle.Blacklist": "flowscape, Flowscape, flow_scape" });
+eq("非法段被丢掉（只留合法 id；大写/下划线不算插件 id）", P.getSparkleBlacklist(), ["flowscape"]);
+await reload({});
+P.setSparkleBlacklist(["flowscape", " flowscape ", "md3"]);
+eq("写盘去重去空格", conf()["Sparkle.Blacklist"], "flowscape,md3");
+P.setSparkleBlacklist([]);
+eq("写空 = 取消黑名单", conf()["Sparkle.Blacklist"], "");
+
 // ——— 重置 ———
 section("重置");
 await P.resetConfig();
@@ -272,6 +288,7 @@ eq("重置回到默认", [P.getTheme(), P.getDecode(), P.getFade()], ["dark", "M
 eq("背景一并回到默认（FALLBACK 里也得有这三键）",
   [P.getBackgroundMode(), P.getBackgroundImage(), P.getBackgroundBlur()], ["off", "", 70]);
 eq("重置后的落盘值", conf()["Style.Style"], "dark");
+eq("黑名单随重置清空（FALLBACK 里也得有这个键）", P.getSparkleBlacklist(), []);
 
 // ——— 切主题时 data-theme 同步 ———
 section("生效链路");

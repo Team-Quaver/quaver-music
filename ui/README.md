@@ -70,10 +70,14 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
 [Playing]   Backend / AudioDevice / Fade / Volume / Muted
 [Quality]   DefaultQuality / FallbackToQMAtmos
 [Security]  CredentialStore / KeyringBackend
+[Sparkle]   Blacklist
 ```
 
 - 键名与可选值以 `electron/config.ts` 的 `SCHEMA` 为唯一真相；改新项要同时改
   `src/lib/config.ts` 的 `FALLBACK` 与 `src/lib/prefs.ts` 的类型化 getter/setter（三处）。
+- `[Sparkle] Blacklist` = 插件加载黑名单：逗号分隔的插件 id（形如 `flowscape,md3`，与插件目录名一致），
+  命中的插件一律不加载（预装与第三方一视同仁，安全模式下同样生效）。空 = 不拉黑；只认 kebab-case id，
+  写错的整条列表会被值域校验拒绝并回落为空（`readValues` 会给 warning）。
 - 「背景」三键 = 设置→外观→背景：`Background` 三档（`off` 关闭背景（**默认**）/ `cover` 当前曲封面 /
   `custom` 自定义图）、`BackgroundImage` 自定义图的绝对路径、`BackgroundBlur` 模糊强度（px，0..120，默认 70）。
   自定义图由本地服务 `/api/bg` 按 conf 里那条路径读出（**路径不从渲染层来**，扩展名白名单 + 40MB 上限），
@@ -190,6 +194,19 @@ node electron/audio/bins.ts --check build-res/audio   # 自检（验的就是生
 CI 两道断言：暂存后 `bins.ts --check build-res/audio`；AppImage 产出后再解包，
 `bins.ts --check squashfs-root/resources/audio` —— 跨架构/缺库不会报错、只会跑不起来（exec 126），
 且 AppImage 只读挂载没法运行时 chmod 补救，必须在 CI 就验过。
+
+## Sparkle 安全模式（干净载入）
+
+环境变量 `QUAVER_REDFLAG=1` 打开（同样认 `true`/非 `0`）：**只加载随宿主打包的预装插件，第三方插件全部禁用**。
+
+- 加载侧：主进程读环境变量后随 `config-sync` 快照下发（`preload.cts` → `window.quaverRedflag`），
+  渲染层的判定集中在 `src/sparkle/policy.ts`；启动路径（`src/sparkle/init.ts`）在安全模式下**连磁盘上的
+  插件列表都不读**，第三方插件一行代码都不会被 import —— 坏插件没机会把启动搞黄，这就是「干净载入」。
+- 闸口是一处：`src/sparkle/host.ts` 的 `enableSparklePlugin()` 在 `setup()` 之前统一过 `sparkBlockReason()`，
+  所以设置页**运行期手动打开**第三方插件同样被拦（预装插件不受安全模式影响）。
+- 安装入口同时上锁：安全模式下 `quaver:sparkle` 的 `install` / `install-local` 直接拒绝
+  （装了也不会被加载），`list` / `uninstall` 照常 —— 方便在安全模式下把坏插件卸掉。
+- 黑名单与安全模式互不替代：黑名单在正常模式下按 id 精确拉黑，安全模式一刀切掉全部外置插件。
 
 ## Crotchet 调试模式
 

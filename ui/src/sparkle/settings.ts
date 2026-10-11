@@ -18,6 +18,7 @@ import {
   listInstalledThirdParty, loadOfficial, loadThirdParty, OFFICIAL_META, validatePlugin,
   type InstalledPlugin,
 } from "./loader";
+import { sparkIdBlacklisted, sparkRedflag } from "./policy";
 import { onSparkleChange, sparkRecordOf, sparkleSettingsSections } from "./registry";
 import {
   activateStyle, onStyleChange, resetStyle, setStyleSuspended, stylePacks, styleState,
@@ -141,6 +142,17 @@ export function mountSparklePanel(section: HTMLElement): () => void {
   marketPanel.append(marketGroup);
   section.append(cats, themePanel, pluginPanel, extPanel, marketPanel);
 
+  // 安全模式（QUAVER_REDFLAG=1）：所有第三方插件都被拒之门外（含运行期手动开启），
+  // 面板顶上明说一句 —— 否则用户只会看到开关点不动，以为坏了。
+  const safeMode = sparkRedflag();
+  const SAFE_MODE_LOCK = "安全模式（QUAVER_REDFLAG=1）已开启：仅预装插件可用，第三方插件全部禁用";
+  if (safeMode) {
+    const note = document.createElement("p");
+    note.className = "muted sparkle-warn sparkle-lock-note";
+    note.textContent = `${SAFE_MODE_LOCK}，安装入口同时上锁。`;
+    cats.after(note);
+  }
+
   // —— 渲染逻辑 ——
 
   let installedThird: InstalledPlugin[] = [];
@@ -208,6 +220,9 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     /** 主题行只在插件真的提供设置区（高级选项）时显示齿轮；插件/扩展行恒显 */
     showGear: boolean;
     pluginId: string;
+    /** 非空 = 这一行锁住（安全模式 / [Sparkle] Blacklist）：开关画出来但不可点，
+     *  文字位显示原因 —— 只「点了没反应」会让人以为是坏了。 */
+    lock?: string;
     onToggle: (on: boolean) => void; onUninstall?: () => void;
   }) => {
     const el = document.createElement("div");
@@ -237,20 +252,39 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     if (!o.broken) {
       const sw = document.createElement("label");
       sw.className = "sparkle-switch";
-      sw.innerHTML = `<input type="checkbox"${o.enabled ? " checked" : ""}/> ${o.enabled ? "已启用" : "已停用"}`;
+      if (o.lock) sw.classList.add("is-locked");
+      sw.innerHTML = `<input type="checkbox"${o.enabled ? " checked" : ""}${o.lock ? " disabled" : ""}/> ${o.lock ? esc(o.lock) : o.enabled ? "已启用" : "已停用"}`;
       const input = sw.querySelector<HTMLInputElement>("input")!;
-      input.onchange = () => {
-        sw.textContent = "";
-        sw.append(input, document.createTextNode(input.checked ? "已启用" : "已停用"));
-        o.onToggle(input.checked);
-      };
+      if (o.lock) {
+        sw.title = o.lock;
+        input.title = o.lock;
+      } else {
+        input.onchange = () => {
+          sw.textContent = "";
+          sw.append(input, document.createTextNode(input.checked ? "已启用" : "已停用"));
+          o.onToggle(input.checked);
+        };
+      }
       actions.append(sw);
     }
     return el;
   };
 
+  /** 第三方行为什么锁着（安全模式优先）；null = 不锁。事实源在 policy.ts，这里只是回显。 */
+  const rowLock = (id: string): string | null => {
+    if (safeMode) return "安全模式：第三方插件已禁用";
+    if (sparkIdBlacklisted(id)) return "已在 [Sparkle] Blacklist 黑名单里";
+    return null;
+  };
+  /** 预装行的锁只来自黑名单（安全模式不拦预装插件）。 */
+  const officialLock = (id: string): string | null =>
+    sparkIdBlacklisted(id) ? "已在 [Sparkle] Blacklist 黑名单里" : null;
+
   /** 启停一个已装第三方插件（主题/插件/扩展三处标签共用同一套语义） */
   const toggleThird = async (inst: InstalledPlugin, on: boolean) => {
+    // 兜底：UI 上开关已锁，但键盘/脚本仍可能触发；真正的事实源在 host.enableSparklePlugin
+    const why = rowLock(inst.id);
+    if (on && why) { toast(why, "err"); return; }
     try {
       if (on) await enableSparklePlugin(await loadThirdParty(inst));
       else disableSparklePlugin(inst.id);
@@ -277,6 +311,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     const broken = sparkIsBroken(inst.id) && !sparkRecordOf(inst.id);
     const pluginLive = !!sparkRecordOf(inst.id);
     const hasSections = sparkleSettingsSections().some((e) => e.pluginId === inst.id);
+    const lock = rowLock(inst.id) ?? undefined;
     return manageRow({
       id: inst.id,
       name: String(inst.manifest?.name ?? inst.id),
@@ -284,7 +319,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
       author: inst.manifest?.author ? String(inst.manifest.author) : undefined,
       description: inst.manifest?.description ? String(inst.manifest.description) : undefined,
       badge,
-      enabled, broken,
+      enabled, broken, lock,
       showGear: !broken && (opts?.gearOnlyWithSections ? pluginLive && hasSections : true),
       pluginId: inst.id,
       onToggle: (on) => { void toggleThird(inst, on); },
@@ -373,12 +408,15 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     const enabled = new Set(sparkEnabledIds());
     for (const meta of OFFICIAL_META) {
       const broken = sparkIsBroken(meta.id) && !sparkRecordOf(meta.id);
+      const offLock = officialLock(meta.id) ?? undefined;
       pluginRows.append(manageRow({
         ...meta, badge: { cls: "official", text: "预装" },
-        enabled: enabled.has(meta.id), broken,
+        enabled: enabled.has(meta.id), broken, lock: offLock,
         showGear: !broken,
         pluginId: meta.id,
         onToggle: async (on) => {
+          // UI 已锁，这里再兜一层（与 host 的中央闸口同口径）
+          if (on && offLock) { toast(offLock, "err"); return; }
           try {
             if (on) await enableSparklePlugin(await loadOfficial(meta.id));
             else disableSparklePlugin(meta.id);
@@ -427,15 +465,16 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "ghost-btn ghost-btn--quiet sparkle-install";
-    btn.textContent = hostVersionError ? "版本不满足" : isInstalled ? "重新安装" : "安装";
-    if (hostVersionError) {
+    btn.textContent = hostVersionError ? "版本不满足" : safeMode ? "安全模式" : isInstalled ? "重新安装" : "安装";
+    if (hostVersionError || safeMode) {
       btn.disabled = true;
-      btn.title = hostVersionError;
+      btn.title = hostVersionError || SAFE_MODE_LOCK;
     }
     btn.onclick = async () => {
       const bridge = window.quaverSparkle;
-      if (!bridge || hostVersionError) {
+      if (!bridge || hostVersionError || safeMode) {
         if (hostVersionError) toast(hostVersionError, "err");
+        else if (safeMode) toast(SAFE_MODE_LOCK, "err");
         return;
       }
       btn.disabled = true;
@@ -514,6 +553,8 @@ export function mountSparklePanel(section: HTMLElement): () => void {
   const installLocalFlow = async () => {
     const bridge = window.quaverSparkle;
     if (!bridge) return;
+    // 安全模式：主进程的安装闸口会拒，但别让用户先走完 5 秒警告再吃一个错误 —— UI 直接上锁
+    if (safeMode) { toast(SAFE_MODE_LOCK, "err"); return; }
     showLocalPluginDialog(async () => {
       const picked = await bridge.pickLocal().catch((e) => {
         console.warn("[sparkle] 本地插件读取失败", e);
@@ -560,6 +601,9 @@ export function mountSparklePanel(section: HTMLElement): () => void {
   if (!window.quaverSparkle) {
     localBtn.disabled = true;
     localBtn.title = "浏览器 dev 环境不支持花火插件功能";
+  } else if (safeMode) {
+    localBtn.disabled = true;
+    localBtn.title = SAFE_MODE_LOCK;
   }
   marketRefresh.onclick = () => { void refreshAll(); };
   // Marketplace 内部分类筛选：chips 只过滤列表，不改变「一份索引一处拉取」的结构

@@ -5,6 +5,8 @@
 #
 # 目标平台：
 #   linux    x86_64 + aarch64 → AppImage（原生 runner 打包）
+#            同一 runner 另出 deb / rpm / pacman：不随包 mpv，依赖字段只有 mpv
+#            （音源走发行版，bins.ts 三级兜底自动落宿主 PATH）
 #   windows  x64 + arm64      → NSIS（前端全在 x64 上交叉打包）
 #   macos    arm64 → dmg（x86 构建已裁撤）
 #   linux    loong64 → sidecar 二进制 + 客户端 deb（Electron 用 loongson/electron
@@ -19,7 +21,8 @@
 #     msvc arm64（静态链接）；macOS 用 macos-14 arm 单份 zip（自包含 mpv.app）—— 上游按构建机的
 #     macOS 版本出 macos-14 / 15 / 26 三份，Mach-O 的 minos 就是那个版本号，装高了在老系统上
 #     一启动就被 dyld 拒（v0.41 的 macos-15 那份在 macOS 14 上直接 SIGABRT），所以取最低档 14。
-#     Linux 用 pkgforge AppImage（x86_64/aarch64）。
+#     Linux 的 AppImage 用 pkgforge AppImage（x86_64/aarch64）；同台的 deb/rpm/pacman
+#     不随包音频运行时 —— mpv 作为发行版依赖（Depends: mpv）在安装时解析。
 #
 # 触发：
 #   - push 到 main / PR：只出 artifact
@@ -284,10 +287,88 @@ jobs:
           [ -d "$root/resources/audio/mpv" ] || root=AppDir   # 解包目录名随 runtime 而异
           node electron/audio/bins.ts --check "$root/resources/audio"
 
+      # ── 发行版原生包：deb / rpm / pacman ──
+      # 与上面 AppImage 的「自包含」口径相反：这三个包不随包 mpv 运行时，改走发行版依赖
+      # 解析（deb Depends / rpm Requires / pacman depends 都只有 mpv；bins.ts 三级兜底自动
+      # 落宿主 PATH 的系统 mpv）——与 frontend-linux-loong64 那枚 deb 同一口径。
+      # electron-builder 的 fpm 后端要 rpmbuild（打 rpm）与 bsdtar（组装 pacman 的
+      # .pkg.tar.zst），zstd 供 GNU tar --zstd 用；ubuntu runner 都没预装，先装齐。
+      - name: Install fpm backends (rpmbuild / bsdtar / zstd)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends rpm libarchive-tools zstd
+
+      # 清掉随包音频运行时再打这三个包：extraResources 的 `build-res/audio` 源缺失时
+      # builder 只记一条 "file source doesn't exist" 警告并跳过，不是错误 —— 于是落进包里
+      # 的就只有 sidecar + mpris + 前端，音源由发行版的 mpv 提供。（AppImage 已在上一轮打完，
+      # 那份是自包含的，不受影响。）
+      - name: Drop bundled mpv runtime (distro packages resolve mpv via Depends)
+        working-directory: ui
+        run: rm -rf build-res/audio
+
+      - name: electron-builder deb/rpm/pacman
+        working-directory: ui
+        env:
+          QUAVER_VERSION: ${{ steps.version.outputs.version }}
+        # 同 AppImage：不给这一步设 GH_TOKEN，避免 builder 自动推导 GitHub publish 配置。
+        run: |
+          pnpm exec electron-builder --linux deb rpm pacman --${{ matrix.electron_arch }} --publish never \
+            --config.extraMetadata.version=${{ steps.version.outputs.version }}
+
+      # electron-builder 的 ${arch} 宏只给 deb/rpm 做了映射（deb→amd64、rpm→x86_64），
+      # pacman 档原样吐 "x64" → 对齐 Arch 口径改名 x86_64。只改文件名，包内元数据不动。
+      - name: Normalize pacman artifact arch label
+        working-directory: ui
+        run: |
+          set -euo pipefail
+          for f in release/Quaver-*-x64.pkg.tar.zst; do
+            [ -e "$f" ] || continue     # aarch64 runner 上没有这一档
+            mv "$f" "${f%-x64.pkg.tar.zst}-x86_64.pkg.tar.zst"
+          done
+
+      # 硬口径自检：三个包的依赖都必须恰好只有 mpv。
+      # rpm 的 rpmlib(...) / /bin/sh 是 rpm 工具链自带基线，滤掉后比对。
+      - name: Verify distro package metadata (mpv is the only dependency)
+        working-directory: ui
+        run: |
+          set -euo pipefail
+
+          deb=$(ls release/Quaver-*.deb)
+          ctrl=$(dpkg-deb -f "$deb")
+          if ! grep -qx 'Depends: mpv' <<< "$ctrl"; then
+            echo "::error::deb 依赖不是仅有 mpv"; printf '%s\n' "$ctrl"; exit 1
+          fi
+          if grep -q '^Recommends:' <<< "$ctrl"; then
+            echo "::error::deb 不该有 Recommends 行"; exit 1
+          fi
+          if ! grep -qE '^Architecture: (amd64|arm64)$' <<< "$ctrl"; then
+            echo "::error::deb 架构异常"; printf '%s\n' "$ctrl"; exit 1
+          fi
+
+          rpm=$(ls release/Quaver-*.rpm)
+          req=$(rpm -qp --requires "$rpm" | grep -vE '^(rpmlib\(|/bin/sh$)' | sort | paste -sd, -)
+          if [ "$req" != 'mpv' ]; then
+            echo "::error::rpm 依赖不是仅有 mpv：$req"; exit 1
+          fi
+
+          pac=$(ls release/Quaver-*.pkg.tar.zst)
+          pdep=$(bsdtar -xOf "$pac" .PKGINFO | sed -n 's/^depend *= *//p' | sort | paste -sd, -)
+          if [ "$pdep" != 'mpv' ]; then
+            echo "::error::pacman 依赖不是仅有 mpv：$pdep"; exit 1
+          fi
+          echo "OK: deb/rpm/pacman depends = mpv only"
+
       - uses: actions/upload-artifact@v7
         with:
           name: quaver-appimage-${{ matrix.arch_label }}
           path: ui/release/Quaver-*.AppImage
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: quaver-linux-distro-${{ matrix.arch_label }}
+          path: |
+            ui/release/Quaver-*.deb
+            ui/release/Quaver-*.rpm
+            ui/release/Quaver-*.pkg.tar.zst
           if-no-files-found: error
 
   # 龙芯客户端：Electron 官方 / electron-builder 两方都不支持 loong64 ——
@@ -724,7 +805,8 @@ jobs:
           {
             echo "每夜版自动构建于 $(date -u '+%Y-%m-%d %H:%M UTC')，对应 commit \`$GITHUB_SHA\`。"
             echo
-            echo "包名里的 \`$sha\` 即 commit id。平台覆盖：Linux AppImage（x86_64/aarch64）、"
+            echo "包名里的 \`$sha\` 即 commit id。平台覆盖：Linux AppImage（x86_64/aarch64，自包含）、"
+            echo "Linux deb/rpm/pacman（x86_64/aarch64，依赖只有 mpv，走系统音源）、"
             echo "Windows NSIS（x64/arm64）、macOS dmg（arm64）、loong64/loongarch64 deb（mpv 走系统依赖）。"
             echo
             echo "**非稳定版本**，仅用于验证最新改动。"
