@@ -168,8 +168,9 @@ export interface DownloadHandle {
 }
 
 /**
- * 下载更新包。AppImage 原位替换场景落 $APPIMAGE 同目录（rename 原子替换不可跨文件系统），
- * 其余落系统临时目录。resolve 的是落盘路径（不是「安装完成」）。
+ * 下载更新包。落盘位置三选一：AppImage 原位替换 → $APPIMAGE 同目录（rename 原子替换不可跨文件系统）；
+ * deb/rpm → 用户「下载」目录（下载完只落盘，等用户在弹窗里点「打开安装包」才交系统安装器）；
+ * 其余（exe/dmg）→ 系统临时目录。resolve 的是落盘路径（不是「安装完成」）。
  */
 export function downloadUpdate(info: UpdateInfo, onProgress: (received: number, total: number) => void): DownloadHandle {
   const id = `upd-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
@@ -178,7 +179,10 @@ export function downloadUpdate(info: UpdateInfo, onProgress: (received: number, 
       if (!bridge()?.invoke) throw new Error("下载更新需要在桌面端运行");
       progressCbs.set(id, onProgress);
       const pf = await getPlatformInfo();
-      const mode = info.picked!.kind === "appimage" && pf?.appimage ? "replace-appimage" : "installer";
+      const kind = info.picked!.kind;
+      const mode = kind === "appimage" && pf?.appimage ? "replace-appimage"
+        : kind === "deb" || kind === "rpm" ? "downloads"
+        : "installer";
       const r = await bridge().invoke({ op: "download", id, url: info.picked!.asset.url, mode });
       if (!r?.ok) throw new Error(r?.error ?? "下载失败");
       return { path: String(r.path) };
@@ -196,10 +200,12 @@ export function downloadUpdate(info: UpdateInfo, onProgress: (received: number, 
 export type InstallStep =
   | { type: "appimage-replaced" }
   | { type: "installer-ready"; path: string }
+  /** deb/rpm：已下载到「下载」目录，交回弹窗由用户点「打开安装包」再拉起安装器 */
+  | { type: "installer-downloaded"; path: string }
   | { type: "installer-opened" };
 
-/** 下载完成后的收尾：AppImage 原位替换；exe 等用户点「退出并安装」；deb/rpm/dmg 交给系统默认应用打开
- *  （Linux 走 xdg-open → 发行版图形包安装器）。 */
+/** 下载完成后的收尾：AppImage 原位替换；exe 等用户点「退出并安装」；deb/rpm 落盘待用户确认；
+ *  dmg 交给系统挂载。绝不自动拉起安装器 —— deb/rpm 的「打开安装包 / 打开所在目录」由弹窗驱动。 */
 export async function finalizeInstall(info: UpdateInfo, path: string): Promise<InstallStep> {
   const kind = info.picked!.kind;
   if (kind === "appimage") {
@@ -208,9 +214,16 @@ export async function finalizeInstall(info: UpdateInfo, path: string): Promise<I
     return { type: "appimage-replaced" };
   }
   if (kind === "exe") return { type: "installer-ready", path };
+  if (kind === "deb" || kind === "rpm") return { type: "installer-downloaded", path };
   const r = await bridge().invoke({ op: "open-path", path });
   if (!r?.ok) throw new Error(r?.error ?? "无法打开安装包");
   return { type: "installer-opened" };
+}
+
+/** 交系统默认应用打开（Linux 走 xdg-open）：deb/rpm 的安装包本体，或它所在的目录。 */
+export async function openPath(path: string): Promise<void> {
+  const r = await bridge().invoke({ op: "open-path", path });
+  if (!r?.ok) throw new Error(r?.error ?? "无法打开");
 }
 
 /** Windows：拉起 NSIS 静默安装并退出应用（安装器装完会自行启动新版）。 */

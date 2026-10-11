@@ -408,6 +408,32 @@ const rs2 = await installLinuxDesktopIntegration({ ...spec, dataHome: join(ROOT,
 eq("干净用户目录 → 让位（system）", rs2.desktopAction, "system");
 check("让位时不创建 applications 目录", !existsSync(join(ROOT, "data-sys2", "applications")));
 
+// 用户自己复制系统条目、改启动参数（比如 Exec 后面加 --enable-features=...）—— 那份没有
+// X-Quaver-Managed 标记，一个字都不能动：让位不是「放弃管理」，是只管理自己写的那一份。
+const userDataHome = join(ROOT, "data-user");
+const userFile = join(userDataHome, "applications", `${DESKTOP_ID}.desktop`);
+const userCopy = '[Desktop Entry]\nName=Quaver Music\n'
+  + 'Exec="/opt/Quaver Music/red.0w0.quaver" --enable-features=Foo %U\n'
+  + "Type=Application\nIcon=red.0w0.quaver\nCategories=Audio;\n";
+mkdirSync(dirname(userFile), { recursive: true });
+writeFileSync(userFile, userCopy);
+const ru1 = await installLinuxDesktopIntegration({ ...spec, dataHome: userDataHome, env: sysEnv });
+eq("用户手改的副本（无标记）→ 让位", ru1.desktopAction, "system");
+check("用户手改的副本一字未动（Exec 里的启动参数还在）", readFileSync(userFile, "utf8") === userCopy);
+
+// 反过来：拿我们生成的那份当模板改、标记还留着 → 标记就是契约（那份归我们管）。系统条目在场的
+// 场景下不重写、直接清掉，让包管理器那份可见条目接管（留着只会遮蔽它）。
+const tplDataHome = join(ROOT, "data-tpl");
+const tplFile = join(tplDataHome, "applications", `${DESKTOP_ID}.desktop`);
+mkdirSync(dirname(tplFile), { recursive: true });
+writeFileSync(tplFile, desktopEntryContent({
+  desktopId: DESKTOP_ID, name: "Quaver Music", comment: "测试",
+  exec: `"/opt/Quaver Music/red.0w0.quaver" --my-args %U`,
+}));
+const ru2 = await installLinuxDesktopIntegration({ ...spec, dataHome: tplDataHome, env: sysEnv });
+eq("带我们标记的副本 → 清掉（标记 = 契约）", ru2.desktopAction, "system-cleaned");
+check("那份带标记的副本不再遮蔽系统条目", !existsSync(tplFile));
+
 // 系统条目被 Hidden 藏起来 → 不算「装好了」，照旧由我们收编成可见条目（#4626 同因）
 writeFileSync(sysFile, sysContent + "Hidden=true\n");
 const rs3 = await installLinuxDesktopIntegration({ ...spec, dataHome: join(ROOT, "data-sys3"), env: sysEnv });

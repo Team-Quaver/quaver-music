@@ -13,7 +13,7 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { chmod, readFile, rename, rm } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { Readable, Transform } from "node:stream";
@@ -74,6 +74,20 @@ function assetBasename(url) {
   } catch {
     return "quaver-update.bin";
   }
+}
+
+/** 目标目录里挑一个不撞名的落盘路径（已存在 → `名字 (1).ext`、`(2)`…）。 */
+async function uniqueDest(dir: string, name: string) {
+  await mkdir(dir, { recursive: true }).catch(() => { /* 目录已存在或建不了，交给写入阶段报错 */ });
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
+  let dest = join(dir, name);
+  for (let i = 1; i < 100; i++) {
+    try { await access(dest); } catch { return dest; }  // 不存在 = 空位
+    dest = join(dir, `${stem} (${i})${ext}`);
+  }
+  return join(dir, `${stem}-${Date.now()}${ext}`);
 }
 
 /** 流式下载：进度按整百分比推送（事件风暴会让渲染层卡顿）。 */
@@ -162,7 +176,8 @@ export function setupUpdaterIPC({ log }) {
       }
 
       // 下载。mode=replace-appimage：落 $APPIMAGE 同目录的隐藏临时文件（rename 才能原子替换）；
-      // mode=installer：落系统临时目录，交给系统安装器
+      // mode=downloads：落用户「下载」目录（deb/rpm —— 只落盘，安装交给弹窗里的确认按钮）；
+      // mode=installer：落系统临时目录（exe 直接跑 / dmg 交给系统挂载）
       if (op === "download") {
         const url = String(msg?.url ?? "");
         if (!/^https:\/\//.test(url)) return { ok: false, error: "下载地址必须是 https" };
@@ -173,6 +188,8 @@ export function setupUpdaterIPC({ log }) {
           const appimage = process.env.APPIMAGE;
           if (!appimage) return { ok: false, error: "当前不是 AppImage 运行方式，无法原位替换" };
           dest = join(dirname(appimage), `.${basename(appimage)}.update-${process.pid}`);
+        } else if (msg?.mode === "downloads") {
+          dest = await uniqueDest(app.getPath("downloads"), assetBasename(url));
         } else {
           dest = join(tmpdir(), `quaver-update-${id}-${assetBasename(url)}`);
         }

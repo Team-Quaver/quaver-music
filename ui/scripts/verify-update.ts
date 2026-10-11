@@ -343,12 +343,28 @@ section("安装收尾接线");
   // AppImage 自动更新只做原位替换：不再把更新交给 Gear Lever / AppManager
   check("AppImage: 已移除 Gear Lever / AppManager 联动",
     !has(up, "gearlever") && !has(up, "app-manager") && !has(up, "appimage-managers") && !has(up, "run-manager-update"));
-  // deb/rpm 更新 = 下载后交系统默认应用打开（Linux 走 xdg-open）
+  // deb/rpm 更新 = 下载后交系统默认应用打开（Linux 走 xdg-open），由用户点「打开安装包」触发
   check("Linux deb/rpm: open-path 走 xdg-open",
     re(up, /spawn\("xdg-open", \[path\]/));
   // Linux 按运行方式挑包：渲染层把 pkg（deb/rpm）作为 prefer 传给 pickAsset
   check("updater: Linux 发行版包安装按 pkg 挑 deb/rpm",
     re(updater, /pickAsset\(platform, arch, release\.assets, platform === "linux" && !pf\?\.appimage \? pf\?\.pkg \?\? null : null\)/));
+
+  const dialog = noComments(readSrc("src/components/UpdateDialog.ts"));
+  // deb/rpm 落「下载」目录，绝不自动拉起安装器：主进程给 downloads 落盘模式，finalize 只回报「已下载」
+  check("deb/rpm: 下载落用户「下载」目录（mode=downloads → app.getPath('downloads')）",
+    has(up, 'uniqueDest(app.getPath("downloads"), assetBasename(url))'));
+  check("deb/rpm: 下载后不自动打开，交回弹窗（installer-downloaded，不调 open-path）",
+    has(updater, 'if (kind === "deb" || kind === "rpm") return { type: "installer-downloaded", path };'));
+  check("deb/rpm: updater 下载模式按包型切 downloads",
+    re(updater, /kind === "deb" \|\| kind === "rpm" \? "downloads"/));
+  // 弹窗：确认按钮「打开安装包」+ 旁边「打开所在目录」
+  check("弹窗: 已下载态给「打开安装包」主按钮（走 openPath）",
+    has(dialog, 'setMain("打开安装包", true') && has(dialog, "openPath(step.path)"));
+  check("弹窗: 旁边有「打开所在目录」按钮（走 openPath(dir)）",
+    has(dialog, "打开所在目录") && has(dialog, "openPath(dir)"));
+  check("弹窗: downloads 态按钮从隐藏态显式打开（不是默认展示）",
+    re(dialog, /data-act="open-dir"[^>]*hidden/) && has(dialog, "openDirBtn.hidden = false"));
 }
 
 console.log(failed ? `\n${failed} 项断言失败` : "\n全部通过");

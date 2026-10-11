@@ -6,7 +6,7 @@ declare const __APP_VERSION__: string;
 type UpdateInvokeMsg =
   | { op: "platform" }
   | { op: "fetch-release"; channel: "stable" | "beta" | "nightly" }
-  | { op: "download"; id: string; url: string; mode: "replace-appimage" | "installer" }
+  | { op: "download"; id: string; url: string; mode: "replace-appimage" | "downloads" | "installer" }
   | { op: "cancel-download"; id: string }
   | { op: "apply-appimage"; path: string }
   | { op: "install-windows"; path: string }
