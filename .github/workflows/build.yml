@@ -29,6 +29,9 @@
 #   - 打 v* tag：额外创建 GitHub Release（版本号 = tag 去掉 v）。
 #       tag 含 beta（如 v1.5.0-beta.1）→ 以 **prerelease** 直接上线，供客户端「Beta 渠道」识别；
 #       其余正式 tag                 → 先建 **草稿**，人工检查产物后手动 Publish
+#       ⚠ tag 必须是合法 semver：v<major>.<minor>.<patch>[-<prerelease>]，分段用 `-`。
+#       写成 v1.4.5_beta.1（下划线）会被 resolve-version 直接拦下 —— Debian 的 Version
+#       字段不认 `_`，客户端的 parseVersion 也解析不出 prerelease 段，两边都会静默出错。
 #   - 每夜定时 / 手动勾 nightly：版本号 = <package.json 版本>-<短 commit id>-nightly，
 #     发布到滚动 Release「nightly」（覆盖昨天的）
 name: Build

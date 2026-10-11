@@ -44,12 +44,29 @@ runs:
         if [[ "$NIGHTLY" == "true" ]]; then
           base=$(node -p "require('$ui_dir/package.json').version")
           sha="${GITHUB_SHA:0:7}"
-          echo "version=${base}-${sha}-nightly" >> "$GITHUB_OUTPUT"
+          version="${base}-${sha}-nightly"
         elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-          echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          version="${GITHUB_REF#refs/tags/v}"
         else
-          # GITHUB_OUTPUT 每行必须是 name=value —— 裸值会让 runner 报 Invalid format。
-          # （这行此前从未跑通过：先被 ui_dir 的层级 bug 挡在 require，格式错误是修完才露出来的。）
-          echo "version=$(node -p "require('$ui_dir/package.json').version")" >> "$GITHUB_OUTPUT"
+          version=$(node -p "require('$ui_dir/package.json').version")
         fi
-        echo "resolved: $(tail -1 "$GITHUB_OUTPUT")"
+
+        # 早拦：版本串必须落在 semver 的字符集里（数字/字母/`.`/`-`）。
+        # 只报错、不归一化 —— 同一个串在别处的解释权不在我们手上，替换掉字符只会把雷埋深：
+        #   - deb：Debian 的 Version 只认 [A-Za-z0-9.+~-]，带 `_` 会被 fpm 拒，而且要等
+        #     fpm 把整棵树复制完才报（几十分钟的 runner 白烧），报错信息还埋在 cmake 般的堆栈里；
+        #   - 客户端：ui/src/lib/update-core.ts 的 parseVersion 正则要求 prerelease 前是 `-`，
+        #     `v1.4.5_beta.1` 这类 tag 直接解析成 null → Beta 渠道整条 release 被静默忽略；
+        #   - semver 本身：prerelease 段只允许 [0-9A-Za-z-]（`_` 不在内）。
+        # 这里顺手把 `_` 换成 `-` 看着能救急，但 git tag 仍是 `_`，客户端照样认不出 ——
+        # 那就成了一条能下载、却永远不会被提示的哑火 release。
+        if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+          printf '::error::解析出的版本 "%s" 不是合法 semver：只允许 [0-9A-Za-z.-]，prerelease 前必须是 "-"。\n' "$version"
+          printf '::error::多半是把 tag 里的 "-" 写成了 "_"（如 v1.4.5_beta.1）—— 请改成 v1.4.5-beta.1 重新打 tag。\n'
+          exit 1
+        fi
+
+        # GITHUB_OUTPUT 每行必须是 name=value —— 裸值会让 runner 报 Invalid format。
+        # （这行此前从未跑通过：先被 ui_dir 的层级 bug 挡在 require，格式错误是修完才露出来的。）
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "resolved: $version"
