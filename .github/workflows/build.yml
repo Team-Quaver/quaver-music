@@ -351,6 +351,17 @@ jobs:
           if [ "$req" != 'mpv' ]; then
             echo "::error::rpm 依赖不是仅有 mpv：$req"; exit 1
           fi
+          # /usr/lib/.build-id/* 是 rpmbuild 的 find-debuginfo 后处理塞进来的链接器元数据，
+          # 不是我们的载荷。我们随包的是 Electron 官方二进制，任何两个 Electron 包
+          # （如 sparkle）都会因为这几个 ELF 字节相同而 build-id 相同 —— 双方都带上这几条，
+          # dnf 就报「file ... conflicts」直接拒装。上游用 --rpm-rpmbuild-define
+          # '_build_id_links none' 关掉生成，这里兜底断言，别再让脏包发出去。
+          buildid=$(rpm -qpl "$rpm" | grep -E '^/usr/lib/\.build-id(/|$)' || true)
+          if [ -n "$buildid" ]; then
+            echo "::error::rpm 里混进了 /usr/lib/.build-id（会与其他 Electron 包撞文件、被 dnf 拒装）"
+            printf '%s\n' "$buildid"
+            exit 1
+          fi
 
           pac=$(ls release/Quaver-*.pkg.tar.zst)
           pdep=$(bsdtar -xOf "$pac" .PKGINFO | sed -n 's/^depend *= *//p' | sort | paste -sd, -)
@@ -512,9 +523,15 @@ jobs:
           # control：Depends 只钉 mpv —— 唯一在 Debian sid loong64 / AOSC / loongnix
           # 三方同名的包；Electron 其余运行库（gtk3/nss 等）视为桌面环境既有依赖，
           # 不硬声明（Debian 的 t64 包名会把 AOSC 挡在安装门外，缺库可诊断可补装）
+          # Debian 的 Version 只认 [A-Za-z0-9.+~-]；更要命的是 `-` 在 dpkg 眼里是
+          # 「上游版本-修订」的分隔符 —— 原样塞 1.4.5-beta.1 会被判成 upstream 1.4.5 +
+          # revision beta.1，排序上比 1.4.5 还「新」，apt 永远不会提示升到正式版。fpm 打
+          # x64/arm64 那两个 deb 时是把 `-` 映射成 `~`（1.4.5~beta.1 < 1.4.5），手工组装
+          # 这枚要照同一口径，否则装过 beta 的 loong64 用户回不到正式版。
+          DEB_VERSION=$(printf '%s' "$QUAVER_VERSION" | tr -- '-' '~')
           {
             printf 'Package: quaver-music\n'
-            printf 'Version: %s\n' "$QUAVER_VERSION"
+            printf 'Version: %s\n' "$DEB_VERSION"
             printf 'Section: sound\n'
             printf 'Priority: optional\n'
             printf 'Architecture: loong64\n'
@@ -534,6 +551,8 @@ jobs:
             dpkg-deb --root-owner-group --build "$PKG" "$DEB"
             # 元数据自检：架构与依赖（Depends 里必须有 mpv）
             dpkg-deb -f "$DEB" Architecture | grep -qx "$deb_arch"
+            dpkg-deb -f "$DEB" Version | grep -qx "$DEB_VERSION" \
+              || { echo "::error::deb Version 不是预期的 $DEB_VERSION"; exit 1; }
             dpkg-deb -f "$DEB" Depends | grep -qE '(^|[ ,])mpv([ ,]|$)' \
               || { echo "::error::Depends 里没有 mpv"; exit 1; }
           done

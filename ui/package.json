@@ -128,7 +128,8 @@
     "rpm": {
       "packageName": "quaver-music",
       "depends": ["mpv"],
-      "artifactName": "Quaver-${version}-${arch}.rpm"
+      "artifactName": "Quaver-${version}-${arch}.rpm",
+      "fpm": ["--rpm-rpmbuild-define", "_build_id_links none"]
     },
     "pacman": {
       "packageName": "quaver-music",
