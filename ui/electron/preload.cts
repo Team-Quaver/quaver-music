@@ -46,8 +46,12 @@ contextBridge.exposeInMainWorld("quaverMpris", {
 // 为什么是 sendSync：渲染层模块（player 实例化 / prefs 读值）在 ESM import 阶段就跑完，
 // 静态 import 提升让任何 await 都排在它们之后 —— 异步取配置会让启动期全落在默认值上。
 // 主进程负责平台路径解析 / 值域校验 / 原子落盘与权限，渲染层只认 "Section.Key" → 字符串。
-let configBoot: { ok: boolean } = { ok: false };
+let configBoot: { ok: boolean; crotchet?: boolean } = { ok: false };
 try { configBoot = ipcRenderer.sendSync("quaver:config-sync") || configBoot; } catch { /* 壳层没起 handler：走默认值 */ }
+// Crotchet 调试模式（QUAVER_CROTCHET=1）：开关随 config-sync 快照下发，渲染层据此
+// 跳过本地插件安装的 5 秒警告弹窗（主进程永远是真正的事实源，这里只是搬运）。
+contextBridge.exposeInMainWorld("quaverCrotchet", configBoot.crotchet === true);
+
 contextBridge.exposeInMainWorld("quaverConfig", {
   boot: configBoot,
   all: () => ipcRenderer.invoke("quaver:config", { op: "all" }),

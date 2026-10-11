@@ -70,6 +70,21 @@ const LOG = app.isPackaged
 import { appendFileSync } from "node:fs";
 const log = (...a) => { const s = a.map((x) => (typeof x === "string" ? x : String(x))).join(" "); try { appendFileSync(LOG, s + "\n"); } catch {} console.log(s); };
 
+// ——— Crotchet 调试模式 ———
+// QUAVER_CROTCHET=1 打开（值为纯数字时同时充当调试端口，如 QUAVER_CROTCHET=9300 ≙ =1 + 端口 9300）：
+//   ① 前后端日志一条流水线：渲染层 console（含未捕获异常）、preload 错误、渲染进程崩溃
+//      全部并入 electron-dev.log —— 主进程与 sidecar（[sidecar] 前缀）本来就在这份文件里；
+//   ② 本地安装 Sparkle 插件跳过 5 秒警告弹窗（开关经 config-sync 快照下发渲染层）；
+//   ③ 开 Chromium remote-debugging-port，Chrome Inspect / chrome://inspect 可连上做性能评估。
+// appendSwitch 必须在 app ready 之前：Chromium 只在初始化时读一次，晚了就是空操作。
+const crotchetRaw = String(process.env.QUAVER_CROTCHET ?? "").trim().toLowerCase();
+const CROTCHET = crotchetRaw !== "" && crotchetRaw !== "0" && crotchetRaw !== "false";
+const CROTCHET_DEBUG_PORT = /^[0-9]+$/.test(crotchetRaw) && Number(crotchetRaw) > 0
+  ? Number(crotchetRaw)
+  : (CROTCHET ? 9222 : null);
+if (CROTCHET_DEBUG_PORT) app.commandLine.appendSwitch("remote-debugging-port", String(CROTCHET_DEBUG_PORT));
+if (CROTCHET) log("[crotchet] 调试模式已开启", CROTCHET_DEBUG_PORT ? `(inspect: http://127.0.0.1:${CROTCHET_DEBUG_PORT})` : "", `日志: ${LOG}`);
+
 // Sparkle 插件目录（第三方插件安装根）：QUAVER_SPARKLE_DIR 优先（开发调试），
 // 否则配置目录下 plugins/。native-server（文件服务）与 quaver:sparkle IPC 共用这一份。
 const SPARKLE_PLUGINS_ROOT = String(process.env.QUAVER_SPARKLE_DIR ?? "").trim() || join(CONFIG_DIR, "plugins");
@@ -641,6 +656,14 @@ async function createWindow() {
     log("[quaver] 已拦截页面跳转:", navUrl);
   });
   win.loadURL(url);
+  // Crotchet：渲染层日志并入同一份文件（console-message 的参数对象形态，Electron 35+）
+  if (CROTCHET) {
+    win.webContents.on("console-message", (details) => {
+      log(`[renderer:${details?.level ?? "info"}]`, details?.message ?? "", details?.sourceId ? `(${details.sourceId}:${details.lineNumber})` : "");
+    });
+    win.webContents.on("preload-error", (_e, path, err) => log("[renderer:preload-error]", path, String(err)));
+    win.webContents.on("render-process-gone", (_e, gone) => log("[renderer:gone]", JSON.stringify(gone)));
+  }
   win.webContents.on("did-finish-load", () => log("[quaver] page loaded OK"));
   win.webContents.on("did-fail-load", (_e, code, desc) => log("[quaver] load FAIL", code, desc));
   win.on("close", (e) => {
@@ -673,7 +696,7 @@ ipcMain.on("quaver:config-sync", (e) => {
   try {
     const { values, warnings } = readValues();
     for (const w of warnings) log("[quaver] config:", w);
-    e.returnValue = { ok: true, dir: CONFIG_DIR, path: configFile(), values, writable: configDirOk };
+    e.returnValue = { ok: true, dir: CONFIG_DIR, path: configFile(), values, writable: configDirOk, crotchet: CROTCHET };
   } catch (err) {
     log("[quaver] config-sync failed:", String(err));
     e.returnValue = { ok: false, error: String(err) };
@@ -686,7 +709,7 @@ ipcMain.handle("quaver:config", (_e, msg) => {
     if (op === "all") {
       const { values, warnings } = readValues();
       for (const w of warnings) log("[quaver] config:", w);
-      return { ok: true, dir: CONFIG_DIR, path: configFile(), values, writable: configDirOk };
+      return { ok: true, dir: CONFIG_DIR, path: configFile(), values, writable: configDirOk, crotchet: CROTCHET };
     }
     if (op === "set") {
       const written = writeValues(msg?.patch ?? {});

@@ -23,13 +23,13 @@ Quaver Music，最早是为了解决 Linux 上 QQ 音乐官方客户端不好用
 
 # 功能特性
 
-- 🎉 百变：支持 Sparkle 插件，可用 Sparkle 插件更换主题，个性化自己的播放页，更换自己喜欢的后端播放源
+- 🎉 百变：支持 Sparkle 插件，可用 Sparkle 插件更换主题，个性化自己的播放页
 - 🖥 跨平台：支持 Windows（X86、ARM） / ARM macOS / Linux（X86、龙芯、ARM）
 - 📚 系统集成：支持 Dbus MPRIS、Windows SMTC、macOS NowPlaying 与 Logind Inhibit、Windows 电源请求、macOS 电源断言
 - 📔 丰富歌词：支持 QRC 和 LRC，逐字高亮和翻译
 - 🎨 自适应主题：基于封面背景 + Tint，支持深浅模式和跟随系统
 - 💪 持续维护：基于 Vibe Coding + 人力审核，为代码健康保驾护航（吗？）
-- 🆓 自由开源：基于 AGPLv3 协议
+- 🆓 自由开源：基于 AGPLv3 协议，人人都可参与贡献
 
 # 截图
 
@@ -76,20 +76,8 @@ z：修补版本号
 > 
 > FEP：功能包
 
-# 配置
-
-设置与登录凭证都在系统标准配置目录（Linux `~/.config/quaver-music`，Windows `%AppData%\Quaver Music`，
-macOS `~/Library/Application Support/Quaver Music`）—— 换版本、重装都不丢。`quaver.conf` 是 INI，可直接手改
-（程序只改对应键那一行，注释保留）。
-
-登录凭证交给**系统密钥管理器**（KWallet / GNOME Keyring / 钥匙串 / 凭据管理器）：磁盘上只留密文
-`credential.enc`，钥匙在系统密钥环里。**凭证明文不落盘** —— 拿不到密钥环时本次登录只驻内存，
-关掉应用需重新扫码，没有「退回明文」这一档。
-细节见 [ui/README.md](ui/README.md)。
 
 # 构建与发布
-
-CI（`.github/workflows/build.yml`）产出 x86_64 / aarch64 双架构 AppImage，版本号分三态：
 
 | 触发 | 版本号 | 发布 |
 | --- | --- | --- |
@@ -98,28 +86,6 @@ CI（`.github/workflows/build.yml`）产出 x86_64 / aarch64 双架构 AppImage�
 | 每夜定时（每天 18:00 UTC）/ 手动勾 `nightly` | `<package.json 版本>-<短 commit id>-nightly` | 滚动 Release `nightly`（覆盖上一次） |
 | push main / PR | `package.json` 里的值 | 不发布，只出 artifact |
 
-每夜版用滚动 tag `nightly`：老的那份（release + tag）会先删再建，仓库里始终只有一份「最新」。
-产物名与「关于」页都带 commit id，下载下来就知道对应哪个提交。
-
-版本号不能写成裸的 `<commit id>-nightly`：electron-builder 会对 `version` 做 semver 校验，
-非 semver 直接构建失败，所以 commit id 只能放在 prerelease 段里。
-
-# 应用内更新
-
-应用自己检查 GitHub Releases 并就地更新，入口在「设置 → 通用 → 应用更新」：
-
-- **自动检查**（默认开）：启动后延迟检查一次，发现新版本**先弹窗展示更新日志**，点确认才开始下载
-  安装，绝不静默更新。关掉后仍可手动「检查更新」。
-- **渠道 Stable / Beta / Nightly 可以互相切换**。Stable 是正式发布版；Beta 是 tag 含 `beta`
-  （不区分大小写）且发布为 prerelease 的预发布版；Nightly 是每夜滚动构建。换渠道不按「谁版本号更大」
-  判 —— 选完会自动检查一次，即使版本号相同也会提示换上对应渠道的构建（预发布切回 Stable 时版本号
-  可能回退，弹窗会写明这一点）。构建属于哪个渠道只看版本串：Nightly 认短 commit id、Beta 认
-  prerelease 段里的 `beta`，不额外记录状态，所以换版本、重装都不会失配。
-- 找不到当前平台/架构的安装包时，弹窗只给「打开发布页」的出口。
-
-安装收尾按平台：**AppImage** 原位替换（文件名保持不变，桌面项与 Gear Lever/AppManager 的记录继续有效；
-被 Gear Lever / AppManager 接管时也可以把更新交给它们）｜ **Windows** 拉起 NSIS 静默安装并退出应用 ｜
-**macOS dmg / Linux deb** 交给系统打开，剩下的手动完成。
 
 # 协议
 

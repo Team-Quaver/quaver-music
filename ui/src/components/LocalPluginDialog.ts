@@ -10,6 +10,9 @@ let layer: HTMLElement | null = null;
 /** 打开本地插件警告弹窗；用户点「确认」后回调 onConfirm（弹窗先收起再回调）。
  *  已有弹窗在开时忽略。 */
 export function showLocalPluginDialog(onConfirm: () => void): void {
+  // Crotchet 调试模式（QUAVER_CROTCHET=1）：跳过 5 秒警告守门，直接进入文件选择。
+  // 开关由主进程经 config-sync 下发（见 electron/preload.cts），浏览器 dev 恒为 false。
+  if ((window as any).quaverCrotchet) { onConfirm(); return; }
   if (layer) return;
 
   layer = document.createElement("div");
