@@ -6,25 +6,21 @@
 //      归一化后交给渲染层解析 —— 主进程不认版本号，避免两边逻辑漂移；
 //   2. download：流式下载安装包 + 进度推送。AppImage 替换更新必须与本体同目录同文件系统
 //      （rename 原子替换跨不了挂载点），落盘位置由 mode 决定；
-//   3. 安装收尾：AppImage 原位替换（**文件名保持旧文件原名** —— 桌面项/Gear Lever/AppManager
-//      的 Exec 都指向旧路径，改名即断链）、Windows NSIS 静默安装（装完自动拉起新版）、
-//      mac dmg / deb 交给系统打开；
-//   4. 管理器联动：检测 AppImage 是否被 Gear Lever / AppManager 接管，可用时把更新交给它们。
+//   3. 安装收尾：AppImage 原位替换（**文件名保持旧文件原名** —— 桌面项 / 快捷方式的 Exec
+//      都指向旧路径，改名即断链）、Windows NSIS 静默安装（装完自动拉起新版）、
+//      deb/rpm/mac dmg 交给系统默认应用打开（Linux 走 xdg-open）；
+//   4. 平台档案：报告运行方式（$APPIMAGE 在位 = AppImage，否则是发行版包）与架构，渲染层据此挑安装包。
 import { app, BrowserWindow, ipcMain, shell } from "electron";
-import { spawn, execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { chmod, rename, rm } from "node:fs/promises";
+import { chmod, readFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { promisify } from "node:util";
-
-const execFileP = promisify(execFile);
 
 const GITHUB_REPO = "team-quaver/quaver-music";
 const GITHUB_API = `https://api.github.com/repos/${GITHUB_REPO}/releases`;
-const FLATPAK_GEARLEVER = "it.mijorus.gearlever";
 
 /** 进度推给当前窗口（下载在主进程，渲染层只认 quaver:update-progress 事件）。 */
 const sendProgress = (id, received, total) => {
@@ -37,65 +33,37 @@ const downloads = new Map();
 
 // ——— 小工具 ———
 
-/** PATH 里找可执行文件（不依赖外部 which）。 */
-async function which(cmd) {
-  const dirs = (process.env.PATH ?? "").split(":").filter(Boolean);
-  for (const dir of dirs) {
-    try {
-      await chmod(join(dir, cmd), 0o111);
-      return true;
-    } catch { /* 不存在或不可执行 */ }
+/** Linux 发行版的原生包类型：读 /etc/os-release 的 ID / ID_LIKE 判 deb / rpm。
+ *  认不出来（如 Arch/未知发行版）返回 null —— 渲染层退回旧口径（AppImage 兜底），不硬猜。 */
+const DEB_LIKE = new Set(["debian", "ubuntu", "linuxmint", "lmde", "pop", "elementary", "kali", "raspbian", "devuan", "deepin", "uos", "kylin", "neon", "zorin", "mx", "parrot"]);
+const RPM_LIKE = new Set(["fedora", "rhel", "centos", "rocky", "almalinux", "ol", "oracle", "amzn", "opensuse", "opensuse-leap", "opensuse-tumbleweed", "sles", "suse", "mageia", "nobara", "bazzite"]);
+async function linuxPkgKind(): Promise<string | null> {
+  if (process.platform !== "linux") return null;
+  let text = "";
+  try { text = await readFile("/etc/os-release", "utf8"); } catch { return null; }
+  const toks = new Set<string>();
+  for (const line of text.split("\n")) {
+    const m = /^(ID|ID_LIKE)=(.*)$/.exec(line.trim());
+    if (!m) continue;
+    for (const t of m[2].replace(/["']/g, "").trim().split(/\s+/)) if (t) toks.add(t.toLowerCase());
   }
-  return false;
+  if ([...toks].some((t) => DEB_LIKE.has(t))) return "deb";
+  if ([...toks].some((t) => RPM_LIKE.has(t))) return "rpm";
+  return null;
 }
 
-async function runCapture(argv, timeoutMs = 20000) {
-  try {
-    const { stdout } = await execFileP(argv[0], argv.slice(1), { timeout: timeoutMs, maxBuffer: 4 << 20 });
-    return stdout;
-  } catch { return ""; }
-}
-
-/** AppManager（kem-a/AppManager）的管理目录：默认 ~/Applications。 */
-const APPMANAGER_DIR = () => join(app.getPath("home"), "Applications");
-
-/**
- * 检测 Gear Lever / AppManager 是否可用、当前 AppImage 是否归它们管。
- * - Gear Lever：CLI 直装，或 Flatpak（it.mijorus.gearlever）。是否已集成看
- *   `--list-installed --json` 的输出里有没有当前 AppImage 的路径（3.0+ 的官方接口）。
- * - AppManager：`app-manager --is-installed <path>` 退出码即判定（官方接口）；
- *   该命令不可用时退回管理目录前缀判断（默认 ~/Applications）。
- */
-async function detectManagers(appimage) {
-  const out = {
-    gearlever: { available: false, managed: false, cmd: [] },
-    appmanager: { available: false, managed: false, cmd: [] },
-  };
-  if (process.platform !== "linux" || !appimage) return out;
-
-  let glCmd = null;
-  if (await which("gearlever")) glCmd = ["gearlever"];
-  else if ((await which("flatpak")) && (await runCapture(["flatpak", "info", FLATPAK_GEARLEVER]))) {
-    glCmd = ["flatpak", "run", FLATPAK_GEARLEVER];
-  }
-  if (glCmd) {
-    out.gearlever.available = true;
-    out.gearlever.cmd = glCmd;
-    const listed = await runCapture([...glCmd, "--list-installed", "--json"]);
-    out.gearlever.managed = listed.includes(appimage);
-  }
-
-  if (await which("app-manager")) {
-    out.appmanager.available = true;
-    out.appmanager.cmd = ["app-manager"];
+/** Linux：交给系统默认应用打开（xdg-open）—— deb/rpm 走这里，用户在自己的包管理器里确认安装。 */
+function xdgOpen(path: string) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (err: unknown) => { if (done) return; done = true; resolve(err ?? null); };
+    let child;
     try {
-      await execFileP("app-manager", ["--is-installed", appimage], { timeout: 10000 });
-      out.appmanager.managed = true;
-    } catch {
-      out.appmanager.managed = appimage.startsWith(APPMANAGER_DIR());
-    }
-  }
-  return out;
+      child = spawn("xdg-open", [path], { detached: true, stdio: "ignore" });
+    } catch (e) { finish(e); return; }
+    child.once("error", finish);
+    child.once("spawn", () => { child.unref(); finish(null); });
+  });
 }
 
 /** 从下载 URL 取落盘文件名（github assets 的 URL 段就是原始文件名）。 */
@@ -155,13 +123,16 @@ export function setupUpdaterIPC({ log }) {
   ipcMain.handle("quaver:update", async (_e, msg) => {
     const op = msg?.op;
     try {
-      // 平台档案：渲染层据此选安装包（arch）与安装方式（appimage 是否在位）
+      // 平台档案：渲染层据此选安装包（arch）与安装方式。
+      // appimage = $APPIMAGE 在位（应用内原位替换）；pkg = 发行版原生包偏好（deb / rpm），
+      // 两者都缺省时渲染层退回 AppImage 优先的旧口径。pkg 探测只在 Linux 跑（读 /etc/os-release）。
       if (op === "platform") {
         return {
           ok: true,
           platform: process.platform,
           arch: process.arch,
           appimage: process.env.APPIMAGE ?? null,
+          pkg: await linuxPkgKind(),
           packaged: app.isPackaged,
           version: app.getVersion(),
         };
@@ -216,7 +187,7 @@ export function setupUpdaterIPC({ log }) {
       }
 
       // AppImage 原位替换：同目录临时文件已就位 → chmod + rename（原子）。
-      // 文件名不变：桌面项（Exec=$APPIMAGE）、Gear Lever / AppMan 的记录都继续有效。
+      // 文件名不变：桌面项（Exec=$APPIMAGE）与快捷方式都继续有效。
       if (op === "apply-appimage") {
         const appimage = process.env.APPIMAGE;
         if (!appimage) return { ok: false, error: "当前不是 AppImage 运行方式" };
@@ -241,9 +212,15 @@ export function setupUpdaterIPC({ log }) {
         return { ok: true };
       }
 
-      // macOS dmg / Linux deb：交给系统打开，用户手动完成安装
+      // Linux deb/rpm → xdg-open（默认应用，通常是发行版的图形包安装器）；
+      // macOS dmg → shell.openPath 交给系统挂载。用户在自己的界面里确认安装。
       if (op === "open-path") {
-        const err = await shell.openPath(String(msg?.path ?? ""));
+        const path = String(msg?.path ?? "");
+        if (process.platform === "linux") {
+          const err = await xdgOpen(path);
+          return err ? { ok: false, error: String(err?.message ?? err) } : { ok: true };
+        }
+        const err = await shell.openPath(path);
         return err ? { ok: false, error: err } : { ok: true };
       }
 
@@ -255,34 +232,10 @@ export function setupUpdaterIPC({ log }) {
         return { ok: true };
       }
 
-      // 检测 Gear Lever / AppMan（懒触发：只在更新弹窗出现时问一次）
-      if (op === "appimage-managers") {
-        return { ok: true, managers: await detectManagers(process.env.APPIMAGE ?? null) };
-      }
-
-      // 交给管理器更新：Gear Lever --update（3.0+ CLI，与 GUI 同逻辑，会自己改写桌面项）；
-      // AppManager update <path>（CLI 按路径/校验和定位已接管的应用）
-      if (op === "run-manager-update") {
-        const manager = msg?.manager;
-        const appimage = process.env.APPIMAGE;
-        if (!appimage) return { ok: false, error: "当前不是 AppImage 运行方式" };
-        const managers = await detectManagers(appimage);
-        const m = managers[manager];
-        if (!m?.available || !m?.managed) return { ok: false, error: `${manager} 不可用或未接管当前 AppImage` };
-        if (manager === "gearlever") {
-          spawn([...m.cmd, "--update", appimage], { detached: true, stdio: "ignore" }).unref();
-        } else {
-          spawn([...m.cmd, "update", appimage], { detached: true, stdio: "ignore" }).unref();
-        }
-        log(`[quaver] update: handed to ${manager}`);
-        return { ok: true };
-      }
-
       // 重启。AppImage 原位替换后**不能**直接 app.relaunch()：默认重启的是 process.execPath，
       // 而 AppImage 里它指向只读挂载点（/tmp/.mount_*/quaver）——旧镜像随宿主退出即卸载，重启
       // 要么重跑旧构建、要么因挂载点消失压根起不来（这正是「替换更新看着没生效」的根因）。
-      // 把 execPath 指到 $APPIMAGE 本体，让运行时重新挂载刚替换好的新镜像（AppManager 那条
-      // 路之所以正常，就是它自己改写的是磁盘上的 AppImage 文件）。其余平台沿用默认。
+      // 把 execPath 指到 $APPIMAGE 本体，让运行时重新挂载刚替换好的新镜像。其余平台沿用默认。
       if (op === "relaunch") {
         const appimage = process.env.APPIMAGE;
         if (process.platform === "linux" && appimage) {

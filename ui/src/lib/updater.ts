@@ -28,7 +28,10 @@ const bridge = () => (window as any).quaverUpdate;
 export interface PlatformInfo {
   platform: string;
   arch: string;
+  /** $APPIMAGE 在位 = AppImage 运行态（应用内原位替换更新）；否则是发行版包安装（deb/rpm 下载后交系统打开） */
   appimage: string | null;
+  /** Linux 发行版原生包偏好（deb / rpm）；非 Linux 或认不出的发行版为 null */
+  pkg: "deb" | "rpm" | null;
   packaged: boolean;
   version: string;
 }
@@ -135,7 +138,11 @@ export async function checkUpdate(channel: UpdateChannel = getUpdateChannel()): 
         current,
         decision,
         release,
-        picked: decision.available ? pickAsset(platform, arch, release.assets) : null,
+        // Linux 挑包口径按当前运行方式定：AppImage 运行 → AppImage（原位替换）；
+        // 发行版包安装 → 对应的 deb/rpm（下载后交系统打开）。其余平台/认不出的发行版沿用默认。
+        picked: decision.available
+          ? pickAsset(platform, arch, release.assets, platform === "linux" && !pf?.appimage ? pf?.pkg ?? null : null)
+          : null,
         skipped: decision.key === getLastNotified(),
         canReplaceAppimage: !!pf?.appimage,
         packaged: !!pf?.packaged,
@@ -191,7 +198,8 @@ export type InstallStep =
   | { type: "installer-ready"; path: string }
   | { type: "installer-opened" };
 
-/** 下载完成后的收尾：AppImage 原位替换；exe 等用户点「退出并安装」；dmg/deb 交给系统打开。 */
+/** 下载完成后的收尾：AppImage 原位替换；exe 等用户点「退出并安装」；deb/rpm/dmg 交给系统默认应用打开
+ *  （Linux 走 xdg-open → 发行版图形包安装器）。 */
 export async function finalizeInstall(info: UpdateInfo, path: string): Promise<InstallStep> {
   const kind = info.picked!.kind;
   if (kind === "appimage") {
@@ -225,24 +233,6 @@ export async function openReleases(channel: UpdateChannel): Promise<void> {
   window.open(channel === "stable"
     ? `https://github.com/${GITHUB_REPO}/releases/latest`
     : `https://github.com/${GITHUB_REPO}/releases`, "_blank");
-}
-
-// ——— Gear Lever / AppManager（AppImage 管理器）联动 ———
-
-export interface ManagersInfo {
-  gearlever: { available: boolean; managed: boolean };
-  appmanager: { available: boolean; managed: boolean };
-}
-
-export async function fetchManagers(): Promise<ManagersInfo | null> {
-  const r = await bridge()?.invoke?.({ op: "appimage-managers" }).catch(() => null);
-  return r?.ok ? (r.managers as ManagersInfo) : null;
-}
-
-/** 把更新交给管理器（它们各自负责下载/替换/桌面项；完成后的重启由用户自行操作）。 */
-export async function runManagerUpdate(manager: "gearlever" | "appmanager"): Promise<void> {
-  const r = await bridge().invoke({ op: "run-manager-update", manager });
-  if (!r?.ok) throw new Error(r?.error ?? "无法交给管理器更新");
 }
 
 // ——— 启动自动检查 ———

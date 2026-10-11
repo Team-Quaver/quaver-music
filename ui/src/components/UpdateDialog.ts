@@ -5,15 +5,16 @@
 // 两种意图共用本弹窗，措辞由 info.switching / info.decision.relation 决定：
 //   同渠道升级 = 「发现新版本」+「立即更新」；换渠道 = 「切换到 …」+「立即切换」，
 //   回退还要多一句版本号会变小的提示（配置/凭证/缓存不受影响）。
-// 阶段机：confirm → downloading → ready（重启 / 退出安装 / 已打开安装包）；交给
-// Gear Lever / AppManager 的路径不走下载（管理器自己拉取），点完给 toast 即收。
+// 阶段机：confirm → downloading → ready（重启 / 退出安装 / 已打开安装包）。三种安装口径：
+//   AppImage = 原位替换文件后提示重启；Windows = 退出并静默安装；deb/rpm/dmg = 下载后用
+//   系统默认应用打开（Linux 走 xdg-open），剩下的在发行版安装器里完成。
 //
 // 关闭语义：Esc / 点遮罩 = 「以后再说」，下载中先取消下载（AppImage 临时文件由主进程清理）。
 import { toast } from "./SongMenu";
 import { channelLabel, describeBuild, renderNotes } from "../lib/update-core";
 import {
   type UpdateInfo, type DownloadHandle, downloadUpdate, finalizeInstall,
-  quitAndInstallWindows, relaunchApp, openReleases, fetchManagers, runManagerUpdate,
+  quitAndInstallWindows, relaunchApp, openReleases,
 } from "../lib/updater";
 import { setLastNotified } from "../lib/prefs";
 
@@ -76,7 +77,6 @@ export function showUpdateDialog(info: UpdateInfo): void {
       <div class="upd-foot">
         <button class="ghost-btn" data-act="skip" type="button">${skipLabel}</button>
         <button class="ghost-btn" data-act="later" type="button">以后再说</button>
-        <span class="upd-managers"></span>
         <span class="upd-spacer"></span>
         <button class="upd-primary" data-act="main" type="button">${mainLabel}</button>
       </div>
@@ -89,7 +89,6 @@ export function showUpdateDialog(info: UpdateInfo): void {
   const skipBtn = layer.querySelector<HTMLButtonElement>('[data-act="skip"]')!;
   const laterBtn = layer.querySelector<HTMLButtonElement>('[data-act="later"]')!;
   const mainBtn = layer.querySelector<HTMLButtonElement>('[data-act="main"]')!;
-  const managersBox = layer.querySelector<HTMLElement>(".upd-managers")!;
   const warnBox = layer.querySelectorAll<HTMLElement>(".upd-warn");
 
   // 覆盖层与 Esc 都是「以后再说」；下载中先取消下载。
@@ -136,7 +135,6 @@ export function showUpdateDialog(info: UpdateInfo): void {
     warnBox.forEach((w) => (w.hidden = true));
     skipBtn.hidden = true;
     laterBtn.hidden = true;
-    managersBox.hidden = true;
     handle = downloadUpdate(info, (received, total) => {
       const pct = total ? Math.min(100, Math.floor((received / total) * 100)) : 0;
       barFill.style.setProperty("--w", `${pct}%`);
@@ -162,11 +160,12 @@ export function showUpdateDialog(info: UpdateInfo): void {
           close();
         });
       } else {
-        notes.hidden = true;
+        // deb/rpm/dmg：主进程已用系统默认应用（xdg-open）打开安装包，剩下的在发行版安装器中完成
+        notes.hidden = false;
+        notes.innerHTML = `<p class="muted">已用系统默认应用打开安装包，请在弹出的安装器中完成更新。</p>`;
         skipBtn.hidden = true;
-        laterBtn.hidden = false;
-        laterBtn.textContent = "关闭";
-        setMain("完成", true, close);
+        laterBtn.hidden = true;
+        setMain("关闭", true, close);
       }
     } catch (e) {
       handle = null;
@@ -181,30 +180,6 @@ export function showUpdateDialog(info: UpdateInfo): void {
       warnBox.forEach((w) => (w.hidden = false));
       setMain(selfInstallable ? mainLabel : "打开发布页", true, selfInstallable ? startInstall : () => close());
     }
-  }
-
-  // —— 管理器联动（仅 AppImage 可替换场景）：懒检测，可用且已接管才补按钮 ——
-  if (kind === "appimage" && info.canReplaceAppimage) {
-    void fetchManagers().then((m) => {
-      if (!layer || !m) return;
-      const entries: Array<["gearlever" | "appmanager", string]> = [
-        ["gearlever", "Gear Lever"],
-        ["appmanager", "AppManager"],
-      ];
-      for (const [id, label] of entries) {
-        if (!m[id]?.available || !m[id]?.managed) continue;
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "ghost-btn ghost-btn--quiet";
-        btn.textContent = `通过 ${label} 更新`;
-        btn.onclick = () => {
-          runManagerUpdate(id)
-            .then(() => { toast(`已交给 ${label} 更新，完成后重启应用即可`); close(); })
-            .catch((e: unknown) => toast(`${label} 更新失败：${errText(e)}`, "err"));
-        };
-        managersBox.append(btn);
-      }
-    });
   }
 
   document.body.append(layer);

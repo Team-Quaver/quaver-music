@@ -170,6 +170,18 @@ section("安装包匹配");
   check("darwin x64 无产物（构建已裁撤）→ null", C.pickAsset("darwin", "x64", A(full)) === null);
   check("linux x64 不误配 loong64 deb", C.pickAsset("linux", "x64", A([["Quaver-1.2.3-loong64.deb", 1]])) === null);
   check("无匹配 → null", C.pickAsset("linux", "x64", A([["latest.yml", 1]])) === null);
+
+  // Linux 按当前运行方式挑包：AppImage 运行 → AppImage 原位替换；发行版包安装 → deb/rpm 交 xdg-open。
+  const distro = A([
+    ["Quaver-1.2.3-x86_64.AppImage", 1],
+    ["Quaver-1.2.3-amd64.deb", 1],     // deb 的 ${arch} 宏 = amd64
+    ["Quaver-1.2.3-x86_64.rpm", 1],    // rpm 的 ${arch} 宏 = x86_64
+  ]);
+  eq("AppImage 运行（无 prefer）→ 仍挑 AppImage", C.pickAsset("linux", "x64", distro)?.kind, "appimage");
+  eq("deb 安装（prefer=deb）→ 挑 deb", C.pickAsset("linux", "x64", distro, "deb")?.asset.name, "Quaver-1.2.3-amd64.deb");
+  eq("rpm 安装（prefer=rpm）→ 挑 rpm", C.pickAsset("linux", "x64", distro, "rpm")?.asset.name, "Quaver-1.2.3-x86_64.rpm");
+  check("prefer=rpm 但无 rpm → null（不回退 AppImage，避免拿到换不了的包）", C.pickAsset("linux", "x64", A([["Quaver-1.2.3-x86_64.AppImage", 1], ["Quaver-1.2.3-amd64.deb", 1]]), "rpm") === null);
+  check("prefer=deb 但无 deb → null", C.pickAsset("linux", "x64", A([["Quaver-1.2.3-x86_64.AppImage", 1], ["Quaver-1.2.3-x86_64.rpm", 1]]), "deb") === null);
 }
 
 // ——— release notes 迷你渲染（第三方内容，注入面必须为零）———
@@ -317,16 +329,26 @@ section("渠道切换接线");
     re(settings, /getPlatformInfo\(\)\.then\(\(pf\) => \{[\s\S]{0,200}buildVer = pf\.version/));
 }
 
-// ——— 接线（源码级）：安装收尾的两条平台特性，别在重构里被悄悄抹掉 ———
+// ——— 接线（源码级）：安装收尾的平台特性，别在重构里被悄悄抹掉 ———
 section("安装收尾接线");
 {
   const up = noComments(readSrc("electron/update.ts"));
+  const updater = noComments(readSrc("src/lib/updater.ts"));
   // oneClick NSIS 默认只在非静默时 runAfterFinish；更新走 /S 静默 → 少了 --force-run 就装完不启动
   check("Windows: 静默安装器带 --force-run（否则静默装完没人拉起 quaver）",
     re(up, /spawn\(path, \["\/S", "--force-run"\]/));
   // AppImage 原位替换后 app.relaunch() 默认重启的是只读挂载点里的旧构建 → 必须指到 $APPIMAGE 本体
   check("Linux: AppImage 重启把 execPath 指到 $APPIMAGE 本体",
     re(up, /app\.relaunch\(\{ execPath: appimage \}\)/) && has(up, "process.env.APPIMAGE"));
+  // AppImage 自动更新只做原位替换：不再把更新交给 Gear Lever / AppManager
+  check("AppImage: 已移除 Gear Lever / AppManager 联动",
+    !has(up, "gearlever") && !has(up, "app-manager") && !has(up, "appimage-managers") && !has(up, "run-manager-update"));
+  // deb/rpm 更新 = 下载后交系统默认应用打开（Linux 走 xdg-open）
+  check("Linux deb/rpm: open-path 走 xdg-open",
+    re(up, /spawn\("xdg-open", \[path\]/));
+  // Linux 按运行方式挑包：渲染层把 pkg（deb/rpm）作为 prefer 传给 pickAsset
+  check("updater: Linux 发行版包安装按 pkg 挑 deb/rpm",
+    re(updater, /pickAsset\(platform, arch, release\.assets, platform === "linux" && !pf\?\.appimage \? pf\?\.pkg \?\? null : null\)/));
 }
 
 console.log(failed ? `\n${failed} 项断言失败` : "\n全部通过");

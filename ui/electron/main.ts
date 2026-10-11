@@ -29,7 +29,7 @@ import { trayTitleLine } from "./tray-title.ts";
 import { DESKTOP_ID, installLinuxDesktopIntegration, quoteExecPath } from "./linux-desktop.ts";
 // 全局热键（win/mac = Electron globalShortcut；Linux = XDG 门户 GlobalShortcuts，见模块头）
 import { createGlobalHotkeys, GLOBAL_CONF_KEYS } from "./global-hotkeys.ts";
-// 应用自更新（GitHub Releases 代理 / 流式下载 / AppImage 原位替换 / Gear Lever·AppManager 联动）
+// 应用自更新（GitHub Releases 代理 / 流式下载 / AppImage 原位替换 / deb·rpm 交 xdg-open）
 import { setupUpdaterIPC } from "./update.ts";
 // 凭证的密钥环存取（系统密钥管理器 + credential.enc 密文）与 sidecar 交接信封
 import {

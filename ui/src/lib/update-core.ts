@@ -298,7 +298,7 @@ export function decideUpdate(
 
 // ——— 安装包匹配（平台 × 架构） ———
 
-export type AssetKind = "appimage" | "exe" | "dmg" | "deb";
+export type AssetKind = "appimage" | "exe" | "dmg" | "deb" | "rpm";
 
 /** 各运行架构对应的产物名写法（CI：AppImage=x86_64/aarch64，NSIS=x64/arm64，dmg=arm64）。 */
 const ARCH_WORDS: Record<string, RegExp> = {
@@ -309,10 +309,17 @@ const ARCH_WORDS: Record<string, RegExp> = {
 
 /**
  * 从 release assets 里挑出当前平台/架构的安装包。
- * Linux 优先 AppImage（可原位替换更新）；deb 仅在 AppImage 缺位时兜底（loong64 场景）。
+ *
+ * Linux 有两种更新口径，靠 prefer 区分（主进程按当前运行方式给：$APPIMAGE 在位 → AppImage；
+ * 发行版包装出来的进程 → deb / rpm）：
+ *   - prefer 缺省（AppImage 运行态、Windows/mac）：AppImage 优先、deb 兜底（旧行为）。
+ *   - prefer 显式（如 "deb" / "rpm"）：只认这一档 —— 运行在 deb/rpm 安装里的进程换不了 AppImage
+ *     本体，挑了也没法应用内替换，只会把用户引到死路；缺档就返回 null 让调用方走「打开发布页」。
  * 找不到（如 x86 mac —— 构建已裁撤）返回 null，调用方应引导去发布页。
  */
-export function pickAsset(platform: string, arch: string, assets: ReleaseAsset[]): { asset: ReleaseAsset; kind: AssetKind } | null {
+export function pickAsset(
+  platform: string, arch: string, assets: ReleaseAsset[], prefer?: AssetKind | null,
+): { asset: ReleaseAsset; kind: AssetKind } | null {
   const re = ARCH_WORDS[arch];
   if (!re) return null;
   const kinds: Array<{ ext: string; kind: AssetKind; platform: string }> = [
@@ -320,9 +327,10 @@ export function pickAsset(platform: string, arch: string, assets: ReleaseAsset[]
     { ext: ".exe", kind: "exe", platform: "win32" },
     { ext: ".dmg", kind: "dmg", platform: "darwin" },
     { ext: ".deb", kind: "deb", platform: "linux" },
+    { ext: ".rpm", kind: "rpm", platform: "linux" },
   ];
-  for (const k of kinds) {
-    if (k.platform !== platform) continue;
+  const pool = kinds.filter((k) => k.platform === platform && (!prefer || k.kind === prefer));
+  for (const k of pool) {
     const hit = assets.find((a) => a.name.endsWith(k.ext) && re.test(a.name));
     if (hit) return { asset: hit, kind: k.kind };
   }

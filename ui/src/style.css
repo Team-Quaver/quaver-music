@@ -1936,9 +1936,6 @@ html[data-theme="dark"] .upd-warn.upd-switch.is-risk { color: #e66; }
 .upd-bar span { font-size: 12px; white-space: nowrap; }
 .upd-foot { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 .upd-foot .upd-spacer { flex: 1; }
-.upd-managers { display: flex; gap: 6px; }
-.upd-managers:empty { display: none; }
-.upd-managers .ghost-btn { padding: 6px 10px; font-size: 12px; }
 .upd-primary {
   padding: 8px 18px; border-radius: 9px; border: 1px solid transparent;
   background: var(--cvg-accent, var(--acc)); color: #fff; cursor: pointer; font-weight: 600;

@@ -12,8 +12,6 @@ type UpdateInvokeMsg =
   | { op: "install-windows"; path: string }
   | { op: "open-path"; path: string }
   | { op: "open-releases"; channel: "stable" | "beta" | "nightly" }
-  | { op: "appimage-managers" }
-  | { op: "run-manager-update"; manager: "gearlever" | "appmanager" }
   | { op: "relaunch" }
   | { op: "quit" };
 
