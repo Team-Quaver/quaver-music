@@ -1,4 +1,4 @@
-name: 问题反馈
+ name: 问题反馈
 description: 报告一个 Bug 或异常问题
 title: "[Bug] "
 labels:
@@ -8,6 +8,15 @@ body:
     attributes:
       value: |
         感谢你的反馈！请尽量完整地填写下面的内容，方便我们快速定位问题。
+
+  - type: textarea
+    id: os
+    attributes:
+      label: 操作系统
+      description: 请说明自己的系统版本
+      placeholder: 例如：Win11_AMD64/Fedora KDE Plasma Desktop Edition ARM64 - Wayland
+    validations:
+      required: true
 
   - type: textarea
     id: summary
