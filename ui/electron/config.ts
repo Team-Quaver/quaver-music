@@ -271,8 +271,14 @@ export const SCHEMA: SectionSpec[] = [
       {
         key: "ShowTranslation",
         def: "True",
-        doc: ["歌词是否显示翻译行：True（默认）｜False"],
+        doc: ["（兼容旧值）歌词翻译开关：True（默认）｜False。新配置用 LyricAux"],
         valid: (v: string) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
+      },
+      {
+        key: "LyricAux",
+        def: "translation",
+        doc: ["歌词辅助行：off=关闭｜translation=翻译（默认）｜romanization=注音（Ruby，逐字模式挂词上方；无注音数据时回落翻译）"],
+        valid: (v: string) => ["off", "translation", "romanization"].includes(v),
       },
       {
         key: "LyricScale",

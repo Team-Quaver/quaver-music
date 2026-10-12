@@ -345,8 +345,16 @@ body.side-resizing .sidebar { transition: none; }
 /* 侧栏缩回时宽度由缩态样式接管，分隔条不给拖 */
 body.side-collapsed .side-resizer { display: none; }
 
+/* 吸顶底渐变（::before 用，叠三层；stop 随 --stuck-h 变）：实底到吸顶区下缘，
+   再往下 40px 化开（无吸顶区时由 112px 的 min-height 兜底）。
+   必须声明在 .content 上——trackStuck 把实测高度写在 .content 的内联 --stuck-h 里，
+   挂到 :root 的话 var(--stuck-h) 会在 :root 上解析、永远是 0。 */
 .content { flex: 1; border-radius: 14px; overflow: hidden; padding: 0; min-width: 0; min-height: 0; position: relative;
   display: flex; flex-direction: column;
+  --stuck-cover: linear-gradient(to bottom,
+    var(--panel) 0,
+    var(--panel) calc(46px + var(--stuck-h, 0px)),
+    transparent max(calc(46px + var(--stuck-h, 0px) + 40px), 112px));
   background: var(--panel); border: 1px solid var(--panel-line);
   backdrop-filter: blur(24px) saturate(1.4); /* 无前缀！见文件顶部「别补 -webkit-」那段 */
 }
@@ -354,18 +362,25 @@ body.side-collapsed .side-resizer { display: none; }
    顶带）一路往下淡到透明，所以顶带、吸顶条/吸顶页头、以及右缘滚动条槽吃的是同一段渐变，
    中间没有第二层底、没有色阶缝，也没有方块边缘——设置页一直是这个观感。
    高度跟着吸顶区走：JS 把当前吸顶区高度写进 --stuck-h（未吸顶/无吸顶区时为 0），
-   于是首页那种「标题+副题」的高页头也在渐变覆盖内；短页头由 min-height 兜住。
+   于是首页那种「标题+副题」的高页头也在渐变覆盖内；无吸顶区时由 min-height 兜住，
+   实底段只到 46px 顶带底、向下渐隐到 112px。
    它在滚动容器**外面**：左/右都到内容卡边，那 10px 滚动条槽也在渐变里 —— 吸顶底不会
    被滚动条裁掉一条边（旧版把底片画在吸顶节点自己身上，最多铺到 padding box，右缘就断）。
    盖在 route 之上（z:1），pointer-events:none 不挡交互；搜索框 z:6、CSD 按钮 z:90、吸顶条
    z:5/6 都在其上，所以条内文字/控件不会被它压住。 */
 .content::before {
   content: ""; position: absolute; top: 0; left: 0; right: 0; z-index: 1;
-  height: calc(46px + var(--stuck-h, 0px)); min-height: 112px;
-  background: linear-gradient(to bottom,
-    var(--panel) 0%,
-    color-mix(in srgb, var(--panel) 55%, transparent) 45%,
-    transparent 100%);
+  height: calc(46px + var(--stuck-h, 0px) + 40px); min-height: 112px;
+  /* 实底一路撑到吸顶区**下缘**（46px 顶带 + 吸顶区高度），只在下缘之下 40px 内化开——
+     旧版 45% 处就掉到 55% 浓度、吸顶区下缘几乎全透，下滚内容会隔着吸顶页头浮现，
+     「今日精选」直接叠在「首页」大标题上（窄内容区下最明显）。
+     --panel 本身带 alpha（玻璃），单层仍压不住底下滚过的文字，所以同一条渐变叠三层
+     （连同 .content 自身那层底 ≈ 4 层）：实底段合到 ~0.998，带宽内不再随底下
+     有没有内容变色，滚过的文字残留只剩 ~2%、肉眼不可见。 */
+  background:
+    var(--stuck-cover),
+    var(--stuck-cover),
+    var(--stuck-cover);
   border-radius: 14px 14px 0 0; pointer-events: none;
   transition: opacity .18s ease;
 }
@@ -559,14 +574,12 @@ body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-b
 /* —— 歌曲列表工具条（歌单页 / 我喜欢共用；组件见 components/ListTools.ts）：本地搜索 + 排序 ——
    两者都只在本地已拉的列表上生效（不回源）：排序要的「加入时间 / 收藏顺序」就是服务端原序，
    再去问一次上游只会把原序弄丢。搜索框复用顶带的 .sb-field 胶囊（同一套聚焦环/尺寸），这里只给宽度。
-   版式：**控件靠右**，命中计数在左 —— 中间空档由计数的 auto margin 吃掉，
-   所以计数为空（没在筛选）时搜索与排序照样贴在右缘。
+   版式：**控件靠右**（flex-end），搜索与排序贴在右缘。
    排序胶囊复用歌手页分类标签那一套（.lt-sort 就是 .tag-tabs，按钮就是 .tag，选中 .sel）：
    全站同类控件只此一份样式，主题/插件改一处即可覆盖（含工具条这一排）。 */
 .list-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin: 0 0 14px; }
 .list-tools .lt-search { flex: 0 1 auto; width: clamp(180px, 26vw, 280px); }
 .list-tools .tag-tabs { margin: 0; } /* 这排住在工具条里，不需要 .tag-tabs 的下外边距 */
-.lt-count { margin-right: auto; font-size: 12px; color: var(--idx); font-variant-numeric: tabular-nums; }
 .lt-clr { border: 0; background: transparent; color: var(--idx); cursor: pointer; font-size: 12px; line-height: 1; padding: 0 1px; }
 .lt-clr:hover { color: var(--ink); }
 .lt-sort { display: flex; align-items: center; gap: 6px; }
@@ -985,27 +998,30 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
 .np-menu-item.danger:hover:not(:disabled) { color: #ff6b7d; }
 .np-menu-item:disabled { opacity: .45; cursor: default; }
 .np-menu-empty { padding: 8px 10px; font-size: 12px; color: #fff8; }
-/* 翻译行：Switch 开关。checkbox 隐身只留语义/焦点，滑块视觉由 .np-sw 承担；
-   开态轨道 = 封面染色掺**深遮罩**压暗（白滑块压在任意色相的轨道上都 ≥3:1 ——
-   掺白提亮的话亮色相封面下白滑块会隐形），与封面同源故换曲染色平滑跟随。 */
-.np-menu-switch {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 7px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; color: #fffb;
+/* 翻译选项：四档按钮（关闭 / 翻译 / 音译 / 翻译+音译）。选中态用封面染色掺深遮罩，
+   深遮罩保证任意亮色相封面下白字仍可读；未选中只给弱玻璃底，主次不抢。 */
+.np-menu:has(.np-menu-option) { min-width: 176px; }
+.np-menu-option {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 10px;
+  padding: 6px 7px; border-radius: 8px; font-size: 13px; color: #fffb;
 }
-.np-menu-switch:hover { background: #ffffff14; color: #fff; }
-.np-menu-switch input { position: absolute; opacity: 0; pointer-events: none; }
-.np-sw {
-  width: 30px; height: 17px; border-radius: 999px; flex: none; position: relative;
-  background: #ffffff2e; transition: background .14s;
+.np-menu-option > span { white-space: nowrap; }
+.np-menu-option:hover { background: #ffffff14; color: #fff; }
+.np-menu-opts {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px;
 }
-.np-sw::after {
-  content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%;
-  background: #fff; box-shadow: 0 1px 3px #0004;
-  transition: transform .14s cubic-bezier(.32,.72,.24,1);
+.np-menu-opt {
+  border: 0; border-radius: 7px; padding: 5px 6px; background: transparent;
+  color: #fffb; font: inherit; font-size: 11.5px; text-align: center; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: background .12s, color .12s;
 }
-.np-menu-switch input:checked + .np-sw { background: color-mix(in srgb, var(--cvg-accent, var(--cyan)) 55%, #0b0e19); }
-.np-menu-switch input:checked + .np-sw::after { transform: translateX(13px); }
-.np-menu-switch input:focus-visible + .np-sw { outline: 2px solid #fff8; outline-offset: 1px; }
+.np-menu-opt:hover { background: #ffffff1f; color: #fff; }
+.np-menu-opt.sel {
+  background: color-mix(in srgb, var(--cvg-accent, var(--cyan)) 45%, #0b0e19);
+  color: #fff; font-weight: 600;
+}
+.np-menu-opt:focus-visible { outline: 2px solid #fff8; outline-offset: 1px; }
 /* 歌词大小行：标签 + −/+ 步进。挂 ⋮ 菜单里而不是浮在歌词上 —— 不遮词。
    只在行级歌词就位时由 NowPlaying 现建（逐字/AMLL 模式有自己的排版变量，不出现）；
    菜单每次打开重建，读数与 −/+ 禁用态天然是最新值。行比菜单其余项宽，
@@ -1052,7 +1068,7 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
 }
 .np-ly-line .l1 { display: block; }
 .np-ly-line .l2 { display: block; font-size: 0.735em; opacity: .8; margin-top: 0.12em; }
-.np.no-trans .np-ly-line .l2 { display: none; }
+.np.hide-trans .np-ly-line .l2 { display: none; }
 /* 翻阅（滚轮自由浏览）期间：雾化只属于跟随态的氛围 —— 翻阅是为了读别的行，
    整列去模糊提亮；回跟随（3s 静默/点击行）随原过渡平滑雾回。当前句本就清晰，不参与。 */
 .np-lyrics.browse .np-ly-line:not(.cur) { filter: none; opacity: .55; }
