@@ -100,6 +100,8 @@ eq("背景默认关闭（只有主题底色）", P.getBackgroundMode(), "off");
 eq("背景图默认未选择", P.getBackgroundImage(), "");
 eq("背景模糊默认 70", P.getBackgroundBlur(), 70);
 eq("菜单毛玻璃默认开", P.getMenuBlur(), true);
+eq("歌词辅助默认翻译", P.getLyricAux(), "translation");
+eq("翻译门面默认开", P.getShowTrans(), true);
 check("内置字体列表能被反查成预设", P.fontKeyOf('"Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", SimSun, serif') === "serif");
 check("空字体值 = 系统默认", P.fontKeyOf("") === "system");
 check("自定义字体族列表归为 custom", P.fontKeyOf('"LXGW WenKai", serif') === "custom");
@@ -149,6 +151,14 @@ await settle();
 P.setMenuBlur(false); eq("关闭菜单毛玻璃 → MenuBlur=False", conf()["Style.MenuBlur"], "False");
 eq("读回来也是关", P.getMenuBlur(), false);
 P.setMenuBlur(true);  eq("开启 → True", conf()["Style.MenuBlur"], "True");
+
+// 三档替换关系：写 LyricAux 同时写兼容键 ShowTranslation
+P.setLyricAux("off");
+eq("翻译选项 off", [P.getLyricAux(), conf()["Style.LyricAux"], conf()["Style.ShowTranslation"]], ["off", "off", "False"]);
+P.setLyricAux("romanization");
+eq("翻译选项 romanization", [P.getLyricAux(), conf()["Style.LyricAux"], conf()["Style.ShowTranslation"]], ["romanization", "romanization", "False"]);
+P.setLyricAux("translation");
+eq("翻译选项 translation", [P.getLyricAux(), conf()["Style.LyricAux"], conf()["Style.ShowTranslation"]], ["translation", "translation", "True"]);
 eq("读回来也是开", P.getMenuBlur(), true);
 
 // 浏览器兜底模式存的是整份内存快照（键名应与 conf 的 Section.Key 完全一致，不能混进旧的 localStorage 键）
@@ -263,6 +273,14 @@ await reload({ "Style.BackgroundBlur": "很糊" });
 eq("非数值回落 70", P.getBackgroundBlur(), 70);
 await reload({ "Style.BackgroundBlur": "0" });
 eq("0 是合法值（不模糊），不许被当成空值", P.getBackgroundBlur(), 0);
+
+// 旧配置只有 ShowTranslation 时也能读回档位
+await reload({ "Style.ShowTranslation": "False" });
+eq("旧 False 读回 off", P.getLyricAux(), "off");
+await reload({ "Style.ShowTranslation": "yes" });
+eq("旧 yes 读回 translation", P.getLyricAux(), "translation");
+await reload({ "Style.LyricAux": "瞎写", "Style.ShowTranslation": "True" });
+eq("瞎写 LyricAux 回落 translation", P.getLyricAux(), "translation");
 await reload({ "Style.Background": "cover", "Style.BackgroundBlur": "70", "Style.BackgroundImage": "" });
 
 // ——— Sparkle 插件黑名单（[Sparkle] Blacklist）———

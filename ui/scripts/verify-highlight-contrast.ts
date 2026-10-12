@@ -164,47 +164,38 @@ for (const [tn, T] of Object.entries(TOK)) {
 }
 
 // ================= 正在播放页（底色恒深；二维扫描 封面亮度 × 遮罩透明度）=================
-console.log("\n=== 正在播放页 · 翻译开关（底色恒深，与明暗主题无关）===");
+console.log("\n=== 正在播放页 · 翻译选项（底色恒深，与明暗主题无关）===");
 const SURFACES = [];
 for (let g = 0; g <= 255; g += 15) for (const a of [0.35, 0.45, 0.55]) SURFACES.push(over([g, g, g], a, SCRIM));
-// 开态轨道 = accent 掺**深遮罩**（55% + #0b0e19）：白滑块压在任意色相的轨道上都得 ≥3:1。
-// 掺白提亮走不通 —— 亮色相封面（黄）掺白后轨道亮度逼近滑块，白滑块隐形（最坏 ~1.06:1）。
-const swBlock = (() => {
-  const m = css.match(/\.np-menu-switch input:checked \+ \.np-sw\s*\{([^}]*)\}/);
-  if (!m) { bad("找不到规则 .np-menu-switch input:checked + .np-sw"); return ""; }
-  return m[1];
-})();
-if (!/var\(--cvg-accent/.test(swBlock)) bad(".np-sw 开态轨道没用封面染色（应与进度条/歌词高亮同源，换曲平滑跟随）");
-if (!swBlock.includes("#0b0e19")) bad(".np-sw 开态轨道没掺深遮罩 —— 掺白的话亮色相封面下白滑块会隐形");
+// 选中档底 = accent 掺**深遮罩**（45% + #0b0e19）：白字压在任意色相上都保持小字对比。
+// 掺白提亮走不通 —— 亮色相封面（黄）掺白后底色逼近白字，选中态会隐形。
+const optBlock = blockOf(".np-menu-opt.sel");
+if (!/background:[^;]*var\(--cvg-accent/.test(optBlock)) bad(".np-menu-opt.sel 没用封面染色（应与进度条/歌词高亮同源，换曲平滑跟随）");
+if (!optBlock.includes("#0b0e19")) bad(".np-menu-opt.sel 没掺深遮罩 —— 掺白的话亮色相封面下白字会隐形");
 const W_NP = (() => {
-  const m = swBlock.match(/color-mix\(in srgb,[\s\S]*?(\d+)%/);
-  if (!m) { bad(".np-sw 开态轨道：取不到 color-mix 比例"); return NaN; }
+  const m = optBlock.match(/background:\s*color-mix\(in srgb,[\s\S]*?(\d+)%/);
+  if (!m) { bad(".np-menu-opt.sel：取不到 color-mix 比例"); return NaN; }
   return parseFloat(m[1]) / 100;
 })();
 const onFill = (p, s) => flatten(cmix(solid(p.accent), W_NP, { c: SCRIM, a: 1 }), s);
-// 开关住在「更多选项」菜单里：实际背板是菜单的深色玻璃（#10131c @ 85%），不是裸页面 ——
-// 白滑块/轨道对比都要压在菜单底上算，直接用页面底会把最坏情形估错方向。
+// 选项住在「更多选项」菜单里：实际背板是菜单的深色玻璃（#10131c @ 85%），不是裸页面 ——
+// 未选中档是透明底，只靠文字本身与菜单底保证可读。
 const menuOf = (s) => over([16, 19, 28], 0.85, s);
-const offFill = (s) => over([255, 255, 255], 0.18, menuOf(s));
 
-console.log(`  取值：开态轨道 accent ${W_NP} + 深遮罩 #0b0e19　关态轨道 白 18%（压在菜单深玻璃上）`);
-// 状态信号分主次：**滑块位移是主信号**（图形通道永远在），轨道变色只是辅通道 ——
-// 所以轨道开/关、轨道 vs 菜单底都取「可察觉」2.3（同 .lt-sg 洗底 vs 页面底的口径），
-// 而滑块可见性（白 vs 轨道）才是硬门槛 3.0。
-checkE("开关 · 辅通道：开态轨道 vs 关态轨道（主信号是滑块位移）", COVERS.flatMap((p) => SURFACES.map((s) => dE(onFill(p, s), offFill(s)))), 2.3);
-check("开关 · 白滑块 vs 开态轨道（图形 3.0）", COVERS.flatMap((p) => SURFACES.map((s) => ratio([255, 255, 255], onFill(p, s)))), 3.0, "图形 3.0");
-check("开关 · 白滑块 vs 关态轨道（图形 3.0，滑块自带投影兜底轮廓）", SURFACES.map((s) => ratio([255, 255, 255], offFill(s))), 3.0, "图形 3.0");
-checkE("开关 · 开态轨道 vs 菜单底（可察觉即可：开关轮廓本就克制的玻璃件）",
-  COVERS.flatMap((p) => SURFACES.map((s) => dE(onFill(p, s), menuOf(s)))), 2.3);
+console.log(`  取值：选中档底 accent ${W_NP} + 深遮罩 #0b0e19　未选中档透明底（压在菜单深玻璃上）`);
+// 状态信号：选中底色 vs 菜单底取「可察觉」2.3；白字是 11.5px 小字，取硬门槛 4.5。
+checkE("选项 · 选中档底 vs 菜单底（状态可察觉）", COVERS.flatMap((p) => SURFACES.map((s) => dE(onFill(p, s), menuOf(s)))), 2.3);
+check("选项 · 白字 vs 选中档底（11.5px 小字 4.5）", COVERS.flatMap((p) => SURFACES.map((s) => ratio([255, 255, 255], onFill(p, s)))), 4.5, "小字 4.5");
+check("选项 · 未选中白字 vs 菜单底（11.5px 小字 4.5）", SURFACES.map((s) => ratio([255, 250, 250], menuOf(s))), 4.5, "小字 4.5");
 {
-  // 安全上限：轨道里的 accent 占比再往上加，最坏色相下白滑块对比会跌破 3:1
+  // 安全上限：accent 占比再往上加，最坏色相下白字对比会跌破 4.5:1
   let capW = 0;
   for (let W = 0.05; W <= 1.0001; W += 0.01) {
-    if (COVERS.every((p) => SURFACES.every((s) => ratio([255, 255, 255], flatten(cmix(solid(p.accent), Math.round(W * 100) / 100, { c: SCRIM, a: 1 }), s)) >= 3.0))) capW = W;
+    if (COVERS.every((p) => SURFACES.every((s) => ratio([255, 255, 255], flatten(cmix(solid(p.accent), Math.round(W * 100) / 100, { c: SCRIM, a: 1 }), s)) >= 4.5))) capW = W;
   }
   capW = Math.round(capW * 100) / 100;
-  note(`安全上限：轨道 accent 占比 ≤ ${capW}（现 ${W_NP}）`);
-  if (W_NP > capW + 0.011) bad(`.np-sw 开态轨道的 accent 占比 ${W_NP} 越界，应 ≤ ${capW}`);
+  note(`安全上限：选项底 accent ≤ ${capW}（现 ${W_NP}）`);
+  if (W_NP > capW + 0.011) bad(`.np-menu-opt.sel 的 accent 占比 ${W_NP} 越界，应 ≤ ${capW}`);
 }
 note(`扫描面：封面灰度 0-255 × 遮罩 0.35/0.45/0.55 = ${SURFACES.length} 种底色 × ${COVERS.length} 色相`);
 

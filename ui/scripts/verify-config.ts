@@ -80,12 +80,13 @@ check("模板随读取落地", (readValues(), existsSync(FILE)));
 check("模板含全部段", ["[Style]", "[Window]", "[Playing]", "[Quality]", "[Security]", "[Update]"].every((s) => template().includes(s)));
 check("模板注释来自 schema", template().includes("可选 dark,light,follow-system"));
 eq("默认值与模板占位一致", (() => { const v = readValues().values; return v["Style.Style"] === "dark" && v["Playing.Backend"] === "MPV" && v["Quality.DefaultQuality"] === "Auto" && v["Quality.FallbackToQMAtmos"] === "False"; })(), true);
-eq("schema 默认值表条数", Object.keys(defaults()).length, 42); // WordByWord 移入 amll 插件设置；LyricScale 为行级歌词缩放；Background/BackgroundImage/BackgroundBlur 为默认主题背景（模式/自定义图/模糊强度）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；MenuBlur 为浮层菜单毛玻璃开关；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
+eq("schema 默认值表条数", Object.keys(defaults()).length, 43); // LyricAux 为歌词辅助行（关闭/翻译/注音）；LyricScale 为行级歌词缩放；Background/BackgroundImage/BackgroundBlur 为默认主题背景（模式/自定义图/模糊强度）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；MenuBlur 为浮层菜单毛玻璃开关；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
 check("模板含热键两段", ["[Hotkeys.Global]", "[Hotkeys.Focus]"].every((s) => template().includes(s)));
 eq("全局热键默认 Ctrl+Alt+P", defaults()["Hotkeys.Global.Toggle"], "Ctrl+Alt+P");
 eq("焦点退出默认 Ctrl+Q", defaults()["Hotkeys.Focus.Quit"], "Ctrl+Q");
 eq("音量默认 0.8", defaults()["Playing.Volume"], "0.8");
-eq("歌词翻译默认开", defaults()["Style.ShowTranslation"], "True");
+eq("歌词辅助默认翻译", defaults()["Style.LyricAux"], "translation");
+eq("歌词翻译兼容键默认开", defaults()["Style.ShowTranslation"], "True");
 eq("上一首逻辑默认开（重放当前曲）", defaults()["Playing.PrevReplay"], "True");
 eq("睡眠禁止默认开", defaults()["Playing.InhibitSleep"], "True");
 eq("侧栏默认展开", defaults()["Window.SidebarCollapsed"], "False");
