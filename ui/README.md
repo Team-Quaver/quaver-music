@@ -229,7 +229,7 @@ CI 两道断言：暂存后 `bins.ts --check build-res/audio`；AppImage 产出�
 - 红心收藏存 localStorage（`quaver.loved.v1`）——它是本地数据不是设置，且本 fork 上游不提供收藏写接口，勿伪造。
 - 歌词翻译：fork 的老歌词 CGI 恒返回空 trans；`relay.ts` 的 `enrichLyric()` 在 `/api/getLyric`
   命中空 trans 时改走免 cookie 的 `musicu.fcg GetPlayLyricInfo`（trans=1）补齐并解码成明文 LRC。
-  前端 `parseLrc` 同时兼容 base64/明文（player.b64utf8 有探测逻辑），显示开关 = player.showTrans。
+  前端 `parseLrc` 同时兼容 base64/明文（player.b64utf8 有探测逻辑），显示开关 = player.showTrans（翻译）。
 - 列表交互（对齐设计稿）：歌曲行 = 序号+封面+歌名/歌手/专辑三行+♥+时长；双击行播放整队列
   （单击封面兜底播放）；歌手/专辑名为可点链接 → `#/singer?mid=` / `#/album?mid=` 视图
   （getSingerHotsong / getAlbumInfo，后者 list 项是 songmid/songname 异形需归一）。
@@ -244,8 +244,8 @@ CI 两道断言：暂存后 `bins.ts --check build-res/audio`；AppImage 产出�
   子菜单悬停展开、**同层换项先收深层再展开**（早期写法会锁死第二个子菜单）；
   指针移进子菜单时不得作废在飞的异步子菜单（不然会永远停在「载入中…」）。
 - **列表工具条（本地搜索 + 排序，歌单页与「我喜欢」共用，都不回源）**：组件 = `components/ListTools.ts`
-  的 `songListTools({ source, paint, hint })`，控件**靠右**（命中计数在左，中间空档由 `.lt-count` 的
-  auto margin 吃掉）。搜索匹配曲名（含版本后缀）/主名/副标题/歌手/专辑，输入按 120ms 合并重画
+  的 `songListTools({ source, paint, hint })`，控件**靠右**。搜索匹配曲名（含版本后缀）/主名/副标题/
+  歌手/专辑，输入按 120ms 合并重画
   （大列表上千行，逐字符重建会卡）；排序三键 = 默认 / 歌曲名 / 歌手，同一个键再点 = 正倒对调（箭头 ↑/↓）。
   **服务端原序不许动**：歌单的 orderlist 就是「加入时间」、我喜欢的是收藏顺序，所以「默认」原样返回，
   过滤/排序只作用在 `all.slice()/filter()` 的副本上（就地 sort 会把「加入时间」永久弄丢）。
@@ -281,7 +281,7 @@ CI 两道断言：暂存后 `bins.ts --check build-res/audio`；AppImage 产出�
   会 taint canvas）取 24x24 量化主色 → HSL 拉进可读区间（色相保留、饱和≥0.5、亮度锚 0.6，
   灰封面例外只微提饱和）→ `--tint` 填充 Bar 已播区（.pb-fill 宽=--pf，z-index 0，控件 z-index 1；
   .player 有 backdrop-filter，负 z-index 会被整层压没——勿改回）。深色文字对比 ~4.5:1 达 AA-large。
-- 音量/静音/歌词翻译开关存 `quaver.conf`（`[Playing] Volume|Muted`、`[Style] ShowTranslation`）；
+- 音量/静音/歌词翻译选项存 `quaver.conf`（`[Playing] Volume|Muted`、`[Style] ShowTranslation`）；
   静音保留原音量值，恢复即回。音量是拖拽高频项，落盘合并 250ms。
 - **每日30首 = 系统虚拟歌单（dirid 202）**：与「我喜欢」（201）同一族的系统目录 —— 服务端**每天重生成**
   30 首个性化歌单，disstid 每天都变（`created-songlists` 里也不列它，首页 feed 的卡片虽带 id/dirid，

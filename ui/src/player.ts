@@ -7,7 +7,7 @@ import {
   getDecode, setDecode, getAudioDevice, setAudioDevice, setFade, FADE_PRESETS,
   getVolume as getVolumeConf, setVolume as setVolumeConf,
   getMuted as getMutedConf, setMuted as setMutedConf,
-  getShowTrans, setShowTrans,
+  getShowTrans, setShowTrans, getLyricAux, setLyricAux, type LyricAuxMode,
   getPrevBehavior,
   type DecodeBackend, type FadePreset,
 } from "./lib/prefs";
@@ -115,7 +115,9 @@ class Player {
    *  收起本页即退出（NowPlaying 在 expanded 迁移里联动全屏并清零本标志）。 */
   gallery = false;
   queueOpen = false;
-  showTrans = getShowTrans(); // 歌词翻译显示开关（quaver.conf [Style] ShowTranslation，默认开）
+  lyricAux: LyricAuxMode = getLyricAux(); // 歌词辅助行：off/translation/romanization
+  /** 行级/插件门面：非 off 即显示翻译（注音档无 Ruby 时回落翻译） */
+  get showTrans(): boolean { return this.lyricAux !== "off"; }
   /** 实际生效后端（"mpv"=原生引擎；"web"=浏览器 <audio>） */
   backend: ActiveBackend = "web";
   /** 当前已挂载播放流的 URL（/api/stream/<token> 或插件源；运行时态，不进存档）。
@@ -444,8 +446,14 @@ class Player {
   }
 
   toggleTrans() {
-    this.showTrans = !this.showTrans;
-    setShowTrans(this.showTrans);
+    this.setLyricAuxMode(this.lyricAux === "off" ? "translation" : "off");
+  }
+
+  /** 翻译选项：off/translation/romanization，一次写盘（含兼容旧 ShowTranslation） */
+  setLyricAuxMode(mode: LyricAuxMode) {
+    if (mode === this.lyricAux) return;
+    this.lyricAux = mode;
+    setLyricAux(mode);
     this.notify();
   }
 
@@ -710,26 +718,28 @@ class Player {
     this.notify();
     try {
       const mid = encodeURIComponent(s.mid);
-      let d: any = await api(`/song/${mid}/lyric?trans=1&qrc=1`);
+      let d: any = await api(`/song/${mid}/lyric?trans=1&roma=1&qrc=1`);
       // 双守卫：序号防更新的 fetch；current 防换曲（startCurrent 已作废序号，这里是兜底）
       if (seq !== this.lyricSeq || this.current !== s) return;
       if (!String(d?.lyric ?? "").trim()) {
         // qrc=1 下无逐字内容的歌曲可能整包为空 → 退回普通歌词请求再试一次
-        d = await api(`/song/${mid}/lyric?trans=1`);
+        d = await api(`/song/${mid}/lyric?trans=1&roma=1`);
         if (seq !== this.lyricSeq || this.current !== s) return;
       }
       let raw = String(d?.lyric ?? "");
       let trans = String(d?.trans ?? "");
+      let roma = String(d?.roma ?? "");
       const provider = sparkleKaraokeProvider();
-      let kara = provider ? provider.parse(raw, trans) : null;
+      let kara = provider ? provider.parse(raw, trans, roma) : null;
       if (!kara && !/^\[\d{1,2}:/.test(raw)) {
         // 逐字解析失败（或无提供器）且内容不是行级 LRC（QRC XML / 纯文本 QRC / TTML
         // 都是 parseLrc 读不了的格式）→ 退回普通歌词请求，「停用逐字」时行级歌词仍有内容
-        d = await api(`/song/${mid}/lyric?trans=1`);
+        d = await api(`/song/${mid}/lyric?trans=1&roma=1`);
         if (seq !== this.lyricSeq || this.current !== s) return;
         raw = String(d?.lyric ?? "");
         trans = String(d?.trans ?? "");
-        kara = provider ? provider.parse(raw, trans) : null;
+        roma = String(d?.roma ?? "");
+        kara = provider ? provider.parse(raw, trans, roma) : null;
       }
       if (kara?.length) {
         this.karaoke = kara;

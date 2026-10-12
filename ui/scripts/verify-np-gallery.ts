@@ -205,6 +205,9 @@ await step("kara 模式：AMLL 挂载、行级隐藏、左缘渐变蒙版仍在"
       p.lyricState = "ok";
       p.lyrics = [{ t: 0, text: "第一行" }, { t: 3, text: "第二行" }];
       p.karaoke = [line(0, 3000, [["你好", 0, 1500], ["世界", 1500, 1500]]), line(3000, 3000, [["第二行", 0, 3000]])];
+      // Ruby 注音藏在词上；默认 showRoma=false 不渲染，下一步再打开验证开关真的进 AMLL
+      p.karaoke[0].words[0].ruby = [{ word: "nǐ hǎo", startTime: 0, endTime: 1500 }];
+      p.karaoke[0].words[1].ruby = [{ word: "shì jiè", startTime: 1500, endTime: 3000 }];
       p.notifyPublic();
     };
     arm();
@@ -229,6 +232,20 @@ await step("kara 模式：AMLL 挂载、行级隐藏、左缘渐变蒙版仍在"
   if (st.w < 100 || st.h < 100) throw new Error("AMLL 元素无尺寸 " + JSON.stringify(st));
   if (st.karaDisplay !== "none") throw new Error("行级歌词未隐藏");
   if (!st.leftGrad) throw new Error("kara 左缘渐变蒙版丢失");
+});
+
+await step("kara Ruby：注音档打开 = 注音上屏，切回翻译档 = 立即剔除", async () => {
+  await page.evaluate(() => { const p = window.__player; p.setLyricAuxMode("romanization"); p.notifyPublic(); });
+  await page.waitForFunction(() =>
+    document.querySelector("#np-karaoke .amll-lyric-player")?.textContent.includes("nǐ hǎo"), { timeout: 8000 });
+  const before = await page.evaluate(() =>
+    document.querySelector("#np-karaoke .amll-lyric-player")?.textContent ?? "");
+  await page.evaluate(() => { const p = window.__player; p.setLyricAuxMode("translation"); p.notifyPublic(); });
+  await page.waitForFunction(() => {
+    const t = document.querySelector("#np-karaoke .amll-lyric-player")?.textContent ?? "";
+    return t.includes("你好") && !t.includes("nǐ hǎo");
+  }, { timeout: 8000 });
+  return `注音样本 ${before.includes("shì jiè") ? "两词齐全" : "不齐全"}`;
 });
 
 await step("行级回退：karaoke 清空后回行级列表", async () => {
