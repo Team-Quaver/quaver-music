@@ -4,6 +4,9 @@
 # 校验能力，勾没勾全看自觉；这个 job 读 PR 正文（body），按照下面的规则判定，没过的直接
 # 让 check 红掉（把本 job 设成 required status check 即可硬拦合并）。
 #
+# LLM 相关项不强制：未声明不拦；勾了「使用了 LLM」才要求人工审查，并打 llm-assisted 标签。
+# Cherry Pick 复选框同样不强制：勾了打 cherry-pick 标签，方便后续 cherry-pick 流程筛选。
+#
 # 为什么用 pull_request_target 而不是 pull_request：
 #   给 PR 打/删 label 需要写权限，而 fork 来的 PR 在 pull_request 事件下拿到的 token 是只读的。
 #   pull_request_target 给的是 base 仓库的写权限 token。**安全前提**：本 job 绝不 checkout PR
@@ -37,8 +40,9 @@ jobs:
           REPO: ${{ github.repository }}
           # 复选框按标签里的关键词匹配（模板若改措辞，这里同步改）。
           KEY_NO_DUP: "未重复"        # 确认无重复 PR —— 必须勾选
-          KEY_LLM_USED: "生成或辅助"   # 是否使用 LLM —— 该行必须存在（勾选则加标签）
-          KEY_LLM_REVIEW: "人工审查"   # 是否人工审查 LLM 代码 —— 必须勾选
+          KEY_LLM_USED: "生成或辅助"   # 是否使用 LLM —— 可选，勾选则打标签
+          KEY_LLM_REVIEW: "人工审查"   # 是否人工审查 LLM 代码 —— 勾选了 LLM 时必须勾选
+          KEY_CHERRY_PICK: "Cherry Pick" # 是否需要 Cherry Pick —— 可选，勾选则打标签
         run: |
           set -euo pipefail
 
@@ -72,49 +76,62 @@ jobs:
             note "「确认无重复 PR」未勾选：请搜索现有 PR 后勾上该项。"
           fi
 
-          # ── 3) 是否使用 LLM（必答：该行必须存在）──
-          if present "$KEY_LLM_USED"; then
-            if checked "$KEY_LLM_USED"; then
-              ok "已声明：本次改动使用了 LLM 生成/辅助。"
-              LLM_USED=1
-            else
-              ok "已声明：本次改动未使用 LLM。"
-              LLM_USED=0
-            fi
+          # ── 3) 是否使用 LLM（可选）──
+          # 未声明不拦；勾了才打标签并触发人工审查要求。
+          LLM_USED=0
+          if checked "$KEY_LLM_USED"; then
+            ok "已声明：本次改动使用了 LLM 生成/辅助。"
+            LLM_USED=1
           else
-            note "「是否使用 LLM」未回答：请保留并勾选模板中的该项。"
-            LLM_USED=0
+            ok "未声明使用 LLM（可选项，未勾选）。"
           fi
 
-          # ── 4) 是否人工审查 LLM 代码（必勾）──
-          # 用过 LLM 的，人工审查是硬门槛；没用过的，也按「必填」要求勾上以确认无遗漏。
-          if checked "$KEY_LLM_REVIEW"; then
-            ok "已确认对 LLM 生成/辅助的代码做了人工审查。"
-          else
-            if [ "$LLM_USED" = "1" ]; then
+          # ── 4) 是否人工审查 LLM 代码（仅在使用了 LLM 时必勾）──
+          if [ "$LLM_USED" = "1" ]; then
+            if checked "$KEY_LLM_REVIEW"; then
+              ok "已确认对 LLM 生成/辅助的代码做了人工审查。"
+            else
               note "本次声明使用了 LLM，但「人工审查 LLM 代码」未勾选：请审查后勾上。"
-            else
-              note "「是否人工审查 LLM 代码」未勾选：按必填要求请勾上该项。"
             fi
           fi
 
-          # ── label 反馈：失败贴 needs-info，通过则摘掉；用过 LLM 打 llm-assisted ──
-          gh label create needs-info   -R "$REPO" -c "D93F0B" -d "PR/Issue 信息不全，待补充" >/dev/null 2>&1 || true
-          gh label create llm-assisted -R "$REPO" -c "5319E7" -d "改动由 LLM 生成/辅助"     >/dev/null 2>&1 || true
+          # ── 5) 是否需要 Cherry Pick（可选）──
+          CHERRY_PICK=0
+          if checked "$KEY_CHERRY_PICK"; then
+            ok "已声明：该 PR 需要 Cherry Pick。"
+            CHERRY_PICK=1
+          fi
+
+          # ── label 反馈：失败贴 needs-info，通过则摘掉；用过 LLM 打 llm-assisted，需要 cherry-pick 打 cherry-pick ──
+          gh label create needs-info    -R "$REPO" -c "D93F0B" -d "PR/Issue 信息不全，待补充" >/dev/null 2>&1 || true
+          gh label create llm-assisted  -R "$REPO" -c "5319E7" -d "改动由 LLM 生成/辅助"     >/dev/null 2>&1 || true
+          gh label create cherry-pick   -R "$REPO" -c "0E8A16" -d "该 PR 需要 Cherry Pick"    >/dev/null 2>&1 || true
 
           if [ "$fail" = "1" ]; then
             gh pr edit "$PR_NUMBER" -R "$REPO" --add-label needs-info >/dev/null 2>&1 || true
-            if [ "${LLM_USED:-0}" = "1" ]; then
+            if [ "$LLM_USED" = "1" ]; then
               gh pr edit "$PR_NUMBER" -R "$REPO" --add-label llm-assisted >/dev/null 2>&1 || true
             else
               gh pr edit "$PR_NUMBER" -R "$REPO" --remove-label llm-assisted >/dev/null 2>&1 || true
+            fi
+            if [ "$CHERRY_PICK" = "1" ]; then
+              gh pr edit "$PR_NUMBER" -R "$REPO" --add-label cherry-pick >/dev/null 2>&1 || true
+            else
+              gh pr edit "$PR_NUMBER" -R "$REPO" --remove-label cherry-pick >/dev/null 2>&1 || true
             fi
             echo "PR 模板检查未通过。"
             exit 1
           fi
 
           gh pr edit "$PR_NUMBER" -R "$REPO" --remove-label needs-info >/dev/null 2>&1 || true
-          if [ "${LLM_USED:-0}" = "1" ]; then
+          if [ "$LLM_USED" = "1" ]; then
             gh pr edit "$PR_NUMBER" -R "$REPO" --add-label llm-assisted >/dev/null 2>&1 || true
+          else
+            gh pr edit "$PR_NUMBER" -R "$REPO" --remove-label llm-assisted >/dev/null 2>&1 || true
+          fi
+          if [ "$CHERRY_PICK" = "1" ]; then
+            gh pr edit "$PR_NUMBER" -R "$REPO" --add-label cherry-pick >/dev/null 2>&1 || true
+          else
+            gh pr edit "$PR_NUMBER" -R "$REPO" --remove-label cherry-pick >/dev/null 2>&1 || true
           fi
           echo "PR 模板检查通过。"
