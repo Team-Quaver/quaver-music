@@ -240,6 +240,11 @@ const routeScroller = (root: HTMLElement) => root.closest<HTMLElement>(".route")
  *      未吸顶/无吸顶区时写 0，交给 CSS 的 min-height 兜底（普通页的 112px 顶带渐隐）。
  * 判定基准必须是**滚动容器顶缘**：`.route` 的顶不在视口 0。早期写成 `rect.top <= 0`
  * 导致 `.stuck` 永不生效（缩略信息永不出现）。
+ * 注意不能只看几何 diff：吸顶头负 margin 让它回顶后 diff=0、与吸顶位重合，
+ * 必须叠加 `scrollTop > 0` 才能区分「原位」与「吸住」(见 sync 内注释)。
+ * 吸顶状态同时写进 host 的 `.has-stuck`：吸顶底实底只在真正吸顶时启用，
+ * 未吸顶时 .content::before 保持温和渐隐 —— 否则我喜欢/设置这种不吸顶的大标题
+ * 会被常驻的实底压成鬼影（--stuck-h 本身无论吸没吸顶都写值，供过渡参考）。
  * 返回退订函数（路由切换时由 renderRoute 调）。
  */
 function trackStuck(el: HTMLElement, scroller: HTMLElement) {
@@ -247,8 +252,15 @@ function trackStuck(el: HTMLElement, scroller: HTMLElement) {
   let raf = 0;
   const sync = () => {
     raf = 0;
-    const stuck = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top <= 1;
+    // 吸顶 = 「已离开顶部滚动」且「几何上贴住停靠位」。只有后者不够：
+    // 吸顶头自带 margin-top: -6px（抵消 route 顶内边距），回到顶部时 diff 恰为 0，
+    // 与吸顶位重合 —— 只看 diff 会把「回到顶部」误判成仍在吸顶，实底永远摘不掉。
+    // scrollTop > 0 排除顶端原位；diff <= 0 覆盖停靠 top 为 -6px 的贴住状态
+    // （滚动 0-6px 之间元素还在随内容上移，提前判吸顶 6px，视觉无差）。
+    const stuck = scroller.scrollTop > 0
+      && el.getBoundingClientRect().top - scroller.getBoundingClientRect().top <= 0;
     el.classList.toggle("stuck", stuck);
+    host.classList.toggle("has-stuck", stuck);
     host.style.setProperty("--stuck-h", `${Math.round(el.getBoundingClientRect().height)}px`);
   };
   const onScroll = () => {
@@ -263,6 +275,7 @@ function trackStuck(el: HTMLElement, scroller: HTMLElement) {
     window.removeEventListener("resize", onScroll);
     if (raf) cancelAnimationFrame(raf);
     el.classList.remove("stuck");
+    host.classList.remove("has-stuck");
     host.style.removeProperty("--stuck-h");
   };
 }

@@ -345,8 +345,9 @@ body.side-resizing .sidebar { transition: none; }
 /* 侧栏缩回时宽度由缩态样式接管，分隔条不给拖 */
 body.side-collapsed .side-resizer { display: none; }
 
-/* 吸顶底渐变（::before 用，叠三层；stop 随 --stuck-h 变）：实底到吸顶区下缘，
-   再往下 40px 化开（无吸顶区时由 112px 的 min-height 兜底）。
+/* 吸顶中实底（.content.has-stuck::before 用，叠三层）：实底到吸顶区下缘即止（硬切）。
+   别加化开尾巴——字滑进下缘几像素就会被「溶」成半截鬼影（实测踩过 40px/12px 两版），
+   硬切只是普通吸顶头的裁切行为，反而干净。
    必须声明在 .content 上——trackStuck 把实测高度写在 .content 的内联 --stuck-h 里，
    挂到 :root 的话 var(--stuck-h) 会在 :root 上解析、永远是 0。 */
 .content { flex: 1; border-radius: 14px; overflow: hidden; padding: 0; min-width: 0; min-height: 0; position: relative;
@@ -354,7 +355,7 @@ body.side-collapsed .side-resizer { display: none; }
   --stuck-cover: linear-gradient(to bottom,
     var(--panel) 0,
     var(--panel) calc(46px + var(--stuck-h, 0px)),
-    transparent max(calc(46px + var(--stuck-h, 0px) + 40px), 112px));
+    transparent calc(46px + var(--stuck-h, 0px)));
   background: var(--panel); border: 1px solid var(--panel-line);
   backdrop-filter: blur(24px) saturate(1.4); /* 无前缀！见文件顶部「别补 -webkit-」那段 */
 }
@@ -370,19 +371,28 @@ body.side-collapsed .side-resizer { display: none; }
    z:5/6 都在其上，所以条内文字/控件不会被它压住。 */
 .content::before {
   content: ""; position: absolute; top: 0; left: 0; right: 0; z-index: 1;
-  height: calc(46px + var(--stuck-h, 0px) + 40px); min-height: 112px;
-  /* 实底一路撑到吸顶区**下缘**（46px 顶带 + 吸顶区高度），只在下缘之下 40px 内化开——
-     旧版 45% 处就掉到 55% 浓度、吸顶区下缘几乎全透，下滚内容会隔着吸顶页头浮现，
-     「今日精选」直接叠在「首页」大标题上（窄内容区下最明显）。
-     --panel 本身带 alpha（玻璃），单层仍压不住底下滚过的文字，所以同一条渐变叠三层
-     （连同 .content 自身那层底 ≈ 4 层）：实底段合到 ~0.998，带宽内不再随底下
-     有没有内容变色，滚过的文字残留只剩 ~2%、肉眼不可见。 */
+  height: calc(46px + var(--stuck-h, 0px)); min-height: 112px;
+  /* 默认（未吸顶）：温和渐隐的顶带 —— 我喜欢/设置这类**不吸顶**的大标题是普通内容，
+     不能被压成鬼影，实底只在 .has-stuck（trackStuck 报告真正吸顶）时启用。 */
+  background: linear-gradient(to bottom,
+    var(--panel) 0%,
+    color-mix(in srgb, var(--panel) 55%, transparent) 45%,
+    transparent 100%);
+  border-radius: 14px 14px 0 0; pointer-events: none;
+  transition: opacity .18s ease;
+}
+/* 吸顶中：实底一路撑到吸顶区**下缘**（46px 顶带 + 吸顶区高度），到缘即止、硬切。
+   否则旧渐变到吸顶区下缘几乎全透，下滚内容会隔着吸顶页头浮现，「今日精选」直接叠在
+   「首页」大标题上（窄内容区下最明显）。
+   --panel 本身带 alpha（玻璃），单层压不住底下滚过的文字，所以同一条渐变叠三层
+   （连同 .content 自身那层底 ≈ 4 层）：实底段合到 ~0.998，带宽内不再随底下
+   有没有内容变色，滚过的文字残留只剩 ~2%、肉眼不可见。 */
+.content.has-stuck::before {
+  height: calc(46px + var(--stuck-h, 0px));
   background:
     var(--stuck-cover),
     var(--stuck-cover),
     var(--stuck-cover);
-  border-radius: 14px 14px 0 0; pointer-events: none;
-  transition: opacity .18s ease;
 }
 /* 内容区顶带：常驻搜索框所在的独立一行（不再与页面标题同带浮层）。
    顶带本身就是 CSD 按钮簇所在的水平区间——右缘永远为其预留避让位（SSD 下不预留），
@@ -663,7 +673,7 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 .cnt { font-size: 13px; font-weight: 400; }
 
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 16px; }
-.card { cursor: pointer; border-radius: 10px; padding: 4px; transition: background .14s, transform .1s ease; }
+.card { cursor: pointer; border-radius: 10px; padding: 4px; transition: background .14s, transform .1s ease; content-visibility: auto; contain-intrinsic-size: auto 200px; }
 .card:hover { background: var(--row-hover); }
 .card:active { transform: scale(.97); }
 .card .art { aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: var(--ph); position: relative; }
@@ -673,7 +683,7 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 .card.playing { outline: 2px solid var(--cvg-accent, var(--acc)); }
 
 .rows { display: flex; flex-direction: column; gap: 2px; padding-bottom: 8px; }
-.row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 8px; cursor: pointer; user-select: none; }
+.row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 8px; cursor: pointer; user-select: none; content-visibility: auto; contain-intrinsic-size: auto 60px; }
 .row:hover { background: var(--row-hover); }
 .row.sel { background: var(--row-hover); box-shadow: inset 2px 0 0 var(--cvg-accent, var(--acc)); } /* 单击选中（已预加载播放链接） */
 .row.playing { background: color-mix(in srgb, var(--cvg-glow, var(--tint-row)) 26%, var(--tint-row)); }

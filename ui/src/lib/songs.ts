@@ -64,7 +64,9 @@ export function renumberRows(box: HTMLElement) {
 }
 
 export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks = {}) {
-  box.innerHTML = "";
+  // 整列先在**离屏 fragment** 里拼好，最后一次性换入。对已挂载的活容器逐行 append 会让浏览器
+  // 为每次插入登记样式失效（长列表下累积成反复的重算样式 / 布局）；fragment 只在末尾产生一次。
+  const frag = document.createDocumentFragment();
   for (const [i, s] of songs.entries()) {
     s._key = s.mid ?? String(s.id ?? Math.random());
     const row = document.createElement("div");
@@ -134,8 +136,9 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
         hooks.onRemoved?.(s);
       },
     }));
-    box.append(row);
+    frag.append(row);
   }
+  box.replaceChildren(frag);
   // 双击重取列表要用：行渲染时按 songkey 建的映射（_key 在上面循环里已落到每个对象上）
   const keyMap = new Map(songs.map((x) => [String(x._key ?? x.mid ?? ""), x]));
 }

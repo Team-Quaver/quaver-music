@@ -144,10 +144,10 @@ check("prefs 的高频写走合并落盘（拖色相条/连打数字）", /cfgSe
 section("源码接线 · 高亮色模块");
 check("tint.ts 提供 bootTint", /export function bootTint\(\)/.test(tint));
 check("启动时先应用一次（不等播放事件）", /player\.on\(applyTint\);[\s\S]{0,300}\n\s*applyTint\(\);/.test(tint));
-check("写的就是那两个变量", tint.includes('setProperty("--cvg-accent"') && tint.includes('setProperty("--cvg-glow"'));
+check("写的就是那两个变量", tint.includes('writeVar("--cvg-accent", ui.accent') && tint.includes('writeVar("--cvg-glow", ui.glow'));
 check("无色时移除变量（CSS 回落主题色）而非写死灰",
   /TINT_VARS = \[[^\]]*"--cvg-accent", "--cvg-glow"/.test(tint)
-  && /for \(const v of TINT_VARS\) root\.style\.removeProperty\(v\)/.test(tint));
+  && /for \(const v of TINT_VARS\) writeVar\(v, null\)/.test(tint));
 check("默认档 = 固定青色常量", /mode === "custom" \? getTintColor\(\) : TINT_DEFAULT_COLOR/.test(tint));
 check("封面档走封面提色", /extractCoverColor\(pic\)/.test(tint));
 check("离开封面档作废在途取色（否则回调会把颜色写回来）", /coverPic = ""; \/\/ 离开封面档/.test(tint));
@@ -247,10 +247,12 @@ section("源码接线 · 进度条与歌词高亮");
 const bar = src("src/components/PlayerBar.ts");
 check("tint.ts 用 toBarColors 派生进度条色对（同源色、另一套亮度）", /const bar = toBarColors\(rgb\)/.test(tint));
 check("tint.ts 写进度条的两个变量",
-  /setProperty\("--cvg-bar-fill", bar\.soft\)/.test(tint) && /setProperty\("--cvg-bar-line", bar\.line\)/.test(tint));
-check("tint.ts 一并供歌词当前句", /setProperty\("--np-hl"/.test(tint));
+  /writeVar\("--cvg-bar-fill", bar\.soft\)/.test(tint) && /writeVar\("--cvg-bar-line", bar\.line\)/.test(tint));
+check("tint.ts 一并供歌词当前句", /writeVar\("--np-hl", bar\.line\)/.test(tint));
+check("相同的值不重写 :root（applyTint 挂在 4Hz 的 player.on 上，重写=全局重算样式）",
+  /writtenTint/.test(tint) && /if \(writtenTint\.has\(name\) && writtenTint\.get\(name\) === value\) return;/.test(tint));
 check("清理时五个变量一起清（别留半套颜色）",
-  /const TINT_VARS = \[/.test(tint) && /for \(const v of TINT_VARS\) root\.style\.removeProperty\(v\)/.test(tint));
+  /const TINT_VARS = \[/.test(tint) && /for \(const v of TINT_VARS\) writeVar\(v, null\)/.test(tint));
 check("PlayerBar 不再自己从封面取色（那条通路等于绕过本设置）",
   !bar.includes("extractCoverColor") && !bar.includes("toBarColors") && !bar.includes('setProperty("--tint"'));
 check("PlayerBar 也不再写 --np-hl（染色统一由 tint.ts 产出）", !bar.includes("--np-hl"));

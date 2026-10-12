@@ -62,21 +62,36 @@ const activeSparkTheme = sparkleActiveTheme;
 /** 本模块产出的全部变量（移除时一起清，别漏一个导致「半套颜色」残留）。 */
 const TINT_VARS = ["--cvg-accent", "--cvg-glow", "--cvg-bar-fill", "--cvg-bar-line", "--np-hl"];
 
+/** 上一次真正落到 :root 内联样式的值（未记录 = 还没写过）。 */
+const writtenTint = new Map<string, string | null>();
+
+/** 写单个变量：**值没变就跳过**。这几个变量在 style.css 里被 @property 注册成 <color>、
+ *  **继承**、并且 :root 上挂着 transition —— 每写一次都会让整棵子树重新解析 var(--cvg-*)，
+ *  代价随 DOM 规模放大。而 applyTint 挂在 player.on 上，那是 **4Hz 的位置广播**
+ *  （timeupdate；换曲之外每秒还来 4 次），不去重的话就是不播放时也在每秒 4 次全量重算样式。
+ *  无内联值用 null 表示（未设置 / 已移除），于是「移除」也不会重复执行。 */
+function writeVar(name: string, value: string | null) {
+  if (writtenTint.has(name) && writtenTint.get(name) === value) return;
+  writtenTint.set(name, value);
+  const style = document.documentElement.style;
+  if (value === null) style.removeProperty(name);
+  else style.setProperty(name, value);
+}
+
 /** 写变量。无颜色（未播放 / 中继不可用 / 让位给主题）时全部移除，CSS 回落到主题默认色。 */
 function paint(rgb: RGB | null) {
-  const root = document.documentElement;
   const ui = toUiColors(rgb);
   if (!ui) {
-    for (const v of TINT_VARS) root.style.removeProperty(v);
+    for (const v of TINT_VARS) writeVar(v, null);
     return;
   }
   // 进度条的色对与 UI 高亮不同源（亮度各调各的）：从同一个 rgb 派生出两套，色相一致
   const bar = toBarColors(rgb);
-  root.style.setProperty("--cvg-accent", ui.accent);
-  root.style.setProperty("--cvg-glow", ui.glow);
-  root.style.setProperty("--cvg-bar-fill", bar.soft);
-  root.style.setProperty("--cvg-bar-line", bar.line);
-  root.style.setProperty("--np-hl", bar.line);
+  writeVar("--cvg-accent", ui.accent);
+  writeVar("--cvg-glow", ui.glow);
+  writeVar("--cvg-bar-fill", bar.soft);
+  writeVar("--cvg-bar-line", bar.line);
+  writeVar("--np-hl", bar.line);
 }
 
 /** 应用当前偏好。设置页改完立刻调一次即生效；换曲与插件启停由 bootTint 注册的监听驱动。 */
