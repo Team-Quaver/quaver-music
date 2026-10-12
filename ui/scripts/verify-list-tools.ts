@@ -74,8 +74,8 @@ ok("search: 字段间用分隔符，避免跨字段假命中", has(code, 'join("
 ok("search: 大小写不敏感", has(code, ".toLowerCase()"));
 ok("search: 输入即筛选 + ✕ 清空 + Esc 清空",
   re(code, /kwEl\.addEventListener\("input"/) && re(code, /clrEl\.addEventListener\("click"/) && has(code, 'e.key !== "Escape"'));
-ok("search: 不再显示「命中 / 总数 首」计数（该读数在特定宽度下错版，已移除显示）",
-  !has(code, "countEl") && !has(code, "首") && !has(toolsSrc, "lt-count"));
+ok("search: 计数读数 = 命中 / 总数（只在筛选时显示）",
+  re(code, /countEl\.textContent = kw\.trim\(\) \? `\$\{visible\(\)\.length\} \/ \$\{opts\.source\(\)\.length\} 首` : "";/));
 ok("perf: 逐字符输入按 120ms 合并，立即画的场合先吃掉排队那次",
   has(code, "INPUT_DEBOUNCE_MS = 120")
   && re(code, /timer = window\.setTimeout\(paint, INPUT_DEBOUNCE_MS\)/)
@@ -90,10 +90,11 @@ ok("空态: 回调带上 filtering，调用方能区分「搜索没命中」与�
 // ============ 版式：控件靠右 ============
 const ltBlock = css.match(/\.list-tools \{([^}]*)\}/)?.[1] ?? "";
 ok("css: .list-tools 靠右（justify-content: flex-end）", /justify-content:\s*flex-end/.test(ltBlock));
-ok("css: 计数类 .lt-count 已随显示移除干净",
-  !has(css, ".lt-count") && !has(toolsSrc, 'class="lt-count"'));
-ok("DOM: 顺序 = 搜索 → 排序（控件靠右）",
-  toolsSrc.indexOf('class="sb-field lt-search"') < toolsSrc.indexOf('class="lt-sort tag-tabs"'));
+ok("css: 计数在左、控件被推到右缘（.lt-count 用 margin-right: auto）",
+  /\.lt-count \{[^}]*margin-right:\s*auto/.test(css));
+ok("DOM: 顺序 = 计数 → 搜索 → 排序（靠 auto margin 分居两端）",
+  toolsSrc.indexOf('class="lt-count"') < toolsSrc.indexOf('class="sb-field lt-search"')
+  && toolsSrc.indexOf('class="sb-field lt-search"') < toolsSrc.indexOf('class="lt-sort tag-tabs"'));
 ok("css: 搜索框宽度钳制（不会铺满整行）", /\.list-tools \.lt-search \{[^}]*width:\s*clamp\(/.test(css));
 ok("css: 搜索框复用顶带胶囊 .sb-field（不另造输入框样式）", has(toolsSrc, 'class="sb-field lt-search"'));
 
@@ -125,7 +126,7 @@ for (const dead of [".pl-tools", ".pl-search", ".pl-clr", ".pl-count", "sg-row",
 }
 
 // ============ 选择器 ↔ CSS 三边自洽 ============
-for (const sel of [".list-tools", ".lt-search", ".lt-clr", ".lt-sort", ".lt-sg", ".lt-sg .dir"]) {
+for (const sel of [".list-tools", ".lt-search", ".lt-clr", ".lt-count", ".lt-sort", ".lt-sg", ".lt-sg .dir"]) {
   ok(`css: ${sel} 有定义`, has(css, sel));
 }
 // .lt-kw 是**只给 JS 取值的查询钩子**（样式统一由 .sb-field input 提供，复用顶带胶囊），

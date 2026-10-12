@@ -94,7 +94,6 @@ export function npViewCtx(): SparkleNpViewCtx {
     lyrics: () => player.lyrics.map((l) => ({ t: l.t, text: l.text, trans: l.trans })),
     lyricState: () => player.lyricState,
     showTrans: () => player.showTrans,
-    lyricAux: () => player.lyricAux,
     // 逐字行**不复制**：一行几十个词、整首上千个，4Hz 每次 notify 重建一份纯属白烧；
     // 视图只读不改。口径与 NowPlaying 的 karaModeNow() 一致 —— 有数据 + 提供器在位且启用，
     // 否则视图回退行级歌词（提供器被关时 player.karaoke 可能还留着上一次的解析结果）。

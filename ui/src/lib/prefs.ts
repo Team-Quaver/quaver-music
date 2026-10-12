@@ -297,28 +297,13 @@ export function setInhibitSleep(v: boolean) {
   cfgSet({ "Playing.InhibitSleep": v ? "True" : "False" });
 }
 
-// —— 歌词辅助行：关闭 / 翻译 / 注音（Ruby）。翻译与注音是替换关系 ——
-//    注音档：逐字（AMLL）有 Ruby 时挂词上方、隐藏翻译；没有 Ruby 数据就回落显示翻译。
-//    行级 LRC 没有词级 Ruby，注音档等同于翻译（fallback）。
-export type LyricAuxMode = "off" | "translation" | "romanization";
-export const LYRIC_AUX_MODES: LyricAuxMode[] = ["off", "translation", "romanization"];
-
-export function getLyricAux(): LyricAuxMode {
-  const raw = cfg("Style.LyricAux", "translation").trim().toLowerCase();
-  if (raw === "off" || raw === "romanization") return raw;
-  if (raw === "translation") {
-    // 翻译档要求 ShowTranslation=True；旧配置只有 ShowTranslation=False 时按关闭处理
-    return !/^(false|0|no)$/i.test(cfg("Style.ShowTranslation", "True")) ? "translation" : "off";
-  }
-  // 瞎写的 LyricAux 回落到 ShowTranslation 布尔
-  return !/^(false|0|no)$/i.test(cfg("Style.ShowTranslation", "True")) ? "translation" : "off";
+// —— 歌词翻译行开关（默认开） ——
+export function getShowTrans(): boolean {
+  return !/^(false|0|no)$/i.test(cfg("Style.ShowTranslation", "True"));
 }
-export function setLyricAux(mode: LyricAuxMode) {
-  cfgSet({ "Style.LyricAux": mode, "Style.ShowTranslation": mode === "translation" ? "True" : "False" });
+export function setShowTrans(v: boolean) {
+  cfgSet({ "Style.ShowTranslation": v ? "True" : "False" });
 }
-// 旧入口/插件门面：非 off 即显示翻译（注音档行级 fallback 也算开）
-export function getShowTrans(): boolean { return getLyricAux() !== "off"; }
-export function setShowTrans(v: boolean) { setLyricAux(v ? "translation" : "off"); }
 
 // —— 正在播放页行级（LRC）歌词缩放：字号与行距随同一系数放大/缩小（0.7..1.5，1=默认）。
 //    只作用于行级歌词；逐字（QRC/AMLL）模式的排版由 AMLL 自己的变量管理。调节走

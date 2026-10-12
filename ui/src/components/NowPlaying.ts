@@ -15,7 +15,7 @@
 // 开关在插件的设置区（Sparkle tab → Apple Music-like Lyrics）；无逐字数据 / 无提供器 /
 // 开关关闭时维持原有行级高亮。
 // 右侧 = 封面在上，歌名 / 「歌手 - 专辑」在下，文本右对齐且与封面右缘齐平；
-// 信息列下缘挂 ⋮ 更多选项（同名搜索 / 跳转歌手 / 跳转专辑 / 翻译选项（关闭·翻译·注音） /
+// 信息列下缘挂 ⋮ 更多选项（同名搜索 / 跳转歌手 / 跳转专辑 / 翻译 Switch 开关 /
 // 歌词大小 −/+ 步进，仅行级歌词时出现；也可在歌词上 Ctrl+滚轮/触控板捏合直接调）。
 // 背景 = 当前封面高斯模糊放大铺满（双层交叉淡化：新图解码完成后才淡入，换曲不闪主页面）
 // + 深色渐变压暗 + .np 固体底色兜底；进度与控制由常驻播放条承担。
@@ -26,7 +26,7 @@ import {
   type StreamInfo,
 } from "../lib/streaminfo";
 import { icons } from "../lib/icons";
-import { getLyricScale, setLyricScale, LYRIC_SCALE_MAX, LYRIC_SCALE_MIN, LYRIC_SCALE_STEP, LYRIC_AUX_MODES, type LyricAuxMode } from "../lib/prefs";
+import { getLyricScale, setLyricScale, LYRIC_SCALE_MAX, LYRIC_SCALE_MIN, LYRIC_SCALE_STEP } from "../lib/prefs";
 import { isFullscreen, setFullscreen, onFullscreenChange } from "../lib/fullscreen";
 import type { SparkleKaraokeProvider } from "@quaver/sparkle";
 import { sparkleKaraokeProvider, onSparkleChange, sparkleNpMenuItems } from "../sparkle/registry";
@@ -97,13 +97,13 @@ export function NowPlaying(): HTMLElement {
   const setTitle = marquee("np-title");
   const setArtist = marquee("np-artist");
 
-  // —— 更多选项（⋮）：同名搜索 / 跳转歌手 / 跳转专辑 / 翻译选项 ——
-  // 翻译与注音是替换关系：三档互斥（关闭 / 翻译 / 注音）。注音档逐字模式挂 Ruby 在词上方、
-  // 不显示翻译；没有 Ruby 数据时回落显示翻译。行级 LRC 没有词级 Ruby，注音档等同翻译。
+  // —— 更多选项（⋮）：同名搜索 / 跳转歌手 / 跳转专辑 / 翻译开关 ——
+  // 每次打开按当前歌曲现算（曲目可能缺歌手/专辑信息，逐项禁用；多歌手逐项列出，
+  // 口径同 SongMenu 的 artistItems/albumItems）。翻译行是 Switch 开关，直接驱动 player.toggleTrans。
   // 开合是 class 驱动的缩放动画（.np-menu，锚在按钮圆心上）；跳转类动作先播收拢动画再走 hash。
   const moreBtn = $("np-more");
   const moreMenu = $("np-menu");
-  let auxButtons = new Map<LyricAuxMode, HTMLButtonElement>();
+  let transSw: HTMLInputElement | null = null;
   const menuOpen = () => moreMenu.classList.contains("open");
   // 与 CSS 收拢过渡时长（.13s）对齐：跳转前留出动画时间，视觉上是「缩回去 → 落到目标页」
   const MENU_CLOSE_MS = 140;
@@ -147,13 +147,6 @@ export function NowPlaying(): HTMLElement {
     const provider = sparkleKaraokeProvider();
     return player.karaoke.length > 0 && !!provider && (provider.enabled?.() ?? true);
   };
-  function syncAuxButtons() {
-    for (const [mode, b] of auxButtons) {
-      const sel = player.lyricAux === mode;
-      b.classList.toggle("sel", sel);
-      b.setAttribute("aria-checked", String(sel));
-    }
-  }
   function openMoreMenu() {
     const s = player.current;
     moreMenu.innerHTML = "";
@@ -184,28 +177,16 @@ export function NowPlaying(): HTMLElement {
       empty.textContent = "未在播放";
       moreMenu.append(empty);
     }
-    // 翻译选项：三档按钮（关闭 / 翻译 / 注音）。点击后由 4Hz/notify 同步选中态
-    const auxRow = document.createElement("div");
-    auxRow.className = "np-menu-option";
-    auxRow.setAttribute("role", "radiogroup");
-    auxRow.setAttribute("aria-label", "歌词翻译选项");
-    auxRow.innerHTML = `<span>翻译选项</span><div class="np-menu-opts"></div>`;
-    const opts = auxRow.querySelector<HTMLElement>(".np-menu-opts")!;
-    auxButtons = new Map();
-    for (const mode of LYRIC_AUX_MODES) {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = "np-menu-opt";
-      b.dataset.aux = mode;
-      b.setAttribute("role", "radio");
-      b.setAttribute("aria-checked", String(player.lyricAux === mode));
-      b.textContent = { off: "关闭", translation: "翻译", romanization: "注音" }[mode];
-      b.onclick = () => player.setLyricAuxMode(mode);
-      auxButtons.set(mode, b);
-      opts.append(b);
-    }
-    syncAuxButtons();
-    moreMenu.append(auxRow);
+    // 翻译：Switch 开关（checkbox 只做语义与焦点，视觉由 .np-sw 承担）
+    const row = document.createElement("label");
+    row.className = "np-menu-switch";
+    row.innerHTML = `<span>翻译</span><input type="checkbox"><span class="np-sw" aria-hidden="true"></span>`;
+    transSw = row.querySelector<HTMLInputElement>("input")!;
+    transSw.checked = player.showTrans;
+    transSw.addEventListener("change", () => {
+      if (transSw && transSw.checked !== player.showTrans) player.toggleTrans();
+    });
+    moreMenu.append(row);
     // 歌词大小：−/+ 步进（仅行级歌词就位时；逐字模式有 AMLL 自己的排版，不出现）。
     // 菜单开着时 Ctrl+滚轮缩放 → zoomLyric 里的 syncSizeRow 会原地更新读数与禁用态。
     if (!karaModeNow() && lineEls.length > 0) {
@@ -373,7 +354,6 @@ export function NowPlaying(): HTMLElement {
       paused: () => player.paused,
       expanded: () => player.expanded,
       showTrans: () => player.showTrans,
-      lyricAux: () => player.lyricAux,
       seek: (ms) => { player.seek(ms / 1000); setBrowse(false); },
       onNotify: (cb) => player.on(cb),
     }) ?? null;
@@ -544,9 +524,9 @@ export function NowPlaying(): HTMLElement {
       setFullscreen(true);
     }
     el.classList.toggle("open", open);
-    el.classList.toggle("hide-trans", !player.showTrans);
-    // 菜单开着时同步翻译选项（外部插件 toggleTrans 等别的改法也能跟上）
-    if (menuOpen()) syncAuxButtons();
+    el.classList.toggle("no-trans", !player.showTrans);
+    // 菜单开着时同步翻译开关的选中态（toggleTrans 之外的改法 — 如设置页 — 也能跟上）
+    if (transSw && menuOpen()) transSw.checked = player.showTrans;
     // 音质胶囊：直接显示最后实际应用的档位（lastStream；未在播放时回落到当前设置）——
     // 与播放条胶囊同口径，↓ = 该流是被回退降档的
     const ls = getLastStream();

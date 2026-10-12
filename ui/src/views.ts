@@ -574,7 +574,7 @@ async function playlistView(root: HTMLElement, q: URLSearchParams) {
     rows.innerHTML = `<div class="muted">歌单为空或不可见</div>`;
     return () => cleanups.forEach((f) => f());
   }
-  // 工具条（本地搜索 + 排序）：控件靠右。实现见 components/ListTools.ts
+  // 工具条（本地搜索 + 排序）：控件靠右，计数在左。实现见 components/ListTools.ts
   // all 恒为服务端原序（orderlist = 加入歌单的时间），工具条只读它，排序作用在副本上。
   const tools = songListTools({
     source: () => all,

@@ -5,7 +5,7 @@
 //  1. **原序不许动**：「默认」= 服务端给的顺序 —— 歌单是 orderlist（= 加入歌单的时间），
 //     我喜欢是收藏顺序。所以过滤/排序一律作用在副本上，source() 那份数组只读
 //     （就地 sort 会把「加入时间」这类信息永久弄丢，再也拿不回来）。
-//  2. 控件靠右（版式在 style.css 的 .list-tools）。
+//  2. 控件靠右（版式在 style.css 的 .list-tools），命中计数在左。
 //  3. 排序胶囊**就是歌手页分类标签那一套**（.tag-tabs > .tag，选中态 .sel）：全站「一排胶囊
 //     筛选器」只有一个组件、一处样式 —— 主题/插件要改这类控件只改一处，不会漏掉工具条这一排。
 //
@@ -22,7 +22,7 @@ export interface SongListTools {
   visible(): any[];
   /** 按当前条件重画（触发 paint 回调）并刷新计数 */
   repaint(): void;
-  /** 只刷新派生读数（当前无命中计数显示，保留为稳定对外接口） */
+  /** 只刷新计数读数（列表内容被外部删掉一行、但不需要重排时用） */
   refreshCount(): void;
 }
 
@@ -45,6 +45,7 @@ export function songListTools(opts: SongListToolsOptions): SongListTools {
   const el = document.createElement("div");
   el.className = "list-tools";
   el.innerHTML = `
+    <span class="lt-count"></span>
     <span class="sb-field lt-search">
       <span class="sb-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></span>
       <input class="lt-kw" type="search" placeholder="${opts.hint ?? "在列表内搜索"}" autocomplete="off" spellcheck="false" aria-label="在列表内搜索" />
@@ -58,6 +59,7 @@ export function songListTools(opts: SongListToolsOptions): SongListTools {
 
   const kwEl = el.querySelector<HTMLInputElement>(".lt-kw")!;
   const clrEl = el.querySelector<HTMLButtonElement>(".lt-clr")!;
+  const countEl = el.querySelector<HTMLElement>(".lt-count")!;
   const sortBtns = [...el.querySelectorAll<HTMLButtonElement>(".lt-sg")];
 
   let kw = "";
@@ -83,9 +85,9 @@ export function songListTools(opts: SongListToolsOptions): SongListTools {
     return desc ? sorted.reverse() : sorted;
   }
 
-  // 命中计数（曾在筛选时渲染「命中数 / 总数 首」）已去掉显示：该读数在特定宽度下会错版。
-  // 保留空实现只为稳定对外接口 —— 调用方删行后仍会调它，不必回头改调用点。
-  function refreshCount() {}
+  function refreshCount() {
+    countEl.textContent = kw.trim() ? `${visible().length} / ${opts.source().length} 首` : "";
+  }
 
   function paint() {
     window.clearTimeout(timer); // 立即画的场合（点击/清空）把排队中的那次吃掉，别画两遍
