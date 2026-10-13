@@ -15,9 +15,10 @@ import type { SparkleNpView, SparkleNpViewCtx, SparkleQualityTier, SparkleSongSn
 import { player, type Song } from "../player";
 import { pickAux } from "../lyric";
 import {
-  effectiveQuality, getLastStream, getStreamTiers, QUALITY_SHORT, songMissingTiers,
+  effectiveQuality, getLastStream, getStreamTiers, localCoverPath, QUALITY_SHORT, songMissingTiers,
   songTitle, stripEm, type Quality,
 } from "../lib/api";
+import { isLocalSong, localSongStreamUrl } from "../lib/local";
 import { sparkleKaraokeProvider, sparkleNpView } from "./registry";
 
 // —— 档位表（/stream/tiers；一次拉回，全插件共用）——
@@ -38,9 +39,11 @@ function loadTiers() {
 }
 void loadTiers();
 
-/** 可选档位：过滤掉当前曲无源的（与播放条音质浮窗同口径），locked 档照常列出 */
+/** 可选档位：过滤掉当前曲无源的（与播放条音质浮窗同口径），locked 档照常列出；
+ *  本地/NAS 曲目恒空 —— 没有在线档位阶梯可切，档位表对它是纯粹的误导 */
 function availableTiers(): SparkleQualityTier[] {
   loadTiers();
+  if (isLocalSong(player.current)) return [];
   if (!tierCache?.length) return [];
   const missing = songMissingTiers(player.current);
   if (!missing) return tierCache;
@@ -51,6 +54,7 @@ function availableTiers(): SparkleQualityTier[] {
 
 const snapshot = (s: Song | undefined | null): SparkleSongSnapshot | null => {
   if (!s) return null;
+  const local = isLocalSong(s) ? s.local : null;
   return {
     mid: s.mid,
     name: songTitle(s) || "未知歌曲",
@@ -58,6 +62,10 @@ const snapshot = (s: Song | undefined | null): SparkleSongSnapshot | null => {
     singer: (s.singer ?? []).map((x) => ({ name: stripEm(x.name ?? ""), mid: x.mid })).filter((x) => !!x.name),
     album: s.album ? { name: stripEm(s.album.name ?? ""), mid: s.album.mid, pmid: s.album.pmid } : undefined,
     interval: Number(s.interval ?? 0) || 0,
+    // 来源与本地封面：接管视图（Flowscape）据此收掉音质档位与红心、换同源封面。
+    // album.mid/pmid 是刮削命中的 QQ 侧信息，本地曲也照带 —— 命中的曲插件仍可回落 CDN 封面。
+    src: local ? (local.kind === "webdav" ? "nas" : "local") : "online",
+    ...(local ? { localCover: local.hasCover ? localCoverPath(local.id) : "" } : {}),
   };
 };
 
@@ -112,6 +120,9 @@ export function npViewCtx(): SparkleNpViewCtx {
 
     quality: () => effectiveQuality(),
     qualityLabel: () => {
+      // 本地/NAS：音质即文件本身，标签恒为「本地文件 / NAS 流」——
+      // lastStream 是全局的，刚切到本地曲的瞬间可能还挂着上一首在线曲的档，不能信
+      if (isLocalSong(player.current)) return localSongStreamUrl(player.current).label;
       const ls = getLastStream();
       return player.current && ls
         ? (ls.degraded ? "↓" : "") + (QUALITY_SHORT[ls.tier] ?? ls.label)
