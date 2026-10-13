@@ -13,6 +13,9 @@ export interface OfficialPluginMeta {
   author?: string;
   license?: string;
   description?: string;
+  /** true = 内置核心插件，**不可停用**：宿主启动强启、设置页开关锁死（见 init/host/settings）。
+   *  用于「宿主已没有它就没有可用实现」的插件（如 AMLL = 唯一歌词渲染器）。 */
+  required?: boolean;
 }
 
 export const OFFICIAL_META: OfficialPluginMeta[] = [
@@ -27,12 +30,17 @@ export const OFFICIAL_META: OfficialPluginMeta[] = [
   {
     id: "amll",
     name: "Apple Music-like Lyrics",
-    version: "1.2.0",
+    version: "1.3.0",
     author: "Team Quaver",
     license: "AGPL - v3",
-    description: "用 AMLL（applemusic-like-lyrics）渲染逐字歌词（QRC/TTML；翻译与音译共用歌词下方辅助行）",
+    description: "正在播放页的歌词渲染器：逐字（QRC/TTML）与行级（LRC）都由 AMLL 渲染；内置且不可停用",
+    required: true,
   },
 ];
+
+/** 内置必装（不可停用）的官方插件 id —— 唯一事实源，init/host/settings 都读这份 */
+export const SPARKLE_REQUIRED_IDS: readonly string[] = OFFICIAL_META.filter((m) => m.required).map((m) => m.id);
+export const isSparkleRequired = (id: string): boolean => SPARKLE_REQUIRED_IDS.includes(id);
 
 /** 官方插件模块加载表（vite 静态分析这些路径，各自成 chunk） */
 const OFFICIAL_LOADERS: Record<string, () => Promise<{ default: SparklePlugin }>> = {

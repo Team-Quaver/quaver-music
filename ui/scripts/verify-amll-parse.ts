@@ -64,8 +64,8 @@ const run = await page.evaluate(async (spec: any) => {
     romanOnly: shape(provider.parse(spec.mainQrc, "", spec.romaQrc)),
     // 两路都不给
     bare: shape(provider.parse(spec.mainQrc, "", "")),
-    // 普通 LRC 本体（无词级时间轴）→ 必须放弃，交回宿主行级
-    notKaraoke: provider.parse("[00:00.00]第一行\n[00:03.00]第二行", spec.transLrc, spec.romaLrc),
+    // 普通 LRC 本体（无词级时间轴）→ 行级行（单音节覆盖整行）也交给 AMLL 渲染
+    plainLrc: shape(provider.parse("[00:00.00]第一行\n[00:03.00]第二行", spec.transLrc, spec.romaLrc)),
   };
 }, {
   pluginUrl: PLUGIN,
@@ -96,8 +96,14 @@ check("bare：翻译与音译都是空串", run.bare.every((l: any) => l.trans =
 section("只给音译不给翻译（回落链的另一头）");
 check("romanOnly：翻译空、音译有", run.romanOnly[0]?.trans === "" && String(run.romanOnly[0]?.roman).includes("ni"), JSON.stringify(run.romanOnly[0]));
 
-section("非逐字内容必须放弃（交回宿主行级）");
-check("普通 LRC 本体 → parse 返回 null", run.notKaraoke === null);
+section("普通 LRC 也交给 AMLL（行级渲染）");
+check("LRC 本体 → 行级两行（单音节覆盖整行，不再回退宿主）",
+  run.plainLrc.length === 2 && run.plainLrc[0].text === "第一行" && run.plainLrc[1].text === "第二行", JSON.stringify(run.plainLrc));
+check("LRC 行级同样按时间就近挂辅助行（第 1 行翻译+音译）",
+  run.plainLrc[0].trans === "你好世界（译）" && String(run.plainLrc[0].roman).replace(/\s+/g, " ").trim() === "ni hao shi jie",
+  JSON.stringify(run.plainLrc[0]));
+check("LRC 第 2 行只给音译 → 翻译空、音译有",
+  run.plainLrc[1].trans === "" && run.plainLrc[1].roman === "di er hang", JSON.stringify(run.plainLrc[1]));
 check("过程无页面异常", pageErrors.length === 0, pageErrors.join(" | "));
 
 await browser.close();

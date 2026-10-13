@@ -1093,8 +1093,8 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
 .np-ly-line.cur .l1 { font-size: 1.176em; }
 .np-ly-empty { text-align: center; color: #fff8; font-size: 14px; padding: 60px 0; }
 
-/* —— 逐字歌词（Sparkle 逐字提供器接管 .np-kara-host，官方 amll 插件 = AMLL 渲染；行级列表隐藏；
-   开关在 设置-外观） —— 高亮色落在 AMLL 的 --amll-lp-color 上：当前 tint 色（--cvg-accent，
+/* —— 歌词（Sparkle 歌词提供器接管 .np-kara-host，内置 amll 插件 = AMLL 渲染逐字 QRC/TTML 与
+   行级 LRC；行级列表隐藏） —— 高亮色落在 AMLL 的 --amll-lp-color 上：当前 tint 色（--cvg-accent，
    色源与档位见 lib/tint.ts）统一掺白提亮（55% accent + 45% 白），保留色相的同时最坏情况也可读；
    --cvg-accent 注册过 @property 且 :root 上有 transition，跟随封面档换曲时扫色平滑跟随。
    Shadow 与行级当前句同款（text-shadow 可继承，主行/翻译一起吃到），压住深色遮罩上的发虚。 */
@@ -1106,7 +1106,9 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
   /* AMLL 主题变量：本页底色恒为深色遮罩，文字锚固定亮色而非 --ink（同 .np-menu 的口径）；
      字号沿用 AMLL 的视口基准（em 排版），下限贴近期旧的 20px 基准 */
   --amll-lp-color: color-mix(in srgb, var(--cvg-accent, var(--cyan)) 55%, #fff);
-  --amll-lp-font-size: clamp(18px, 3vh, 28px);
+  /* 字号 = 基准 × 宿主「歌词大小」系数（--np-ly-scale 由 NowPlaying 设在 .np 上，
+     这里继承得到）——LRC 与逐字都由 AMLL 渲染后，⋮ 菜单/Ctrl+滚轮 仍能缩放歌词 */
+  --amll-lp-font-size: calc(clamp(18px, 3vh, 28px) * var(--np-ly-scale, 1));
   --amll-lp-hover-bg-color: #ffffff1f;
 }
 .np.kara .np-lyrics { display: none; }

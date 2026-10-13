@@ -9,14 +9,15 @@
 // 翻阅是为了读别的行：浏览期间整列去模糊提亮（.browse），回跟随态平滑雾回。
 // 字号/行距 = ⋮ 菜单「歌词大小」−/+（或歌词上 Ctrl+滚轮、触控板捏合）调 --np-ly-scale：
 // 行内排版全走 em，字号与行距随同一系数缩放；改 font-size 不用 transform，任何档位都锐利。
-// 系数持久化在 Style.LyricScale；逐字（QRC/AMLL）模式有 AMLL 自己的排版，菜单行自动隐藏。
-// 逐字歌词（歌曲带 QRC 且开关开启）：Sparkle 逐字提供器（官方 amll 插件 = AMLL 渲染）
-// 接管同一列位（.np-kara-host），宿主只管容器与重建时机；停用插件即自动回退行级歌词。
-// 开关在插件的设置区（Sparkle tab → Apple Music-like Lyrics）；无逐字数据 / 无提供器 /
-// 开关关闭时维持原有行级高亮。
+// 系数持久化在 Style.LyricScale；行级与 AMLL（逐字/行级）两种模式都吃这一档（AMLL 走
+// .np-kara-host 的 --amll-lp-font-size = 基准 × --np-ly-scale）。
+// 歌词（逐字 QRC/TTML 与行级 LRC 都算）：Sparkle 歌词提供器（内置 amll 插件 = AMLL 渲染）
+// 接管同一列位（.np-kara-host），宿主只管容器与重建时机。amll 是内置不可停用的，
+// 正常情况下这一列恒为 AMLL；仅在无提供器 / 无歌词数据时回退到下面的行级高亮 DOM。
+// amll 无设置项：逐字扫色恒开，翻译/音译档位走本页 ⋮ 菜单。
 // 右侧 = 封面在上，歌名 / 「歌手 - 专辑」在下，文本右对齐且与封面右缘齐平；
 // 信息列下缘挂 ⋮ 更多选项（同名搜索 / 跳转歌手 / 跳转专辑 / 翻译选项（关闭·翻译·音译） /
-// 歌词大小 −/+ 步进，仅行级歌词时出现；也可在歌词上 Ctrl+滚轮/触控板捏合直接调）。
+// 歌词大小 −/+ 步进（行级与 AMLL 两种模式都出现）；也可在歌词上 Ctrl+滚轮/触控板捏合直接调）。
 // 背景 = 当前封面高斯模糊放大铺满（双层交叉淡化：新图解码完成后才淡入，换曲不闪主页面）
 // + 深色渐变压暗 + .np 固体底色兜底；进度与控制由常驻播放条承担。
 import { player, type Song } from "../player";
@@ -144,7 +145,7 @@ export function NowPlaying(): HTMLElement {
     if (run) b.onclick = () => collapseThenRun(run);
     return b;
   }
-  /** 逐字模式是否接管中（有逐字数据 + 提供器在位且启用）——菜单的歌词大小行据此显隐 */
+  /** 歌词接管模式是否生效（有解析出的行 + 提供器在位且启用）——菜单的歌词大小行据此显隐 */
   const karaModeNow = () => {
     const provider = sparkleKaraokeProvider();
     return player.karaoke.length > 0 && !!provider && (provider.enabled?.() ?? true);
@@ -208,9 +209,10 @@ export function NowPlaying(): HTMLElement {
     }
     syncAuxButtons();
     moreMenu.append(auxRow);
-    // 歌词大小：−/+ 步进（仅行级歌词就位时；逐字模式有 AMLL 自己的排版，不出现）。
-    // 菜单开着时 Ctrl+滚轮缩放 → zoomLyric 里的 syncSizeRow 会原地更新读数与禁用态。
-    if (!karaModeNow() && lineEls.length > 0) {
+    // 歌词大小：−/+ 步进（任何渲染模式下歌词就位时都出现 —— 行级与 AMLL 逐字/行级都吃
+    // --np-ly-scale，见 style.css 的 .np-kara-host）。菜单开着时 Ctrl+滚轮缩放 →
+    // zoomLyric 里的 syncSizeRow 会原地更新读数与禁用态。
+    if (player.lyrics.length > 0 || lineEls.length > 0) {
       const size = document.createElement("div");
       size.className = "np-menu-size";
       size.title = "也可在歌词上按住 Ctrl 滚轮（触控板捏合）调节";
@@ -352,7 +354,7 @@ export function NowPlaying(): HTMLElement {
   let lastCover: string | null = null; // 封面 img 的 src 签名（4Hz notify 里防 <img> 重建/重解码）
   let lineEls: HTMLElement[] = [];
 
-  // —— 逐字歌词（Sparkle 逐字提供器接管 .np-kara-host）——
+  // —— 歌词（Sparkle 提供器接管 .np-kara-host：AMLL 渲染逐字 QRC/TTML 与行级 LRC）——
   // notify 只有 4Hz，逐字扫色要逐帧时间：逐帧时钟/播放态/翻译显隐/收起冻结全部由
   // provider 的 render 自理（经 render ctx 闭包读到的永远是当前态）；宿主只管在
   // 换曲/歌词状态/逐字开关/提供器身份变化时清容器重挂。
@@ -406,7 +408,7 @@ export function NowPlaying(): HTMLElement {
   //    font-size 而非 transform，任何档位文字都锐利。⋮ 菜单「歌词大小」−/+ 与歌词上
   //    Ctrl+滚轮（触控板捏合同）共用一档；系数持久化 Style.LyricScale。菜单每次打开现建
   //    行 DOM（读数/禁用态即最新）；菜单开着时缩放（如 Ctrl+滚轮）由 syncSizeRow 原地跟随。
-  //    逐字（AMLL）模式有自己的排版变量，菜单行不出现。 ——
+  //    AMLL（.np-kara-host）同吃这一系数：字体基准 × --np-ly-scale，故菜单行两种模式都出现。 ——
   let lyScale = getLyricScale();
   el.style.setProperty("--np-ly-scale", lyScale.toFixed(2));
   function syncSizeRow() {
@@ -428,14 +430,17 @@ export function NowPlaying(): HTMLElement {
     if (!browsing) followCurrent(); // 行高变了：把当前句重新带回中心
   }
   let lastZoomAt = 0;
-  lyrics.addEventListener("wheel", (e) => {
-    if (!e.ctrlKey) return; // 普通滚轮走翻阅（上面的 passive 监听）
+  const onZoomWheel = (e: WheelEvent) => {
+    if (!e.ctrlKey) return; // 行级列上普通滚轮走翻阅（上面的 passive 监听）
     e.preventDefault();     // 先顶掉浏览器页面缩放；节流只影响步进不影响拦截
     const now = performance.now();
     if (now - lastZoomAt < 100) return; // 触控板捏合事件密集，节流成可控的档位步进
     lastZoomAt = now;
     zoomLyric(e.deltaY < 0 ? 1 : -1);   // 上滚放大
-  }, { passive: false });
+  };
+  // 行级列与 AMLL 容器都接：kara 模式下 .np-lyrics 是 display:none，滚轮事件落不到它上面。
+  lyrics.addEventListener("wheel", onZoomWheel, { passive: false });
+  karaHost.addEventListener("wheel", onZoomWheel, { passive: false });
 
   function followCurrent() {
     const line = lineEls[lastIdx];
@@ -588,7 +593,7 @@ export function NowPlaying(): HTMLElement {
     applyBg(pic);
     if (pic !== lastCover) { lastCover = pic; cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : `<div class="np-cover-ph">${icons.disc ?? ""}</div>`; }
 
-    // 换曲 / 歌词状态迁移 / 逐字模式切换（loading→ok/none 时行 DOM 需要重建，否则占位/歌词丢失）
+    // 换曲 / 歌词状态迁移 / 接管模式切换（loading→ok/none 时行 DOM 需要重建，否则占位/歌词丢失）
     const st: "idle" | "loading" | "ok" | "none" = player.lyrics.length ? "ok" : player.lyricState;
     const karaMode = karaModeNow();
     el.classList.toggle("kara", karaMode);

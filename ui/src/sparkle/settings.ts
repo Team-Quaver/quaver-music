@@ -15,7 +15,7 @@ import {
   disableSparklePlugin, enableSparklePlugin, sparkEnabledIds, sparkIsBroken,
 } from "./host";
 import {
-  listInstalledThirdParty, loadOfficial, loadThirdParty, OFFICIAL_META, validatePlugin,
+  isSparkleRequired, listInstalledThirdParty, loadOfficial, loadThirdParty, OFFICIAL_META, validatePlugin,
   type InstalledPlugin,
 } from "./loader";
 import { sparkIdBlacklisted, sparkRedflag } from "./policy";
@@ -276,9 +276,12 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     if (sparkIdBlacklisted(id)) return "已在 [Sparkle] Blacklist 黑名单里";
     return null;
   };
-  /** 预装行的锁只来自黑名单（安全模式不拦预装插件）。 */
+  /** 预装行的锁：黑名单，或内置必装插件（required，不可停用；安全模式不拦预装）。
+   *  黑名单优先回显 —— 那种情况下插件是真的没加载，显示「不可停用」会误导。 */
   const officialLock = (id: string): string | null =>
-    sparkIdBlacklisted(id) ? "已在 [Sparkle] Blacklist 黑名单里" : null;
+    sparkIdBlacklisted(id) ? "已在 [Sparkle] Blacklist 黑名单里"
+      : isSparkleRequired(id) ? "内置歌词渲染器，不可停用"
+        : null;
 
   /** 启停一个已装第三方插件（主题/插件/扩展三处标签共用同一套语义） */
   const toggleThird = async (inst: InstalledPlugin, on: boolean) => {
@@ -412,7 +415,8 @@ export function mountSparklePanel(section: HTMLElement): () => void {
       pluginRows.append(manageRow({
         ...meta, badge: { cls: "official", text: "预装" },
         enabled: enabled.has(meta.id), broken, lock: offLock,
-        showGear: !broken,
+        // 齿轮只在插件真的注册了设置区时出现（与第三方行同口径；amll 已无设置项）
+        showGear: !broken && sparkleSettingsSections().some((e) => e.pluginId === meta.id),
         pluginId: meta.id,
         onToggle: async (on) => {
           // UI 已锁，这里再兜一层（与 host 的中央闸口同口径）

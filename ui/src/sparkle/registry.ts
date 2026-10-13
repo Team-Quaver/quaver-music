@@ -297,7 +297,7 @@ export const sparkleNpWidgets = (): NpWidgetEntry[] => npWidgets;
  *  enabled() 由消费方（np-view.ts）每次 notify 重读，不在这里判。 */
 export const sparkleNpView = (): SparkleNpView | null => npViews[0]?.view ?? null;
 export const sparkleStreamSources = (): SparkleStreamSource[] => streamSources.map((e) => e.source);
-/** 逐字歌词提供器（首个注册者；无 = 宿主走纯 LRC 行级歌词） */
+/** 歌词渲染提供器（首个注册者；无 = 宿主走内置行级歌词 DOM，如 amll 缺席时的兜底） */
 export const sparkleKaraokeProvider = (): SparkleKaraokeProvider | null => karaokeProviders[0]?.provider ?? null;
 
 /** 三处菜单追加项共用的求值：函数型条目按当时上下文现算；单个插件抛错只丢它那一项，
