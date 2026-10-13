@@ -47,6 +47,26 @@ pnpm run typecheck:node  # Node 侧，迁移中：尚未清零，不作闸门
 - `/api/*` 由 `src/relay.ts`（vite 插件中间件，dev 与 preview 都挂）转发 sidecar :3200 —— 纯透传 +
   封面取色代理；凭证只在主进程与 sidecar 之间流转（**永不进渲染层、也永不落明文**，见下节）。
 
+## 启动闪屏（splash）
+
+主窗**先建、后等后端**：`createWindow` 一建窗就装载闪屏页（`data:` URL，零依赖、秒出画面），
+sidecar 健康检查（最长 15s）与服务端就绪在后台进行；闪屏至少演完一遍全程（`SPLASH_MIN_MS`，
+含底部署名）后淡出，随即导航到应用。**闪屏盖的是主程序自己的窗口**——同窗、同尺寸、同底色，
+不是居中独立小窗。重建窗口（cachedUrl）与集成测试（QUAVER_URL）走 warmBoot，不放闪屏。
+
+- 真相分三处：`electron/splash.ts`（loadSplash/dismissSplash；零 electron 值导入，裸 node 可载）、
+  `electron/splash-page.ts`（模板拼装 / 图标 C2PA 元数据剥离 / 时序常量，纯逻辑）、
+  `electron/splash.html`（模板，`__ICON__`/`__THEME__` 两枚占位）。
+- 动画四段全在 CSS（居中淡入 → 左移 → 字标 → 底部「Built by Team Quaver」）；左移量 `--shift`
+  由页内脚本用 `offsetWidth` 实测（布局量、不吃 transform），图标从画面正中出发、落回布局位不跳；
+  `prefers-reduced-motion` 降级为纯淡入。
+- **底色四方同源**：`SPLASH_BG_DARK/LIGHT` ⇄ `splash.html --bg` ⇄ 主窗 `backgroundColor` ⇄
+  `style.css --bg`——交接是同一个窗口亮起内容，改任何一处都要对齐其余（verify-splash 逐字核对）。
+- **闪屏绝不阻断启动**：模板/素材/拼装任一失败 = 记日志跳过；图标缺失 = 仅字标降级。
+  `did-finish-load` 按 `data:` 分流（闪屏不算应用加载完成）；`did-fail-load` 忽略 `-3`
+  （闪屏→应用的导航掐掉上一帧在途加载属正常时序）。
+- 验证：`node scripts/verify-splash.ts`（已进 `verify:static`）。
+
 ## 凭证存储（系统密钥管理器）
 
 真相在 `electron/keyring.ts`（零依赖、不 import electron，可单测）。三条硬约束：

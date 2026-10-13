@@ -24,6 +24,8 @@ import { readMacShellTheme, readSystemTheme, readWindowsShellTheme, watchMacShel
 import { TRAY_ICON_PT, trayIconFile } from "./tray-icon.ts";
 // 托盘菜单的曲目标题行：成型 + 按显示列宽截断（纯逻辑，见模块头 —— 原生菜单不折行，长歌名会撑宽菜单）
 import { trayTitleLine } from "./tray-title.ts";
+// 启动闪屏：sidecar/服务端就绪前的空窗期由它顶着（模块头有完整时序说明）
+import { dismissSplash, loadSplash } from "./splash.ts";
 // Linux 桌面集成自装（<app_id>.desktop 身份文件 + hicolor 图标）：各桌面/门户按 app_id 反查
 // 桌面文件取图标，AppImage 裸跑与开发态都没人代劳，必须自己装（模块头有完整链路说明）
 import { DESKTOP_ID, installLinuxDesktopIntegration, quoteExecPath } from "./linux-desktop.ts";
@@ -590,6 +592,83 @@ function serveStatic() {
 }
 
 async function createWindow() {
+  // —— ① 先建窗、后等后端：窗口一建好就有画面，空窗期（sidecar 解包 + 服务端就绪，最长 15s）
+  // 由同窗闪屏盖住（splash.ts）—— 闪屏是主程序自己的窗口亮起的内容：同尺寸、同底色、同装饰，
+  // 交接发生在同一个窗口里，不是居中悬浮的独立小窗。闪屏只给冷启动路径：重建窗口（cachedUrl）
+  // 与集成测试（QUAVER_URL）没有慢空窗，不放。
+  const warmBoot = !!cachedUrl || !!process.env.QUAVER_URL;
+  win = new BrowserWindow({
+    width: 1280,
+    height: 840,
+    minWidth: 760,   // 布局已适配窄窗（搜索框独立顶带 + 播放条流内收缩），半屏吸附不再挤压重叠
+    minHeight: 520,   // 播放条为 .frame 流内固定行：任何高度下都占位可见
+    frame: decorMode === "ssd", // CSD=无原生标题栏（右上角按钮簇）；SSD=系统标题栏
+    backgroundColor: bootDark ? "#131417" : "#f7f7f8", // 同 style.css 的 --bg 明暗两值
+    title: "Quaver Music",
+    icon: buildRes("icon.png"), // X11 窗口图标（_NET_WM_ICON）；Wayland 的图标走 app_id → 桌面文件 → hicolor（见 linux-desktop 自装）
+    webPreferences: {
+      preload: join(__dirname, "preload.cts"),
+      contextIsolation: true,
+      sandbox: false, // preload 只用 ipcRenderer/contextBridge；Linux chrome-sandbox 权限链路复杂，先绕开
+    },
+  });
+  // —— 关闭浏览器式「全局导航」（中键不许跳转/开新窗口）——
+  // 应用内跳转只有两条正路：渲染层 hash 路由（不经过 will-navigate）与登录流程的
+  // 同 origin 整页 location.href。其余浏览器级导航一律关死：
+  //   • 中键/Ctrl+点击链接、window.open、target=_blank —— Electron 缺省会弹一个
+  //     新 BrowserWindow（「中键打开新窗口」的来源），setWindowOpenHandler 一律拒绝；
+  //   • 离开应用 origin 的顶层导航（拖文件进窗、误触 form 提交等）—— will-navigate 拦下。
+  // 渲染层还有一份中键就地拦截（src/main.ts）：浏览器 dev 态没有主进程兜底，靠那份生效。
+  win.webContents.setWindowOpenHandler(({ url: openUrl }) => {
+    log("[quaver] 已拒绝新窗口请求:", openUrl);
+    return { action: "deny" };
+  });
+  // Crotchet：渲染层日志并入同一份文件（console-message 的参数对象形态，Electron 35+）
+  if (CROTCHET) {
+    win.webContents.on("console-message", (details) => {
+      log(`[renderer:${details?.level ?? "info"}]`, details?.message ?? "", details?.sourceId ? `(${details.sourceId}:${details.lineNumber})` : "");
+    });
+    win.webContents.on("preload-error", (_e, path, err) => log("[renderer:preload-error]", path, String(err)));
+    win.webContents.on("render-process-gone", (_e, gone) => log("[renderer:gone]", JSON.stringify(gone)));
+  }
+  // 闪屏的 data: 载入同样路过 did-finish-load：按 URL 分流，别把闪屏报成应用
+  win.webContents.on("did-finish-load", () => {
+    if ((win?.webContents.getURL() ?? "").startsWith("data:")) return;
+    log("[quaver] page loaded OK");
+  });
+  // -3 = ERR_ABORTED：闪屏→应用的导航会主动掐掉上一帧的在途加载，属正常时序，不是故障
+  win.webContents.on("did-fail-load", (_e, code, desc) => { if (code !== -3) log("[quaver] load FAIL", code, desc); });
+  win.on("close", (e) => {
+    // 缩放到托盘：任何路径的 close（按钮簇✕/系统标题栏✕/Alt+F4）都改 hide；
+    // 重建窗口（decor 切换）、真退出（托盘菜单/quit 行为）时放行。
+    // 注意不因 tray 创建失败而放行 close：隐藏窗口仍可靠 second-instance/MPRIS raise 找回。
+    if (closeAction === "tray" && !quitting && !rebuilding) {
+      e.preventDefault();
+      winShown = false;
+      win?.hide();
+      log("[quaver] close -> hide (tray:", tray ? "ok" : "MISSING", ")");
+    }
+  });
+  win.on("show", () => (winShown = true));
+  win.on("hide", () => (winShown = false));
+  win.on("closed", () => (win = null));
+  // 全屏态广播（画廊模式据此回同步；WM 手势/快捷键进出全屏同样送达渲染层）
+  win.on("enter-full-screen", () => win?.webContents.send("quaver:fullscreen-state", true));
+  win.on("leave-full-screen", () => win?.webContents.send("quaver:fullscreen-state", false));
+  if (!warmBoot) {
+    // 素材候选按态排序：打包态 dist/（public 随构建进 dist）→ 开发态 public/ → 仓库 img/
+    loadSplash(win, {
+      dark: bootDark,
+      iconCandidates: [
+        join(DIST, "quaver-icon-dark.svg"),
+        join(UI_ROOT, "public", "quaver-icon-dark.svg"),
+        join(UI_ROOT, "img", "quaver-icon-dark.svg"),
+      ],
+      log,
+    });
+  }
+
+  // —— ② 慢路径（闪屏全程在画面顶上）：sidecar 健康 + 服务端就绪 ——
   let url = cachedUrl;
   if (!url) {
   log("[quaver] module loaded; dist exists:", existsSync(join(DIST, "index.html")));
@@ -624,73 +703,23 @@ async function createWindow() {
   }
   cachedUrl = url;
   }
+
   if (process.env.QUAVER_URL) url = process.env.QUAVER_URL; // 集成测试：指向 vite dev server（含 __quaverPlayer 钩子）
   // 引擎拿真实加载地址的 origin 做流中继（幂等：重建窗口只刷新引用与 baseUrl）
   try {
     audioEngine.init({ baseUrl: new URL(url).origin, getWin: () => win, log });
   } catch (e) { log("[quaver] audio engine init failed:", String(e)); }
-  log("[quaver] loading", url);
-
-  win = new BrowserWindow({
-    width: 1280,
-    height: 840,
-    minWidth: 760,   // 布局已适配窄窗（搜索框独立顶带 + 播放条流内收缩），半屏吸附不再挤压重叠
-    minHeight: 520,   // 播放条为 .frame 流内固定行：任何高度下都占位可见
-    frame: decorMode === "ssd", // CSD=无原生标题栏（右上角按钮簇）；SSD=系统标题栏
-    backgroundColor: bootDark ? "#131417" : "#f7f7f8", // 同 style.css 的 --bg 明暗两值
-    title: "Quaver Music",
-    icon: buildRes("icon.png"), // X11 窗口图标（_NET_WM_ICON）；Wayland 的图标走 app_id → 桌面文件 → hicolor（见 linux-desktop 自装）
-    webPreferences: {
-      preload: join(__dirname, "preload.cts"),
-      contextIsolation: true,
-      sandbox: false, // preload 只用 ipcRenderer/contextBridge；Linux chrome-sandbox 权限链路复杂，先绕开
-    },
-  });
-  // —— 关闭浏览器式「全局导航」（中键不许跳转/开新窗口）——
-  // 应用内跳转只有两条正路：渲染层 hash 路由（不经过 will-navigate）与登录流程的
-  // 同 origin 整页 location.href。其余浏览器级导航一律关死：
-  //   • 中键/Ctrl+点击链接、window.open、target=_blank —— Electron 缺省会弹一个
-  //     新 BrowserWindow（「中键打开新窗口」的来源），setWindowOpenHandler 一律拒绝；
-  //   • 离开应用 origin 的顶层导航（拖文件进窗、误触 form 提交等）—— will-navigate 拦下。
-  // 渲染层还有一份中键就地拦截（src/main.ts）：浏览器 dev 态没有主进程兜底，靠那份生效。
   const appOrigin = new URL(url).origin;
-  win.webContents.setWindowOpenHandler(({ url: openUrl }) => {
-    log("[quaver] 已拒绝新窗口请求:", openUrl);
-    return { action: "deny" };
-  });
   win.webContents.on("will-navigate", (e, navUrl) => {
     try { if (new URL(navUrl).origin === appOrigin) return; } catch {}
     e.preventDefault();
     log("[quaver] 已拦截页面跳转:", navUrl);
   });
+  // —— ③ 交接：闪屏至少演完一遍全程（含底部「Built by Team Quaver」），淡出与导航并行。
+  // 应用是本地服务，提交通常快于淡出收尾；万一先提交也只是硬切，闪屏永不挡已就绪的应用。 ——
+  log("[quaver] loading", url);
+  await dismissSplash(win);
   win.loadURL(url);
-  // Crotchet：渲染层日志并入同一份文件（console-message 的参数对象形态，Electron 35+）
-  if (CROTCHET) {
-    win.webContents.on("console-message", (details) => {
-      log(`[renderer:${details?.level ?? "info"}]`, details?.message ?? "", details?.sourceId ? `(${details.sourceId}:${details.lineNumber})` : "");
-    });
-    win.webContents.on("preload-error", (_e, path, err) => log("[renderer:preload-error]", path, String(err)));
-    win.webContents.on("render-process-gone", (_e, gone) => log("[renderer:gone]", JSON.stringify(gone)));
-  }
-  win.webContents.on("did-finish-load", () => log("[quaver] page loaded OK"));
-  win.webContents.on("did-fail-load", (_e, code, desc) => log("[quaver] load FAIL", code, desc));
-  win.on("close", (e) => {
-    // 缩放到托盘：任何路径的 close（按钮簇✕/系统标题栏✕/Alt+F4）都改 hide；
-    // 重建窗口（decor 切换）、真退出（托盘菜单/quit 行为）时放行。
-    // 注意不因 tray 创建失败而放行 close：隐藏窗口仍可靠 second-instance/MPRIS raise 找回。
-    if (closeAction === "tray" && !quitting && !rebuilding) {
-      e.preventDefault();
-      winShown = false;
-      win?.hide();
-      log("[quaver] close -> hide (tray:", tray ? "ok" : "MISSING", ")");
-    }
-  });
-  win.on("show", () => (winShown = true));
-  win.on("hide", () => (winShown = false));
-  win.on("closed", () => (win = null));
-  // 全屏态广播（画廊模式据此回同步；WM 手势/快捷键进出全屏同样送达渲染层）
-  win.on("enter-full-screen", () => win?.webContents.send("quaver:fullscreen-state", true));
-  win.on("leave-full-screen", () => win?.webContents.send("quaver:fullscreen-state", false));
 }
 
 // ——— quaver.conf 读写桥 ———
