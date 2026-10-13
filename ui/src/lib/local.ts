@@ -51,8 +51,13 @@ export interface LocalTrackView {
   size: number;
   mtime: number;
   tagSource: string;
+  /** 手动导入歌词的格式（lrc/qrc/ttml）；lyricSource==="import" 时有意义 */
+  importFormat: string;
+  /** 封面是用户导入的（重扫不覆盖）/ 曲名歌手专辑被用户校正过（刮削不回填） */
+  coverManual: boolean;
+  editedMeta: boolean;
   coverRel: string;
-  lyricSource: "" | "file" | "embed" | "qq";
+  lyricSource: "" | "file" | "embed" | "qq" | "import";
   lyricRel: string;
   match: LocalMatchView | null;
 }
@@ -178,6 +183,59 @@ export async function triggerScrape(opts: { ids?: string[]; all?: boolean; force
   return r;
 }
 
+// —— 手动导入 / 元数据校正（右键「导入 / 重新设置刮削信息」的消费面）——
+
+/** <input type=file> 选一个文件；用户取消 → null。Electron 渲染层与浏览器同一条路。 */
+export function pickFile(accept: string): Promise<File | null> {
+  return new Promise((resolve) => {
+    const inp = document.createElement("input");
+    inp.type = "file";
+    inp.accept = accept;
+    inp.style.cssText = "position:fixed;left:-9999px;top:0";
+    let done = false;
+    const fin = (v: File | null) => { if (done) return; done = true; inp.remove(); resolve(v); };
+    inp.onchange = () => fin(inp.files?.[0] ?? null);
+    // Chromium ≥ 113：文件选择对话框取消会派发 cancel 事件（Electron 44 内核满足）
+    inp.addEventListener("cancel", () => fin(null));
+    document.body.append(inp);
+    inp.click();
+  });
+}
+
+export async function fileToBase64(file: File): Promise<string> {
+  const buf = new Uint8Array(await file.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < buf.length; i += 8192) bin += String.fromCharCode(...buf.subarray(i, i + 8192));
+  return btoa(bin);
+}
+
+export async function importLocalLyric(id: string, file: File): Promise<{ format: string; chars: number }> {
+  const r = await api<{ format: string; chars: number }>("/local/lyric/import", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id, name: file.name, data: await fileToBase64(file) }),
+  });
+  await loadLocalLibrary(true);
+  return r;
+}
+
+export async function importLocalCover(id: string, file: File): Promise<void> {
+  await api("/local/cover/import", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id, name: file.name, data: await fileToBase64(file) }),
+  });
+  await loadLocalLibrary(true);
+}
+
+export async function setLocalMeta(id: string, meta: { title: string; artist: string; album: string }): Promise<void> {
+  await api("/local/meta/set", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, ...meta }) });
+  await loadLocalLibrary(true);
+}
+
+export async function revertLocalLyric(id: string): Promise<void> {
+  await api(`/local/lyric/import/${encodeURIComponent(id)}`, { method: "DELETE" });
+  await loadLocalLibrary(true);
+}
+
 // —— Song 转换 ——
 
 export interface LocalSongFingerprint {
@@ -190,6 +248,9 @@ export interface LocalSongFingerprint {
   /** 刮削命中的 QQ 曲目 mid：非空 = 播放时**优先走在线 QRC 逐字歌词管线**
    *  （/song/<qqMid>/lyric?qrc=1，翻译/音译同取），拉不到内容再落回本地通路。 */
   qqMid: string;
+  /** 用户手动导入了歌词文件（QRC/TTML/LRC）：显式意图压过在线 QRC —— fetchLyric
+   *  跳过在线管线，直接吃 /local/lyric（import 恒第一优先）。 */
+  lyricImport: boolean;
 }
 
 /** 本地曲目的指纹挂在 Song.local 上：mid 只是稳定 key，取流/封面/歌词全认 id。 */
@@ -217,6 +278,7 @@ export function trackToSong(t: LocalTrackView, snapshotSources?: LocalSourceView
       path: (kind === "webdav" ? (src?.name ?? "NAS") + " · " : "") + t.relPath,
       sourceName: src?.name ?? "",
       qqMid: t.match?.qqMid ?? "",
+      lyricImport: t.lyricSource === "import",
     },
   } as SongWithLocal;
 }

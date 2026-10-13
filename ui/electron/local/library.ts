@@ -66,7 +66,7 @@ export interface LocalMatch {
   scrapedAt: number;
 }
 
-export type LyricSourceKind = "" | "file" | "embed" | "qq";
+export type LyricSourceKind = "" | "file" | "embed" | "qq" | "import";
 
 export interface LocalTrack {
   id: string;
@@ -90,9 +90,16 @@ export interface LocalTrack {
   tagSource: TagSource;
   /** 封面文件（相对 local-library/ 的路径），空 = 无 */
   coverRel: string;
-  /** 歌词来源标记；"file" 时 lyricRel 指 sidecar .lrc 的源相对路径 */
+  /** 歌词来源标记；"file" 时 lyricRel 指 sidecar .lrc 的源相对路径。
+   *  "import" = 用户手动导入的歌词（最高优先，扫描/重扫不许冲掉），
+   *  原文落 lyrics/<id>.import，importFormat 记 lrc/qrc/ttml 供渲染层选解析路。 */
   lyricSource: LyricSourceKind;
   lyricRel: string;
+  importFormat: string;
+  /** 封面是用户手动导入的：重扫抽到内嵌图也不许覆盖 */
+  coverManual: boolean;
+  /** 曲名/歌手/专辑被用户手动校正过：在线刮削不再回填覆盖展示信息 */
+  editedMeta: boolean;
   match: LocalMatch | null;
 }
 
@@ -444,7 +451,10 @@ async function materializeTrack(args: {
   const embedLyricOld = prev?.lyricSource === "embed";
 
   let coverRel = "";
-  if (tags.picture && tags.picture.data.length >= 64 && tags.picture.data.length <= 20 * 1024 * 1024) {
+  if (prev?.coverManual && coverRelOld && existsSync(join(libRoot(), coverRelOld))) {
+    // 手动导入的封面最高优先：重扫抽到内嵌图也不动它
+    coverRel = coverRelOld;
+  } else if (tags.picture && tags.picture.data.length >= 64 && tags.picture.data.length <= 20 * 1024 * 1024) {
     coverRel = `covers/${id}.${pictureExt(tags.picture)}`;
     writeFilePrivate(join(libRoot(), coverRel), tags.picture.data, 0o600);
   } else if (isQqCover && existsSync(join(coversDir(), `${id}.jpg`))) {
@@ -454,7 +464,7 @@ async function materializeTrack(args: {
   if (coverRelOld && coverRelOld !== coverRel) {
     try { rmSync(join(libRoot(), coverRelOld)); } catch { /* 尽力 */ }
   }
-  if (!isQqCover && coverRel !== `covers/${id}.jpg`) {
+  if (!isQqCover && !prev?.coverManual && coverRel !== `covers/${id}.jpg`) {
     try { rmSync(join(coversDir(), `${id}.jpg`)); } catch { /* QQ 件不再被引用：清掉防孤儿 */ }
   }
 
@@ -471,7 +481,13 @@ async function materializeTrack(args: {
 
   let lyricSource: LyricSourceKind = "";
   let lyricRel = "";
-  if (sidecarLrc) { lyricSource = "file"; lyricRel = sidecarLrc.rel; }
+  let importFormat = prev?.importFormat ?? "";
+  let coverManual = prev?.coverManual ?? false;
+  const editedMeta = prev?.editedMeta ?? false;
+  if (prev?.lyricSource === "import" && existsSync(join(lyricsDir(), `${id}.import`))) {
+    // 手动导入的歌词赢过一切自动来源（重扫/换文件都不冲掉，是用户的显式意图）
+    lyricSource = "import";
+  } else if (sidecarLrc) { lyricSource = "file"; lyricRel = sidecarLrc.rel; }
   else if (tags.lyrics.trim()) { lyricSource = "embed"; lyricRel = lyricFileRel; }
   else if (keepMatch && match?.lyricQq && existsSync(join(libRoot(), qqSidecar))) { lyricSource = "qq"; }
 
@@ -481,7 +497,7 @@ async function materializeTrack(args: {
     album: tags.album, year: tags.year, genre: tags.genre, trackNo: tags.trackNo, discNo: tags.discNo,
     durationSec: Math.round(tags.durationSec * 10) / 10, bitrateKbps: tags.bitrateKbps,
     size, mtime, tagSource: tags.tagSource,
-    coverRel, lyricSource, lyricRel,
+    coverRel, lyricSource, lyricRel, importFormat, coverManual, editedMeta,
     match: keepMatch && match ? match : null,
   };
 }
@@ -633,7 +649,7 @@ function rel0(abs: string, root: string): string {
 const toPosix = (p: string) => p.split(sep).join("/");
 
 function dropTrackAssets(id: string, t: LocalTrack): void {
-  for (const rel of [t.coverRel, `lyrics/${id}.txt`, `lyrics/${id}.json`]) {
+  for (const rel of [t.coverRel, `lyrics/${id}.txt`, `lyrics/${id}.json`, `lyrics/${id}.import`]) {
     if (!rel) continue;
     try { rmSync(join(libRoot(), rel)); } catch { /* 尽力 */ }
   }
@@ -795,8 +811,9 @@ async function scrapeTrack(t: LocalTrack, force: boolean): Promise<ScrapeOutcome
     } catch { /* 网络图失败：继续 */ }
   }
 
-  // 标签回填：文件本身没标签（filename 兜底）时，展示信息整体交给在线结果
-  const tagWasGuess = t.tagSource === "filename" || t.tagSource === "none";
+  // 标签回填：文件本身没标签（filename 兜底）时，展示信息整体交给在线结果；
+  // 但用户手动校正过（track/edit 置 editedMeta）的字段是权威 —— 只借匹配拿 id/封面/词，不改写展示。
+  const tagWasGuess = (t.tagSource === "filename" || t.tagSource === "none") && !t.editedMeta;
   if (tagWasGuess) {
     t.title = best.title || best.name || t.title;
     t.artist = (best.singer ?? []).map((s) => s?.name).filter(Boolean).join(" / ") || t.artist;
@@ -821,7 +838,39 @@ async function scrapeTrack(t: LocalTrack, force: boolean): Promise<ScrapeOutcome
   return "matched";
 }
 
-// ———————————————————————————————————————————— 歌词解析（file > qq > embed） ————————————————————————————————————————————
+// ———————————————————————————————————————————— 手动导入：base64 / 格式嗅探 ————————————————————————————————————————————
+
+/** 解 base64 并卡体积；非法输入返回 null（渲染层 FileReader 产物就一条通路，宽容到能忍空白）。 */
+function decodeBase64Cap(data: string, cap: number): Buffer | null {
+  const raw = data.replace(/\s+/g, "").replace(/^data:[^,]*,/, "");
+  if (!raw || raw.length > Math.ceil((cap * 4) / 3) + 8) return null;
+  let buf: Buffer;
+  try { buf = Buffer.from(raw, "base64"); } catch { return null; }
+  if (!buf.length || buf.length > cap) return null;
+  return buf;
+}
+
+/** 歌词格式判定：先看内容特征，文件名只当辅助证据。 */
+export function sniffLyricFormat(text: string, name = ""): "lrc" | "qrc" | "ttml" {
+  const c = text.slice(0, 4096);
+  if (/<tt[\s>]|<ttml|xmlns="[^"]*ttml/i.test(c)) return "ttml";
+  if (/<QrcInfos|<LyricInfo|<LyricContent|<\/?[wW]\b[^>]*>|^\[\d{1,3},\d+\]/m.test(c)) return "qrc";
+  const ext = name.toLowerCase().slice(name.lastIndexOf("."));
+  if (ext === ".ttml" || ext === ".xml" && /ttml/i.test(text)) return "ttml";
+  if (ext === ".qrc") return "qrc";
+  return "lrc";
+}
+
+/** 图片魔数判格式（只认四种，与内嵌封面通路同一套落盘名 covers/<id>.<ext>）。 */
+export function imageFormat(b: Buffer): string {
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8) return "jpg";
+  if (b.length >= 4 && b[0] === 0x89 && b.toString("latin1", 1, 4) === "PNG") return "png";
+  if (b.length >= 6 && ["GIF87a", "GIF89a"].includes(b.toString("latin1", 0, 6))) return "gif";
+  if (b.length >= 12 && b.toString("latin1", 0, 4) === "RIFF" && b.toString("latin1", 8, 12) === "WEBP") return "webp";
+  return "";
+}
+
+// ———————————————————————————————————————————— 歌词解析（import > file > qq > embed） ————————————————————————————————————————————
 
 /** 尽力解码 LRC：UTF-8/BOM → GBK → latin1。GBK 依赖 Node 的 full-icu TextDecoder。 */
 export function decodeLrc(buf: Buffer): string {
@@ -832,13 +881,25 @@ export function decodeLrc(buf: Buffer): string {
   return buf.toString("latin1");
 }
 
-async function resolveLyric(t: LocalTrack, src: LocalSource): Promise<{ lyric: string; trans: string; roma: string; source: string }> {
+async function resolveLyric(t: LocalTrack, src: LocalSource): Promise<{ lyric: string; trans: string; roma: string; source: string; format: string }> {
   let qq: { lyric?: string; trans?: string; roma?: string } | null = null;
   try {
     const p = join(lyricsDir(), `${t.id}.json`);
     if (existsSync(p)) qq = JSON.parse(readFileSync(p, "utf8"));
   } catch { qq = null; }
-  const main = { lyric: "", trans: qq?.trans ?? "", roma: qq?.roma ?? "", source: "" };
+  const main = { lyric: "", trans: qq?.trans ?? "", roma: qq?.roma ?? "", source: "", format: "lrc" };
+  // ① 手动导入件恒胜（渲染层按 format 选解析路：lrc 直读；qrc/ttml 交逐字提供器或行级兜底转换）
+  if (t.lyricSource === "import") {
+    try {
+      const p = join(lyricsDir(), `${t.id}.import`);
+      if (existsSync(p) && statSync(p).size <= 512 * 1024) {
+        main.lyric = readFileSync(p, "utf8");
+        main.source = "import";
+        main.format = t.importFormat || sniffLyricFormat(main.lyric);
+        return main;
+      }
+    } catch { /* 文件被清：继续走自动链 */ }
+  }
   if (t.lyricSource === "file" && t.lyricRel) {
     try {
       if (src.kind === "folder") {
@@ -1168,6 +1229,86 @@ export async function handleLocalApi(req: IncomingMessage, res: ServerResponse, 
   }
   if (req.method === "GET" && path === "scrape") { json(res, scrapeState); return true; }
 
+  // —— POST /api/local/lyric/import {id, name, data(base64)} ——
+  // 手动导入歌词（QRC / TTML / LRC）：用户的显式意图，压过一切自动来源（见 materializeTrack 的保序）。
+  // 内容按字节嗅探格式，文本解码走 decodeLrc（UTF-8/BOM/GBK 一路兜底）。
+  if (req.method === "POST" && path === "lyric/import") {
+    const body = await readJsonBody(req).catch(() => null);
+    const t = body && TRACK_ID_RE.test(String(body.id)) ? loadDb().tracks[String(body.id)] : null;
+    if (!t) { jsonErr(res, 404, "曲目不在库中"); return true; }
+    const buf = decodeBase64Cap(String(body!.data ?? ""), 512 * 1024);
+    if (!buf) { jsonErr(res, 413, "歌词文件过大（上限 512KB）或非 base64"); return true; }
+    const text = decodeLrc(buf).replace(/\r\n/g, "\n").trim();
+    if (!text) { jsonErr(res, 422, "歌词文件是空的"); return true; }
+    ensureLibDirs();
+    const format = sniffLyricFormat(text, String(body!.name ?? ""));
+    writeFilePrivate(join(lyricsDir(), `${t.id}.import`), text, 0o600);
+    t.lyricSource = "import";
+    t.importFormat = format;
+    saveDb();
+    json(res, { track: t, format, chars: text.length });
+    return true;
+  }
+
+  // —— POST /api/local/cover/import {id, name, data(base64)} ——
+  if (req.method === "POST" && path === "cover/import") {
+    const body = await readJsonBody(req).catch(() => null);
+    const t = body && TRACK_ID_RE.test(String(body.id)) ? loadDb().tracks[String(body.id)] : null;
+    if (!t) { jsonErr(res, 404, "曲目不在库中"); return true; }
+    const buf = decodeBase64Cap(String(body!.data ?? ""), 8 * 1024 * 1024);
+    const ext = buf ? imageFormat(buf) : "";
+    if (!buf || !ext) { jsonErr(res, 422, "封面图不合法（只认 jpg/png/gif/webp，上限 8MB）"); return true; }
+    ensureLibDirs();
+    const old = t.coverRel;
+    t.coverRel = `covers/${t.id}.${ext}`;
+    writeFilePrivate(join(libRoot(), t.coverRel), buf, 0o600);
+    t.coverManual = true;
+    if (old && old !== t.coverRel) { try { rmSync(join(libRoot(), old)); } catch { /* 尽力 */ } }
+    saveDb();
+    json(res, { track: t });
+    return true;
+  }
+
+  // —— POST /api/local/meta/set {id, title?, artist?, album?} ——
+  // 重新设置「刮削用的曲名/歌手/专辑」：展示与在线搜索都吃这份用户校正；
+  // editedMeta 标记让 scrapeTrack 的回填不再覆盖（匹配仍借 search 拿 qqMid/词/封面）。
+  if (req.method === "POST" && path === "meta/set") {
+    const body = await readJsonBody(req).catch(() => null);
+    const t = body && TRACK_ID_RE.test(String(body.id)) ? loadDb().tracks[String(body.id)] : null;
+    if (!t) { jsonErr(res, 404, "曲目不在库中"); return true; }
+    const clean = (v: unknown) => String(v ?? "").trim().slice(0, 200);
+    const title = clean(body?.title); const artist = clean(body?.artist); const album = clean(body?.album);
+    if (!title && !artist && !album) { jsonErr(res, 422, "至少填一项（曲名/歌手/专辑）"); return true; }
+    if (title) t.title = title;
+    if (artist) t.artist = artist;
+    if (album) t.album = album;
+    t.editedMeta = true;
+    saveDb();
+    json(res, { track: t });
+    return true;
+  }
+
+  // —— DELETE /api/local/lyric/import/<id> ——（撤销导入：回到自动来源链）
+  m = /^lyric\/import\/(t_[0-9a-f]{12})$/.exec(path);
+  if (m && req.method === "DELETE") {
+    const t = loadDb().tracks[m[1]];
+    if (!t) { jsonErr(res, 404, "曲目不在库中"); return true; }
+    try { rmSync(join(lyricsDir(), `${t.id}.import`)); } catch { /* 本就没有 */ }
+    if (t.lyricSource === "import") {
+      t.importFormat = "";
+      // 撤销导入 = 交还给自动来源链（按现存资产逐档回退；webdav 的 .lrc 以扫描记录为准不再探活）
+      const src = loadDb().sources.find((x) => x.id === t.sourceId);
+      const lrcBack = !!t.lyricRel && !!src && (src.kind === "webdav" || existsSync(join(src.path ?? "", t.lyricRel)));
+      if (lrcBack) t.lyricSource = "file";
+      else if (existsSync(join(lyricsDir(), `${t.id}.json`))) t.lyricSource = "qq";
+      else if (existsSync(join(lyricsDir(), `${t.id}.txt`))) t.lyricSource = "embed";
+      else t.lyricSource = "";
+    }
+    saveDb();
+    json(res, { track: t });
+    return true;
+  }
+
   // —— GET /api/local/stream/<id>（含 HEAD）——
   m = /^stream\/(t_[0-9a-f]{12})$/.exec(path);
   if (m && (req.method === "GET" || req.method === "HEAD")) {
@@ -1200,7 +1341,8 @@ export async function handleLocalApi(req: IncomingMessage, res: ServerResponse, 
     if (!file.startsWith(libRoot()) || !existsSync(file)) { jsonErr(res, 404, "封面无副本"); return true; }
     res.statusCode = 200;
     res.setHeader("content-type", mimeByExt(t.coverRel));
-    res.setHeader("cache-control", "public, max-age=3600");
+    // no-store：重导入/重扫会原地换图但 URL 不变（id 恒定），max-age 会让界面挂旧图一小时
+    res.setHeader("cache-control", "no-store");
     if (req.method === "HEAD") { res.end(); return true; }
     res.end(readFileSync(file));
     return true;

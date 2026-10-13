@@ -14,7 +14,7 @@ import {
 import { WebTransport, EngineTransport, type Transport, type TransportEvent, type AudioDeviceInfo } from "./lib/transport";
 import { loadSession, saveSession } from "./lib/session";
 import { dayKey, daySeed, shuffleOrder, step, walk } from "./lib/shuffle";
-import { parseLrc, type LyricLine } from "./lyric";
+import { coerceLyricToLrc, parseLrc, type LyricLine } from "./lyric";
 import type {SparkleKaraokeLine, SparkleKaraokeProvider} from "@quaver/sparkle";
 import { onSparkleChange, sparkleKaraokeProvider, sparkleStreamSources } from "./sparkle/registry";
 import { isLocalSong, localSongStreamUrl, loadLocalLibrary, onLocalLibraryChange, trackById, type LocalSongFingerprint } from "./lib/local.ts";
@@ -727,6 +727,17 @@ class Player {
 
   error = "";
 
+  /** 右键「重新设置刮削信息」保存后原地补展示字段：队列里就是这些对象引用，
+   *  播放条/正在播放页/队列面板跟着 notify 换字，不用等重进页面回读库。 */
+  patchCurrentMeta(id: string, meta: { title: string; artist: string; album: string }) {
+    const s = this.current;
+    if (!isLocalSong(s) || s.local.id !== id) return;
+    if (meta.title) { s.name = meta.title; s.title = meta.title; }
+    if (meta.artist) s.singer = meta.artist.split(/\s*\/\s*/).filter(Boolean).map((name) => ({ name }));
+    if (meta.album && s.album) s.album.name = meta.album;
+    this.notify();
+  }
+
   /** 拉取并解析当前歌曲歌词（startCurrent 内部调用；也供外部预热/测试）。
    *  一次请求顺带要逐字（qrc=1）：上游有 QRC 时 lyric 字段就是逐字内容，交给 Sparkle
    *  逐字提供器（如 amll 插件）解析成 karaoke 行 + 派生行级列表；没有提供器、逐字
@@ -747,7 +758,8 @@ class Player {
     this.lyricState = "loading";
     this.notify();
     const local = isLocalSong(s) ? s.local : null;
-    const qqMid = local ? String(local.qqMid ?? "") : s.mid;
+    // 手动导入的歌词 = 用户显式意图，压过在线 QRC（在线命中是机器猜的，导入是人给的）。
+    const qqMid = local ? (local.lyricImport ? "" : String(local.qqMid ?? "")) : s.mid;
     if (qqMid) {
       const has = await this.pullQqLyric(qqMid, seq, s);
       if (seq !== this.lyricSeq || this.current !== s) return; // 已被更新的 fetch 作废
@@ -755,9 +767,9 @@ class Player {
     }
     // —— 本地通路 ——
     try {
-      const d = await api<{ lyric: string; trans: string; roma: string; source: string }>(`/local/lyric/${encodeURIComponent(local!.id)}`);
+      const d = await api<{ lyric: string; trans: string; roma: string; source: string; format?: string }>(`/local/lyric/${encodeURIComponent(local!.id)}`);
       if (seq !== this.lyricSeq || this.current !== s) return;
-      this.applyLyricText(String(d?.lyric ?? ""), String(d?.trans ?? ""), String(d?.roma ?? ""));
+      this.applyLyricText(String(d?.lyric ?? ""), String(d?.trans ?? ""), String(d?.roma ?? ""), String(d?.format ?? "lrc"));
     } catch {
       if (seq === this.lyricSeq && this.lyricState === "loading") { this.karaoke = []; this.lyricState = "none"; }
     }
@@ -807,8 +819,11 @@ class Player {
     }
   }
 
-  /** 把一段（可能含翻译/音译的）歌词文本应用为当前歌词状态；逐字提供器在场同样可接管。 */
-  private applyLyricText(raw: string, trans: string, roma: string) {
+  /** 把一段歌词文本应用为当前歌词状态。解析三档：逐字提供器在场先归它
+   *  （AMLL 插件认 QRC XML/TTML/纯文本 QRC，吃到词级时间轴）；解不出或插件缺席 →
+   *  parseLrc；仍是空且格式标是 qrc/ttml → coerceLyricToLrc 拍平成行级 LRC 再解一次
+   *  （用户手动导入的歌词没有「在线再拉一次」可退，行级也必须出来）。 */
+  private applyLyricText(raw: string, trans: string, roma: string, format = "lrc") {
     const provider = sparkleKaraokeProvider();
     const kara = provider && raw ? provider.parse(raw, trans, roma) : null;
     if (kara?.length) {
@@ -817,13 +832,17 @@ class Player {
     } else {
       this.karaoke = [];
       this.lyrics = parseLrc(raw, trans, roma);
+      if (!this.lyrics.length && raw && format !== "lrc") {
+        this.lyrics = parseLrc(coerceLyricToLrc(raw, format), trans, roma);
+      }
     }
     this.lyricState = this.lyrics.length ? "ok" : "none";
   }
 
-  /** 库快照更新（扫描/自动刮削落定）→ 正在播的本地曲目跟进新指纹：
+  /** 库快照更新（扫描/自动刮削/手动导入落定）→ 正在播的本地曲目跟进新指纹：
    *  ① 刚刮到 qqMid 且此前无词 → 重拉一次（这回升级到在线 QRC 管线）；
-   *  ② 封面从无到有/从有到无 → 原地更新标记并 notify（播放条/正在播放页据此换图）。 */
+   *  ② 封面从无到有/从有到无 → 原地更新标记并 notify（播放条/正在播放页据此换图）；
+   *  ③ 歌词来源在「导入 ⇄ 自动」之间切换（右键导入/撤销导入）→ 无条件重拉。 */
   private refreshLocalCurrent() {
     const s = this.current;
     if (!isLocalSong(s)) return;
@@ -831,11 +850,14 @@ class Player {
     if (!t) return;
     const qqMid = t.match?.qqMid ?? "";
     const cover = !!t.coverRel;
-    if (s.local.qqMid === qqMid && s.local.hasCover === cover) return;
+    const lyricImport = t.lyricSource === "import";
+    if (s.local.qqMid === qqMid && s.local.hasCover === cover && s.local.lyricImport === lyricImport) return;
+    const importFlipped = s.local.lyricImport !== lyricImport;
     const midAppeared = !!qqMid && s.local.qqMid !== qqMid;
     s.local.qqMid = qqMid;
     s.local.hasCover = cover;
-    if (midAppeared && this.lyricState !== "ok") void this.fetchLyric(s);
+    s.local.lyricImport = lyricImport;
+    if (importFlipped || (midAppeared && this.lyricState !== "ok")) void this.fetchLyric(s);
     this.notify();
   }
 

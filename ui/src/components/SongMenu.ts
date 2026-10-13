@@ -11,7 +11,8 @@
 //  - 「从歌单删除」只在**自己有写权限的歌单页**出现（别人歌单/我喜欢的删除由红心承担）。
 import { player } from "../player";
 import { copyText, songShareUrl, songSubtitle, songTitle, stripEm, upPic } from "../lib/api";
-import { isLocalSong, triggerScrape, type SongWithLocal } from "../lib/local.ts";
+import { importLocalCover, importLocalLyric, isLocalSong, pickFile, revertLocalLyric, setLocalMeta, triggerScrape, type SongWithLocal } from "../lib/local.ts";
+import { showLocalMetaDialog } from "./LocalImportDialog";
 import {
   addSongToSonglist, isMySonglistsLoaded, loadMySonglists, mySonglists, removeSongFromSonglist,
   type MyPlaylist,
@@ -402,6 +403,65 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
         },
         ...(local
           ? ([
+              {
+                label: "导入歌词 ▸",
+                sub: () => [
+                  {
+                    label: "QRC / TTML / LRC 文件…",
+                    note: "手动导入，压过在线匹配",
+                    run: async () => {
+                      const f = await pickFile(".lrc,.qrc,.ttml,.xml,.txt");
+                      if (!f) return;
+                      try {
+                        const r = await importLocalLyric(local.id, f);
+                        toast(r.format === "lrc" ? `歌词已导入（${r.chars} 字）` : `已导入 ${r.format.toUpperCase()} 歌词（${r.chars} 字）`);
+                        if (isLocalSong(player.current) && player.current.local.id === local.id) void player.fetchLyric(player.current);
+                      } catch (e: any) { toast(String(e?.message ?? e), "err"); }
+                    },
+                  },
+                  ...(local.lyricImport
+                    ? [{
+                        label: "撤销导入（回到自动来源）",
+                        run: async () => {
+                          try {
+                            await revertLocalLyric(local.id);
+                            toast("已撤销导入的歌词");
+                            if (isLocalSong(player.current) && player.current.local.id === local.id) void player.fetchLyric(player.current);
+                          } catch (e: any) { toast(String(e?.message ?? e), "err"); }
+                        },
+                      }]
+                    : []),
+                ],
+              },
+              {
+                label: "导入封面…",
+                run: async () => {
+                  const f = await pickFile(".jpg,.jpeg,.png,.gif,.webp");
+                  if (!f) return;
+                  try {
+                    await importLocalCover(local.id, f);
+                    toast("封面已更新");
+                  } catch (e: any) { toast(String(e?.message ?? e), "err"); }
+                },
+              },
+              {
+                label: "重新设置刮削信息…",
+                note: "曲名 / 歌手 / 专辑",
+                run: async () => {
+                  const cur = await showLocalMetaDialog({
+                    title: songTitle(song),
+                    artist: (song.singer ?? []).map((x: any) => x?.name).filter(Boolean).join(" / "),
+                    album: song.album?.name ?? "",
+                  });
+                  if (!cur) return;
+                  try {
+                    await setLocalMeta(local.id, cur);
+                    player.patchCurrentMeta(local.id, cur);
+                    const r = await triggerScrape({ ids: [local.id], force: true });
+                    toast(r.busy ? "已保存；等当前刮削收尾后重刮" : "已保存，正在用新名字重新刮削");
+                  } catch (e: any) { toast(String(e?.message ?? e), "err"); }
+                },
+              },
               window.quaverLocal && local.kind === "folder"
                 ? {
                     label: "在文件夹中显示",

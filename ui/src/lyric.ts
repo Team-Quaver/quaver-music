@@ -78,3 +78,80 @@ export const fmtDur = (sec: number) => {
   const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
 };
+
+// —— 导入歌词的宿主兜底转换（用户手动导入 QRC/TTML 而逐字提供器缺席/解不动时）——
+// 有 AMLL 插件在场就走它的 parse（词级时间轴全保留）；这里只保证「行级也一定有词」：
+// 把 TTML <p begin=…> 或 QRC [st,dur]<w …> 拍平成 LRC 文本，再喂给 parseLrc。
+const ENT: Record<string, string> = { lt: "<", gt: ">", quot: '"', apos: "'", amp: "&", nbsp: " " };
+
+function decodeEnt(s: string): string {
+  return s
+    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/&(\w+);/g, (m, k) => ENT[k] ?? m);
+}
+
+function toTs(sec: number): string {
+  const s = Math.max(0, sec);
+  const m = Math.floor(s / 60);
+  const r = s - m * 60;
+  return `[${String(m).padStart(2, "0")}:${r.toFixed(2).padStart(5, "0")}]`;
+}
+
+/** TTML/AMLL 歌词时间：`hh:mm:ss.SSS` / `mm:ss.SS` / `12.5s` / `12500ms` / 裸秒。 */
+function ttmlSec(v: string | undefined): number {
+  const t = String(v ?? "").trim();
+  if (!t) return NaN;
+  const colon = /^(\d+):(\d{1,2})(?::(\d{1,2}))?([.\d]*)$/.exec(t);
+  if (colon) {
+    const h = t.split(":").length === 3 ? Number(colon[1]) : 0;
+    const m = t.split(":").length === 3 ? Number(colon[2]) : Number(colon[1]);
+    const s = t.split(":").length === 3 ? Number(colon[3]) : Number(colon[2]);
+    const frac = Number(t.split(":").length === 3 ? colon[4] : colon[3]) || 0;
+    return h * 3600 + m * 60 + s + frac;
+  }
+  if (/ms$/.test(t)) return Number(t.slice(0, -2)) / 1000;
+  if (/s$/.test(t)) return Number(t.slice(0, -1));
+  return Number(t);
+}
+
+export function ttmlToLrc(src: string): string {
+  const out: string[] = [];
+  for (const m of src.matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/gi)) {
+    const begin = /begin\s*=\s*"([^"]*)"/i.exec(m[1])?.[1];
+    const t = ttmlSec(begin);
+    if (!Number.isFinite(t)) continue;
+    const text = decodeEnt(m[2].replace(/<[^>]*>/g, "").split("\n").map((x) => x.trim()).filter(Boolean).join(" ")).trim();
+    if (text) out.push(`${toTs(t)}${text}`);
+  }
+  out.sort((a, b) => Number(a.slice(1, a.indexOf(":"))) - Number(b.slice(1, b.indexOf(":"))));
+  return out.join("\n");
+}
+
+/** QRC（XML 信封或纯文本 [st,dur] 行）→ 行级 LRC：词标记拍平成整行文本。 */
+export function qrcToLrc(src: string): string {
+  let body = src;
+  if (/<LyricContent\s*=|Lyrics\s*=/i.test(src)) {
+    body = [...src.matchAll(/(?:Lyrics|LyricContent)\s*=\s*"([^"]*)"/g)].map((m) => decodeEnt(m[1])).join("\n");
+  }
+  const out: string[] = [];
+  for (const raw of body.split(/\r?\n/)) {
+    const line = /^\[(\d+),(\d+)\](.*)$/.exec(raw.trim());
+    if (line) {
+      const text = decodeEnt(line[3].replace(/<\/?[wW]\b[^>]*>/g, "")).trim();
+      if (text) out.push(`${toTs(Number(line[1]) / 1000)}${text}`);
+    } else {
+      const qq = /^\[(\d+),(\d+)\]/.test(raw.trim()); // 纯行时间戳的假 QRC 元数据行：丢
+      if (!qq && /^\[\d{1,2}:\d{2}/.test(raw.trim())) out.push(raw.trim());
+    }
+  }
+  return out.join("\n");
+}
+
+/** 按格式把导入文本拍平成 parseLrc 读得懂的 LRC；format=lrc/未知格式原样返回。 */
+export function coerceLyricToLrc(raw: string, format: string): string {
+  if (!raw || !format || format === "lrc") return raw;
+  if (format === "ttml") return ttmlToLrc(raw);
+  if (format === "qrc") return qrcToLrc(raw);
+  return raw;
+}

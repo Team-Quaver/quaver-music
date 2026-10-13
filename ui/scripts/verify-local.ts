@@ -9,11 +9,12 @@
 //   • 源码级接线断言：relay ⇄ native-server 双挂载点、player 的本地分支（取流/歌词/红心/档位回退
 //     全绕开 QQ 通路）、session 指纹留存、路由/导航注册、preload 桥、「路径只从库来」红线。
 // 反向断言照旧：每条源码断言给出「变异样本必须为 false」，防断言自身失效。
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+const existsSync0 = (p: string): boolean => { try { readFileSync(p); return true; } catch { return false; } };
 
 let pass = 0, fail = 0;
 const section = (t: string) => console.log(`\n=== ${t} ===`);
@@ -101,6 +102,17 @@ const L = await import("../electron/local/library.ts");
   eq("LRC UTF-8 BOM 剥除", L.decodeLrc(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("x")])).startsWith("x"), true);
   const gbk = Buffer.from([0xbe, 0xa9, 0xd6, 0xdd]); // GBK 的「京字」
   check("LRC GBK 兜底不抛异常", (() => { try { const out = L.decodeLrc(gbk); return typeof out === "string"; } catch { return false; } })());
+  const LL = await import("../src/lyric.ts");
+  eq("歌词格式嗅探 ttml", L.sniffLyricFormat('<tt xmlns="http://www.w3.org/ns/ttml"><body/></tt>', "a.ttml"), "ttml");
+  eq("歌词格式嗅探 qrc(xml 信封)", L.sniffLyricFormat('<?xml?><QQMusic><LyricContent="[0,900]&lt;w d=&quot;900&quot;&gt;词&lt;/w&gt;"/></QQMusic>', "x"), "qrc");
+  eq("歌词格式嗅探 qrc(纯文本行)", L.sniffLyricFormat("[0,900]<w d=\"450\">词</w>", "x"), "qrc");
+  eq("歌词格式嗅探 lrc", L.sniffLyricFormat("[00:01.00]普通行", "x.lrc"), "lrc");
+  eq("封面魔数 jpg", L.imageFormat(Buffer.from([0xff, 0xd8, 0xff, 1, 2])), "jpg");
+  eq("封面魔数 png", L.imageFormat(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a])), "png");
+  eq("封面魔数拒收未知", L.imageFormat(Buffer.from("GARBAGEDATA")), "");
+  eq("TTML→LRC 行级兜底", LL.ttmlToLrc('<p begin="00:00:02.500" end="00:00:04.000">第<span>二</span>行</p>'), "[00:02.50]第二行");
+  eq("QRC→LRC 行级兜底", LL.qrcToLrc("[0,1500]<w d=\"750\">哈</w><w d=\"750\">喽</w>"), "[00:00.00]哈喽");
+  eq("coerce 透传 lrc", LL.coerceLyricToLrc("[00:01.00]x", "lrc"), "[00:01.00]x");
   eq("reveal 拒绝非 id", L.revealTarget("../../etc/passwd").ok, false);
   eq("reveal 未知 id 报不在库", L.revealTarget("t_000000000000").ok, false);
 }
@@ -149,9 +161,12 @@ const sidecar = createServer(async (req, res) => {
     if (kw.includes("随手曲")) {
       return res.end(JSON.stringify({ code: 0, msg: "ok", data: { song: [{ mid: "QQMID1", title: "随手曲", name: "随手曲", interval: 205, singer: [{ name: "未知歌", mid: "SG1" }], album: { name: "", mid: "AL1", pmid: "AL1_00" } }], total_num: 1 } }));
     }
+    if (kw.includes("改名曲")) {
+      return res.end(JSON.stringify({ code: 0, msg: "ok", data: { song: [{ mid: "ZZ003", title: "改名曲", name: "改名曲", interval: 99, singer: [{ name: "在线歌手", mid: "SG3" }], album: { name: "", mid: "A3", pmid: "A3_9" } }], total_num: 1 } }));
+    }
     return res.end(JSON.stringify({ code: 0, msg: "ok", data: { song: [] } }));
   }
-  if (u.pathname === "/song/QQMID1/lyric") {
+  if (/^\/song\/(QQMID1|ZZ003)\/lyric$/.test(u.pathname)) {
     return res.end(JSON.stringify({ code: 0, msg: "ok", data: { lyric: "[00:03.00]刮削到的歌词", trans: "[00:03.00]scraped", roma: "" } }));
   }
   res.statusCode = 404;
@@ -273,6 +288,57 @@ section("端到端：扫描自动刮削（假 sidecar）→ QRC 前置条件落�
   check("在线歌词入缓存且可取（本地通路兜底内容）", ly.source === "qq" && ly.lyric.includes("刮削到的歌词") && ly.trans.includes("scraped"));
 }
 
+section("端到端：手动导入歌词/封面 + 元数据校正（右键菜单的服务面）");
+{
+  const lib = (await jget("/local/library")).body.data;
+  const tagged = lib.tracks.find((t: any) => t.title === "带标曲");   // 有 sidecar .lrc —— 测试「导入恒胜」
+  const b64 = (b: Buffer) => b.toString("base64");
+  // LRC 导入压过 sidecar
+  let r = await jpost("/local/lyric/import", { id: tagged.id, name: "x.lrc", data: b64(Buffer.from("[00:09.00]手动导入的行\n", "utf8")) });
+  eq("导入 LRC → format lrc", r.body?.data?.format, "lrc");
+  let ly = (await jget(`/local/lyric/${tagged.id}`)).body.data;
+  check("导入恒胜（盖过 sidecar .lrc）", ly.source === "import" && ly.lyric.includes("手动导入的行"), JSON.stringify(ly).slice(0, 120));
+  // QRC 导入 → 格式标记
+  r = await jpost("/local/lyric/import", { id: tagged.id, name: "y.qrc", data: b64(Buffer.from("[0,1500]<w d=\"750\">逐</w><w d=\"750\">字</w>\n", "utf8")) });
+  eq("导入 QRC → format qrc", r.body?.data?.format, "qrc");
+  // TTML 导入 → 格式标记
+  r = await jpost("/local/lyric/import", { id: tagged.id, name: "z.ttml", data: b64(Buffer.from('<tt xmlns="http://www.w3.org/ns/ttml"><p begin="00:01.000">ttml行</p></tt>', "utf8")) });
+  eq("导入 TTML → format ttml", r.body?.data?.format, "ttml");
+  ly = (await jget(`/local/lyric/${tagged.id}`)).body.data;
+  check("歌词接口带 format 字段", ly.source === "import" && ly.format === "ttml" && ly.lyric.includes("ttml行"), JSON.stringify(ly).slice(0, 140));
+  // 体积/内容闸
+  r = await jpost("/local/lyric/import", { id: tagged.id, name: "big.lrc", data: b64(Buffer.alloc(600 * 1024, 0x31)) });
+  eq("超限歌词 413", r.status, 413);
+  r = await jpost("/local/cover/import", { id: tagged.id, name: "a.bin", data: b64(Buffer.from("NOT_AN_IMAGE_AT_ALL")) });
+  eq("非图封面 422", r.status, 422);
+  // 撤销导入 → 回到 sidecar file
+  r = await fetch(`${base}/local/lyric/import/${tagged.id}`, { method: "DELETE" });
+  const rev = (await r.json()) as any;
+  check("撤销导入成功", rev?.data?.track?.lyricSource === "file", JSON.stringify(rev?.data).slice(0, 80));
+  ly = (await jget(`/local/lyric/${tagged.id}`)).body.data;
+  check("撤销后回到 sidecar", ly.source === "file", JSON.stringify(ly).slice(0, 80));
+  // 封面导入 + 重扫保护（coverManual）
+  const JPG1 = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(300, 5), Buffer.from([0xff, 0xd9])]);
+  const cr = await jpost("/local/cover/import", { id: tagged.id, name: "c.jpg", data: b64(JPG1) });
+  check("封面导入落库", cr.body?.data?.track?.coverManual === true, JSON.stringify(cr.body).slice(0, 140));
+  const coverResp = await fetch(`${base}/local/cover/${tagged.id}`);
+  check("封面可直接取图", coverResp.status === 200 && (await coverResp.arrayBuffer()).byteLength === JPG1.length);
+  appendFileSync(tagged.file, Buffer.alloc(7000)); // 改体积逼重扫走 materialize 全解析
+  await jpost("/local/scan", {});
+  await waitIdle("scan"); await waitIdle("scrape");
+  const after = (await jget(`/local/track/${tagged.id}`)).body.data.track;
+  eq("重扫后手动封面还在", after.coverManual, true);
+  check("封面字节仍是导入件", (await (await fetch(`${base}/local/cover/${tagged.id}`)).arrayBuffer()).byteLength === JPG1.length);
+  // 元数据校正 + editedMeta 保护（刮削命中也不回填展示字段）
+  const unk = (await jget("/local/library")).body.data.tracks.find((t: any) => t.tagSource === "filename");
+  r = await jpost("/local/meta/set", { id: unk.id, title: "改名曲", artist: "自定义歌手", album: "" });
+  eq("meta/set 生效", [r.body?.data?.track?.title, r.body?.data?.track?.artist, r.body?.data?.track?.editedMeta], ["改名曲", "自定义歌手", true]);
+  await jpost("/local/scrape", { ids: [unk.id], force: true });
+  await waitIdle("scrape");
+  const fin = (await jget(`/local/track/${unk.id}`)).body.data.track;
+  eq("editedMeta 挡住在线回填", [fin.title, fin.artist, fin.match?.qqMid ?? ""], ["改名曲", "自定义歌手", "ZZ003"]);
+}
+
 section("端到端：移除源清库");
 {
   const lib = (await jget("/local/library")).body.data;
@@ -322,14 +388,14 @@ section("源码接线：player/渲染层绕开 QQ 通路");
   check("口令永不进渲染层：快照不含 password 消费", !/\.password/.test(local));
   // —— QRC 优先：匹配到 QQ 曲库的本地曲目，歌词走在线逐字管线（用户明确要求）——
   check("指纹携带 qqMid（刮削命中随 Song/session 走）", /qqMid: t\.match\?\.qqMid/.test(local));
-  check("本地曲目仅在有 qqMid 时才试在线管线", /const qqMid = local \? String\(local\.qqMid \?\? ""\) : s\.mid/.test(player));
+  check("本地曲目仅在有 qqMid 且未手动导入时才试在线管线", /const qqMid = local \? \(local\.lyricImport \? "" : String\(local\.qqMid \?\? ""\)\) : s\.mid/.test(player));
   check("QRC 拉取与官方共用一条管线（pullQqLyric）", /private async pullQqLyric\(midRaw: string/.test(player) && /await this\.pullQqLyric\(qqMid, seq, s\)/.test(player));
   check("在线无内容才落回 /local/lyric（本地曲专属兜底；官方曲目行为不变）", /if \(has \|\| !local\) \{ this\.notify\(\); return; \}/.test(player));
   check("库快照更新回填当前曲目（qqMid 到手即升级 QRC）", /onLocalLibraryChange\(\(\) => this\.refreshLocalCurrent\(\)\)/.test(player));
   const libSrc2 = src("electron/local/library.ts");
   check("扫描发现新歌 → 服务端自动补刮未匹配段", /if \(scanState\.found > 0 && Object\.values\(loadDb\(\)\.tracks\)\.some\(\(t\) => !t\.match\)\)/.test(libSrc2));
   // 反向：qqMid 判空写坏成恒真/恒假都要能红
-  check("反向：把 qqMid 分支删掉即测不到", !/const qqMid = local \? String\(local\.qqMid \?\? ""\) : s\.mid/.test(player.replace('const qqMid = local ? String(local.qqMid ?? "") : s.mid;', "")));
+  check("反向：把 qqMid 分支删掉即测不到", !/const qqMid = local \? \(local\.lyricImport \? "" : String\(local\.qqMid \?\? ""\)\) : s\.mid/.test(player.replace('const qqMid = local ? (local.lyricImport ? "" : String(local.qqMid ?? "")) : s.mid;', "")));
 }
 section("源码接线：路由/导航/桥");
 {

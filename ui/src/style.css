@@ -2071,3 +2071,15 @@ html:not([data-theme="dark"]) .local-status.has-err { color: #c62828; border-col
 
 /* 音质浮窗里的说明行（本地/NAS 曲目无档位可切的提示） */
 .qp-note { padding: 8px 12px; font-size: 12px; color: var(--ink2); max-width: 260px; line-height: 1.5; }
+
+/* 本地曲目「重新设置刮削信息」对话框主体（外壳样式随 .upd-dialog 一族，这里只补表单行） */
+.lmd-body { display: flex; flex-direction: column; gap: 9px; padding: 4px 2px 2px; }
+.lmd-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--ink2); }
+.lmd-row > span { width: 44px; flex: none; text-align: right; }
+.lmd-row input {
+  flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: transparent;
+  color: var(--ink); padding: 6px 10px; font-size: 13px; outline: none;
+}
+.lmd-row input:focus { border-color: var(--cvg-accent, var(--acc)); }
+.lmd-hint { font-size: 11.5px; line-height: 1.55; margin-top: 2px; }
+.upd-dialog .lmd-body + .upd-foot { margin-top: 10px; }
