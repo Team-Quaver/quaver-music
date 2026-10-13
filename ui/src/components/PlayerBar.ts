@@ -190,6 +190,12 @@ export function PlayerBar(): HTMLElement {
     .forEach((x) => x.classList.toggle("sel", x.dataset.q === cur()));
   function buildQPop() {
     qPop.innerHTML = "";
+    // 本地/NAS 曲目：文件本身就是那一档，没有在线档位阶梯可换
+    if (player.current && (player.current as { local?: unknown }).local) {
+      const ls = getLastStream();
+      qPop.innerHTML = `<div class="qp-note">${ls?.label ?? "本地文件"}：曲目来自本地库/NAS，无在线档位可切（音质即文件本身）</div>`;
+      return;
+    }
     const item = (id: string, label: string, note = "") => {
       const b = document.createElement("button");
       b.type = "button";

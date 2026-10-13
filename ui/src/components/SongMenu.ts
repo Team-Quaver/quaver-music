@@ -11,6 +11,7 @@
 //  - 「从歌单删除」只在**自己有写权限的歌单页**出现（别人歌单/我喜欢的删除由红心承担）。
 import { player } from "../player";
 import { copyText, songShareUrl, songSubtitle, songTitle, stripEm, upPic } from "../lib/api";
+import { isLocalSong, triggerScrape, type SongWithLocal } from "../lib/local.ts";
 import {
   addSongToSonglist, isMySonglistsLoaded, loadMySonglists, mySonglists, removeSongFromSonglist,
   type MyPlaylist,
@@ -339,13 +340,15 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
   const song = ctx.song;
   const name = songTitle(song) || "这首歌";
   const sub = songSubtitle(song);
+  const local = isLocalSong(song) ? (song as SongWithLocal).local : null;
   const items: MenuItem[] = [
     {
       label: "插队播放",
       note: "排到下一首",
       run: () => enqueueNextWithToast(song),
     },
-    { label: "加入歌单", sub: () => playlistItems(ctx) },
+    // 加入歌单是 QQ 在线歌单概念：本地曲目没有这条通路
+    ...(local ? [] : [{ label: "加入歌单", sub: () => playlistItems(ctx) } as MenuItem]),
   ];
   if (ctx.playlist?.removable) {
     items.push({
@@ -374,13 +377,22 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
     {
       label: "更多操作",
       sub: () => [
-        {
-          label: "复制歌曲链接",
-          run: async () => {
-            const ok = await copyText(songShareUrl(song.mid));
-            toast(ok ? "已复制歌曲链接" : "复制失败（剪贴板不可用）", ok ? "ok" : "err");
-          },
-        },
+        local
+          ? {
+              label: "复制文件路径",
+              note: local.path,
+              run: async () => {
+                const ok = await copyText(local.path);
+                toast(ok ? "已复制文件路径" : "复制失败（剪贴板不可用）", ok ? "ok" : "err");
+              },
+            }
+          : {
+              label: "复制歌曲链接",
+              run: async () => {
+                const ok = await copyText(songShareUrl(song.mid));
+                toast(ok ? "已复制歌曲链接" : "复制失败（剪贴板不可用）", ok ? "ok" : "err");
+              },
+            },
         {
           label: "复制歌曲名称",
           run: async () => {
@@ -388,6 +400,27 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
             toast(ok ? `已复制：${name}` : "复制失败（剪贴板不可用）", ok ? "ok" : "err");
           },
         },
+        ...(local
+          ? ([
+              window.quaverLocal && local.kind === "folder"
+                ? {
+                    label: "在文件夹中显示",
+                    run: async () => {
+                      const r = await window.quaverLocal!.reveal(local.id);
+                      if (!r.ok) toast(r.error ?? "无法定位文件", "err");
+                    },
+                  }
+                : null,
+              {
+                label: "重新刮削此曲",
+                note: "在线匹配歌曲信息 / 歌词 / 封面",
+                run: async () => {
+                  await triggerScrape({ ids: [local.id] });
+                  toast("已排入刮削队列");
+                },
+              },
+            ].filter(Boolean) as MenuItem[])
+          : []),
       ],
     },
   );

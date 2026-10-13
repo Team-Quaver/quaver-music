@@ -46,4 +46,9 @@ interface Window {
     pick(): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
     info(): Promise<{ ok: boolean; path?: string; exists?: boolean; error?: string }>;
   };
+  /** 本地/NAS 曲库（「本地音乐」页）：选目录与文件定位。音频/封面/歌词走同源 /api/local/*。 */
+  quaverLocal?: {
+    pickFolder(): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
+    reveal(id: string): Promise<{ ok: boolean; error?: string }>;
+  };
 }

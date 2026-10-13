@@ -16,6 +16,7 @@ import { configDir, configFile, ensureConfigDir, logFile, readValues, resetConfi
 // 自定义背景图（默认主题）：路径只认 quaver.conf 里那一条，图片本体由 /api/bg 交给界面
 // （dev/preview 走 src/relay.ts、打包态走 native-server.ts，同一个 backgroundResponse）
 import { BG_DIALOG_EXTENSIONS, backgroundInfo, backgroundMime } from "./background.ts";
+import { revealTarget } from "./local/library.ts";
 // 系统深浅色探测（Linux 桌面各自的真相来源，见模块头）：「跟随系统」要靠它才真的跟得上；
 // macOS 的菜单栏深浅、Windows 的任务栏/通知区域深浅（都是托盘图用的**外壳**判据）也在这里
 // ——三者是不同的问题，别混
@@ -911,6 +912,35 @@ ipcMain.handle("quaver:background", async (_e, msg) => {
 
 // 凭证存储状态（**不含凭证本体**）：确认这次到底走的是密钥环还是 0600 明文，排查用。
 // 只读，不提供「读取凭证」的入口 —— 凭证永不进渲染层。
+// 本地/NAS 曲库（「本地音乐」页）：原生选目录 + 在文件管理器中显示。
+// pick-folder 只回路径字符串，存库走渲染层的 /api/local/source/add（落盘真相在 local/library.ts）。
+// reveal 只认曲目 id：路径从磁盘上的库文件现读（revealTarget），渲染层无法指定任意路径 ——
+// 与 /api/bg 同一条「请求参数不参与拼路径」红线。
+ipcMain.handle("quaver:local", async (_e, msg) => {
+  const op = msg?.op;
+  try {
+    if (op === "pick-folder") {
+      const r = await dialog.showOpenDialog(win ?? undefined, {
+        title: "选择音乐文件夹（NAS 已挂载的目录同样适用）",
+        properties: ["openDirectory"],
+      });
+      const picked = r.canceled ? "" : String(r.filePaths[0] ?? "");
+      if (!picked) return { ok: true, canceled: true };
+      return { ok: true, path: picked };
+    }
+    if (op === "reveal") {
+      const t = revealTarget(String(msg?.id ?? ""));
+      if (!t.ok || !t.path) return { ok: false, error: t.error ?? "无法定位文件" };
+      shell.showItemInFolder(t.path);
+      return { ok: true };
+    }
+    return { ok: false, error: `unknown op: ${op}` };
+  } catch (e) {
+    log("[quaver] local op failed:", String(op), String(e));
+    return { ok: false, error: String(e) };
+  }
+});
+
 ipcMain.handle("quaver:credential-info", () => {
   const st = credentialStore?.status() ?? { persist: "memory", backend: "none", reason: "主进程尚未初始化" };
   return { ok: true, ...st, dir: CONFIG_DIR, switch: keyringPick.switchValue ?? null, pickWhy: keyringPick.why };

@@ -15,6 +15,10 @@
 // 与桌面内功能不一致处由播放页自行承担。
 import { player } from "./player";
 import { coverUrl, songTitle } from "./lib/api";
+
+// MPRIS 的 artwork 是报给**外部**播放器的 URL：同源相对路径（本地曲目的 /api/local/cover/…）
+// 必须绝对化成应用 origin，别家播放器拿到相对路径只会画不出图。
+const absArt = (u: string) => (!u ? "" : /^https?:/i.test(u) ? u : location.origin + u);
 import { initFakeAudio } from "./fake-audio";
 
 type MprisBridge = {
@@ -54,7 +58,7 @@ function snapshot(seeked = false) {
           name: songTitle(c),
           artists: (c.singer ?? []).map((s) => s.name),
           album: (c.album as { name?: string } | undefined)?.name ?? "",
-          artUrl: coverUrl(c, 300),
+          artUrl: absArt(coverUrl(c, 300)),
           durationSec: c.interval ?? player.duration ?? 0,
         }
       : null,
@@ -64,7 +68,7 @@ function snapshot(seeked = false) {
       name: songTitle(s),
       artists: (s.singer ?? []).map((x) => x.name),
       album: (s.album as { name?: string } | undefined)?.name ?? "",
-      artUrl: coverUrl(s, 300),
+      artUrl: absArt(coverUrl(s, 300)),
       durationSec: s.interval ?? 0,
     })),
     can: {
@@ -129,7 +133,7 @@ function makeMediaSessionPush(): ((s: ReturnType<typeof snapshot>) => void) | nu
         return;
       }
       // 封面取 500px 一档：SMTC / Now Playing 显示面积比应用内封面大（无 500 时回落 300）
-      const art = player.current ? coverUrl(player.current, 500) || t.artUrl : t.artUrl;
+      const art = player.current ? absArt(coverUrl(player.current, 500)) || t.artUrl : t.artUrl;
       ms.metadata = new MediaMetadata({
         title: t.name,
         artist: t.artists.join(", "),

@@ -86,6 +86,9 @@ export async function copyText(text: string): Promise<boolean> {
 }
 
 export const coverUrl = (s: any, size = 300) => {
+  // 本地/NAS 曲目：封面走同源 /api/local/cover/<id>（hasCover 指纹随 Song 走，
+  // 没封面回空串 —— 行渲染/正在播放页对空串都有占位）
+  if (s?.local) return s.local.hasCover ? `/api/local/cover/${s.local.id}` : "";
   const pmid: string = s.album?.pmid ?? "";
   const base = pmid ? pmid.split("_")[0] : (s.album?.mid ?? "");
   return base ? `https://y.gtimg.cn/music/photo_new/T002R${size}x${size}M000${base}.jpg` : "";

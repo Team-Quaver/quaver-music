@@ -75,6 +75,13 @@ contextBridge.exposeInMainWorld("quaverBackground", {
   info: () => ipcRenderer.invoke("quaver:background", { op: "info" }),
 });
 
+// 本地/NAS 曲库：原生选目录 + 在文件管理器中定位（reveal 只传曲目 id，路径在主进程从库现读）。
+// 曲目的音频/封面/歌词本体走同源 /api/local/*，不经这里。
+contextBridge.exposeInMainWorld("quaverLocal", {
+  pickFolder: () => ipcRenderer.invoke("quaver:local", { op: "pick-folder" }),
+  reveal: (id: string) => ipcRenderer.invoke("quaver:local", { op: "reveal", id }),
+});
+
 // Sparkle 插件系统（第三方插件管理）：list/install/uninstall/market/pick-local/install-local
 // 均由主进程执行，渲染层只拿结果。安装 ≠ 启用：装完默认不加载，需用户在设置页手动开启。
 contextBridge.exposeInMainWorld("quaverSparkle", {

@@ -8,6 +8,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, isAbsolute, join, normalize, relative } from "node:path";
 import { backgroundResponse } from "./background.ts";
 import { accentPayload } from "./accent.ts";
+import { handleLocalApi } from "./local/library.ts";
 
 const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -190,6 +191,8 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
       }
       // Sparkle 已安装插件的文件服务（必须在 sidecar 转发之前截住）
       if (sub.startsWith("/sparkle/")) return serveSparkle(sub, res, pluginsRoot);
+      // 本地/NAS 曲库（/api/local/...，与 relay.ts 同构挂载，真相在 local/library.ts）
+      if (sub === "/local" || sub.startsWith("/local/")) return void (await handleLocalApi(req, res, sub.slice(1)));
 
       const target = new URL(SIDECAR);
       target.pathname = sub || "/";

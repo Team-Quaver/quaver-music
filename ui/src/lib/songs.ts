@@ -16,6 +16,8 @@ export interface RowHooks {
   playlist?: { dirid: number; tid: number; title: string; removable: boolean };
   /** 从歌单删除成功后的回调（视图侧改计数等；行的移除由本模块负责） */
   onRemoved?: (song: any) => void;
+  /** 隐藏行内红心（本地音乐页：红心是 QQ 侧概念，本地曲目无在线收藏） */
+  hideLove?: boolean;
 }
 
 // —— 行内红心：与 player.loved（单一真相源）同步 ——
@@ -78,13 +80,18 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
       `<span class="ra">${(s.singer ?? []).length ? artistLinks(s.singer) : ""}</span>`;
     const albumLine = hooks.showAlbum ? `<span class="ral">${s.album?.name ? linkTo("album", s.album, s.album.name) : ""}</span>` : "";
     const loved = player.loved.has(s.mid);
+    const isLocal = !!s.local;
+    // 本地曲目：红心无意义（QQ 收藏概念）；时长未知（NAS 未解析到容器头）画「–」而不是假 0:00
+    const loveBtn = hooks.hideLove || isLocal ? "" :
+      `<button class="row-love${loved ? " on" : ""}" data-love aria-label="收藏" aria-pressed="${loved}" title="${loved ? "取消收藏" : "收藏"}">${loved ? "♥" : "♡"}</button>`;
+    const durText = isLocal && !(s.interval > 0) ? "–" : fmtTime(s.interval);
     // 标题 = title（主名 + 版本后缀）；subtitle 是独立的一句话说明，跟在标题后做次级文本
     const sub = songSubtitle(s);
     row.innerHTML = `<span class="idx">${i + 1}</span>
       <span class="rthumb">${pic ? `<img src="${pic}" alt="" loading="lazy"/>` : ""}</span>
       <span class="rmeta"><span class="rt" style="display:block">${esc(songTitle(s))}${sub ? `<span class="rt-sub">${esc(sub)}</span>` : ""}</span>${artistLine}${albumLine}</span>
-      <button class="row-love${loved ? " on" : ""}" data-love aria-label="收藏" aria-pressed="${loved}" title="${loved ? "取消收藏" : "收藏"}">${loved ? "♥" : "♡"}</button>
-      <span class="dur">${fmtTime(s.interval)}</span>`;
+      ${loveBtn}
+      <span class="dur">${durText}</span>`;
 
     // 单击 = 选中 + 后台预加载播放链接（释放旧预载）；双击 = 打断切歌立即播放
     row.addEventListener("click", (e) => {
@@ -103,7 +110,7 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
     });
     // 触屏/快速点按场景兜底：单击封面 = 选中 + 预加载（不直接起播，防误触；双击起播）
     row.querySelector(".rthumb")!.addEventListener("click", () => player.prefetchSong(s));
-    row.querySelector("[data-love]")!.addEventListener("click", async (e) => {
+    row.querySelector("[data-love]")?.addEventListener("click", async (e) => {
       e.stopPropagation();
       const btn = e.currentTarget as HTMLElement;
       const done = player.toggleLove(s); // 先乐观改态并广播（同步段），再等在线写接口

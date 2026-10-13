@@ -10,6 +10,7 @@ import { isAbsolute, join, normalize, relative } from "node:path";
 import { configDir } from "../electron/config.ts";
 import { backgroundResponse } from "../electron/background.ts";
 import { accentPayload } from "../electron/accent.ts";
+import { handleLocalApi } from "../electron/local/library.ts";
 
 const SIDECAR = process.env.QUAVER_API ?? "http://127.0.0.1:3200";
 
@@ -168,6 +169,8 @@ export function apiRelay(): Connect.NextHandleFunction {
     }
     // Sparkle 已安装插件的文件服务（/api/sparkle/...，打包态在 native-server.ts 有同构实现）
     if (path.startsWith("sparkle/")) return serveSparkle("/" + path, res);
+    // 本地/NAS 曲库（/api/local/...，真相在 electron/local/library.ts；打包态在 native-server.ts 同构挂载）
+    if (path === "local" || path.startsWith("local/")) return void (await handleLocalApi(req, res, path));
 
     const target = new URL(SIDECAR);
     target.pathname = "/" + path;

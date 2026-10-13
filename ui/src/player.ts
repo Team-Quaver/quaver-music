@@ -17,6 +17,7 @@ import { dayKey, daySeed, shuffleOrder, step, walk } from "./lib/shuffle";
 import { parseLrc, type LyricLine } from "./lyric";
 import type {SparkleKaraokeLine, SparkleKaraokeProvider} from "@quaver/sparkle";
 import { onSparkleChange, sparkleKaraokeProvider, sparkleStreamSources } from "./sparkle/registry";
+import { isLocalSong, localSongStreamUrl, loadLocalLibrary, onLocalLibraryChange, trackById, type LocalSongFingerprint } from "./lib/local.ts";
 
 export type Song = {
   mid: string;
@@ -31,6 +32,9 @@ export type Song = {
   album?: { mid?: string; pmid?: string; name?: string };
   interval?: number;
   _key?: string;
+  /** 本地/NAS 曲目指纹（「本地音乐」页与 lib/local.ts:trackToSong 生成）。
+   *  带这个字段的歌不走 QQ 取链/红心/档位回退，取流 = /api/local/stream/<id>。 */
+  local?: LocalSongFingerprint;
 };
 
 export type Mode = "off" | "all" | "one";
@@ -176,6 +180,8 @@ class Player {
       lastKaraProvider = p;
       if (p && this.current) void this.fetchLyric(this.current);
     });
+    // 本地库快照变化（扫描/自动刮削落定）→ 当前本地曲目的 qqMid/封面指纹原地跟进
+    onLocalLibraryChange(() => this.refreshLocalCurrent());
   }
 
   // —— 传输层接线 ——
@@ -636,6 +642,8 @@ class Player {
   private handleStreamError(msg: string) {
     const s = this.current;
     if (!s) return;
+    // 本地/NAS 曲目没有档位阶梯可下（文件就是那一档）：直接跳下一曲
+    if (isLocalSong(s)) { this.skipSong(msg); return; }
     if (this.fallbackMid !== s.mid) { this.fallbackMid = s.mid; this.fallbackTried.clear(); }
     const applied = getLastStream()?.tier; // 实际在放的档（auto 降级后 ≠ 会话选择）
     if (applied) this.fallbackTried.add(applied);
@@ -672,6 +680,7 @@ class Player {
 
   prefetchSong(song: Song | undefined) {
     if (!song?.mid) return;
+    if (isLocalSong(song)) return; // 本地流是现成的同源 URL，没有「取链预热」可言
     const q = String(effectiveQuality());
     if (song.mid === this.prefetchedMid && this.prefetch.has(q + "|" + song.mid)) return;
     this.prefetch.clear(); // 清理旧预加载链接引用（token 由后端 TTL 回收；前端不再持有下载）
@@ -698,6 +707,14 @@ class Player {
   /** getPlayUrl 语义的内部入口：预取命中用预取结果，否则现场协商；
    *  overrideTier = 播放失败自动回退的指定档（预取按 effectiveQuality 键存，指定档时必须绕开）。 */
   private async getStream(s: Song, overrideTier?: string): Promise<StreamResult> {
+    // 本地/NAS 曲目：同源流（Range 在服务端处理），档位就是文件本身，别过 QQ 取链。
+    // 顺手确保库快照在手（一次 GET，命中缓存零成本）：封面标记与刮削命中的 qqMid
+    // 经 onLocalLibraryChange → refreshLocalCurrent 回填到当前曲目。
+    if (isLocalSong(s)) {
+      void loadLocalLibrary().catch(() => {});
+      const l = localSongStreamUrl(s);
+      return { url: l.url, tier: l.tier, label: l.label, degraded: false };
+    }
     if (overrideTier) return this.resolveWithSources(s, overrideTier);
     const q = String(effectiveQuality());
     const hit = this.prefetch.get(q + "|" + s.mid);
@@ -714,19 +731,50 @@ class Player {
    *  一次请求顺带要逐字（qrc=1）：上游有 QRC 时 lyric 字段就是逐字内容，交给 Sparkle
    *  逐字提供器（如 amll 插件）解析成 karaoke 行 + 派生行级列表；没有提供器、逐字
    *  解析失败或请求结果为空时回退普通 LRC 行级，行为不变。 */
+  /** 拉取并解析当前歌曲歌词（startCurrent 内部调用；也供外部预热/测试）。
+   *
+   *  在线管线（官方曲目恒用；本地曲目仅在**刮削命中 QQ 曲库**（local.qqMid）时优先尝试）：
+   *  一次请求顺带要逐字（qrc=1）—— 上游有 QRC 时 lyric 字段就是逐字内容，交给 Sparkle
+   *  逐字提供器（如 amll 插件）解析成 karaoke 行 + 派生行级列表；没有提供器、逐字
+   *  解析失败或请求结果为空时回退普通 LRC 行级。
+   *
+   *  本地通路（2026-10 与「本地音乐/NAS」同批引入，QRC 优先是用户明确要求）：
+   *  在线拿不到内容（未刮削到 / sidecar 不可达 / 上游无词）才落回 /local/lyric ——
+   *  服务端按「sidecar .lrc > 在线刮削缓存 > 内嵌歌词」合成。未匹配的本地曲目
+   *  根本不发在线请求（mid 是 "local:…"，打到 /song 只会白吃一个 404）。 */
   async fetchLyric(s: Song) {
     const seq = ++this.lyricSeq;
     this.lyricState = "loading";
     this.notify();
+    const local = isLocalSong(s) ? s.local : null;
+    const qqMid = local ? String(local.qqMid ?? "") : s.mid;
+    if (qqMid) {
+      const has = await this.pullQqLyric(qqMid, seq, s);
+      if (seq !== this.lyricSeq || this.current !== s) return; // 已被更新的 fetch 作废
+      if (has || !local) { this.notify(); return; } // 官方曲目：在线就是唯一通路，拉不到=none（行为不变）
+    }
+    // —— 本地通路 ——
     try {
-      const mid = encodeURIComponent(s.mid);
-      let d: any = await api(`/song/${mid}/lyric?trans=1&roma=1&qrc=1`);
-      // 双守卫：序号防更新的 fetch；current 防换曲（startCurrent 已作废序号，这里是兜底）
+      const d = await api<{ lyric: string; trans: string; roma: string; source: string }>(`/local/lyric/${encodeURIComponent(local!.id)}`);
       if (seq !== this.lyricSeq || this.current !== s) return;
+      this.applyLyricText(String(d?.lyric ?? ""), String(d?.trans ?? ""), String(d?.roma ?? ""));
+    } catch {
+      if (seq === this.lyricSeq && this.lyricState === "loading") { this.karaoke = []; this.lyricState = "none"; }
+    }
+    this.notify();
+  }
+
+  /** 官方 QRC/LRC 拉取（官方曲目与「匹配到 QQ 的本地曲目」共用同一条管线）。
+   *  返回「是否拿到了内容」；被更新的 fetch 作废时返回 true，让调用方直接收线。 */
+  private async pullQqLyric(midRaw: string, seq: number, s: Song): Promise<boolean> {
+    const mid = encodeURIComponent(midRaw);
+    try {
+      let d: any = await api(`/song/${mid}/lyric?trans=1&roma=1&qrc=1`);
+      if (seq !== this.lyricSeq || this.current !== s) return true;
       if (!String(d?.lyric ?? "").trim()) {
         // qrc=1 下无逐字内容的歌曲可能整包为空 → 退回普通歌词请求再试一次
         d = await api(`/song/${mid}/lyric?trans=1&roma=1`);
-        if (seq !== this.lyricSeq || this.current !== s) return;
+        if (seq !== this.lyricSeq || this.current !== s) return true;
       }
       let raw = String(d?.lyric ?? "");
       let trans = String(d?.trans ?? "");
@@ -737,7 +785,7 @@ class Player {
         // 逐字解析失败（或无提供器）且内容不是行级 LRC（QRC XML / 纯文本 QRC / TTML
         // 都是 parseLrc 读不了的格式）→ 退回普通歌词请求，「停用逐字」时行级歌词仍有内容
         d = await api(`/song/${mid}/lyric?trans=1&roma=1`);
-        if (seq !== this.lyricSeq || this.current !== s) return;
+        if (seq !== this.lyricSeq || this.current !== s) return true;
         raw = String(d?.lyric ?? "");
         trans = String(d?.trans ?? "");
         roma = String(d?.roma ?? "");
@@ -746,15 +794,48 @@ class Player {
       if (kara?.length) {
         this.karaoke = kara;
         this.lyrics = karaokeToLines(kara);
-      } else {
-        this.karaoke = [];
-        this.lyrics = parseLrc(raw, trans, roma);
+        this.lyricState = "ok";
+        return true;
       }
-      // 纯音乐占位行（"[00:00.00]此歌曲为没有填词…"）也照常显示
+      this.karaoke = [];
+      this.lyrics = parseLrc(raw, trans, roma);
       this.lyricState = this.lyrics.length ? "ok" : "none";
+      return this.lyrics.length > 0;
     } catch {
       if (seq === this.lyricSeq) { this.karaoke = []; this.lyricState = "none"; }
+      return false;
     }
+  }
+
+  /** 把一段（可能含翻译/音译的）歌词文本应用为当前歌词状态；逐字提供器在场同样可接管。 */
+  private applyLyricText(raw: string, trans: string, roma: string) {
+    const provider = sparkleKaraokeProvider();
+    const kara = provider && raw ? provider.parse(raw, trans, roma) : null;
+    if (kara?.length) {
+      this.karaoke = kara;
+      this.lyrics = karaokeToLines(kara);
+    } else {
+      this.karaoke = [];
+      this.lyrics = parseLrc(raw, trans, roma);
+    }
+    this.lyricState = this.lyrics.length ? "ok" : "none";
+  }
+
+  /** 库快照更新（扫描/自动刮削落定）→ 正在播的本地曲目跟进新指纹：
+   *  ① 刚刮到 qqMid 且此前无词 → 重拉一次（这回升级到在线 QRC 管线）；
+   *  ② 封面从无到有/从有到无 → 原地更新标记并 notify（播放条/正在播放页据此换图）。 */
+  private refreshLocalCurrent() {
+    const s = this.current;
+    if (!isLocalSong(s)) return;
+    const t = trackById(s.local.id);
+    if (!t) return;
+    const qqMid = t.match?.qqMid ?? "";
+    const cover = !!t.coverRel;
+    if (s.local.qqMid === qqMid && s.local.hasCover === cover) return;
+    const midAppeared = !!qqMid && s.local.qqMid !== qqMid;
+    s.local.qqMid = qqMid;
+    s.local.hasCover = cover;
+    if (midAppeared && this.lyricState !== "ok") void this.fetchLyric(s);
     this.notify();
   }
 
@@ -769,6 +850,7 @@ class Player {
 
   // —— 播放条音质切换（会话级：不持久化；带 Fallback 协商，切档即从当前进度重挂流） ——
   switchQuality(q: Parameters<typeof setSessionQuality>[0]) {
+    if (this.current && isLocalSong(this.current)) { this.notify(); return; } // 本地文件无在线档位
     const cur = getSessionQuality();
     if ((q ?? null) === cur && this.current && this.transport.src && !this.error) { this.notify(); return; } // 同档重复点：不打断
     const at = this.transport.position;
@@ -1091,6 +1173,7 @@ class Player {
   async toggleLove(song?: Song): Promise<boolean | null> {
     const mid = song?.mid;
     if (!mid) return null;
+    if (isLocalSong(song)) return null; // 红心是 QQ 侧概念：本地曲目无在线收藏
     // 行对象可能来自不带数字 id 的上下文（如专辑曲目）：回落到预载时记下的 song_id
     const ref = song.id ? { id: song.id, type: song.type ?? 1 } : this.lovedRef.get(mid);
     if (!ref) return null;

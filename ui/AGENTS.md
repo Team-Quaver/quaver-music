@@ -90,6 +90,43 @@ sidecar 健康检查（最长 15s）与服务端就绪在后台进行；闪屏�
 都归一成行级 `romanLyric`，且不挂 Ruby，需 dev server）、`node scripts/verify-np-gallery.ts`
 （渲染层：逐字与行级两视图的三档行为，含「辅助行只有一个」）、`verify:sparkle`（源码接线）。
 
+## 本地音乐 / NAS（扫描 · 播放 · 刮削 · QRC 逐字）
+
+读盘侧真相在 `electron/local/library.ts`（零 electron、纯 Node）：**两处同构挂载** ——
+dev/preview 由 `src/relay.ts` 挂 `/api/local/*`，打包态由 `electron/native-server.ts` 同样接
+`handleLocalApi`（与 bg/accent/sparkle 一个套路，verify-local 逐条点名 + 顺序红线：
+local 必须早于 sidecar 兜底转发）。标签解析纯函数在 `electron/local/tags.ts`
+（ID3v2.2/2.3/2.4 + USLT/APIC、ID3v1、Vorbis/FLAC/OGG、MP4 ilst/mvhd、WAV/AIFF、文件名兜底），
+WebDAV 客户端在 `electron/local/webdav.ts`（PROPFIND + Range；NAS 走挂载目录时按 folder 源处理）。
+
+- **数据落点**：配置目录下 `local-library/`（library.json 0600、covers/、lyrics/）。
+  库文件里有 WebDAV 口令 → 一切响应经 maskSource 剔除 `password`，日志不打印；渲染层永不接触。
+- **曲目 id** = `t_` + sha1(sourceId␀relPath) 前 12 hex：**relPath 永远相对源根**
+  （嵌套目录曾被递归拍平成 basename → 同名文件撞 id，walkFolder 必须带 base 根走）。
+  软链不跟；所有 GET 只认 id，路径只从库来 —— 与 `/api/bg` 同一条「请求参数不参与拼路径」红线。
+- **流**：folder = createReadStream + Range/206/416/HEAD；webdav = 上游 Range 代理
+  （上游无视 Range 回全量时本地掐头去尾，保住 206 语义）。`<audio>` 与 mpv 引擎共用同一同源 URL。
+- **播放整合**（`src/player.ts`）：`Song.local` 指纹 = {id, kind, hasCover, path, sourceName, qqMid}，
+  随会话存档走（session.ts 的 slim 透传 `local`）。本地曲目：取流不过 Sparkle/QQ resolve、
+  无档位回退链（流失败=跳下一曲）、红心/换音质/预取全短路；音质胶囊显示「本地文件/NAS 流」。
+  封面走 `coverUrl` 本地分支（hasCover=false 回空串，别产死链）；MPRIS 的 artUrl 必须
+  `absArt` 绝对化（相对 /api/local/cover 给外部播放器就是画不出图）。
+- **选目录/文件定位是 Electron 专属**（`quaverLocal` 桥：pick-folder / reveal(id)；
+  reveal 只传 id，主进程现读库反查路径）。浏览器 dev 没有桥 → 页面给手输路径输入框，
+  「打开位置」按钮直接藏掉。
+- **刮削（scrape）**：串行 + 250ms 间隔打 sidecar：`/search` → 打分（歌名吻合是硬门槛，
+  宁缺毋滥绝不错配）→ `/song/<qqMid>/lyric?trans&roma` 落缓存 → 无内嵌封面时下载专辑封面。
+  **扫描发现新歌 → 收尾自动补一轮未匹配刮削**（found>0 才跑，免每次扫描白打网络）。
+- **歌词优先级**（用户明确要求）：官方曲目恒走在线 QRC 管线；**本地曲目仅在刮削命中
+  （local.qqMid 非空）时优先复用同一条在线管线**（`pullQqLyric`：qrc=1 → Sparkle 逐字 →
+  无 provider 或 QRC 解析失败自动回退行级 LRC）；在线拿不到内容（未命中/sidecar 掉线/上游无词）
+  才落回本地通路 —— 服务端 `/local/lyric` 按「sidecar .lrc > 在线刮削缓存 > 内嵌歌词」合成。
+  刮削后落地 qqMid 时，正在播的本地曲经 `onLocalLibraryChange → refreshLocalCurrent` 原地升级
+  指纹并补拉一次歌词（fetchLyric 自带 seq 竞态守卫）。
+- 验证：`node scripts/verify-local.ts`（解析纯单测 + 真 HTTP 端到端：folder/WebDAV 扫描、
+  Range/416/HEAD、封面抽出、sidecar 歌词、自动刮削落库、口令掩码、移除源清库 + 源码接线
+  含反向断言；已进 verify:static）。
+
 ## 页面 CSP（Content-Security-Policy）
 
 真相在 `electron/csp.ts`：策略文本 + `installAppCsp()`。主进程在 `createWindow` 里、
