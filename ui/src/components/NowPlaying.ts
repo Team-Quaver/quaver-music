@@ -15,11 +15,12 @@
 // 开关在插件的设置区（Sparkle tab → Apple Music-like Lyrics）；无逐字数据 / 无提供器 /
 // 开关关闭时维持原有行级高亮。
 // 右侧 = 封面在上，歌名 / 「歌手 - 专辑」在下，文本右对齐且与封面右缘齐平；
-// 信息列下缘挂 ⋮ 更多选项（同名搜索 / 跳转歌手 / 跳转专辑 / 翻译选项（关闭·翻译·注音） /
+// 信息列下缘挂 ⋮ 更多选项（同名搜索 / 跳转歌手 / 跳转专辑 / 翻译选项（关闭·翻译·音译） /
 // 歌词大小 −/+ 步进，仅行级歌词时出现；也可在歌词上 Ctrl+滚轮/触控板捏合直接调）。
 // 背景 = 当前封面高斯模糊放大铺满（双层交叉淡化：新图解码完成后才淡入，换曲不闪主页面）
 // + 深色渐变压暗 + .np 固体底色兜底；进度与控制由常驻播放条承担。
 import { player, type Song } from "../player";
+import { pickAux } from "../lyric";
 import { coverUrl, songTitle, stripEm, QUALITY_SHORT, effectiveQuality, getLastStream } from "../lib/api";
 import {
   probeStreamInfo, cachedStreamInfo, fmtSampleRate, fmtBitDepth, fmtBitrate, fmtChannels,
@@ -98,8 +99,9 @@ export function NowPlaying(): HTMLElement {
   const setArtist = marquee("np-artist");
 
   // —— 更多选项（⋮）：同名搜索 / 跳转歌手 / 跳转专辑 / 翻译选项 ——
-  // 翻译与注音是替换关系：三档互斥（关闭 / 翻译 / 注音）。注音档逐字模式挂 Ruby 在词上方、
-  // 不显示翻译；没有 Ruby 数据时回落显示翻译。行级 LRC 没有词级 Ruby，注音档等同翻译。
+  // 翻译与音译是替换关系：三档互斥（关闭 / 翻译 / 音译），且两路都在歌词**下方**那一行。
+  // 翻译档优先翻译、本行没翻译则回落音译；音译档反之。取路规则见 src/lyric.ts 的 pickAux
+  // （行级）与 AMLL 插件的 pickAuxLine（逐字）—— 行级视图在这里重建 DOM，逐字由插件重建行表。
   // 开合是 class 驱动的缩放动画（.np-menu，锚在按钮圆心上）；跳转类动作先播收拢动画再走 hash。
   const moreBtn = $("np-more");
   const moreMenu = $("np-menu");
@@ -184,7 +186,7 @@ export function NowPlaying(): HTMLElement {
       empty.textContent = "未在播放";
       moreMenu.append(empty);
     }
-    // 翻译选项：三档按钮（关闭 / 翻译 / 注音）。点击后由 4Hz/notify 同步选中态
+    // 翻译选项：三档按钮（关闭 / 翻译 / 音译）。点击后由 4Hz/notify 同步选中态
     const auxRow = document.createElement("div");
     auxRow.className = "np-menu-option";
     auxRow.setAttribute("role", "radiogroup");
@@ -199,7 +201,7 @@ export function NowPlaying(): HTMLElement {
       b.dataset.aux = mode;
       b.setAttribute("role", "radio");
       b.setAttribute("aria-checked", String(player.lyricAux === mode));
-      b.textContent = { off: "关闭", translation: "翻译", romanization: "注音" }[mode];
+      b.textContent = { off: "关闭", translation: "翻译", romanization: "音译" }[mode];
       b.onclick = () => player.setLyricAuxMode(mode);
       auxButtons.set(mode, b);
       opts.append(b);
@@ -343,8 +345,9 @@ export function NowPlaying(): HTMLElement {
     player.notifyPublic();
   });
 
-  let lastMid = "";        // 歌词行 DOM 只在换曲/状态迁移时重建
+  let lastMid = "";        // 歌词行 DOM 只在换曲/状态迁移/辅助行档位变化时重建
   let lastLyricState = "";
+  let lastAuxMode = "";    // 翻译选项档位（换档要重挑每行的辅助行文本）
   let lastIdx = -1;        // 高亮行索引（避免每帧改 class）
   let lastCover: string | null = null; // 封面 img 的 src 签名（4Hz notify 里防 <img> 重建/重解码）
   let lineEls: HTMLElement[] = [];
@@ -450,7 +453,9 @@ export function NowPlaying(): HTMLElement {
     for (const line of player.lyrics) {
       const d = document.createElement("div");
       d.className = "np-ly-line";
-      d.innerHTML = `<span class="l1">${escapeHtml(line.text)}</span>${line.trans ? `<span class="l2">${escapeHtml(line.trans)}</span>` : ""}`;
+      // 辅助行 = 按当前档位挑好的一路（翻译⇄音译互斥，同一行位置；off 则整行不建）
+      const aux = pickAux(line, player.lyricAux);
+      d.innerHTML = `<span class="l1">${escapeHtml(line.text)}</span>${aux ? `<span class="l2">${escapeHtml(aux)}</span>` : ""}`;
       d.onclick = () => { player.seek(line.t); setBrowse(false); }; // 点击跳回该行并恢复跟随
       lyrics.append(d);
     }
@@ -587,8 +592,11 @@ export function NowPlaying(): HTMLElement {
     const st: "idle" | "loading" | "ok" | "none" = player.lyrics.length ? "ok" : player.lyricState;
     const karaMode = karaModeNow();
     el.classList.toggle("kara", karaMode);
-    if (s?.mid !== lastMid || st !== lastLyricState || karaMode !== lastKaraMode || (karaMode && sparkleKaraokeProvider() !== karaProvider)) {
+    if (s?.mid !== lastMid || st !== lastLyricState || karaMode !== lastKaraMode
+      || player.lyricAux !== lastAuxMode // 换翻译/音译档：行级的辅助行文本要重挑一遍
+      || (karaMode && sparkleKaraokeProvider() !== karaProvider)) {
       lastKaraMode = karaMode;
+      lastAuxMode = player.lyricAux;
       if (karaMode) { lastMid = s?.mid ?? ""; lastIdx = -1; buildKara(); }
       else { disposeKara(); buildLyricDom(s); }
     }

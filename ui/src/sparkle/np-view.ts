@@ -13,6 +13,7 @@
 // 卸载插件视图、恢复默认布局 —— 不需要额外的反向通道。
 import type { SparkleNpView, SparkleNpViewCtx, SparkleQualityTier, SparkleSongSnapshot } from "@quaver/sparkle";
 import { player, type Song } from "../player";
+import { pickAux } from "../lyric";
 import {
   effectiveQuality, getLastStream, getStreamTiers, QUALITY_SHORT, songMissingTiers,
   songTitle, stripEm, type Quality,
@@ -91,7 +92,9 @@ export function npViewCtx(): SparkleNpViewCtx {
     loading: () => player.loading,
     error: () => player.error,
 
-    lyrics: () => player.lyrics.map((l) => ({ t: l.t, text: l.text, trans: l.trans })),
+    // 辅助行交出去之前先按「翻译选项」挑好（SDK 里 trans 的语义 = 当前该显示的那一路，
+    // 视图不必自己判两路）；逐字行 karaoke() 仍是原始两路，由渲染方按 lyricAux() 自取。
+    lyrics: () => player.lyrics.map((l) => ({ t: l.t, text: l.text, trans: pickAux(l, player.lyricAux) })),
     lyricState: () => player.lyricState,
     showTrans: () => player.showTrans,
     lyricAux: () => player.lyricAux,

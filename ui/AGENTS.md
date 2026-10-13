@@ -67,6 +67,51 @@ sidecar 健康检查（最长 15s）与服务端就绪在后台进行；闪屏�
   （闪屏→应用的导航掐掉上一帧在途加载属正常时序）。
 - 验证：`node scripts/verify-splash.ts`（已进 `verify:static`）。
 
+## 歌词辅助行（翻译 / 音译）
+
+正在播放页歌词下方**只有一行**辅助行。两路数据（上游 `trans` 翻译、`roma` 音译=romaji/拼音）
+都保留在解析结果里，**上屏哪一路**由「翻译选项」三档决定，规则只有一条：
+
+- `off` 不显示；`translation` 优先翻译、本行没翻译则回落音译；`romanization` 优先音译、
+  本行没音译则回落翻译。**按行**回落（不是整首二选一），所以只有翻译的歌与只有音译的歌都有的
+  专辑不会开天窗。
+- 音译**不是**词上方的 Ruby。Ruby 是日文振假名那种逐词注音，位置在词上；romaji/拼音属翻译区域
+  （AMLL 的 `lyricSubLine`）。以前把音译挂词上，读逐字歌词时会在字上方刷一层拉丁字母，
+  且和扫色高亮抢版面 —— 别再改回去。
+
+同一条规则有**四处**实现，改规则必须一起改（互相 import 不到：插件/主题在 vendor 里）：
+`ui/src/lyric.ts:pickAux`（行级）、`vendor/Sparkle/plugins/amll/index.ts:pickAuxLine`（逐字）、
+`vendor/Sparkle/marketplace/flowscape/index.ts:auxText`（整页接管主题的逐字路径）、
+`ui/src/sparkle/np-view.ts`（交出去的行级 `lyrics().trans` **已经**按档位挑好，视图不必判两路，
+`karaoke()` 则是原始两路）。档位是宿主状态（`player.lyricAux`，持久化 `Style.LyricAux`），
+切档后行级靠 NowPlaying 重建 DOM（`lastAuxMode` 进重建条件），逐字靠插件 rAF 里比 `shownMode`。
+
+验证：`node scripts/verify-amll-parse.ts`（解析层：词级 QRC / XML 信封 / 普通 LRC 三种音译形状
+都归一成行级 `romanLyric`，且不挂 Ruby，需 dev server）、`node scripts/verify-np-gallery.ts`
+（渲染层：逐字与行级两视图的三档行为，含「辅助行只有一个」）、`verify:sparkle`（源码接线）。
+
+## 页面 CSP（Content-Security-Policy）
+
+真相在 `electron/csp.ts`：策略文本 + `installAppCsp()`。主进程在 `createWindow` 里、
+`loadURL` **之前**给会话挂钩子（`session.defaultSession.webRequest.onHeadersReceived`），
+只给应用自己 origin 的响应贴头。
+
+- 症状与判据：非打包态只要「页面没有 CSP」或「策略里有 unsafe-eval」，Electron 就往控制台刷
+  `Electron Security Warning (Insecure Content-Security-Policy)`（`pnpm run app` 终端里那条
+  `[renderer:warning]`）。**修法是真给一条策略**，不是 `ELECTRON_DISABLE_SECURITY_WARNINGS`
+  静音 —— 那是拔烟雾报警器的线。
+- 姿态是「网络放开、脚本收紧」：这是个插件宿主，第三方音源直链、封面外链、插件自己的请求都发生在
+  同一张页面上，所以 `img/media/connect` 允许远端；但 `script-src` 只有 `'self' blob:` ——
+  不开 `unsafe-inline`、绝不开 `unsafe-eval`（`blob:` 只服务于装本地插件前先执行一遍读元数据）。
+  于是 innerHTML 里混进来的 `<script>` / `onclick=` / `eval()` 一律失效。
+- **因为 script-src 不开内联，页面里不许有内联 `<script>`**：八个入口的薄跳转层已挪成
+  `public/redirect.js`（路由名走标签上的 `data-route`）。往 html 里加内联脚本 = 那段代码静默失效。
+- `app.session` 在 Electron 44 已经不存在（实测是 undefined，钩子被守卫静默吞掉、警告照旧），
+  必须用 `session.defaultSession`。
+- 验证：`verify:csp`（策略文本 + 贴头逻辑 + 接线，纯 Node）与 `verify:csp-live`
+  （拿 dist 真跑 Chromium：首屏与插件 chunk 都过得去、内联脚本**确实**被拦、跳转层仍然工作）。
+  后者存在的全部理由就是那次「静态全绿、警告照旧」。
+
 ## 凭证存储（系统密钥管理器）
 
 真相在 `electron/keyring.ts`（零依赖、不 import electron，可单测）。三条硬约束：

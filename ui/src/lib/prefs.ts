@@ -297,9 +297,12 @@ export function setInhibitSleep(v: boolean) {
   cfgSet({ "Playing.InhibitSleep": v ? "True" : "False" });
 }
 
-// —— 歌词辅助行：关闭 / 翻译 / 注音（Ruby）。翻译与注音是替换关系 ——
-//    注音档：逐字（AMLL）有 Ruby 时挂词上方、隐藏翻译；没有 Ruby 数据就回落显示翻译。
-//    行级 LRC 没有词级 Ruby，注音档等同于翻译（fallback）。
+// —— 歌词辅助行：关闭 / 翻译 / 音译。翻译与音译是替换关系，且都在歌词**下方**那一行 ——
+//    翻译档：优先翻译，本行没翻译则回落音译；音译档：优先音译，本行没音译则回落翻译。
+//    同一条规则有四处实现（互 import 不到），改规则一起改：src/lyric.ts 的 pickAux（行级）、
+//    AMLL 插件的 pickAuxLine（逐字）、np-view 交出去的行级 trans（已挑好）、flowscape 的 auxText。
+//    清单与理由见 ui/AGENTS.md「歌词辅助行」。音译是 romaji/拼音这类「整行换套读音」，
+//    不是日文振假名那种词上方注音（那是 Ruby）。
 export type LyricAuxMode = "off" | "translation" | "romanization";
 export const LYRIC_AUX_MODES: LyricAuxMode[] = ["off", "translation", "romanization"];
 
@@ -316,7 +319,7 @@ export function getLyricAux(): LyricAuxMode {
 export function setLyricAux(mode: LyricAuxMode) {
   cfgSet({ "Style.LyricAux": mode, "Style.ShowTranslation": mode === "translation" ? "True" : "False" });
 }
-// 旧入口/插件门面：非 off 即显示翻译（注音档行级 fallback 也算开）
+// 旧入口/插件门面：非 off 即显示辅助行（两档都总有一路上屏，所以 off 之外都算「开」）
 export function getShowTrans(): boolean { return getLyricAux() !== "off"; }
 export function setShowTrans(v: boolean) { setLyricAux(v ? "translation" : "off"); }
 

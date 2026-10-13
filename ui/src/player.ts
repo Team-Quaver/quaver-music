@@ -116,7 +116,7 @@ class Player {
   gallery = false;
   queueOpen = false;
   lyricAux: LyricAuxMode = getLyricAux(); // 歌词辅助行：off/translation/romanization
-  /** 行级/插件门面：非 off 即显示翻译（注音档无 Ruby 时回落翻译） */
+  /** 行级/插件门面：非 off 即显示辅助行（翻译档优先翻译、音译档优先音译，缺则回落另一路） */
   get showTrans(): boolean { return this.lyricAux !== "off"; }
   /** 实际生效后端（"mpv"=原生引擎；"web"=浏览器 <audio>） */
   backend: ActiveBackend = "web";
@@ -746,7 +746,7 @@ class Player {
         this.lyrics = karaokeToLines(kara);
       } else {
         this.karaoke = [];
-        this.lyrics = parseLrc(raw, trans);
+        this.lyrics = parseLrc(raw, trans, roma);
       }
       // 纯音乐占位行（"[00:00.00]此歌曲为没有填词…"）也照常显示
       this.lyricState = this.lyrics.length ? "ok" : "none";
@@ -1150,7 +1150,12 @@ function karaokeToLines(lines: SparkleKaraokeLine[]): LyricLine[] {
   for (const l of lines) {
     const text = l.words.map((w) => w.word).join("").trim();
     if (!text) continue;
-    out.push({ t: l.startTime / 1000, text, trans: l.translatedLyric?.trim() || undefined });
+    out.push({
+      t: l.startTime / 1000,
+      text,
+      trans: l.translatedLyric?.trim() || undefined,
+      roma: l.romanLyric?.trim() || undefined,
+    });
   }
   return out;
 }

@@ -277,7 +277,7 @@ export const SCHEMA: SectionSpec[] = [
       {
         key: "LyricAux",
         def: "translation",
-        doc: ["歌词辅助行：off=关闭｜translation=翻译（默认）｜romanization=注音（Ruby，逐字模式挂词上方；无注音数据时回落翻译）"],
+        doc: ["歌词辅助行（歌词下方那一行）：off=关闭｜translation=翻译（默认，本行无翻译则回落音译）｜romanization=音译（romaji/拼音，本行无音译则回落翻译）"],
         valid: (v: string) => ["off", "translation", "romanization"].includes(v),
       },
       {

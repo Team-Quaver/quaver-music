@@ -1,7 +1,7 @@
 // Quaver — Electron 主进程（ESM）
 // 起一个进程内 vite preview（dist/ + /api 中继插件），窗口加载 http://127.0.0.1:<port>
 // frame:false：无原生标题栏——窗口右上角平铺三个窗口按钮（min/max/close）+抓握点，经 preload IPC 接管。
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Tray, nativeImage, nativeTheme, safeStorage, shell } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, session, Tray, nativeImage, nativeTheme, safeStorage, shell } from "electron";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
@@ -26,6 +26,8 @@ import { TRAY_ICON_PT, trayIconFile } from "./tray-icon.ts";
 import { trayTitleLine } from "./tray-title.ts";
 // 启动闪屏：sidecar/服务端就绪前的空窗期由它顶着（模块头有完整时序说明）
 import { dismissSplash, loadSplash } from "./splash.ts";
+// 应用页面的 CSP：主进程给本机 origin 的响应统一贴头（策略文本与理由见 csp.ts 模块头）
+import { installAppCsp } from "./csp.ts";
 // Linux 桌面集成自装（<app_id>.desktop 身份文件 + hicolor 图标）：各桌面/门户按 app_id 反查
 // 桌面文件取图标，AppImage 裸跑与开发态都没人代劳，必须自己装（模块头有完整链路说明）
 import { DESKTOP_ID, installLinuxDesktopIntegration, quoteExecPath } from "./linux-desktop.ts";
@@ -710,6 +712,9 @@ async function createWindow() {
     audioEngine.init({ baseUrl: new URL(url).origin, getWin: () => win, log });
   } catch (e) { log("[quaver] audio engine init failed:", String(e)); }
   const appOrigin = new URL(url).origin;
+  // CSP 必须在 loadURL 之前挂好（webRequest 是会话级的，晚挂 = 首帧没头 = 白刷一条
+  // Electron 安全警告）；重建窗口走 cachedUrl 会再挂一次，同一 origin 覆盖成同一条策略。
+  installAppCsp(session.defaultSession, appOrigin, log);
   win.webContents.on("will-navigate", (e, navUrl) => {
     try { if (new URL(navUrl).origin === appOrigin) return; } catch {}
     e.preventDefault();

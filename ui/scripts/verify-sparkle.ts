@@ -50,6 +50,7 @@ const src = {
   flowMeta: read("../vendor/Sparkle/marketplace/flowscape/plugin.json"),
   flowIdx: read("../vendor/Sparkle/marketplace/flowscape/index.ts"),
   amll: read("../vendor/Sparkle/plugins/amll/index.ts"),
+  lyric: read("src/lyric.ts"),
   guide: read("../vendor/Sparkle/docs/plugin-author-guide.md"),
 };
 
@@ -329,11 +330,14 @@ ok("np-view: 快照把 singer.mid 透传给插件", re(noComments(src.npView), /
 ok("guide: 文档写了「复用逐字提供器」与「跳转前先 np.collapse()」", has(src.guide, "karaokeActive()") && has(src.guide, "`np.collapse()`"));
 ok("flowscape: 逐字模式复用宿主提供器（开=逐字，关=回退行级；两源折进同一个 DispLine）", re(noComments(src.flowIdx), /const kara = ctx\.karaokeActive\(\);/) && has(noComments(src.flowIdx), "karaLines = kara ? ctx.karaoke() : [];") && has(noComments(src.flowIdx), "lyricLines = kara ? [] : ctx.lyrics();") && has(noComments(src.flowIdx), '|${kara ? "k" : "l"}|${mode}') && has(noComments(src.flowIdx), "interface DispLine") && re(noComments(src.flowIdx), /karaOn = kara;/));
 ok("flowscape: 逐字行按行号重填、词进度按变化写（稳态几乎零写入）", re(noComments(src.flowIdx), /if \(idx !== lastIdx\) \{/) && re(noComments(src.flowIdx), /if \(karaOn && idx >= 0\) paintKaraWords\(dispLines\[idx\], sec \* 1000\);/) && re(noComments(src.flowIdx), /if \(el\.dataset\.p === String\(q\)\) continue;/));
-ok("amll: 逐字 provider 接收音译并升级为 Ruby（注音只挂词上方，不落 romanLyric）", has(src.amll, "parseKaraoke(content: string, translation: string, romanization = \"\")") && has(src.amll, "parseQrcRomanization") && has(src.amll, "attachQrcRomanization") && has(src.amll, "rw.ruby =") && has(src.amll, "romanLyric: \"\""));
-ok("amll: Ruby 对不上就不注（不落 romanLyric 行，避免和翻译叠位）", has(src.amll, "return false") && !has(src.amll, "l.romanLyric = text"));
-ok("amll: 渲染行按 lyricAux 重建（注音档有 Ruby 时挂词上方、隐藏翻译）", has(src.amll, "wantMode !== shownMode") && has(src.amll, "toCoreLines(lines, shownMode, ruby)") && has(src.amll, "showRuby = mode === \"romanization\" && hasRuby") && has(src.amll, "showTrans = mode === \"translation\" || (mode === \"romanization\" && !hasRuby)"));
-ok("host: 歌词请求同时取翻译与音译", re(src.player, /lyric\?trans=1&roma=1&qrc=1/) && re(src.player, /provider\.parse\(raw, trans, roma\)/));
-ok("np: 翻译选项三档（关闭/翻译/注音），注音在宿主选项里", has(src.np, "LYRIC_AUX_MODES") && has(src.np, "player.setLyricAuxMode(mode)") && has(src.style, ".np.hide-trans"));
+ok("amll: 音译归一成行级 romanLyric（与翻译共用歌词下方子行，不再挂词上 Ruby）", has(src.amll, "parseKaraoke(content: string, translation: string, romanization = \"\")") && has(src.amll, "alignAux(lines, translation, romanization)") && has(src.amll, "if (r) l.romanLyric = r;") && !has(src.amll, "rw.ruby =") && !has(src.amll, "hasRuby"));
+ok("amll: 辅助源两路都认得词级 QRC（含 XML 信封）与普通 LRC", has(src.amll, "function parseQrcAuxSource") && has(src.amll, "const QRC_WORD_LINE = /^\\[\\d+,\\d+\\]/m;") && has(src.amll, "try { return parseLrc(c); } catch { return []; }"));
+ok("amll: 辅助行按档位取一路（优先所选、本行缺则回落另一路），固定落第一子行", has(src.amll, "wantMode !== shownMode") && has(src.amll, "toCoreLines(lines, shownMode)") && has(src.amll, "const prefer = (mode === \"romanization\" ? l.romanLyric : l.translatedLyric) ?? \"\";") && has(src.amll, "return prefer.trim() || fallback.trim();") && has(src.amll, "romanLyric: \"\","));
+ok("lyric: 行级歌词两路都挂上，显示哪一路交给 pickAux（与 AMLL 同规则）", re(src.lyric, /export function parseLrc\(lrc: string, trans\?: string, roman\?: string\)/) && has(src.lyric, "attachAux(base, roman, \"roma\");") && has(src.lyric, "const prefer = (mode === \"romanization\" ? line.roma : line.trans) ?? \"\";"));
+ok("host: 歌词请求同时取翻译与音译，行级解析两路都喂", re(src.player, /lyric\?trans=1&roma=1&qrc=1/) && re(src.player, /provider\.parse\(raw, trans, roma\)/) && re(src.player, /parseLrc\(raw, trans, roma\)/) && has(src.player, "roma: l.romanLyric?.trim() || undefined,"));
+ok("np: 翻译选项三档（关闭/翻译/音译），换档重建行级 DOM 以重挑辅助行", has(src.np, "LYRIC_AUX_MODES") && has(src.np, "player.setLyricAuxMode(mode)") && has(src.np, "romanization: \"音译\"") && has(src.np, "pickAux(line, player.lyricAux)") && has(src.np, "player.lyricAux !== lastAuxMode") && has(src.style, ".np.hide-trans"));
+ok("np-view: 交给主题的 lyrics().trans 已按档位挑好（视图不必判两路）", has(noComments(src.npView), "trans: pickAux(l, player.lyricAux)"));
+ok("flowscape: 逐字辅助行同规则取一路，且档位进重建签名", has(noComments(src.flowIdx), "trans: auxText(l, ctx.lyricAux())") && has(noComments(src.flowIdx), "|${ctx.lyricAux()}|"));
 ok("flowscape: 逐词渐变只画一份字形，保留长词折行", has(src.flowIdx, "background:linear-gradient(to right,") && has(src.flowIdx, "background-clip:text") && has(src.flowIdx, "calc(var(--p,0) * 100%)") && has(src.flowIdx, "white-space:pre-wrap") && !has(src.flowIdx, ".kw::after") && !has(noComments(src.flowIdx), "e.dataset.t = w.word"));
 ok("flowscape: 主行柔阴影与前景色均可由主题接管", has(src.flowIdx, "filter:var(--fs-lyric-filter,drop-shadow(0 2px 8px #0007));") && has(src.flowIdx, "color:var(--fs-lyric-color,#fff)") && has(src.flowIdx, "var(--fs-lyric-highlight,color-mix(") && has(src.flowIdx, "text-shadow:var(--fs-lyric-translation-shadow,"));
 ok("flowscape: 更多选项补跳转三项（同名搜索 / 跳转歌手 / 跳转专辑，hash 口径同宿主 np 菜单）", has(src.flowIdx, "#/search?keyword=") && has(src.flowIdx, "#/singer?mid=") && has(src.flowIdx, "#/album?mid=") && has(noComments(src.flowIdx), "const hasAlb = !!(alb?.mid || alb?.pmid);") && has(noComments(src.flowIdx), 'if (!singers.length) jumpBox.append(jumpRow("跳转歌手", true));'));

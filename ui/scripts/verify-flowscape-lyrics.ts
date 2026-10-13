@@ -48,7 +48,7 @@ try {
       time: () => state.time, duration: () => 10, paused: () => true, loading: () => false,
       error: () => "", volume: () => 0.8, muted: () => false, loved: () => false,
       qualityLabel: () => "自动", qualityTiers: () => [], quality: () => "auto",
-      showTrans: () => state.trans, lyricState: () => "ready",
+      showTrans: () => state.trans, lyricAux: () => (state.trans ? "translation" : "off"), lyricState: () => "ready",
       karaokeActive: () => state.karaoke, karaoke: () => lines,
       lyrics: () => lines.map((l) => ({ t: l.startTime / 1000, text: l.words.map((w) => w.word).join(""), trans: l.translatedLyric })),
       onNotify: (fn: () => void) => { notify = fn; return () => {}; },

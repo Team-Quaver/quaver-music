@@ -196,18 +196,22 @@ await step("kara 模式：AMLL 挂载、行级隐藏、左缘渐变蒙版仍在"
   // 桩 karaoke 清空（真实应用里这步解析真 QRC）。所以这里反复重挂桩数据直到 .np.kara 稳定。
   await page.evaluate(() => {
     const p = window.__player;
-    const line = (t0, dur, ws) => ({
+    const line = (t0, dur, ws, trans = "", roman = "") => ({
       startTime: t0, endTime: t0 + dur,
       words: ws.map(([w, st, d]) => ({ word: w, startTime: t0 + st, endTime: t0 + st + d })),
-      translatedLyric: "",
+      translatedLyric: trans,
+      romanLyric: roman,
     });
     const arm = () => {
       p.lyricState = "ok";
-      p.lyrics = [{ t: 0, text: "第一行" }, { t: 3, text: "第二行" }];
-      p.karaoke = [line(0, 3000, [["你好", 0, 1500], ["世界", 1500, 1500]]), line(3000, 3000, [["第二行", 0, 3000]])];
-      // Ruby 注音藏在词上；默认 showRoma=false 不渲染，下一步再打开验证开关真的进 AMLL
-      p.karaoke[0].words[0].ruby = [{ word: "nǐ hǎo", startTime: 0, endTime: 1500 }];
-      p.karaoke[0].words[1].ruby = [{ word: "shì jiè", startTime: 1500, endTime: 3000 }];
+      // 行级与逐字两路辅助行都给数据：第 1 行翻译/音译都有、第 2 行只有音译 ——
+      // 据此验证「优先所选那一路，本行缺则回落另一路」，以及辅助行只有一个、绝不在词上方。
+      p.lyrics = [{ t: 0, text: "第一行", trans: "第一行（译）", roma: "di yi hang" },
+        { t: 3, text: "第二行", roma: "di er hang" }];
+      p.karaoke = [
+        line(0, 3000, [["你好", 0, 1500], ["世界", 1500, 1500]], "你好世界（译）", "ni hao shi jie"),
+        line(3000, 3000, [["第二行", 0, 3000]], "", "di er hang"),
+      ];
       p.notifyPublic();
     };
     arm();
@@ -234,26 +238,69 @@ await step("kara 模式：AMLL 挂载、行级隐藏、左缘渐变蒙版仍在"
   if (!st.leftGrad) throw new Error("kara 左缘渐变蒙版丢失");
 });
 
-await step("kara Ruby：注音档打开 = 注音上屏，切回翻译档 = 立即剔除", async () => {
-  await page.evaluate(() => { const p = window.__player; p.setLyricAuxMode("romanization"); p.notifyPublic(); });
-  await page.waitForFunction(() =>
-    document.querySelector("#np-karaoke .amll-lyric-player")?.textContent.includes("nǐ hǎo"), { timeout: 8000 });
-  const before = await page.evaluate(() =>
-    document.querySelector("#np-karaoke .amll-lyric-player")?.textContent ?? "");
-  await page.evaluate(() => { const p = window.__player; p.setLyricAuxMode("translation"); p.notifyPublic(); });
-  await page.waitForFunction(() => {
-    const t = document.querySelector("#np-karaoke .amll-lyric-player")?.textContent ?? "";
-    return t.includes("你好") && !t.includes("nǐ hǎo");
-  }, { timeout: 8000 });
-  return `注音样本 ${before.includes("shì jiè") ? "两词齐全" : "不齐全"}`;
-});
+await step("kara 辅助行：翻译档优先翻译、音译档优先音译，缺的一路回落另一路（且不落词上方）", async () => {
+  // AMLL 每行的 DOM：children[0]=主行，[1]=第一子行（辅助行），[2]=第二子行（本设计里恒空）
+  const read = () => page.evaluate(() => {
+    const host = document.querySelector("#np-karaoke .amll-lyric-player");
+    const mains = [...(host?.querySelectorAll('[class*="lyricMainLine"]') ?? [])];
+    const rows = mains.map((m) => {
+      const kids = [...(m.parentElement?.children ?? [])].map((c) => (c.textContent ?? "").trim());
+      return { main: kids[0] ?? "", subs: kids.slice(1).filter(Boolean) };
+    }).filter((r) => r.main.includes("你好") || r.main.includes("第二行"));
+    return { rows, rubyEls: (host?.querySelectorAll('[class*="rubyWord"]') ?? []).length };
+  });
+  const setMode = (m) => page.evaluate((mode) => { window.__player.setLyricAuxMode(mode); window.__player.notifyPublic(); }, m);
+  const waitRows = (want) => page.waitForFunction((w) => {
+    const host = document.querySelector("#np-karaoke .amll-lyric-player");
+    const mains = [...(host?.querySelectorAll('[class*="lyricMainLine"]') ?? [])];
+    return mains.some((mm) => (mm.parentElement?.textContent ?? "").includes(w));
+  }, { timeout: 8000 }, want);
 
+  await setMode("translation");
+  await waitRows("你好世界（译）");
+  await sleep(350);
+  let st = await read();
+  let one = st.rows.find((r) => r.main.includes("你好"));
+  let two = st.rows.find((r) => r.main.includes("第二行"));
+  if (!one || one.subs.join() !== "你好世界（译）") throw new Error("翻译档第 1 行应显翻译 " + JSON.stringify(st.rows));
+  if (!two || two.subs.join() !== "di er hang") throw new Error("翻译档第 2 行无翻译应回落音译 " + JSON.stringify(st.rows));
+
+  await setMode("romanization");
+  await waitRows("ni hao shi jie");
+  await sleep(350);
+  st = await read();
+  one = st.rows.find((r) => r.main.includes("你好"));
+  two = st.rows.find((r) => r.main.includes("第二行"));
+  if (!one || one.subs.join() !== "ni hao shi jie") throw new Error("音译档第 1 行应显音译（且在上一步的翻译之后真的换了一路） " + JSON.stringify(st.rows));
+  if (!two || two.subs.join() !== "di er hang") throw new Error("音译档第 2 行应保持音译 " + JSON.stringify(st.rows));
+  if (st.rubyEls > 0) throw new Error("音译不该出现在词上方（Ruby） " + JSON.stringify(st));
+  if (st.rows.some((r) => r.subs.length > 1)) throw new Error("辅助行只应有一行 " + JSON.stringify(st.rows));
+
+  await setMode("off");
+  await waitRows("你好");
+  await sleep(350);
+  st = await read();
+  if (st.rows.some((r) => r.subs.length)) throw new Error("关闭档仍残留辅助行 " + JSON.stringify(st.rows));
+});
 await step("行级回退：karaoke 清空后回行级列表", async () => {
-  await page.evaluate(() => { const p = window.__player; p.karaoke = []; p.notifyPublic(); });
+  await page.evaluate(() => { const p = window.__player; p.karaoke = []; p.setLyricAuxMode("translation"); p.notifyPublic(); });
   await page.waitForFunction(() =>
     !document.querySelector(".np.kara") && document.querySelectorAll("#np-lyrics .np-ly-line").length > 0, { timeout: 8000 });
 });
 
+await step("行级辅助行：与逐字同规则（翻译档优先翻译、音译档优先音译，缺则回落另一路）", async () => {
+  const read = () => page.evaluate(() => [...document.querySelectorAll("#np-lyrics .np-ly-line")]
+    .map((d) => ({ text: d.querySelector(".l1")?.textContent ?? "", aux: d.querySelector(".l2")?.textContent ?? "" })));
+  const rows = await read();
+  if (rows.find((r) => r.text === "第一行")?.aux !== "第一行（译）") throw new Error("翻译档第 1 行应显翻译 " + JSON.stringify(rows));
+  if (rows.find((r) => r.text === "第二行")?.aux !== "di er hang") throw new Error("翻译档第 2 行无翻译应回落音译 " + JSON.stringify(rows));
+  await page.evaluate(() => { const p = window.__player; p.setLyricAuxMode("romanization"); p.notifyPublic(); });
+  await page.waitForFunction(() => document.querySelector("#np-lyrics .np-ly-line .l2")?.textContent === "di yi hang", { timeout: 8000 });
+  const rows2 = await read();
+  if (rows2.find((r) => r.text === "第一行")?.aux !== "di yi hang") throw new Error("音译档第 1 行应换到音译 " + JSON.stringify(rows2));
+  await page.evaluate(() => { const p = window.__player; p.setLyricAuxMode("off"); p.notifyPublic(); });
+  await page.waitForFunction(() => !document.querySelector("#np-lyrics .np-ly-line .l2"), { timeout: 8000 });
+});
 await step("画廊按钮：开 = 展开并全屏、按钮点亮", async () => {
   await page.evaluate(() => { const p = window.__player; p.expanded = false; p.gallery = false; p.notifyPublic(); });
   await sleep(450);

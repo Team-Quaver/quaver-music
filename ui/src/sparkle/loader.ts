@@ -27,10 +27,10 @@ export const OFFICIAL_META: OfficialPluginMeta[] = [
   {
     id: "amll",
     name: "Apple Music-like Lyrics",
-    version: "1.0.0",
+    version: "1.2.0",
     author: "Team Quaver",
     license: "AGPL - v3",
-    description: "用 AMLL（applemusic-like-lyrics）渲染逐字歌词（QRC/TTML）",
+    description: "用 AMLL（applemusic-like-lyrics）渲染逐字歌词（QRC/TTML；翻译与音译共用歌词下方辅助行）",
   },
 ];
 

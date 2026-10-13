@@ -3,13 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <title>Quaver Music</title>
-    <script>
-      // 薄跳转层：旧 ?tid=&name= 深链映射到 SPA 路由 #/playlist?id=&name=
-      var q = new URLSearchParams(location.search);
-      var id = q.get("id") || q.get("tid") || q.get("dir") || "";
-      var name = q.get("name") || "";
-      location.replace("/index.html#/playlist?id=" + encodeURIComponent(id) + "&name=" + encodeURIComponent(name));
-    </script>
+    <script src="/redirect.js" data-route="playlist"></script>
   </head>
   <body></body>
 </html>

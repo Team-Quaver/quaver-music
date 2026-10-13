@@ -1,8 +1,16 @@
-// LRC 歌词解析（含可选翻译行，按序号对齐）
+// LRC 歌词解析（含可选的翻译 / 音译辅助行，两路各自按时间就近对齐）
+//
+// 数据层只负责「把两路都挂上」，不负责选路：显示哪一路由「翻译选项」决定，
+// 规则集中在 pickAux()（逐字视图用同一条规则，见 vendor/Sparkle/plugins/amll 的 pickAuxLine）。
+import type { LyricAuxMode } from "./lib/prefs";
+
 export interface LyricLine {
   t: number; // 秒
   text: string;
+  /** 翻译行（上游 trans） */
   trans?: string;
+  /** 音译行（上游 roma：romaji/拼音）—— 与翻译同一个位置（歌词下方那行） */
+  roma?: string;
 }
 
 const TS = /\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?]/g;
@@ -26,12 +34,13 @@ function parseBlock(src: string): LyricLine[] {
   return out;
 }
 
-export function parseLrc(lrc: string, trans?: string): LyricLine[] {
-  const base = parseBlock(lrc ?? "");
-  const tr = parseBlock(trans ?? "");
-  // 翻译行按时间就近对齐；对不上就不显示
+/** 辅助行（翻译 / 音译同一套路）按时间就近对齐到主歌词行；对不上就不显示 */
+function attachAux(base: LyricLine[], src: string | undefined, field: "trans" | "roma") {
+  if (!base.length) return;
+  const aux = parseBlock(src ?? "");
+  if (!aux.length) return;
   const map = new Map<number, string>();
-  for (const line of tr) {
+  for (const line of aux) {
     let best: LyricLine | undefined;
     let bd = 1.5; // 秒差容忍
     for (const b of base) {
@@ -40,8 +49,28 @@ export function parseLrc(lrc: string, trans?: string): LyricLine[] {
     }
     if (best && !map.has(best.t)) map.set(best.t, line.text);
   }
-  for (const b of base) b.trans = map.get(b.t);
+  for (const b of base) {
+    const text = map.get(b.t);
+    if (text) b[field] = text;
+  }
+}
+
+export function parseLrc(lrc: string, trans?: string, roman?: string): LyricLine[] {
+  const base = parseBlock(lrc ?? "");
+  attachAux(base, trans, "trans");
+  attachAux(base, roman, "roma");
   return base;
+}
+
+/**
+ * 辅助行取哪一路：翻译档优先翻译、音译档优先音译，本行缺哪一路就回落到另一路；
+ * off = 空串（不显示）。两路永远共用同一行位置，绝不会同时上屏。
+ */
+export function pickAux(line: Pick<LyricLine, "trans" | "roma">, mode: LyricAuxMode): string {
+  if (mode === "off") return "";
+  const prefer = (mode === "romanization" ? line.roma : line.trans) ?? "";
+  const fallback = (mode === "romanization" ? line.trans : line.roma) ?? "";
+  return prefer.trim() || fallback.trim();
 }
 
 export const fmtDur = (sec: number) => {
