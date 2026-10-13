@@ -445,8 +445,10 @@ class Player {
     this.notify();
   }
 
+  /** SDK 的 toggleTrans 只有布尔名分；这里让它循环三档，插件不用访问 player 也能切到音译。 */
   toggleTrans() {
-    this.setLyricAuxMode(this.lyricAux === "off" ? "translation" : "off");
+    const order: LyricAuxMode[] = ["off", "translation", "romanization"];
+    this.setLyricAuxMode(order[(order.indexOf(this.lyricAux) + 1) % order.length]!);
   }
 
   /** 翻译选项：off/translation/romanization，一次写盘（含兼容旧 ShowTranslation） */
