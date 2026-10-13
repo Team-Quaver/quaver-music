@@ -851,13 +851,15 @@ class Player {
     const qqMid = t.match?.qqMid ?? "";
     const cover = !!t.coverRel;
     const lyricImport = t.lyricSource === "import";
-    if (s.local.qqMid === qqMid && s.local.hasCover === cover && s.local.lyricImport === lyricImport) return;
     const importFlipped = s.local.lyricImport !== lyricImport;
     const midAppeared = !!qqMid && s.local.qqMid !== qqMid;
     s.local.qqMid = qqMid;
     s.local.hasCover = cover;
     s.local.lyricImport = lyricImport;
     if (importFlipped || (midAppeared && this.lyricState !== "ok")) void this.fetchLyric(s);
+    // 快照落定就广播，**不按指纹相等早退**：重导封面是「同 id 原地换图」——指纹三个字段全不变，
+    // 但 URL 已被 api.ts:bumpLocalCover 加了版本，tint/背景这些按 coverUrl 缓存的层要收到
+    // 一次换曲级 notify 才会重取色（notify 4Hz 本来就在跑，多这一次不是成本）。
     this.notify();
   }
 

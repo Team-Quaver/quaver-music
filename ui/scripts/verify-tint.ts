@@ -11,7 +11,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { cmyk2rgb, hsl2rgb, isHexColor, parseHex, rgb2cmyk, rgb2hsl, toBarColors, toHex } from "../src/lib/color.ts";
+import { cmyk2rgb, hsl2rgb, isHexColor, parseHex, rgb2cmyk, rgb2hsl, toBarColors, toHex, toPixelSrc } from "../src/lib/color.ts";
 import { defaults, schemaIndex } from "../electron/config.ts";
 import { pickPreset, resolvePresetColor, sparkTintChoice, tintPolicyOf, validPresets } from "../src/sparkle/theme-tint.ts";
 
@@ -48,6 +48,11 @@ eq("toHex 夹紧越界并取整", toHex({ r: 300, g: -5, b: 25.6 }), "#ff001a");
 eq("真相规范化：parseHex → toHex 收敛成小写 6 位", toHex(parseHex("#0FF")!), "#00ffff");
 check("isHexColor 与 parseHex 同判据", isHexColor("#19c2d8") && !isHexColor("cyan") && !isHexColor(""));
 eq("未染色时播放进度回退色不透出底层", toBarColors(null).soft, "rgb(25,194,216)");
+// 取色源选择（本地曲封面修复）：/api/img 是 QQ CDN 白名单中继，同源相对路径塞进去会被
+// 400 拒掉 —— 本地封面必须直连（同源 canvas 不 taint），否则 tint 恒失败像「跟丢了封面」。
+check("QQ 绝对封面走 /api/img 中继", toPixelSrc("https://y.gtimg.cn/music/photo_new/T002.jpg").startsWith("/api/img?u="));
+eq("本地封面同源相对路径直连", toPixelSrc("/api/local/cover/t_0123456789ab"), "/api/local/cover/t_0123456789ab");
+eq("data: 图源直连（fake-audio/插件兜底图）", toPixelSrc("data:image/png;base64,xx"), "data:image/png;base64,xx");
 check("染色后的播放进度填充也使用不透明 RGB",
   /^rgb\(\d+,\d+,\d+\)$/.test(toBarColors({ r: 186, g: 94, b: 170 }).soft));
 
@@ -246,6 +251,14 @@ check("…当前值域收得住未知档位", tintValid("nope") === false);
 section("源码接线 · 进度条与歌词高亮");
 const bar = src("src/components/PlayerBar.ts");
 check("tint.ts 用 toBarColors 派生进度条色对（同源色、另一套亮度）", /const bar = toBarColors\(rgb\)/.test(tint));
+{
+  const player2 = src("src/player.ts");
+  const apiSrc = src("src/lib/api.ts");
+  const localSrc = src("src/lib/local.ts");
+  check("本地封面 URL 走同源路径（不拼 /api/img）", /if \(s\?\.local\) return s\.local\.hasCover \? localCoverPath\(s\.local\.id\)/.test(apiSrc));
+  check("重导封面 bump URL 版本（按 URL 缓存的层要能穿透）", /bumpLocalCover/.test(apiSrc) && /localCoverVer/.test(apiSrc) && /bumpLocalCover\(id\)/.test(localSrc));
+  check("库快照落定恒 notify（换曲级广播驱动 tint 重取）", !/hasCover === cover && s\.local\.lyricImport === lyricImport\) return;/.test(player2) && /不按指纹相等早退/.test(player2));
+}
 check("tint.ts 写进度条的两个变量",
   /writeVar\("--cvg-bar-fill", bar\.soft\)/.test(tint) && /writeVar\("--cvg-bar-line", bar\.line\)/.test(tint));
 check("tint.ts 一并供歌词当前句", /writeVar\("--np-hl", bar\.line\)/.test(tint));

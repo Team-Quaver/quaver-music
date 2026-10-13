@@ -376,7 +376,7 @@ section("源码接线：player/渲染层绕开 QQ 通路");
   check("换音质对本地曲目停用", /if \(this\.current && isLocalSong\(this\.current\)\)/.test(player));
   check("预取对本地曲目短路", /if \(isLocalSong\(song\)\) return/.test(player));
   const api = src("src/lib/api.ts");
-  check("coverUrl 本地分支", /if \(s\?\.local\)[\s\S]{0,120}\/api\/local\/cover\//.test(api));
+  check("coverUrl 本地分支（同源路径 + 版本穿透）", /if \(s\?\.local\)[\s\S]{0,120}localCoverPath\(s\.local\.id\)/.test(api));
   const session = src("src/lib/session.ts");
   check("会话存档保留 local 指纹", /local: \(s as any\)\.local/.test(session));
   const songs = src("src/lib/songs.ts");

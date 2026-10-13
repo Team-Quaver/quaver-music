@@ -85,10 +85,20 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
+// 本地封面版本表：同 id 原地换图（手动导入/重抽）时 URL 恒定会让 **一切按 URL 缓存的层**
+// 挂在旧图上 —— <img>/背景（no-store 救了网络层，救不了内存）、tint 的取色缓存、
+// tint 自身的 coverPic 空转判据。导入成功即 bump，URL 带 ?v= 自然穿透全部缓存。
+const localCoverVer = new Map<string, number>();
+export function bumpLocalCover(id: string): void {
+  localCoverVer.set(id, (localCoverVer.get(id) ?? 0) + 1);
+}
+export const localCoverPath = (id: string) =>
+  `/api/local/cover/${id}` + (localCoverVer.get(id) ? `?v=${localCoverVer.get(id)}` : "");
+
 export const coverUrl = (s: any, size = 300) => {
   // 本地/NAS 曲目：封面走同源 /api/local/cover/<id>（hasCover 指纹随 Song 走，
   // 没封面回空串 —— 行渲染/正在播放页对空串都有占位）
-  if (s?.local) return s.local.hasCover ? `/api/local/cover/${s.local.id}` : "";
+  if (s?.local) return s.local.hasCover ? localCoverPath(s.local.id) : "";
   const pmid: string = s.album?.pmid ?? "";
   const base = pmid ? pmid.split("_")[0] : (s.album?.mid ?? "");
   return base ? `https://y.gtimg.cn/music/photo_new/T002R${size}x${size}M000${base}.jpg` : "";

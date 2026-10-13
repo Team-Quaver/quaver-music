@@ -3,7 +3,7 @@
 // 分工：读盘/扫描/刮削的真相全在 electron/local/library.ts（dev=relay、打包=native-server
 // 两处同构挂载）；这里只管「拉快照 → 转成 Song → 动作触发 + 进度轮询」。
 // Song 上的 local 指纹（{id, kind, hasCover, path}）随会话存档走，封面/取流都只认 id。
-import { api } from "./api.ts";
+import { api, bumpLocalCover } from "./api.ts";
 // Song 的类型真相在 player.ts；这是**纯类型导入**（运行期被擦除），
 // 因此 player ⇄ local 的运行时依赖保持单向（player 消费 local 的取流/判定函数）。
 import type { Song } from "../player";
@@ -223,6 +223,8 @@ export async function importLocalCover(id: string, file: File): Promise<void> {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ id, name: file.name, data: await fileToBase64(file) }),
   });
+  // 换图 = 换 URL：穿透 <img>/背景/tint 的按-url 缓存（refreshLocalCurrent 恒 notify 驱动重算）
+  bumpLocalCover(id);
   await loadLocalLibrary(true);
 }
 

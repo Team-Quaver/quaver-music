@@ -120,9 +120,23 @@ WebDAV 客户端在 `electron/local/webdav.ts`（PROPFIND + Range；NAS 走挂�
 - **歌词优先级**（用户明确要求）：官方曲目恒走在线 QRC 管线；**本地曲目仅在刮削命中
   （local.qqMid 非空）时优先复用同一条在线管线**（`pullQqLyric`：qrc=1 → Sparkle 逐字 →
   无 provider 或 QRC 解析失败自动回退行级 LRC）；在线拿不到内容（未命中/sidecar 掉线/上游无词）
-  才落回本地通路 —— 服务端 `/local/lyric` 按「sidecar .lrc > 在线刮削缓存 > 内嵌歌词」合成。
-  刮削后落地 qqMid 时，正在播的本地曲经 `onLocalLibraryChange → refreshLocalCurrent` 原地升级
-  指纹并补拉一次歌词（fetchLyric 自带 seq 竞态守卫）。
+  才落回本地通路 —— 服务端 `/local/lyric` 按「**手动导入 > sidecar .lrc > 在线刮削缓存 > 内嵌**」
+  合成，响应带 format（lrc/qrc/ttml）。刮削后落地 qqMid 时，正在播的本地曲经
+  `onLocalLibraryChange → refreshLocalCurrent` 原地升级指纹并补拉一次歌词（撤销导入同理翻转）。
+- **手动覆盖三件套（右键「更多操作」，SongMenu 本地分支）**：
+  ① 导入歌词（QRC/TTML/LRC）：`pickFile` + base64 POST `/local/lyric/import`（≤512KB，
+  服务端 `sniffLyricFormat` 嗅格式，原文落 `lyrics/<id>.import`）；**导入恒胜** —— 指纹
+  `lyricImport` 让 fetchLyric 跳过在线管线，materializeTrack 重扫保导入件；「撤销导入」
+  （DELETE）按现存资产回退一档、指纹翻转自动触发重拉（订阅链负责，菜单不再手动补刀防双拉）。
+  宿主兜底：`src/lyric.ts:ttmlToLrc/qrcToLrc/coerceLyricToLrc` 在无逐字插件时把 QRC/TTML
+  拍平成行级 LRC（AMLL 插件在场则本就吃词级，它的 parse 认这两种格式）。
+  ② 导入封面：POST `/local/cover/import`（≤8MB，`imageFormat` 魔数验 jpg/png/gif/webp）；
+  `coverManual` 让重扫抽到内嵌图也不换。**同 id 原地换图 URL 恒定** —— 重导成功经
+  `api.ts:bumpLocalCover` 给封面路径加 `?v=`（穿透 <img>/背景/tint 的按-URL 缓存；服务端
+  no-store 只救网络层），且 `refreshLocalCurrent` 因此**恒 notify**、不按指纹相等早退。
+  ③ 重新设置刮削信息（曲名/歌手/专辑）：`LocalImportDialog` 模态 → POST `/local/meta/set`
+  置 `editedMeta` —— scrapeTrack 的回填恒被跳过（「借匹配拿词/封面/qqMid，不改写用户校正」），
+  保存即对该曲 force 重刮；正在播的曲目经 `player.patchCurrentMeta` 就地换展示字段。
 - 验证：`node scripts/verify-local.ts`（解析纯单测 + 真 HTTP 端到端：folder/WebDAV 扫描、
   Range/416/HEAD、封面抽出、sidecar 歌词、自动刮削落库、口令掩码、移除源清库 + 源码接线
   含反向断言；已进 verify:static）。
@@ -243,6 +257,10 @@ WebDAV 客户端在 `electron/local/webdav.ts`（PROPFIND + Range；NAS 走挂�
   激活描边、条目洗底…）；`--cvg-bar-fill` / `--cvg-bar-line`（`toBarColors`，播放条已播区与拖拽 seek
   的边线 —— 「亮度另调过」的那一版）；`--np-hl`（播放页歌词当前句，CSS 侧目前是注释掉的预留钩子）。
   清空时按 `TINT_VARS` 清单一起 `removeProperty`（别漏一个，否则留下「半套颜色」）。
+- **取色源选择只有一个**：`lib/color.ts:toPixelSrc` —— 跨源 http(s) 封面必须过 `/api/img` 白名单中继
+  （QQ CDN 无 CORS），**同源相对路径（本地/NAS 曲封面 `/api/local/cover/<id>`）必须直连** ——
+  中继只认外链主机，相对路径会被 400 拒掉、tint 恒失败像「跟丢了封面」（2026-10 本地曲上线时踩过；
+  verify-tint 有 toPixelSrc 三态单测钉死）。同源图进 canvas 不 taint，getImageData 合法。
 - **别让任何组件自己从封面取色**：播放条原先就是这么干的（`PlayerBar` 里写 `--tint` / `--tint-line`，
   `.pb-fill` 读 `var(--tint)`），于是「高亮颜色」选固定色后界面变了、进度条还在跟封面跑。
   这类旁路不读 `--cvg-*`，只 grep `--cvg-` 的消费点是查不出来的 —— 动视觉令牌时一并 `grep --tint`。

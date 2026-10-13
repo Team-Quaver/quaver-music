@@ -17,6 +17,17 @@ function cacheSet(key: string, v: RGB | null) {
 
 const proxied = (url: string) => "/api/img?u=" + encodeURIComponent(url);
 
+/**
+ * 取色加载源的选择：/api/img 中继只认 QQ CDN 白名单主机（防开放代理），它服务的是
+ * **跨源绝对 URL**（y.gtimg.cn 等无 CORS 的图床）。本地/NAS 曲目的封面是同源的
+ * `/api/local/cover/<id>` 相对路径 —— 塞进中继会被 400 拒掉（`new URL("/api/...")` 解析
+ * 失败/主机不在名单），canvas 取色于是恒失败、tint「跟着封面没了色」。
+ * 同源路径直接喂给 Image：img-src 'self' 放行，同源加载不进 taint，getImageData 照用。
+ */
+export function toPixelSrc(url: string): string {
+  return /^https?:/i.test(url) ? proxied(url) : url;
+}
+
 function sat(c: { r: number; g: number; b: number }): number {
   return Math.max(c.r, c.g, c.b) - Math.min(c.r, c.g, c.b);
 }
@@ -163,7 +174,7 @@ export async function extractCoverColor(url: string): Promise<RGB | null> {
   if (cache.has(url)) return cache.get(url)!;
   let out: RGB | null = null;
   try {
-    out = await loadPixelColor(proxied(url));
+    out = await loadPixelColor(toPixelSrc(url));
   } catch {
     out = null; // 中继不可用（如壳层 file:// 直开）：退回默认青色
   }
