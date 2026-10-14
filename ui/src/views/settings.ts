@@ -856,6 +856,7 @@ export default async function settingsView(root: HTMLElement) {
     const locked = policy.mode !== "host";
     controlBarCards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = locked; });
     syncSel(controlBarCards, "opt", locked ? policy.mode : getControlBarMode());
+    controlBarCards.querySelector<HTMLElement>('[data-opt="bottom"]')!.textContent = locked ? "底部停靠（主题接管）" : "底部停靠";
     controlBarHint.textContent = locked
       ? `当前花火面具「${activeSparkTheme()?.name ?? ""}」接管控制条停靠；切到「默认」主题或让主题声明 controlBar:"host" 才可调。`
       : CONTROL_BAR_HINT;

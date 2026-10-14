@@ -204,11 +204,14 @@ input:focus, textarea:focus, select:focus {
    侧栏与 Content View 随同一帧动画释放空间（不用 JS 量高度）。 */
 body {
   --control-bar-height: 64px;
-  --control-bar-slot: calc(var(--control-bar-height) + var(--control-bar-gap));
+  --control-bar-slot: calc(var(--control-bar-height) + var(--control-bar-dock-gap));
   --control-bar-inset: 10px;
   --control-bar-gap: 10px;
   --control-bar-lift: 14px;
   --control-bar-surface: var(--glass);
+  /* 停靠态在控制条外的水平/底部间距；主题做满幅形态时把它清零，
+     .frame 的第二行也吃同一个值 —— 不然条贴边了，行槽还留 10px 空隙。 */
+  --control-bar-dock-gap: 10px;
   --control-bar-width: min(680px, calc(var(--control-bar-content-width) - 40px));
   --control-bar-content-width: calc(100vw - var(--side-w, 216px) - var(--control-bar-inset) * 2 - var(--control-bar-gap));
 }
@@ -736,7 +739,7 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
    不会随内容滚走、不会被浮层盖住，也不依赖 body 底部预留 padding——旧 absolute 悬浮方案
    在矮窗口/半屏吸附时会被窗口下缘裁切，已废弃） ===================== */
 .player {
-  position: relative; z-index: 60; flex: 0 0 auto; margin: 0 10px 10px;
+  position: relative; z-index: 60; flex: 0 0 auto; margin: 0 var(--control-bar-dock-gap, 10px) var(--control-bar-dock-gap, 10px);
   height: 64px; border-radius: 14px;
   display: flex; align-items: center; gap: 14px; padding: 0 16px; color: var(--ink2);
   background: var(--control-bar-surface, var(--glass)); border: 1px solid var(--glass-line);
@@ -1480,6 +1483,9 @@ html[data-theme="dark"] .vip-card .is-expired { color: #e66; }
   color: var(--cvg-accent, var(--acc));
   background: color-mix(in srgb, var(--cvg-glow, var(--acc)) 10%, var(--card));
 }
+/* 主题接管而禁用的选项组里，生效档不能被 .45 的 disabled 透明度淹没：
+   选中态保持高可见，未选档照常压暗 —— 用户不用去 hint 里反推当前档。 */
+.set-view .opt-card.sel:disabled { opacity: .92; }
 .set-view .ghost-btn:not(.danger):hover {
   border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 60%, var(--line));
   color: var(--cvg-accent, var(--acc));
