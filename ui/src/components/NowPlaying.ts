@@ -17,7 +17,9 @@
 // 无歌词数据时回退到下面的行级高亮 DOM。逐字扫色恒开，翻译/音译档位走本页 ⋮ 菜单。
 // 右侧 = 封面在上，歌名 / 「歌手 - 专辑」在下，文本右对齐且与封面右缘齐平；
 // 信息列下缘挂 ⋮ 更多选项（同名搜索 / 跳转歌手 / 跳转专辑 / 翻译选项（关闭·翻译·音译） /
-// 歌词大小 −/+ 步进（行级与 AMLL 两种模式都出现）；也可在歌词上 Ctrl+滚轮/触控板捏合直接调）。
+// 歌词大小 −/+ 步进（行级与 AMLL 两种模式都出现）；也可在歌词上 Ctrl+滚轮/触控板捏合直接调 /
+// 歌词延迟 −/+ 步进（点数值归零；**按歌曲**存 localStorage，正=歌词延后出现），经 render ctx
+// 的 lyricDelay() 透传给在位歌词渲染器（内置 AMLL / 插件提供器 / 接管视图），行级兜底视图以同口径扣减）。
 // 背景 = 当前封面高斯模糊放大铺满（双层交叉淡化：新图解码完成后才淡入，换曲不闪主页面）
 // + 深色渐变压暗 + .np 固体底色兜底；进度与控制由常驻播放条承担。
 import { player, type Song } from "../player";
@@ -29,6 +31,7 @@ import {
 } from "../lib/streaminfo";
 import { icons } from "../lib/icons";
 import { getLyricScale, setLyricScale, LYRIC_SCALE_MAX, LYRIC_SCALE_MIN, LYRIC_SCALE_STEP, LYRIC_AUX_MODES, type LyricAuxMode } from "../lib/prefs";
+import { getLyricDelayMs, setLyricDelayMs, fmtLyricDelay, LYRIC_DELAY_STEP_MS, LYRIC_DELAY_MAX_MS } from "../lib/lyric-delay";
 import { isFullscreen, setFullscreen, onFullscreenChange } from "../lib/fullscreen";
 import type { SparkleKaraokeProvider } from "@quaver/sparkle";
 import { sparkleKaraokeProvider, onSparkleChange, sparkleNpMenuItems } from "../sparkle/registry";
@@ -225,6 +228,23 @@ export function NowPlaying(): HTMLElement {
       moreMenu.append(size);
       syncSizeRow(); // 先入树再同步：禁用态要在行上生效（syncSizeRow 查的是 moreMenu 内的行）
     }
+    // 歌词延迟：−/+ 步进（0.1s 一档，±10s），点数值归零。**按歌曲**保存在 localStorage
+    // （lib/lyric-delay.ts），宿主只负责把值现读透传 —— 内置 AMLL / 插件提供器 / 接管视图
+    // 经 ctx.lyricDelay() 自取，行级兜底视图在 notify 里以同口径扣减；正数 = 歌词更晚出现。
+    if (s?.mid && (player.lyrics.length > 0 || lineEls.length > 0)) {
+      const delay = document.createElement("div");
+      delay.className = "np-menu-delay";
+      delay.title = "按歌曲微调歌词同步：正数歌词延后出现，负数提前";
+      delay.innerHTML = `<span>歌词延迟</span><div class="np-menu-delay-ctl">
+        <button type="button" class="np-delay-dec" aria-label="歌词提前 0.1 秒" title="歌词提前 0.1 秒">−</button>
+        <button type="button" class="np-delay-val" aria-label="重置歌词延迟" title="点击归零（本曲）"></button>
+        <button type="button" class="np-delay-inc" aria-label="歌词延后 0.1 秒" title="歌词延后 0.1 秒">+</button></div>`;
+      delay.querySelector<HTMLButtonElement>(".np-delay-dec")!.onclick = () => stepLyricDelay(-1);
+      delay.querySelector<HTMLButtonElement>(".np-delay-inc")!.onclick = () => stepLyricDelay(1);
+      delay.querySelector<HTMLButtonElement>(".np-delay-val")!.onclick = () => applyLyricDelay(0);
+      moreMenu.append(delay);
+      syncDelayRow();
+    }
     // Sparkle 插件追加项（⋮ 是扁平列表：label / disabled / run / danger / note 生效，
     // sub 与缩略图在这个面上不渲染 —— 契约见 SDK 的 SparkleNpMenuCtx）。
     // ctx 每次打开现算，带的是当时那首曲的只读快照（没在播时是 null）。
@@ -379,6 +399,9 @@ export function NowPlaying(): HTMLElement {
       expanded: () => player.expanded,
       showTrans: () => player.showTrans,
       lyricAux: () => player.lyricAux,
+      // 按歌曲的「歌词延迟」（毫秒，正=延后）：现读透传，渲染方自己扣减（契约见 SDK
+      // SparkleKaraokeRenderCtx.lyricDelay 注释；存储与符号口径见 lib/lyric-delay.ts）
+      lyricDelay: () => getLyricDelayMs(player.current),
       seek: (ms) => { player.seek(ms / 1000); setBrowse(false); },
       onNotify: (cb) => player.on(cb),
     }) ?? null;
@@ -429,6 +452,27 @@ export function NowPlaying(): HTMLElement {
     syncSizeRow();
     if (!browsing) followCurrent(); // 行高变了：把当前句重新带回中心
   }
+  // —— 歌词延迟（当前曲）：读数/禁用态同步 + 写入。不重建歌词 DOM —— 逐字（AMLL/插件）每帧
+  //    现读 ctx.lyricDelay()，行级走 notify 里的同一表达式；补一刀 notifyPublic 是为了
+  //    「暂停时调延迟」也立刻反映（暂停中 4Hz 广播不在，高亮行号得靠这次事件挪动）。
+  function syncDelayRow() {
+    const val = moreMenu.querySelector<HTMLElement>(".np-delay-val");
+    if (!val) return;
+    const ms = getLyricDelayMs(player.current);
+    val.textContent = fmtLyricDelay(ms);
+    const dec = moreMenu.querySelector<HTMLButtonElement>(".np-delay-dec");
+    const inc = moreMenu.querySelector<HTMLButtonElement>(".np-delay-inc");
+    if (dec) dec.disabled = ms <= -LYRIC_DELAY_MAX_MS;
+    if (inc) inc.disabled = ms >= LYRIC_DELAY_MAX_MS;
+  }
+  function applyLyricDelay(ms: number) {
+    const v = Math.round(Math.min(LYRIC_DELAY_MAX_MS, Math.max(-LYRIC_DELAY_MAX_MS, ms)) / LYRIC_DELAY_STEP_MS) * LYRIC_DELAY_STEP_MS;
+    if (v === getLyricDelayMs(player.current)) return;
+    setLyricDelayMs(player.current, v);
+    syncDelayRow();
+    player.notifyPublic();
+  }
+  const stepLyricDelay = (dir: 1 | -1) => applyLyricDelay(getLyricDelayMs(player.current) + dir * LYRIC_DELAY_STEP_MS);
   let lastZoomAt = 0;
   const onZoomWheel = (e: WheelEvent) => {
     if (!e.ctrlKey) return; // 行级列上普通滚轮走翻阅（上面的 passive 监听）
@@ -461,7 +505,9 @@ export function NowPlaying(): HTMLElement {
       // 辅助行 = 按当前档位挑好的一路（翻译⇄音译互斥，同一行位置；off 则整行不建）
       const aux = pickAux(line, player.lyricAux);
       d.innerHTML = `<span class="l1">${escapeHtml(line.text)}</span>${aux ? `<span class="l2">${escapeHtml(aux)}</span>` : ""}`;
-      d.onclick = () => { player.seek(line.t); setBrowse(false); }; // 点击跳回该行并恢复跟随
+      // 点击跳回该行并恢复跟随：屏幕上的行是被延迟挪出来的一行，落要点回真实播放位
+      // （line.t 单位秒，delay 毫秒 → /1000）
+      d.onclick = () => { player.seek(line.t + getLyricDelayMs(player.current) / 1000); setBrowse(false); };
       lyrics.append(d);
     }
     lineEls = [...lyrics.querySelectorAll<HTMLElement>(".np-ly-line")];
@@ -612,7 +658,8 @@ export function NowPlaying(): HTMLElement {
 
     // 高亮当前歌词行 + 滚动居中（翻阅模式暂停自动跟随；3s 静默或点击行号恢复；逐字模式由渲染器接管）
     if (lineEls.length) {
-      const t = player.time + 0.2;
+      // 歌词时钟 = 播放钟 + 0.2s 补偿 − 用户按曲延迟（与内置 AMLL 从 ctx 扣的口径一致）
+      const t = player.time + 0.2 - getLyricDelayMs(player.current) / 1000;
       let idx = -1;
       for (let i = 0; i < player.lyrics.length; i++) {
         if (player.lyrics[i].t <= t) idx = i; else break;

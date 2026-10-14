@@ -1032,27 +1032,33 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
   color: #fff; font-weight: 600;
 }
 .np-menu-opt:focus-visible { outline: 2px solid #fff8; outline-offset: 1px; }
-/* 歌词大小行：标签 + −/+ 步进。挂 ⋮ 菜单里而不是浮在歌词上 —— 不遮词。
-   只在行级歌词就位时由 NowPlaying 现建（逐字/AMLL 模式有自己的排版变量，不出现）；
-   菜单每次打开重建，读数与 −/+ 禁用态天然是最新值。行比菜单其余项宽，
-   :has 在场时把菜单撑到 208px，标签 nowrap —— 别让 CJK 标签被 flex 压换行。 */
-.np-menu:has(.np-menu-size) { min-width: 208px; }
-.np-menu-size {
+/* 歌词大小 / 歌词延迟行：标签 + −/+ 步进（同一种「步进行」版式，两行共用规则）。
+   挂 ⋮ 菜单里而不是浮在歌词上 —— 不遮词。大小行在歌词就位时出现；延迟行额外要求
+   有当前曲（值按歌曲存 localStorage，见 lib/lyric-delay.ts）。菜单每次打开重建，
+   读数与 −/+ 禁用态天然是最新值。行比菜单其余项宽，:has 在场时把菜单撑到 208px，
+   标签 nowrap —— 别让 CJK 标签被 flex 压换行。 */
+.np-menu:has(.np-menu-size), .np-menu:has(.np-menu-delay) { min-width: 208px; }
+.np-menu-size, .np-menu-delay {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 5px 10px; border-radius: 8px; font-size: 13px; color: #fffb;
 }
-.np-menu-size > span { white-space: nowrap; }
-.np-menu-size:hover { background: #ffffff14; color: #fff; }
-.np-menu-size-ctl { display: flex; align-items: center; gap: 2px; flex: none; }
-.np-menu-size button {
+.np-menu-size > span, .np-menu-delay > span { white-space: nowrap; }
+.np-menu-size:hover, .np-menu-delay:hover { background: #ffffff14; color: #fff; }
+.np-menu-size-ctl, .np-menu-delay-ctl { display: flex; align-items: center; gap: 2px; flex: none; }
+.np-menu-size button, .np-menu-delay button {
   width: 22px; height: 22px; border: 0; border-radius: 50%; padding: 0;
   background: transparent; color: #fffb; cursor: pointer;
   font-size: 14px; line-height: 1; display: grid; place-items: center;
   transition: background .12s, color .12s;
 }
-.np-menu-size button:hover:not(:disabled) { background: #ffffff1f; color: #fff; }
-.np-menu-size button:disabled { opacity: .35; cursor: default; }
+.np-menu-size button:hover:not(:disabled), .np-menu-delay button:hover:not(:disabled) { background: #ffffff1f; color: #fff; }
+.np-menu-size button:disabled, .np-menu-delay button:disabled { opacity: .35; cursor: default; }
 .np-size-val { min-width: 40px; text-align: center; font-size: 11.5px; color: #fffb; font-variant-numeric: tabular-nums; }
+/* 延迟行的数值本身是按钮（点击归零）：从上面的圆钮模子改成胶囊，宽度按 "-10.0s" 留足 */
+.np-menu-delay button.np-delay-val {
+  width: auto; min-width: 46px; border-radius: 7px; padding: 0 4px;
+  font-size: 11.5px; font-variant-numeric: tabular-nums;
+}
 .np-inner {
   position: relative; z-index: 1; width: min(1060px, 92%); height: min(560px, calc(100vh - 150px));
   display: grid; grid-template-columns: 1.15fr 1fr; gap: 48px; align-items: center;

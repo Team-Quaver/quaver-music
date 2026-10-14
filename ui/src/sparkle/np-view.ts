@@ -19,6 +19,7 @@ import {
   songTitle, stripEm, type Quality,
 } from "../lib/api";
 import { isLocalSong, localSongStreamUrl } from "../lib/local";
+import { getLyricDelayMs } from "../lib/lyric-delay";
 import { sparkleKaraokeProvider, sparkleNpView } from "./registry";
 
 // —— 档位表（/stream/tiers；一次拉回，全插件共用）——
@@ -106,6 +107,10 @@ export function npViewCtx(): SparkleNpViewCtx {
     lyricState: () => player.lyricState,
     showTrans: () => player.showTrans,
     lyricAux: () => player.lyricAux,
+    // 按歌曲「歌词延迟」（毫秒，正 = 歌词延后出现；lib/lyric-delay.ts）。time() 是裸播放头
+    // （秒）不含它 —— 接管视图选当前行要自己扣 lyricDelay()/1000，点击行 seek 再加回
+    // （口径与内置 AMLL / 宿主行级视图一致，SDK 注释为准）。
+    lyricDelay: () => getLyricDelayMs(player.current),
     // 逐字行**不复制**：一行几十个词、整首上千个，4Hz 每次 notify 重建一份纯属白烧；
     // 视图只读不改。口径与 NowPlaying 的 karaModeNow() 一致 —— 有数据 + 提供器在位且启用，
     // 否则视图回退行级歌词（提供器被关时 player.karaoke 可能还留着上一次的解析结果）。

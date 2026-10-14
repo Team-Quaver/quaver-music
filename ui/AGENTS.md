@@ -104,6 +104,33 @@ sidecar 健康检查（最长 15s）与服务端就绪在后台进行；闪屏�
   持久化 `Style.LyricAux`），切档后行级靠 NowPlaying 重建 DOM（`lastAuxMode` 进重建条件），
   逐字靠内置引擎 rAF 里比 `shownMode`。
 
+### 歌词延迟（按歌曲的歌词同步微调）
+
+正在播放页 ⋮ 菜单的「歌词延迟」行：−/+ 步进（0.1s 一档，±10s），点数值归零。**按歌曲**区分，
+是「本地数据」不是「设置」——与红心收藏 / 会话存档同路走 localStorage（键 `quaver.lyricDelay.v1`，
+表 = mid → 毫秒；本地/NAS 曲的 mid 本身是 `local:<trackId>`，同为稳定身份键），不进 quaver.conf：
+那是一歌一项的无界键集，INI schema 装它是错的形状。实现收在 `src/lib/lyric-delay.ts`
+（惰性内存缓存 + 写穿，取值钳到 0.1s 粒度；0 删条目）。
+
+- **符号约定**：正数 = 歌词更晚出现（滞后），负数 = 提前。调的是「歌词渲染器看到的时钟」，
+  播放头/音频永远不动。
+- **宿主不直接消费，一律透传**：`time()` 只含固定的 +0.2s 传输补偿，**不含**延迟；渲染方驱动
+  时钟取 `time() − lyricDelay()`，「点击歌词行跳转」再加回真实播放位（`行时间 + lyricDelay`），
+  点哪行屏幕才停在哪行。三条消费路同一个口径：内置 AMLL 与插件提供器经
+  `SparkleKaraokeRenderCtx.lyricDelay()`（SDK 注释是契约文本）、整页接管视图经
+  `SparkleNpViewCtx.lyricDelay()`（宿主端工厂在 `src/sparkle/np-view.ts`）、行级兜底视图由
+  NowPlaying 在 notify 的当前行比对里扣减。
+- **实时生效、不重建 DOM**：逐字渲染每帧现读 ctx；AMLL 的去抖钳平（防重同步回跳）对延迟变化
+  要**重锚**放行 —— 0.1s 一档的倒退落进 250ms 钳平带里会被吞掉，调了等于没调（见 amll.ts
+  feedTime 的 lastDelay 分支）。行级靠 applyLyricDelay 补一刀 `notifyPublic()`（暂停中 4Hz
+  广播不在，行号得靠这次事件挪动）。
+- **换曲即换值**：菜单每次打开现建读数；ctx 读的是 `player.current` 的当时值，没有「上一首的
+  延迟粘到下一首」的可能。
+
+验证：`node scripts/verify-sparkle.ts`（三方接线断言：SDK 契约 ↔ 宿主 ctx 工厂 ↔ AMLL/行级/
+Flowscape 消费口径；已进 `verify:static`）；`pnpm run verify:lyric-delay`（活体：菜单步进/归零、
+localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL active 行随 ctx 重锚——需 dev server）。
+
 ### QRCKana（QRC 振假名注音）
 
 日文逐字歌词的汉字上方假名**不在正文里**，而在 QRC 单独一行 `[kana: ...]` 标签里

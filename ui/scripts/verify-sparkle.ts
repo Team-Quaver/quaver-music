@@ -50,6 +50,7 @@ const src = {
   flowMeta: read("../vendor/Sparkle/marketplace/flowscape/plugin.json"),
   flowIdx: read("../vendor/Sparkle/marketplace/flowscape/index.ts"),
   amll: read("src/lyrics/amll.ts"),
+  lyricDelay: read("src/lib/lyric-delay.ts"),
   kana: read("src/lyrics/qrc-kana.ts"),
   lyricsBoot: read("src/lyrics/builtin.ts"),
   lyric: read("src/lyric.ts"),
@@ -337,6 +338,11 @@ ok("amll: 辅助源两路都认得词级 QRC（含 XML 信封）与普通 LRC", 
 ok("amll: 辅助行档位规则只有 src/lyric.ts:pickAux 一份（内置后不再两处各写一遍）", has(src.amll, "import { pickAux } from \"../lyric\";") && has(src.amll, "pickAux({ trans: l.translatedLyric, roma: l.romanLyric }, mode)") && !has(src.amll, "const prefer =") && has(src.amll, "wantMode !== shownMode") && has(src.amll, "romanLyric: \"\","));
 ok("amll: LRC 行级也交给 AMLL（toLineLevel 整形单音节覆盖整行 + 末行收尾时长），内置引擎无设置项 / 不注册 enabled", has(src.amll, "function toLineLevel") && has(src.amll, "const lineLevel = toLineLevel(lrc?.length ? lrc : (word ?? []))") && !has(src.amll, "registerSettingsSection") && !has(src.amll, "enabled?()") && !has(src.amll, "wordbyword"));
 ok("amll: QRCKana 接进解析（标签先摘再喂 parseQrc → 逐字行挂 ruby → core 渲染行透传）", has(src.amll, "import { applyKanaToLines, extractKanaTag") && has(src.amll, "extractKanaTag(payload)") && has(src.amll, "applyKanaToLines(word, kana)") && has(src.amll, "core.ruby = w.ruby.map("));
+ok("sdk: 歌词延迟透传给插件（两条 ctx 都有 lyricDelay，符号与换算口径写进契约注释）", has(src.types, "lyricDelay?(): number;") && re(src.types, /正数 = 歌词更晚出现/) && re(src.guide, /lyricDelay\(\)/) && re(src.guide, /time\(\) − lyricDelay\(\)\/1000/));
+ok("delay: 按歌曲的延迟存 localStorage（一歌一项的本地数据，不进 quaver.conf；键 mid，钳 ±10s 对齐 0.1s）", has(src.lyricDelay, "quaver.lyricDelay.v1") && has(src.lyricDelay, "LYRIC_DELAY_MAX_MS = 10_000") && has(src.lyricDelay, "localStorage.setItem(LS_KEY") && !has(src.lyricDelay, "cfgSet"));
+ok("delay: 宿主三条消费路同口径透传（kara ctx / np-view ctx / 行级比对与点击），菜单行 −/+ 与点数值归零", has(src.np, "lyricDelay: () => getLyricDelayMs(player.current)") && has(src.npView, "lyricDelay: () => getLyricDelayMs(player.current)") && has(src.np, "player.time + 0.2 - getLyricDelayMs(player.current) / 1000") && has(src.np, "player.seek(line.t + getLyricDelayMs(player.current) / 1000)") && has(src.np, '"np-menu-delay"') && has(src.np, "stepLyricDelay") && has(src.style, ".np-menu:has(.np-menu-delay)"));
+ok("amll: 延迟扣在驱动时钟里且变化重锚（0.1s 步进不能被 250ms 回跳钳平吞掉）；行点击把延迟加回真实播放位", has(src.amll, "const raw = ctx.time() - d;") && has(src.amll, "if (d !== lastDelay) { lastDelay = d; lastFedMs = raw; return raw; }") && has(src.amll, "ctx.seek(Math.max(0, ms + delayMs()))"));
+ok("flowscape: 接管视图跟着吃延迟（rAF 时钟扣减 + 行点击加回）", has(noComments(src.flowIdx), "const sec = ctx.time() + 0.2 - (ctx.lyricDelay?.() ?? 0) / 1000;") && has(noComments(src.flowIdx), "ctx.seek(Math.max(0, l.t + (ctx.lyricDelay?.() ?? 0) / 1000));"));
 ok("kana: QRCKana 是移植的纯函数（零依赖、不引整个 lyric-kit，只取这套系统）", has(src.kana, "移植自 SPlayer-Dev/lyric-kit") && !has(src.kana, "from \"lyric-kit\"") && !has(src.kana, "import ") && has(src.kana, "export function parseKanaUnits") && has(src.kana, "export function applyKanaToLines"));
 ok("host: AMLL 不再是插件（meta/loader 撤下、required 机制整个退役，只进 RETIRED 名单）", !has(src.loader, "\"amll\": () => import") && !has(src.loader, "required?: boolean") && !has(src.loader, "isSparkleRequired") && has(src.loader, "RETIRED_OFFICIAL_IDS") && has(src.init, "pruneRetiredOfficial()") && !has(src.host, "isSparkleRequired") && !has(src.settings, "isSparkleRequired"));
 ok("host: 内置引擎住在注册表的兜底位 —— 插件提供器排在它之前（registerKaraokeProvider 仍能覆盖歌词渲染）", has(src.lyricsBoot, "setBuiltinKaraokeProvider(builtinKaraokeProvider)") && has(src.registry, "karaokeProviders[0]?.provider ?? builtinKaraoke") && has(src.init, "await registerBuiltinLyrics()"));

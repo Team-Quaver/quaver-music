@@ -21,7 +21,10 @@
 // 不再像插件时代那样在 vendor/Sparkle 里抄第二份。音译与振假名是两回事：前者进子行、
 // 后者进 ruby，互不串门。
 //
-// 无设置项：逐字扫色恒开，注音随数据出现，翻译/音译档位归宿主 ⋮ 菜单，本模块不接受配置。
+// 无独立配置面：逐字扫色恒开，注音随数据出现；翻译/音译档位与「歌词延迟」都归宿主 ⋮ 菜单，
+// 经 render ctx 的闭包（lyricAux() / lyricDelay()）透传进来，本模块不接受构造参数、不碰存储。
+// 延迟口径：正 = 歌词更晚出现 —— 驱动时钟取 time() − lyricDelay()（延迟是用户按曲微调，
+// 不属于宿主对传输延迟的固定补偿，故不掺进 time()，由渲染方自己扣；契约见 SDK 注释）。
 //
 // 上游 qrc=1 的 lyric 字段是 3DES+zlib 解密后的 QRC XML：
 //   <?xml …><QrcInfos>…<Lyric_1 Lyrics="[st,dur]词(st,dur)…&#10;…"/>…</QrcInfos>
@@ -265,16 +268,24 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
   player.setEnableBlur(true);   // 非当前行距离模糊，对齐行级视图的模糊语言
   player.setEnableScale(true);
 
+  // 按歌曲「歌词延迟」（ctx 透传，宿主必给；旧宿主语义下缺省 0 = 不调整）
+  const delayMs = () => ctx.lyricDelay?.() ?? 0;
   let shownMode = ctx.lyricAux();
-  player.setLyricLines(toCoreLines(lines, shownMode), ctx.time());
+  player.setLyricLines(toCoreLines(lines, shownMode), ctx.time() - delayMs());
 
   // —— 时钟去抖 ——
   // 引擎传输的 position 是外推时钟（~4Hz 快照重同步），重同步瞬间可能回跳几十毫秒；
   // AMLL 对任何倒退都无条件按跳转处理（间奏点/滚动全重置）→ 小幅倒退钳平为原值，
   // 只有超过阈值（真·回退 seek）才放行倒退。
   let lastFedMs = -1;
+  let lastDelay = delayMs();
   const feedTime = (): number => {
-    const raw = ctx.time();
+    const d = delayMs();
+    const raw = ctx.time() - d;
+    // 用户在 ⋮ 菜单调延迟（±0.1s 一档）是**意图性**的时钟挪动：直接重锚并重喂，
+    // 不能让它落进下面那条「重同步回跳」的钳平带 —— 0.1s 倒退会被钳成原地不动，
+    // 歌词时钟先卡住 ~0.5s 再原样续跑，调了等于没调。
+    if (d !== lastDelay) { lastDelay = d; lastFedMs = raw; return raw; }
     if (lastFedMs >= 0 && raw < lastFedMs && raw > lastFedMs - 250) return lastFedMs;
     lastFedMs = raw;
     return raw;
@@ -292,8 +303,10 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
   const ac = new AbortController();
   player.addEventListener("line-click", (e: Event) => {
     const ce = e as MouseEvent & { line: { getLine(): { startTime: number } } | undefined };
+    // 歌词行自己的时间轴没被动过，动的是驱动时钟（− delay）：要点「屏幕上这行」就得把
+    // delay 加回去换回真实播放位（口径同宿主行级视图的行点击；ctx.seek 收真实毫秒）
     const ms = ce.line?.getLine()?.startTime ?? 0;
-    if (Number.isFinite(ms)) ctx.seek(Math.max(0, ms));
+    if (Number.isFinite(ms)) ctx.seek(Math.max(0, ms + delayMs()));
   }, { signal: ac.signal });
 
   let raf = 0;

@@ -46,6 +46,7 @@
     "mpris:build": "pnpm --dir ../vendor/Typhoeus/mpris install && pnpm --dir ../vendor/Typhoeus/mpris run build",
     "dist": "pnpm run build && pnpm run mpris:build && electron-builder --linux AppImage",
     "verify:np-gallery": "node scripts/verify-np-gallery.ts",
+    "verify:lyric-delay": "node scripts/verify-lyric-delay.ts",
     "verify:sparkle-market": "node scripts/verify-sparkle-market.ts",
     "verify:streaminfo": "node scripts/verify-streaminfo.ts",
     "verify:songtiers": "node scripts/verify-songtiers.ts",
