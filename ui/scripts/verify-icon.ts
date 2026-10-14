@@ -8,14 +8,14 @@
 //     mac.executableName），几处必须逐字对齐；主进程不得再手工 setDesktopName；三平台 icon 配置、
 //     macOS 可执行名、托盘图素材与尺寸口径必须齐。
 //   • 功能测试：linux-desktop 自装逻辑用临时目录当 XDG root 真写真读（全新安装 / 幂等 / 收编坏
-//     文件 / 对集成工具的条目让位）；托盘图的 PNG 产物与 SVG 设计源逐像素核对（主色 + 形状）。
+//     文件 / 对集成工具的条目让位 / 开发态只清托管的开发条目）；托盘图的 PNG 产物与 SVG 设计源逐像素核对（主色 + 形状）。
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { inflateSync } from "node:zlib";
 import {
   DESKTOP_ID, desktopEntryContent, findSystemDesktopEntry, installLinuxDesktopIntegration, quoteExecPath,
-  readDesktopEntryValue, readDesktopHidden, readDesktopIcon, xdgDataDirs, xdgDataHome,
+  readDesktopEntryValue, readDesktopHidden, readDesktopIcon, removeDevManagedDesktopEntry, xdgDataDirs, xdgDataHome,
 } from "../electron/linux-desktop.ts";
 import { TRAY_ICON_FILES, TRAY_ICON_PT, trayIconFile } from "../electron/tray-icon.ts";
 
@@ -159,6 +159,13 @@ const mainSrc = readFileSync(join(UI, "electron", "main.ts"), "utf8");
 check("主进程不再调用 setDesktopName（真相唯一在 package.json；两处赋值迟早写岔。注释提到 API 名不算）",
   !/\bsetDesktopName\s*\(/.test(mainSrc));
 check("whenReady 接了 linux-desktop 自装", mainSrc.includes("installLinuxDesktopIntegration"));
+// 开发态（pnpm app）不再自装 Applications 条目：Exec 写死「当前 electron + 仓库 ui/」，条目落进
+// 启动器就是跟着仓库漂移的开发实例。main.ts 的开发态分支只调 removeDevManagedDesktopEntry，
+// 自装调用必须在打包态分支里；开发态 Exec 的拼法应当整体消失。
+check("开发态走清理分支：main.ts 接了 removeDevManagedDesktopEntry", mainSrc.includes("removeDevManagedDesktopEntry"));
+check("开发态判据是 !app.isPackaged && !process.env.APPIMAGE（AppImage 直跑仍自装）",
+  /if \(!app\.isPackaged && !process\.env\.APPIMAGE\)/.test(mainSrc));
+check("不再拼开发态 Exec（electron + 仓库 ui/ 那份桌面项的原料）", !mainSrc.includes("quoteExecPath(UI_ROOT)"));
 // distro 包（deb/rpm/pacman）装到 /opt/<productName>，那份布局里没有 AppRun：盲猜 join(execPath, "AppRun")
 // 会写出一条点不开的桌面项。Exec 的这条分支必须存在性检查。
 check("主进程猜 AppRun 前做 existsSync（rpm/deb/pacman 布局里没有 AppRun）",
@@ -444,6 +451,43 @@ writeFileSync(sysFile, sysContent);
 // GTK 缓存：图标有实际写入时必须刷 icon-theme.cache（有 cache 的系统不会自动重扫新文件）
 check("图标写入后会触发 gtk-update-icon-cache（GNOME 侧新图标立即可见的前提）",
   readFileSync(join(UI, "electron", "linux-desktop.ts"), "utf8").includes("gtk-update-icon-cache"));
+
+// ——— 开发态清理：removeDevManagedDesktopEntry ———
+section("开发态只清掉自己写下的开发态条目");
+const devHome = join(ROOT, "data-dev");
+const devFile = join(devHome, "applications", `${DESKTOP_ID}.desktop`);
+mkdirSync(dirname(devFile), { recursive: true });
+const uiMarker = join(ROOT, "ui");
+const devEntry = desktopEntryContent({
+  desktopId: DESKTOP_ID, name: "Quaver Music", comment: "测试",
+  exec: `"/store/electron/dist/electron" "${uiMarker}" %U`, // 开发态 Exec 的形：electron 二进制 + 仓库 ui/
+});
+const packEntry = desktopEntryContent({
+  desktopId: DESKTOP_ID, name: "Quaver Music", comment: "测试",
+  exec: '"/home/u/Applications/Quaver-1.0.0.AppImage" --no-sandbox %U',
+});
+// 没有文件 → no-op，不报错也不建目录
+eq("文件不在场：no-op", removeDevManagedDesktopEntry({ dataHome: join(ROOT, "data-none"), devMarker: uiMarker }).removed, false);
+check("no-op 不会凭空造出目录", !existsSync(join(ROOT, "data-none")));
+// 开发态写的托管条目 → 删
+writeFileSync(devFile, devEntry);
+const rd1 = removeDevManagedDesktopEntry({ dataHome: devHome, devMarker: uiMarker });
+eq("开发态托管条目被清掉", rd1.removed, true);
+check("文件确实没了", !existsSync(devFile));
+eq("再跑一次幂等（没文件可删）", removeDevManagedDesktopEntry({ dataHome: devHome, devMarker: uiMarker }).removed, false);
+// 打包态写的托管条目（Exec 不含仓库路径）→ 不碰：开发态无权清打包态的身份文件
+writeFileSync(devFile, packEntry);
+eq("打包态的托管条目不被开发态清掉", removeDevManagedDesktopEntry({ dataHome: devHome, devMarker: uiMarker }).removed, false);
+check("那份条目仍在", readFileSync(devFile, "utf8") === packEntry);
+// 无标记的条目（用户/集成工具）→ 不碰，哪怕 Exec 看着就像开发态
+writeFileSync(devFile, "[Desktop Entry]\nType=Application\nName=Quaver Music\nExec=electron \"" + uiMarker + "\" %U\nIcon=red.0w0.quaver\n");
+eq("没有 X-Quaver-Managed 标记就不删", removeDevManagedDesktopEntry({ dataHome: devHome, devMarker: uiMarker }).removed, false);
+check("用户条目原样保留", existsSync(devFile));
+// devMarker 缺失 → 全 no-op（没依据就别删）
+eq("devMarker 为空时拒绝删", removeDevManagedDesktopEntry({ dataHome: devHome, devMarker: "" }).removed, false);
+// 标记+开发 Exec 齐备 → 删（收尾回到干净状态）
+writeFileSync(devFile, devEntry);
+eq("标记 + Exec 含仓库路径 → 删", removeDevManagedDesktopEntry({ dataHome: devHome, devMarker: uiMarker }).removed, true);
 
 rmSync(ROOT, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 console.log(`\n${fail === 0 ? "✅" : "❌"} verify-icon: ${pass} passed, ${fail} failed`);

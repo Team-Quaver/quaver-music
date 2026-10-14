@@ -31,6 +31,12 @@
 //         为准，避免启动器里出现重复项）；
 //       其余（缺失 / Icon 是通配名等坏值 / 被 Hidden 或 NoDisplay 藏起来了）→ 改写成**可见**条目：
 //         身份文件必须可见，否则 Noctalia 这类壳整条丢弃，app_id 反查不到就丢图标（见上）。
+//
+// 开发态（pnpm app → electron .）是例外：**什么都不写**。开发态条目的 Exec 写死「当前 electron +
+// 仓库 ui/」，落进 $XDG_DATA_HOME/applications 后启动器里就常驻一个跟着仓库状态漂移的
+// 「Quaver Music」，点开还是开发实例——那是污染启动器，不是修身份。开发态只跑
+// removeDevManagedDesktopEntry：清掉本模块以前写下的那份开发态托管条目。窗口身份不受影响
+// （app_id/WM_CLASS 照旧，X11 图标走 BrowserWindow 的 _NET_WM_ICON，不依赖这份文件）。
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { readdir as readdirAsync } from "node:fs/promises";
 import { spawn } from "node:child_process";
@@ -246,6 +252,35 @@ export async function installLinuxDesktopIntegration({
     }
   } catch (e) {
     log("[quaver] linux-desktop: desktop 文件安装失败:", String(e));
+  }
+  return result;
+}
+
+/**
+ * 开发态清理（pnpm app）：删掉 linux-desktop 以前写下的**开发态托管条目**，此外什么都不动
+ * （不自装 desktop 文件、也不同步图标，理由见模块头）。删除判据两条缺一不可，宁漏勿错删：
+ *   • X-Quaver-Managed=true —— 只动自己写过的文件（与本模块一贯的标记契约同源）；
+ *   • Exec 含 devMarker（仓库 ui/ 目录）—— 开发态的 Exec 必然写成 `"<electron>" "<ui/>" %U`；
+ *     打包态写的条目 Exec 指向 AppImage/AppRun/发行版路径、集成工具和用户手工的条目没有标记，
+ *     都删不到。仓库整体挪走导致旧条目路径对不上时留它原地：下次打包态启动会按托管标记
+ *     整份对齐（exec 换成包本体），同样自愈。幂等、全程不抛，返回 { desktopFile, removed }。
+ */
+export function removeDevManagedDesktopEntry({
+  desktopId = DESKTOP_ID,
+  dataHome = xdgDataHome(),
+  devMarker,
+}) {
+  const file = join(dataHome, "applications", `${desktopId}.desktop`);
+  const result = { desktopFile: file, removed: false };
+  try {
+    if (!devMarker || !existsSync(file)) return result;
+    const text = readFileSync(file, "utf8");
+    if (readDesktopEntryValue(text, "X-Quaver-Managed") !== "true") return result;
+    if (!(readDesktopEntryValue(text, "Exec") ?? "").includes(devMarker)) return result;
+    rmSync(file, { force: true });
+    result.removed = true;
+  } catch {
+    // 删不动不致命：条目原地留着，下次开发态启动再试（或由打包态整份对齐接管）
   }
   return result;
 }

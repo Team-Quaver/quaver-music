@@ -447,8 +447,13 @@ Electron init 在任何用户代码之前读它并写进 `CHROME_DESKTOP`，X11 
 `verify:icon` 有护栏）。`linux.executableName` 必须与 appId 一致——AppImage 内的二进制名、
 desktop 文件名、`Icon=`、hicolor 图标文件名全部取自它，四方只能同源。
 
-图标链：桌面环境按 app_id 反查 `<ID>.desktop` → `Icon=` → 图标主题。AppImage 裸跑与开发态没人
-代装桌面文件/图标，`electron/linux-desktop.ts` 每次启动自装（幂等、失败只记账）：
+图标链：桌面环境按 app_id 反查 `<ID>.desktop` → `Icon=` → 图标主题。AppImage 裸跑没人代装桌面
+文件/图标，`electron/linux-desktop.ts` 每次启动**在打包态**自装（幂等、失败只记账）。开发态
+（`pnpm app` → `electron .`，即 `!app.isPackaged` 且无 `$APPIMAGE`）**什么都不写**：开发态条目的
+Exec 写死「当前 electron + 仓库 ui/」，落进 `applications/` 就是启动器里常驻的、跟着仓库状态漂移
+的开发实例——污染启动器而非修身份（开发态 X11 窗口图标走 BrowserWindow 的 `_NET_WM_ICON`，
+不依赖这份文件）。开发态只跑 `removeDevManagedDesktopEntry`：仅当条目带 `X-Quaver-Managed`
+**且** `Exec=` 含仓库 `ui/` 路径才删（打包态/集成工具/用户的条目一律不碰）。打包态自装规则：
 
 - hicolor `<size>x<size>/apps/<ID>.png`（素材 `build-res/icons`，随 extraResources 进包）：
   内容一致就跳过；有实际写入后 best-effort 刷 `gtk-update-icon-cache`——有 icon-theme.cache 的

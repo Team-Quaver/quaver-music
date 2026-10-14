@@ -1,13 +1,14 @@
 // Quaver — 开发态启动与 cwd 解耦（vite 的 root）的单测护栏。
 // 跑：  node scripts/verify-launch.ts
 //
-// 起因（真踩过）：`pnpm run app` 会写一份开发态桌面项进 $XDG_DATA_HOME/applications/<ID>.desktop
-// （见 electron/linux-desktop.ts），Exec = 当前 electron + 仓库 ui/ 目录。用户从启动器点它时，
-// 进程 cwd 是 $HOME（那条 Exec 没带 Path=），而主进程是用**程序化 API** 起 vite preview 的
-// （electron/main.ts: preview({ configFile })）—— vite 的 root 默认取 process.cwd()，于是 root
-// 落到 $HOME，preview 去服务 $HOME/dist（不存在），窗口拿到 404 白页。表现就是「.local/share/
-// applications 里那个 Desktop 点不开」。修法只有一处：vite.config.ts 把 root 钉成绝对路径
-// （本文件所在目录），dev / build / preview 从此与 cwd 无关。
+// 起因（真踩过）：`pnpm run app` 曾经会写一份开发态桌面项进 $XDG_DATA_HOME/applications/
+// <ID>.desktop（开发态现在已改为**不自装**、只清历史条目，见 electron/linux-desktop.ts），
+// Exec = 当前 electron + 仓库 ui/ 目录。用户从启动器点它时，进程 cwd 是 $HOME（那条 Exec 没带
+// Path=），而主进程是用**程序化 API** 起 vite preview 的（electron/main.ts: preview({
+// configFile })）—— vite 的 root 默认取 process.cwd()，于是 root 落到 $HOME，preview 去服务
+// $HOME/dist（不存在），窗口拿到 404 白页。表现就是「.local/share/applications 里那个 Desktop
+// 点不开」。修法只有一处：vite.config.ts 把 root 钉成绝对路径（本文件所在目录），dev / build /
+// preview 从此与 cwd 无关 —— 对打包态（linux-desktop 自装）与历史遗留条目同样成立，护栏留效。
 //
 // 这里真跑一遍 resolveConfig（跟 preview 同一组参数）从**别的 cwd** 解析：root 必须还是 ui/，
 // 出目录必须还是 ui/dist —— 谁把 root 改回 cwd 相对，这条立刻红。

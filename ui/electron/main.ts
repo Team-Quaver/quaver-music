@@ -32,9 +32,10 @@ import { trayTitleLine } from "./tray-title.ts";
 import { dismissSplash, loadSplash } from "./splash.ts";
 // 应用页面的 CSP：主进程给本机 origin 的响应统一贴头（策略文本与理由见 csp.ts 模块头）
 import { installAppCsp } from "./csp.ts";
-// Linux 桌面集成自装（<app_id>.desktop 身份文件 + hicolor 图标）：各桌面/门户按 app_id 反查
-// 桌面文件取图标，AppImage 裸跑与开发态都没人代劳，必须自己装（模块头有完整链路说明）
-import { DESKTOP_ID, installLinuxDesktopIntegration, quoteExecPath } from "./linux-desktop.ts";
+// Linux 桌面集成（<app_id>.desktop 身份文件 + hicolor 图标）：各桌面/门户按 app_id 反查
+// 桌面文件取图标，AppImage 裸跑没人代劳，打包态必须自己装（模块头有完整链路说明）；
+// 开发态不自装、只清掉历史开发态条目（removeDevManagedDesktopEntry），免得污染启动器
+import { DESKTOP_ID, installLinuxDesktopIntegration, quoteExecPath, removeDevManagedDesktopEntry } from "./linux-desktop.ts";
 // 全局热键（win/mac = Electron globalShortcut；Linux = XDG 门户 GlobalShortcuts，见模块头）
 import { createGlobalHotkeys, GLOBAL_CONF_KEYS } from "./global-hotkeys.ts";
 // 应用自更新（GitHub Releases 代理 / 流式下载 / AppImage 原位替换 / deb·rpm 交 xdg-open）
@@ -160,7 +161,7 @@ let themePref = bootTheme;
 //     之前就读它并设进 CHROME_DESKTOP，X11 WM_CLASS 与 Wayland app_id 都取它去掉 .desktop 后缀的值；
 //     xdg-desktop-portal（GlobalShortcuts）与各桌面反查的也是这个 ID（门户 1.21+ 对解析不到桌面
 //     文件的 app ID 直接拒会话）。这里**不要再 setDesktopName**：两个真相迟早写岔，桌面上就是
-//     「图标对不上」这类怪象。桌面文件与 hicolor 图标由 linux-desktop 自装（见 whenReady）。
+//     「图标对不上」这类怪象。桌面文件与 hicolor 图标由 linux-desktop 在**打包态**自装（见 whenReady），开发态不写。
 app.setAppUserModelId("red.0w0.quaver");
 
 // ——— 凭证存储：密钥管理器后端必须在 app ready 之前钉死 ———
@@ -1252,37 +1253,42 @@ app.whenReady().then(() => {
   } catch (e) {
     log("[quaver] system theme watch failed:", String(e));
   }
-  // —— Linux 桌面集成自装（模块 linux-desktop.ts）——
+  // —— Linux 桌面集成（模块 linux-desktop.ts）——
   // app_id（red.0w0.quaver）→ applications/<ID>.desktop → hicolor 图标，是各桌面取窗口图标、
-  // 任务栏分组与门户鉴权的唯一链路。打包态只有被集成工具接管才有人装、开发态永远没人装。
-  // 异步放行不挡启动；失败只在日志记账（图标显示退化，不影响功能）。
+  // 任务栏分组与门户鉴权的唯一链路。打包态只有被集成工具接管才有人装，所以打包态自装；
+  // 开发态（pnpm app → electron .）**明确不自装**：那份条目的 Exec 写死「当前 electron + 仓库
+  // ui/」，落进启动器就是个常驻的、跟着仓库状态漂移的开发实例，污染条目而非修身份。
+  // 开发态只清掉本模块以前写下的开发态托管条目；X11 窗口图标走 BrowserWindow 的
+  // _NET_WM_ICON（见上文），不依赖这份文件。异步放行不挡启动；失败只在日志记账。
   if (process.platform === "linux") {
-    // Exec 指向「当前这份应用」：打包态优先 AppImage 本体（$APPIMAGE 由运行时注入）；解包目录直跑
-    // 时退回同目录的 AppRun —— 这里的 existsSync **不能省**：distro 包（deb/rpm/pacman）装到
-    // /opt/<productName>，那份布局里只有可执行文件，没有 AppRun，盲猜出来的路径是个死链接（踩过：
-    // 桌面项里写死 /opt/Quaver Music/AppRun，点不开）；其余按可执行文件本身走，开发态 = 当前
-    // electron + 仓库 ui/ 目录
-    const appRun = join(dirname(process.execPath), "AppRun");
-    const exec = process.env.APPIMAGE
-      ? `${quoteExecPath(process.env.APPIMAGE)} --no-sandbox %U`
-      : app.isPackaged
-        ? existsSync(appRun)
+    if (!app.isPackaged && !process.env.APPIMAGE) {
+      const r = removeDevManagedDesktopEntry({ desktopId: DESKTOP_ID, devMarker: UI_ROOT });
+      if (r.removed) log("[quaver] linux-desktop: 开发态不再自装条目，已清掉历史开发态条目", r.desktopFile);
+    } else {
+      // Exec 指向「当前这份应用」：AppImage 运行时优先本体（$APPIMAGE 由运行时注入）；解包目录
+      // 直跑时退回同目录的 AppRun —— 这里的 existsSync **不能省**：distro 包（deb/rpm/pacman）
+      // 装到 /opt/<productName>，那份布局里只有可执行文件，没有 AppRun，盲猜出来的路径是个死
+      // 链接（踩过：桌面项里写死 /opt/Quaver Music/AppRun，点不开）；其余按可执行文件本身走
+      const appRun = join(dirname(process.execPath), "AppRun");
+      const exec = process.env.APPIMAGE
+        ? `${quoteExecPath(process.env.APPIMAGE)} --no-sandbox %U`
+        : existsSync(appRun)
           ? `${quoteExecPath(appRun)} --no-sandbox %U`
-          : `${quoteExecPath(process.execPath)} %U`
-        : `${quoteExecPath(process.execPath)} ${quoteExecPath(UI_ROOT)} %U`;
-    installLinuxDesktopIntegration({
-      desktopId: DESKTOP_ID,
-      name: app.getName(),
-      comment: PKG_META.description ?? "",
-      exec,
-      iconSourceDir: buildRes("icons"),
-      log,
-    }).then((r) => {
-      if (r.desktopAction === "written") log("[quaver] linux-desktop: 已写", r.desktopFile);
-      if (r.desktopAction === "system") log("[quaver] linux-desktop: 让位给系统条目", r.systemDesktopFile);
-      if (r.desktopAction === "system-cleaned") log("[quaver] linux-desktop: 让位给系统条目并清掉旧副本", r.systemDesktopFile);
-      if (r.iconsWritten.length) log("[quaver] linux-desktop: hicolor 图标已同步:", r.iconsWritten.join(" "));
-    }).catch((e) => log("[quaver] linux-desktop failed:", String(e)));
+          : `${quoteExecPath(process.execPath)} %U`;
+      installLinuxDesktopIntegration({
+        desktopId: DESKTOP_ID,
+        name: app.getName(),
+        comment: PKG_META.description ?? "",
+        exec,
+        iconSourceDir: buildRes("icons"),
+        log,
+      }).then((r) => {
+        if (r.desktopAction === "written") log("[quaver] linux-desktop: 已写", r.desktopFile);
+        if (r.desktopAction === "system") log("[quaver] linux-desktop: 让位给系统条目", r.systemDesktopFile);
+        if (r.desktopAction === "system-cleaned") log("[quaver] linux-desktop: 让位给系统条目并清掉旧副本", r.systemDesktopFile);
+        if (r.iconsWritten.length) log("[quaver] linux-desktop: hicolor 图标已同步:", r.iconsWritten.join(" "));
+      }).catch((e) => log("[quaver] linux-desktop failed:", String(e)));
+    }
   }
   // 开发态 macOS：Dock 显示的是 electron 壳的图标；打包态用 bundle 内嵌 icns，无需此步
   if (process.platform === "darwin" && !app.isPackaged && app.dock) {
