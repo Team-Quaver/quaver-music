@@ -8,6 +8,7 @@
 // CSS 变量 --font-ui / --font-lyric 分别作用于界面与歌词。
 
 import { cfg, cfgSet, cfgSetSoon } from "./config";
+import { TTML_DB_DEFAULT_URL, isTtmlDatabaseUrl } from "./ttml";
 import { parseHex, toHex } from "./color";
 import type { UpdateChannel } from "./update-core";
 
@@ -340,6 +341,50 @@ export function getLyricScale(): number {
 export function setLyricScale(v: number) {
   const clamped = Math.min(LYRIC_SCALE_MAX, Math.max(LYRIC_SCALE_MIN, v));
   cfgSetSoon({ "Style.LyricScale": String(Math.round(clamped * 100) / 100) });
+}
+
+
+// —— 歌词设置（[Lyrics] 段）：繁简转换 / 在线 TTML 开关 / TTML 数据库地址 / 本地 TTML 歌词库目录 ——
+// 全部走 quaver.conf；渲染层只读快照（启动一次性装载），写盘即时同步主进程。判据与
+// electron/config.ts 的 schema 值域同规（改一处要改两处）：TTML 地址模板的合法性由 ttml.ts
+// 的 isTtmlDatabaseUrl 把关（与写盘侧 isTtmlDatabaseUrlTemplate 对齐），本地库目录沿用「非控制字符 + 长度」口径。
+export type ChineseConvert = "off" | "simplified" | "traditional";
+const CONF_CHINESE: Record<string, ChineseConvert> = { off: "off", simplified: "simplified", traditional: "traditional" };
+
+export function getChineseConvert(): ChineseConvert {
+  // 未知/瞎写回落 off：转换是锦上添花，坏值宁可显示原文也别拿一套没验证的词典去改歌词
+  return CONF_CHINESE[cfg("Lyrics.ChineseConvert", "off").trim().toLowerCase()] ?? "off";
+}
+export function setChineseConvert(v: ChineseConvert) {
+  cfgSet({ "Lyrics.ChineseConvert": v });
+}
+
+export function getOnlineTtml(): boolean {
+  // 默认开：只有在明确写关闭档才停。逐字缺位时才补一次查询（口径见 src/player.ts + schema 注释）
+  return !/^(false|0|no)$/i.test(cfg("Lyrics.OnlineTtml", "True"));
+}
+export function setOnlineTtml(v: boolean) {
+  cfgSet({ "Lyrics.OnlineTtml": v ? "True" : "False" });
+}
+
+export function getTtmlDatabase(): string {
+  // 空 / 非法一律回落默认模板：地址坏了宁可打公共镜像，也别拼出个必 404 的请求或让歌词链路吃字符串异常
+  const raw = cfg("Lyrics.TtmlDatabase", TTML_DB_DEFAULT_URL).trim();
+  return isTtmlDatabaseUrl(raw) ? raw : TTML_DB_DEFAULT_URL;
+}
+export function setTtmlDatabase(v: string) {
+  const t = String(v ?? "").trim();
+  cfgSet({ "Lyrics.TtmlDatabase": isTtmlDatabaseUrl(t) ? t : TTML_DB_DEFAULT_URL });
+}
+
+export function getTtmlLibrary(): string {
+  // 本地 TTML 歌词库目录：留空 = 不使用（无独立开关，非空即启用）。非控制字符 + 长度上限与背景图路径同口径。
+  const raw = cfg("Lyrics.TtmlLibrary", "").trim();
+  return /[\r\n\u0000]/.test(raw) || raw.length > 1024 ? "" : raw;
+}
+export function setTtmlLibrary(v: string) {
+  const t = String(v ?? "").trim();
+  cfgSet({ "Lyrics.TtmlLibrary": /[\r\n\u0000]/.test(t) || t.length > 1024 ? "" : t });
 }
 
 

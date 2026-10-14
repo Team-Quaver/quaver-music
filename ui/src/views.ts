@@ -27,6 +27,7 @@ import {
   BG_BLUR_MAX,
   BG_BLUR_MIN,
   type BackgroundMode,
+  type ChineseConvert,
   type CloseAction,
   type DecorMode,
   type FadePreset,
@@ -47,8 +48,12 @@ import {
   getInhibitSleep,
   getLyricFontList,
   getMenuBlur,
+  getChineseConvert,
+  getOnlineTtml,
   getPrevBehavior,
   getTheme,
+  getTtmlDatabase,
+  getTtmlLibrary,
   getTintColor,
   getTintMode,
   getUiFontList,
@@ -58,8 +63,12 @@ import {
   setBackgroundBlur,
   setBackgroundImage,
   setBackgroundMode,
+  setChineseConvert,
   setCloseAction,
   setDecor,
+  setOnlineTtml,
+  setTtmlDatabase,
+  setTtmlLibrary,
   setFallbackSort,
   setInhibitSleep,
   setLyricFontList,
@@ -79,6 +88,8 @@ import {
   type UpdateChannel,
 } from "./lib/prefs";
 import { applyBackground } from "./lib/ambient";
+import { TTML_DB_DEFAULT_URL, isTtmlDatabaseUrl } from "./lib/ttml";
+import { resetCjkConverter } from "./lib/cjk-convert";
 import { applyTint } from "./lib/tint";
 import { applyMenuGlass } from "./lib/menu-glass";
 import { cmyk2rgb, hsl2rgb, parseHex, rgb2cmyk, rgb2hsl, toHex, type RGB } from "./lib/color";
@@ -1226,6 +1237,7 @@ async function settingsView(root: HTMLElement) {
   const tabs = h("div", "set-tabs", `
     <button class="set-tab is-active" data-tab="appearance" type="button">外观</button>
     <button class="set-tab" data-tab="playback" type="button">播放</button>
+    <button class="set-tab" data-tab="lyrics" type="button">歌词</button>
     <button class="set-tab" data-tab="hotkeys" type="button">热键</button>
     <button class="set-tab" data-tab="general" type="button">通用</button>
     <button class="set-tab" data-tab="plugins" type="button">花火插件</button>`);
@@ -1427,6 +1439,56 @@ async function settingsView(root: HTMLElement) {
         <p class="muted set-hint">仅限 QQ 音乐超级会员生效。</p>
       </div>
     </section>
+    <!-- 歌词面板：繁简转换 / 在线 TTML 逐字库 / 本地 TTML 歌词库目录（[Lyrics] 段，见 electron/config.ts） -->
+    <section class="set-panel" data-panel="lyrics" hidden>
+      <div class="set-group">
+        <div class="set-label">繁简转换 <span class="set-note-inline">对歌词正文、注音与翻译生效</span></div>
+        <div class="opt-cards" id="cjk-cards">
+          <button class="opt-card" data-opt="off" type="button">不转换</button>
+          <button class="opt-card" data-opt="simplified" type="button">转为简体</button>
+          <button class="opt-card" data-opt="traditional" type="button">转为繁体</button>
+        </div>
+        <p class="muted set-hint">按 OpenCC 词典转换（简→繁带短语级歧义处理：「头发」不会变成「頭發」的那颗「發」）。
+          只转换进入播放器的歌词文本 —— 磁盘缓存与手动导入的原文不动，关掉档位即回原样；切换即时重拉当前曲，
+          词典在第一次用到该档位时才加载（简→繁词典较大，约 1MB，只为此付费一次）。</p>
+      </div>
+
+      <div class="set-group">
+        <div class="set-label">在线 TTML 歌词 <span class="set-note-inline">AMLL 逐字歌词库</span></div>
+        <div class="opt-cards" id="ttml-online-cards">
+          <button class="opt-card" data-opt="on" type="button">开启</button>
+          <button class="opt-card" data-opt="off" type="button">关闭</button>
+        </div>
+        <div class="set-row"><span class="set-row__label">数据库地址</span>
+          <div class="set-row__ctrl font-row">
+            <input id="ttml-db-url" type="text" spellcheck="false" autocomplete="off"
+              aria-label="TTML 数据库地址模板" placeholder="https://amlldb.bikonoo.com/%p/%s.ttml" />
+            <button class="ghost-btn" id="ttml-db-default" type="button">恢复默认</button>
+          </div>
+        </div>
+        <p class="muted set-hint">仅在歌曲拿不到逐字歌词时补一次查询（已有 QRC 逐字或手动导入的发都不发；行级 LRC 会被升级成逐字）。
+          地址模板：<code>%p</code> = 平台目录（QQ→qq-lyrics、网易云→ncm-lyrics、Apple→am-lyrics、Spotify→spotify-lyrics），
+          <code>%s</code> = 该平台歌曲 id（QQ 为 songmid），必须含 %s。默认是 AMLL TTML 数据库（amll-dev/amll-ttml-db）的
+          bikonoo 实时镜像，全平台一份模板；换成别的镜像或自建库只改这一行。未命中记 10 分钟会话缓存，不重复打服务器。</p>
+        <p class="muted set-hint" id="ttml-db-note"></p>
+      </div>
+
+      <div class="set-group">
+        <div class="set-label">本地 TTML 歌词库</div>
+        <div class="set-row"><span class="set-row__label">歌词库目录</span>
+          <div class="set-row__ctrl">
+            <input id="ttml-lib-path" readonly placeholder="未设置（只用在线库）" />
+            <button class="ghost-btn" id="ttml-lib-pick" type="button">选择目录…</button>
+            <button class="ghost-btn" id="ttml-lib-clear" type="button">清除</button>
+          </div>
+        </div>
+        <p class="muted set-hint">指向一个存满 .ttml 的文件夹即可启用（非空即开）。命名兼容三种习惯：
+          AMLL TTML 数据库仓库克隆布局 <code>库/qq-lyrics/&lt;songmid&gt;.ttml</code>（或 id 平铺）、
+          「歌名-歌手.ttml」/「歌手-歌名.ttml」（连字符两侧空格均可）、以及「歌名.ttml」。
+          查询顺序：本地库先于在线库；两者都只补「没有逐字」的歌，手动导入永远优先。设置后即时重拉当前曲。</p>
+      </div>
+    </section>
+
     <!-- 热键面板：内容由 ui/src/components/HotkeySettings.ts 填充（全局/焦点内两组绑定） -->
     <section class="set-panel" data-panel="hotkeys" hidden></section>
     <section class="set-panel" data-panel="general" hidden>
@@ -2044,6 +2106,77 @@ async function settingsView(root: HTMLElement) {
     wrap.querySelector<HTMLInputElement>("#font-lyric-list")!,
     setLyricFontList, setLyricFontPreset, getLyricFontList(),
   );
+
+  // —— 歌词面板（[Lyrics]）：繁简转换 / 在线 TTML 开关 / 数据库地址 / 本地 TTML 歌词库目录 ——
+  // 三项「取词计划」类开关共用一条收尾：写偏好 → resetCjkConverter（仅档位项需要）→ player.reloadLyric()。
+  // 歌词管线默认只在换曲时重判顺序，而这些设置改的正是顺序 —— 不重拉当前曲就是假即时生效。
+  bindOptCards<ChineseConvert>(
+    wrap.querySelector<HTMLElement>("#cjk-cards")!,
+    getChineseConvert,
+    (v) => { setChineseConvert(v); resetCjkConverter(); player.reloadLyric(); },
+  );
+  bindOptCards<"on" | "off">(
+    wrap.querySelector<HTMLElement>("#ttml-online-cards")!,
+    () => (getOnlineTtml() ? "on" : "off"),
+    (v) => { setOnlineTtml(v === "on"); player.reloadLyric(); },
+  );
+  const ttmlUrlInput = wrap.querySelector<HTMLInputElement>("#ttml-db-url")!;
+  const ttmlUrlNote = wrap.querySelector<HTMLElement>("#ttml-db-note")!;
+  /** 输入框永远显示「当前生效值」（getTtmlDatabase 已把坏值回落默认）；note 只放一次性反馈。 */
+  const paintTtmlUrl = (note = "") => {
+    ttmlUrlInput.value = getTtmlDatabase();
+    ttmlUrlNote.textContent = note;
+  };
+  paintTtmlUrl();
+  const commitTtmlUrl = () => {
+    const v = ttmlUrlInput.value.trim();
+    if (!v || v === getTtmlDatabase()) { paintTtmlUrl(); return; } // 留空 = 不改，回显当前生效值
+    if (!isTtmlDatabaseUrl(v)) {
+      paintTtmlUrl("地址模板要 http(s) 开头、含 %s 占位符，且不能有空格/引号——已回落到当前生效值。");
+      return;
+    }
+    setTtmlDatabase(v);
+    paintTtmlUrl();
+    player.reloadLyric();
+  };
+  // 失焦提交（change）；回车 = 主动离开输入框，交给 blur 触发同一份提交口径（校验回落只留一处）
+  ttmlUrlInput.onchange = commitTtmlUrl;
+  ttmlUrlInput.onkeydown = (e) => { if (e.key === "Enter") ttmlUrlInput.blur(); };
+  wrap.querySelector<HTMLButtonElement>("#ttml-db-default")!.onclick = () => {
+    setTtmlDatabase(TTML_DB_DEFAULT_URL);
+    paintTtmlUrl("已恢复默认模板（AMLL TTML 数据库的 bikonoo 镜像，%p 展开平台目录）。");
+    player.reloadLyric();
+  };
+  // 本地 TTML 歌词库目录：原生选目录走「本地音乐」页同一座桥（quaver:local pick-folder），
+  // 浏览器 dev 没有桥 → 按钮禁用并注明；清除 = 目录置空 = 功能整档关闭（非空即启用，不设独立开关）。
+  const libInput = wrap.querySelector<HTMLInputElement>("#ttml-lib-path")!;
+  const libPick = wrap.querySelector<HTMLButtonElement>("#ttml-lib-pick")!;
+  const libClear = wrap.querySelector<HTMLButtonElement>("#ttml-lib-clear")!;
+  const paintLib = () => {
+    libInput.value = getTtmlLibrary();
+    libClear.disabled = !getTtmlLibrary();
+  };
+  paintLib();
+  if (!window.quaverLocal) {
+    libPick.disabled = true;
+    libPick.title = "浏览器 dev 没有原生选目录，请在桌面端设置";
+  }
+  libPick.onclick = async () => {
+    const bridge = window.quaverLocal;
+    if (!bridge) return;
+    libPick.disabled = true;
+    try {
+      const r = await bridge.pickFolder();
+      if (!r.ok) { toast(r.error ?? "选择目录失败", "err"); return; }
+      if (r.canceled || !r.path) return;
+      setTtmlLibrary(r.path);
+      paintLib();
+      player.reloadLyric();
+    } finally {
+      libPick.disabled = false;
+    }
+  };
+  libClear.onclick = () => { setTtmlLibrary(""); paintLib(); player.reloadLyric(); };
 
   // 配置文件：展示磁盘路径 + 一键定位 / 重置（浏览器 dev 下没有文件，只提示真相在哪）
   const conf = configInfo();

@@ -161,6 +161,34 @@ P.setLyricAux("translation");
 eq("翻译选项 translation", [P.getLyricAux(), conf()["Style.LyricAux"], conf()["Style.ShowTranslation"]], ["translation", "translation", "True"]);
 eq("读回来也是开", P.getMenuBlur(), true);
 
+// —— 歌词设置（[Lyrics] 段）：繁简 / 在线 TTML / 地址 / 本地库目录 ——
+P.setChineseConvert("traditional");
+eq("繁简 traditional → 写盘", conf()["Lyrics.ChineseConvert"], "traditional");
+eq("繁简读回", P.getChineseConvert(), "traditional");
+P.setChineseConvert("simplified");
+eq("繁简 simplified → 写盘", conf()["Lyrics.ChineseConvert"], "simplified");
+P.setChineseConvert("off");
+eq("繁简 off → 写盘", [P.getChineseConvert(), conf()["Lyrics.ChineseConvert"]], ["off", "off"]);
+
+P.setOnlineTtml(false);
+eq("在线 TTML 关 → OnlineTtml=False", conf()["Lyrics.OnlineTtml"], "False");
+eq("在线 TTML 关读回 false", P.getOnlineTtml(), false);
+P.setOnlineTtml(true);
+eq("在线 TTML 开 → True", conf()["Lyrics.OnlineTtml"], "True");
+
+P.setTtmlDatabase("https://mirror.example/%p/%s.ttml");
+eq("TTML 地址合法写入", conf()["Lyrics.TtmlDatabase"], "https://mirror.example/%p/%s.ttml");
+P.setTtmlDatabase("ftp://bad/%s"); // 非法（非 http(s)）→ 回落默认
+eq("TTML 地址非法回落默认", P.getTtmlDatabase(), "https://amlldb.bikonoo.com/%p/%s.ttml");
+P.setTtmlDatabase("https://x.example/%p.nolyric"); // 缺 %s → 非法 → 回落
+eq("TTML 地址缺 %s 回落默认", P.getTtmlDatabase(), "https://amlldb.bikonoo.com/%p/%s.ttml");
+
+P.setTtmlLibrary("/home/me/ttml-db");
+eq("本地库目录写盘", conf()["Lyrics.TtmlLibrary"], "/home/me/ttml-db");
+eq("本地库目录读回", P.getTtmlLibrary(), "/home/me/ttml-db");
+P.setTtmlLibrary("");
+eq("本地库清空 = 关", P.getTtmlLibrary(), "");
+
 // 浏览器兜底模式存的是整份内存快照（键名应与 conf 的 Section.Key 完全一致，不能混进旧的 localStorage 键）
 const keys = Object.keys(conf());
 check("写盘键名齐全（Section.Key 风格）", [

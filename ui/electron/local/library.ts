@@ -24,7 +24,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname, extname, join, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { configDir } from "../config.ts";
+import { configFile, configDir, readValues, type Env } from "../config.ts";
 import {
   emptyTags, formatByExt, isAudioFile, mergeId3, mp3AudioStart, mp3Duration, parseAiff, parseFilename,
   parseFlac, parseId3v1, parseId3v2, parseMp4, parseOgg, parseWav, sniffFormat,
@@ -861,6 +861,51 @@ export function sniffLyricFormat(text: string, name = ""): "lrc" | "qrc" | "ttml
   return "lrc";
 }
 
+
+/** 本地 TTML 歌词库的候选文件（相对库根，纯函数供单测）。命名兼容三种习惯：
+ *  ① AMLL TTML 数据库（amll-dev/amll-ttml-db）仓库克隆布局：qq-lyrics/<songmid>.ttml（或 id 平铺）；
+ *  ② 「歌名-歌手.ttml」/「歌手-歌名.ttml」（连字符两侧空格两种写法都试；多歌手逐个拆）；
+ *  ③ 「歌名.ttml」。
+ *  候选名里会拼路径的字符（分隔符/控制字符）替换成空格 —— 这些名字**只**在库目录内做拼装，
+ *  目录本身来自 quaver.conf，请求参数指不到库外（同 /api/bg 红线；消费侧还有一道 resolve 包含校验）。 */
+export function ttmlLibraryCandidates(q: { qq?: string; name?: string; artist?: string }): string[] {
+  const safe = (v: string) => String(v ?? "").replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim();
+  const out: string[] = [];
+  const qq = safe(q.qq ?? "");
+  if (/^[A-Za-z0-9._-]{1,80}$/.test(qq)) { out.push(join("qq-lyrics", `${qq}.ttml`), `${qq}.ttml`); }
+  const name = safe(q.name ?? "");
+  const artists = [...new Set(String(q.artist ?? "").split(",").map((a) => safe(a)).filter(Boolean))];
+  if (!name) return out;
+  for (const a of artists) {
+    for (const dash of ["-", " - "]) {
+      out.push(`${name}${dash}${a}.ttml`, `${a}${dash}${name}.ttml`);
+    }
+  }
+  out.push(`${name}.ttml`);
+  return out;
+}
+
+/** 在配置的库目录里找这份歌的 TTML：候选逐个试，只吃「库内 + 普通文件 + 嗅探是 TTML + ≤512KB」。
+ *  目录真相恒取自 quaver.conf 的 [Lyrics] TtmlLibrary（请求参数不参与拼库路径）。 */
+function findLocalTtml(q: { qq?: string; name?: string; artist?: string }, env: Env = process.env): { rel: string; text: string } | null {
+  if (!existsSync(configFile(env))) return null; // 配置文件还没落地：只读 GET 不该顺手写模板（读值会触发）
+  const dir = String(readValues(env).values["Lyrics.TtmlLibrary"] ?? "").trim();
+  if (!dir) return null;
+  const root = resolve(dir);
+  if (!existsSync(root) || !statSync(root).isDirectory()) return null;
+  for (const rel of ttmlLibraryCandidates(q)) {
+    const abs = resolve(root, rel);
+    if (abs === root || !abs.startsWith(root + sep)) continue; // 拼装名万一指到库外：丢
+    try {
+      if (!statSync(abs).isFile() || statSync(abs).size > 512 * 1024) continue;
+      const text = decodeLrc(readFileSync(abs));
+      if (sniffLyricFormat(text, abs) !== "ttml") continue;
+      return { rel, text };
+    } catch { /* 不存在/读不动：下一个候选 */ }
+  }
+  return null;
+}
+
 /** 图片魔数判格式（只认四种，与内嵌封面通路同一套落盘名 covers/<id>.<ext>）。 */
 export function imageFormat(b: Buffer): string {
   if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8) return "jpg";
@@ -1345,6 +1390,13 @@ export async function handleLocalApi(req: IncomingMessage, res: ServerResponse, 
     res.setHeader("cache-control", "no-store");
     if (req.method === "HEAD") { res.end(); return true; }
     res.end(readFileSync(file));
+    return true;
+  }
+
+  // —— GET /api/local/ttml?qq=&name=&artist= ——（本地 TTML 歌词库：目录只认 quaver.conf）
+  if (req.method === "GET" && path === "ttml") {
+    const hit = findLocalTtml({ qq: q.get("qq") ?? "", name: q.get("name") ?? "", artist: q.get("artist") ?? "" });
+    json(res, hit ? { found: true, ...hit } : { found: false });
     return true;
   }
 

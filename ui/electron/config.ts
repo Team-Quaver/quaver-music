@@ -202,16 +202,26 @@ const isFontList = (v: string): boolean => !/[;{}\r\n]|url\s*\(/i.test(v);
  *  这里收窄是有意义的：/api/bg 只肯吐图片后缀的文件，手改配置文件也读不到别的文件。 */
 export const BG_IMAGE_EXTS = ["jpg", "jpeg", "png", "webp", "gif", "bmp", "avif"] as const;
 
-/** 背景图路径校验：空值合法（= 未选择）；否则只要求「单行、非控制字符、长度合理」——
- *  路径里的 `"` `=` `#` 等字符不在这里拦（那是用户自己机器上的文件名，读盘侧不吃字符串拼接）。
- *  唯一要防的是换行/回车：INI 是逐行解析的，写进去会把配置文件的段结构撕开。 */
-const isBackgroundImagePath = (v: string): boolean =>
-  v.trim() === "" || (!/[\r\n\u0000]/.test(v) && v.length <= 1024);
-
 /** 高亮色（tint）自定义色的值域：只收规范形态 `#rgb` / `#rrggbb`（带 `#`，大小写皆可）。
  *  这个值最终会被渲染层塞进 CSS 变量，所以只认十六进制字面量 —— `red`、`rgb(0,0,0)`、
  *  `var(--x)` 一律不合法，它被关进「颜色常量」这一种可能里。渲染层读回来统一归一成小写 6 位。 */
 export const isHexColor = (v: string): boolean => /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(v ?? "").trim());
+
+/** 本地磁盘路径值（背景图 / TTML 歌词库目录共用）：空值合法（= 未选择/未设置）；
+ *  只拦会撕开 INI 段结构的换行/控制字符并限长 —— 路径里的引号/井号是用户自己机器上的文件名，读盘侧不吃字符串拼接。 */
+const isLocalPathValue = (v: string): boolean =>
+  v.trim() === "" || (!/[\r\n\u0000]/.test(v) && v.length <= 1024);
+
+/** TTML 数据库地址模板的值域：http(s) 绝对地址、必须含 %s（歌曲 id 占位符，%p 平台段可选）、
+ *  不含空白/引号/尖括号/反斜杠/井号（INI 行内注释与 URL 片段的歧义一并关掉）、长度合理。
+ *  渲染层 src/lib/ttml.ts 的同名判据与此**同规**（输入框即时反馈 vs 写盘拦截两个消费点，改一处要改两处）。 */
+export function isTtmlDatabaseUrlTemplate(v: string): boolean {
+  const s = String(v ?? "").trim();
+  return s.length <= 512 && s.includes("%s") && /^https?:\/\/[^\s"'<>\\#|]+$/.test(s);
+}
+
+/** 繁简转换档位（[Lyrics] ChineseConvert）：off=不转换 ｜ simplified=繁体转简体 ｜ traditional=简体转繁体。 */
+const isChineseConvert = (v: string): boolean => ["off", "simplified", "traditional"].includes(String(v ?? "").trim().toLowerCase());
 
 /** Sparkle 插件 id 的形状（同时也是插件目录名 / plugin.json 的 id / main.ts 的 SPARKLE_ID_RE）： */
 export const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -302,7 +312,7 @@ export const SCHEMA: SectionSpec[] = [
           "自定义背景图片的**绝对路径**（设置页「选择图片」写入）；留空=尚未选择。",
           "图片由客户端本地服务（/api/bg）按此路径读出并交给界面，扩展名限 jpg/jpeg/png/webp/gif/bmp/avif",
         ],
-        valid: isBackgroundImagePath,
+        valid: isLocalPathValue,
       },
       {
         key: "BackgroundBlur",
@@ -445,6 +455,52 @@ export const SCHEMA: SectionSpec[] = [
         def: "False",
         doc: ["高档不可用时是否优先回退到臻品全景声：False=不优先（臻品母带优先，默认）｜True=按标准 rank 排序"],
         valid: (v: string) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
+      },
+    ],
+  },
+  {
+    section: "Lyrics",
+    keys: [
+      {
+        key: "ChineseConvert",
+        def: "off",
+        doc: [
+          "歌词繁简转换：off=不转换（**默认**）｜simplified=繁体转简体｜traditional=简体转繁体。",
+          "对歌词正文、注音与翻译生效（行级与逐字同一口径）；转换只发生在歌词文本进入播放器时，",
+          "磁盘缓存与手动导入的原文不动。词典按档位惰性加载（opencc-js），改动即时重拉当前曲歌词",
+        ],
+        valid: isChineseConvert,
+      },
+      {
+        key: "OnlineTtml",
+        def: "True",
+        doc: [
+          "在线 TTML 逐字歌词（AMLL TTML 数据库）：True=开启（**默认**）｜False=关闭。",
+          "仅在歌曲拿不到逐字内容（无 QRC，或只有行级歌词）时按 [Lyrics] TtmlDatabase 的地址模板补一次查询；",
+          "已有逐字歌词不发请求。未命中记会话级缓存，不重复打服务器",
+        ],
+        valid: (v: string) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
+      },
+      {
+        key: "TtmlDatabase",
+        def: "https://amlldb.bikonoo.com/%p/%s.ttml",
+        doc: [
+          "TTML 数据库地址模板：必须含 %s（该平台歌曲 id；QQ 为 songmid），%p=平台目录（可选），",
+          "展开规则见渲染层 src/lib/ttml.ts（QQ→qq-lyrics、网易云→ncm-lyrics、Apple→am-lyrics、Spotify→spotify-lyrics）。",
+          "默认是 AMLL TTML 数据库（github: amll-dev/amll-ttml-db）的 bikonoo 实时镜像；换成别的镜像/自建库只改这一行",
+        ],
+        valid: isTtmlDatabaseUrlTemplate,
+      },
+      {
+        key: "TtmlLibrary",
+        def: "",
+        doc: [
+          "本地 TTML 歌词库目录（绝对路径；留空=不使用，设置页「选择目录」写入）。",
+          "兼容 AMLL TTML 数据库仓库克隆布局：<目录>/qq-lyrics/<songmid>.ttml（或 <songmid>.ttml 平铺），",
+          "也认平铺命名「歌名-歌手.ttml」「歌名.ttml」（连字符两侧可带空格，歌手可多值任取其一）。",
+          "优先级：手动导入 > 本地 TTML 库 > 在线逐字（QRC/TTML）> 侧车 LRC/内嵌 —— 逐字优先是既定口径",
+        ],
+        valid: isLocalPathValue,
       },
     ],
   },

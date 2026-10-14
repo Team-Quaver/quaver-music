@@ -77,10 +77,10 @@ eq("注释行不会被当成键", IniDoc.parse("[A]\n; c=1\n# d=2\nZ=3\n").value
 // ——— 首次运行 ———
 section("首次运行");
 check("模板随读取落地", (readValues(), existsSync(FILE)));
-check("模板含全部段", ["[Style]", "[Window]", "[Playing]", "[Quality]", "[Security]", "[Update]"].every((s) => template().includes(s)));
+check("模板含全部段", ["[Style]", "[Window]", "[Playing]", "[Quality]", "[Lyrics]", "[Security]", "[Update]"].every((s) => template().includes(s)));
 check("模板注释来自 schema", template().includes("可选 dark,light,follow-system"));
 eq("默认值与模板占位一致", (() => { const v = readValues().values; return v["Style.Style"] === "dark" && v["Playing.Backend"] === "MPV" && v["Quality.DefaultQuality"] === "Auto" && v["Quality.FallbackToQMAtmos"] === "False"; })(), true);
-eq("schema 默认值表条数", Object.keys(defaults()).length, 43); // LyricAux 为歌词辅助行（关闭/翻译/音译，两路同位置且各按档位回落）；LyricScale 为行级歌词缩放；Background/BackgroundImage/BackgroundBlur 为默认主题背景（模式/自定义图/模糊强度）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；MenuBlur 为浮层菜单毛玻璃开关；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
+eq("schema 默认值表条数", Object.keys(defaults()).length, 47); // [Lyrics] 4 键（ChineseConvert 繁简档/OnlineTtml 在线逐字开关/TtmlDatabase 地址模板/TtmlLibrary 本地库目录）；LyricAux 为歌词辅助行（关闭/翻译/音译，两路同位置且各按档位回落）；LyricScale 为行级歌词缩放；Background/BackgroundImage/BackgroundBlur 为默认主题背景（模式/自定义图/模糊强度）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；MenuBlur 为浮层菜单毛玻璃开关；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
 check("模板含热键两段", ["[Hotkeys.Global]", "[Hotkeys.Focus]"].every((s) => template().includes(s)));
 eq("全局热键默认 Ctrl+Alt+P", defaults()["Hotkeys.Global.Toggle"], "Ctrl+Alt+P");
 eq("焦点退出默认 Ctrl+Q", defaults()["Hotkeys.Focus.Quit"], "Ctrl+Q");
@@ -92,6 +92,18 @@ eq("睡眠禁止默认开", defaults()["Playing.InhibitSleep"], "True");
 eq("侧栏默认展开", defaults()["Window.SidebarCollapsed"], "False");
 eq("侧栏宽度默认未自定义", defaults()["Window.SidebarWidth"], "");
 eq("队列宽度默认未自定义", defaults()["Window.QueueWidth"], "");
+eq("繁简转换默认不转", defaults()["Lyrics.ChineseConvert"], "off");
+eq("在线 TTML 默认开", defaults()["Lyrics.OnlineTtml"], "True");
+eq("TTML 数据库默认模板（全平台 %p）", defaults()["Lyrics.TtmlDatabase"], "https://amlldb.bikonoo.com/%p/%s.ttml");
+eq("本地 TTML 库默认未设置", defaults()["Lyrics.TtmlLibrary"], "");
+eq("繁简档拒绝瞎写", writeValues({ "Lyrics.ChineseConvert": "both" }), []);
+eq("繁简档接受三档", writeValues({ "Lyrics.ChineseConvert": "simplified" }).length, 1);
+eq("繁简档拒绝简转繁以外的乱写回落", (() => { writeValues({ "Lyrics.ChineseConvert": "traditional" }); return readValues().values["Lyrics.ChineseConvert"]; })(), "traditional");
+eq("TTML 地址缺 %s 被拒", writeValues({ "Lyrics.TtmlDatabase": "https://x.example/%p.lyric" }), []);
+eq("TTML 地址非 http(s) 被拒", writeValues({ "Lyrics.TtmlDatabase": "ftp://x.example/%s.ttml" }), []);
+eq("TTML 地址带空格被拒", writeValues({ "Lyrics.TtmlDatabase": "https://x.example/a b/%s.ttml" }), []);
+eq("TTML 合法模板可写入", writeValues({ "Lyrics.TtmlDatabase": "https://mirror.example/%p/%s.ttml" }).length, 1);
+eq("在线 TTML 布尔档拒绝瞎写", writeValues({ "Lyrics.OnlineTtml": "maybe" }), []);
 eq("宽度键拒绝非数值", writeValues({ "Window.SidebarWidth": "wide" }), []);
 eq("宽度键拒绝超界", writeValues({ "Window.SidebarWidth": "99999", "Window.QueueWidth": "-3" }), []);
 eq("宽度键接受合法值与空值", writeValues({ "Window.SidebarWidth": "260", "Window.QueueWidth": "" }), ["Window.SidebarWidth", "Window.QueueWidth"]);

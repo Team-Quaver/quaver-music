@@ -9,8 +9,11 @@ import {
   getMuted as getMutedConf, setMuted as setMutedConf,
   getShowTrans, setShowTrans, getLyricAux, setLyricAux, type LyricAuxMode,
   getPrevBehavior,
+  getOnlineTtml, getTtmlDatabase, getTtmlLibrary,
   type DecodeBackend, type FadePreset,
 } from "./lib/prefs";
+import { cjkConvert } from "./lib/cjk-convert";
+import { expandTtmlUrl, fetchTtml, ttmlMissCached, ttmlMissRemember } from "./lib/ttml";
 import { WebTransport, EngineTransport, type Transport, type TransportEvent, type AudioDeviceInfo } from "./lib/transport";
 import { loadSession, saveSession } from "./lib/session";
 import { dayKey, daySeed, shuffleOrder, step, walk } from "./lib/shuffle";
@@ -466,6 +469,12 @@ class Player {
     this.notify();
   }
 
+  /** 歌词相关设置变更后重拉当前曲（繁简档位 / 在线 TTML 开关 / 数据库地址 / 本地库目录）。
+   *  不重走取链/播放，只重跑歌词管线 —— 导入件/优先级规则由 fetchLyric 自己摆正。 */
+  reloadLyric(): void {
+    if (this.current) void this.fetchLyric(this.current);
+  }
+
   /** 用新列表替换队列并从 i 播放（整队列替换：视图语义一致）。不 await：双击即刻打断切歌。 */
   playList(songs: Song[], i = 0) {
     this.queue = songs.filter((s) => s?.mid);
@@ -747,10 +756,19 @@ class Player {
    *  解析成 karaoke 行 + 派生行级列表；提供器缺席（内置注册失败）、逐字解析失败或请求
    *  结果为空时回退普通 LRC 行级。
    *
+   *  TTML 补刀（2026-10 [Lyrics] 设置引入）：**没有逐字内容**的歌才走一次逐字库查询
+   *  （本地 TTML 歌词库 → 在线 TTML 数据库，顺序与开关见 pullTtml）。已有逐字（QRC）或
+   *  用户手动导入了歌词的曲目一个请求都不发 —— TTML 是补齐逐字的能力，不是换掉既有来源的抢答。
+   *  命中后逐字/行级都按 TTML 重解析；行级歌词没有逐字时间轴，会被 TTML 的词级时间轴升级。
+   *
    *  本地通路（2026-10 与「本地音乐/NAS」同批引入，QRC 优先是用户明确要求）：
    *  在线拿不到内容（未刮削到 / sidecar 不可达 / 上游无词）才落回 /local/lyric ——
    *  服务端按「sidecar .lrc > 在线刮削缓存 > 内嵌歌词」合成。未匹配的本地曲目
-   *  根本不发在线请求（mid 是 "local:…"，打到 /song 只会白吃一个 404）。 */
+   *  根本不发在线请求（mid 是 "local:…"，打到 /song 只会白吃一个 404），但本地 TTML 库
+   *  可以按「歌名-歌手」文件名命中它 —— 这正是本地库为未刮削曲目准备的通路。
+   *
+   *  繁简转换（[Lyrics] ChineseConvert）：所有「文本进播放器」的口子（QRC/LRC/TTML/本地合成）
+   *  在解析前过一次 cjkConvert；音译（罗马音/拼音）不转。原文缓存一律不动，档位关掉即回原样。 */
   async fetchLyric(s: Song) {
     const seq = ++this.lyricSeq;
     this.lyricState = "loading";
@@ -761,13 +779,23 @@ class Player {
     if (qqMid) {
       const has = await this.pullQqLyric(qqMid, seq, s);
       if (seq !== this.lyricSeq || this.current !== s) return; // 已被更新的 fetch 作废
+      // 无逐字内容 → TTML 逐字补刀（导入件在上面已被排除，走不到这里）
+      if (!this.karaoke.length && (await this.pullTtml(qqMid, seq, s))) { this.notify(); return; }
+      if (seq !== this.lyricSeq || this.current !== s) return;
       if (has || !local) { this.notify(); return; } // 官方曲目：在线就是唯一通路，拉不到=none（行为不变）
+    } else if (local && !local.lyricImport) {
+      // 未匹配 QQ 的本地曲：在线没有身份可用，TTML 只剩本地库的名字通路
+      if (await this.pullTtml("", seq, s)) { this.notify(); return; }
+      if (seq !== this.lyricSeq || this.current !== s) return;
     }
     // —— 本地通路 ——
     try {
       const d = await api<{ lyric: string; trans: string; roma: string; source: string; format?: string }>(`/local/lyric/${encodeURIComponent(local!.id)}`);
       if (seq !== this.lyricSeq || this.current !== s) return;
-      this.applyLyricText(String(d?.lyric ?? ""), String(d?.trans ?? ""), String(d?.roma ?? ""), String(d?.format ?? "lrc"));
+      const lyricC = await cjkConvert(String(d?.lyric ?? ""));
+      const transC = await cjkConvert(String(d?.trans ?? ""));
+      if (seq !== this.lyricSeq || this.current !== s) return; // 转换是惰性 async，别拿旧曲文本写新曲状态
+      this.applyLyricText(lyricC, transC, String(d?.roma ?? ""), String(d?.format ?? "lrc"));
     } catch {
       if (seq === this.lyricSeq && this.lyricState === "loading") { this.karaoke = []; this.lyricState = "none"; }
     }
@@ -786,9 +814,10 @@ class Player {
         d = await api(`/song/${mid}/lyric?trans=1&roma=1`);
         if (seq !== this.lyricSeq || this.current !== s) return true;
       }
-      let raw = String(d?.lyric ?? "");
-      let trans = String(d?.trans ?? "");
-      let roma = String(d?.roma ?? "");
+      let raw = await cjkConvert(String(d?.lyric ?? ""));
+      let trans = await cjkConvert(String(d?.trans ?? ""));
+      let roma = String(d?.roma ?? ""); // 音译 = 拉丁转写，繁简转换不碰
+      if (seq !== this.lyricSeq || this.current !== s) return true;
       const provider = sparkleKaraokeProvider();
       let kara = provider ? provider.parse(raw, trans, roma) : null;
       if (!kara && !/^\[\d{1,2}:/.test(raw)) {
@@ -796,9 +825,10 @@ class Player {
         // 都是 parseLrc 读不了的格式）→ 退回普通歌词请求，「停用逐字」时行级歌词仍有内容
         d = await api(`/song/${mid}/lyric?trans=1&roma=1`);
         if (seq !== this.lyricSeq || this.current !== s) return true;
-        raw = String(d?.lyric ?? "");
-        trans = String(d?.trans ?? "");
+        raw = await cjkConvert(String(d?.lyric ?? ""));
+        trans = await cjkConvert(String(d?.trans ?? ""));
         roma = String(d?.roma ?? "");
+        if (seq !== this.lyricSeq || this.current !== s) return true;
         kara = provider ? provider.parse(raw, trans, roma) : null;
       }
       if (kara?.length) {
@@ -815,6 +845,46 @@ class Player {
       if (seq === this.lyricSeq) { this.karaoke = []; this.lyricState = "none"; }
       return false;
     }
+  }
+
+  /** TTML 逐字歌词补刀：仅在**没有逐字内容**时由 fetchLyric 调用。顺序 = 本地 TTML 歌词库
+   *  （离线的、按 id/名字都能找，走 /local/ttml 让主进程按 [Lyrics] TtmlLibrary 现查）→
+   *  在线 TTML 数据库（[Lyrics] OnlineTtml 开关 + TtmlDatabase 地址模板，%p=qq-lyrics、%s=songmid）。
+   *  未命中记会话级负缓存（TTL 内同一首歌换档重进不再打服务器）；命中经繁简转换后按
+   *  format="ttml" 统一应用。返回「是否命中」；被更新的 fetch 作废时返回 true 让调用方收线
+   *  （与 pullQqLyric 同一约定）。 */
+  private async pullTtml(mid: string, seq: number, s: Song): Promise<boolean> {
+    const name = String(s.title || s.name || "").trim();
+    const artist = (s.singer ?? []).map((x) => x?.name).filter(Boolean).join(",");
+    // ① 本地 TTML 歌词库（目录未设置就一个请求都不发；渲染层看不见盘，路径真相在主进程的配置里）
+    if (getTtmlLibrary()) {
+      try {
+        const qs = new URLSearchParams();
+        if (mid) qs.set("qq", mid);
+        if (name) qs.set("name", name);
+        if (artist) qs.set("artist", artist);
+        const d = await api<{ found?: boolean; text?: string }>(`/local/ttml?${qs.toString()}`);
+        if (seq !== this.lyricSeq || this.current !== s) return true;
+        if (d?.found && d.text) {
+          const text = await cjkConvert(d.text);
+          if (seq !== this.lyricSeq || this.current !== s) return true;
+          this.applyLyricText(text, "", "", "ttml");
+          if (this.lyrics.length) return true; // 坏文件（解不出行）：不锁死，继续走在线档
+        }
+      } catch { /* 库不可达/目录坏了：交回在线档，与本地通路同一「静默回落」语义 */ }
+    }
+    // ② 在线 TTML 数据库：要开关开启 + 有 QQ 歌曲身份（songmid）。行级 LRC 已在位时也放行 ——
+    //    TTML 带词级时间轴，命中就是把行级升级成逐字，这正是本功能的主场景。
+    if (!mid || !getOnlineTtml()) return false;
+    const url = expandTtmlUrl(getTtmlDatabase(), "qq", mid);
+    if (!url || ttmlMissCached(url)) return false;
+    const raw = await fetchTtml(url);
+    if (seq !== this.lyricSeq || this.current !== s) return true;
+    if (!raw) { ttmlMissRemember(url); return false; }
+    const text = await cjkConvert(raw);
+    if (seq !== this.lyricSeq || this.current !== s) return true;
+    this.applyLyricText(text, "", "", "ttml");
+    return this.lyrics.length > 0;
   }
 
   /** 把一段歌词文本应用为当前歌词状态。解析三档：逐字提供器在场先归它

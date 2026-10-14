@@ -52,6 +52,12 @@ const FALLBACK: ConfigSnapshot = {
   "Hotkeys.Focus.VolDown": "Ctrl+Down",
   "Quality.DefaultQuality": "Auto",
   "Quality.FallbackToQMAtmos": "False",
+  // [Lyrics] 歌词设置：繁简转换 / 在线 TTML 开关 / TTML 数据库地址模板 / 本地 TTML 歌词库目录。
+  // TtmlDatabase 与 electron/config.ts 的默认值同源（bikonoo 镜像，%p=平台目录、%s=歌曲 id）。
+  "Lyrics.ChineseConvert": "off",
+  "Lyrics.OnlineTtml": "True",
+  "Lyrics.TtmlDatabase": "https://amlldb.bikonoo.com/%p/%s.ttml",
+  "Lyrics.TtmlLibrary": "",
   // [Security] 只有主进程读（凭证存储走 electron/keyring.ts），渲染层没有对应 getter ——
   // 列在这里只是为了与 SCHEMA 的默认值保持一一对应，别让两种环境的取值表分叉。
   "Security.CredentialStore": "auto",

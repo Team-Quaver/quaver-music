@@ -85,6 +85,33 @@ sidecar 健康检查（最长 15s）与服务端就绪在后台进行；闪屏�
   时把 `amll` 从启用集合 / 见过名单 / 显式停用名单里洗掉 —— 不洗，将来同名 id 的插件会莫名
   「已停用」或「不再默认启用」。
 
+### 歌词设置（[Lyrics] 段）· 繁简转换 · TTML 逐字库（本地目录 + 在线数据库）
+
+设置页「歌词」tab 四件套（schema 键见 electron/config.ts，值域注释即口径）：
+
+- `ChineseConvert`（off/simplified/traditional）→ `src/lib/cjk-convert.ts`：opencc-js 词典按方向
+  动态 import（t2cn ~107KB、cn2t ~1.1MB 各一个懒 chunk —— **简→繁必须带短语级歧义**，
+  纯字符表会把「头发」写成「头發」，别为省体积换成手写映射表）。
+  **转换只发生在「文本进播放器」的口子**（player 的 QRC/LRC/TTML/本地合成各路解析前），
+  磁盘缓存、手动导入原文一律不动；音译（roma）不转。档位变化必须 `resetCjkConverter()` +
+  `player.reloadLyric()`（管线在拉歌词时才判档，不重拉 = 假即时生效）。
+- `OnlineTtml`（默认开）+ `TtmlDatabase`（地址模板，默认 https://amlldb.bikonoo.com/%p/%s.ttml =
+  AMLL TTML 数据库 amll-dev/amll-ttml-db 的实时镜像）→ 展开规则在 `src/lib/ttml.ts`：
+  `%p` 展开平台目录（qq-lyrics / ncm-lyrics / am-lyrics / spotify-lyrics），`%s` = 该平台歌曲 id。
+  **TTML 是「逐字补刀」不是抢答器**：只有当当前曲拿不到逐字内容（无 QRC、或只有行级）才查询；
+  手动导入件恒跳过（导入 = 显式意图）。在线查询渲染层直连 fetch（公共静态库无凭证，CSP connect-src
+  与镜像回显 Origin 的 CORS 都放行），**未命中记会话级负缓存**（TTL 10min），别改成每次都打。
+- `TtmlLibrary`（本地库目录，非空即启用，无独立开关）→ 主进程路由 `GET /api/local/ttml`
+  （electron/local/library.ts，dev/preview 与打包态两处同构挂载自动覆盖）：目录**只**吃 quaver.conf
+  （同 /api/bg 红线，请求参数只产候选文件名，消毒 + 库内包含校验）；候选序 = 仓库布局
+  `qq-lyrics/<songmid>.ttml` → id 平铺 → 「歌名-歌手/歌手-歌名/歌名.ttml」。优先级链：
+  手动导入 > 本地 TTML 库 > 在线逐字（QRC/TTML）> 侧车 LRC/内嵌 —— 逐字优先是既有口径。
+- 判据两侧同步：`isTtmlDatabaseUrl`（渲染层 src/lib/ttml.ts，输入框即时反馈）与
+  `isTtmlDatabaseUrlTemplate`（electron/config.ts，写盘拦截）**同规**，改一处要改两处
+  （先例：isHexColor/parseHex）。FALLBACK 表同样双写（verify-lyrics 有源码断言钉住）。
+- 验证：`node scripts/verify-lyrics.ts`（模板展开/在线桩/负缓存/本地库路由真目录真配置/
+  繁简真词典含歧义对拍/接线正则，已进 verify:static）。
+
 ### 辅助行（翻译 / 音译）
 
 正在播放页歌词下方**只有一行**辅助行。两路数据（上游 `trans` 翻译、`roma` 音译=romaji/拼音）
