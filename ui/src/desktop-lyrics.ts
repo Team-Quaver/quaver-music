@@ -32,7 +32,7 @@ import { cfg, loadConfig } from "./lib/config";
 import { fontCssOf, getDesktopLyricsBackdrop, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getLyricAux } from "./lib/prefs";
 import { fmtLyricDelay, LYRIC_DELAY_MAX_MS, LYRIC_DELAY_STEP_MS } from "./lib/lyric-delay";
 import { alignFor, bandFor, scrollRange } from "./lib/desktop-lyrics-layout";
-import { CLOCK_COMP_MS, type DlCmd, type DlLine, type DlSyncPayload, type DlTrackPayload } from "./lib/desktop-lyrics";
+import { CLOCK_COMP_MS, type DlCmd, type DlLine, type DlSyncPayload, type DlTrackPayload } from "./lib/desktop-lyrics-protocol";
 import { LayoutAlignAnchor, LayoutReason } from "@applemusic-like-lyrics/core";
 import { amllPlayerByHost, builtinKaraokeProvider } from "./lyrics/amll";
 import type { SparkleKaraokeLine } from "@quaver/sparkle";

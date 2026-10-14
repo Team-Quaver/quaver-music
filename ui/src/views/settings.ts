@@ -1,5 +1,6 @@
 // Quaver — 路由视图：settings（由 src/views/index.ts 按需动态 import，不在首屏解析）
 import { mountHotkeysPanel } from "../components/HotkeySettings";
+import { showDebugDialog } from "../components/DebugDialog";
 import { toast } from "../components/SongMenu";
 import { currentAccent, refreshAccent } from "../lib/accent";
 import { applyBackground } from "../lib/ambient";
@@ -11,7 +12,8 @@ import type { RGB } from "../lib/color";
 import { configInfo, resetConfig, revealConfig } from "../lib/config";
 import { syncInhibit } from "../lib/inhibit";
 import { applyMenuGlass } from "../lib/menu-glass";
-import { BG_BLUR_MAX, BG_BLUR_MIN, FONT_CUSTOM, FONT_LABELS, FONT_PRESETS, TINT_DEFAULT_COLOR, fontKeyOf, getAutoCheck, getBackgroundBlur, getBackgroundImage, getBackgroundMode, getChineseConvert, getCloseAction, getDecode, getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMenuBlur, getOnlineTtml, getPrevBehavior, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundBlur, setBackgroundImage, setBackgroundMode, setChineseConvert, setCloseAction, setDecor, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricFontPreset, setMenuBlur, setOnlineTtml, setPrevBehavior, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel } from "../lib/prefs";
+import { BG_BLUR_MAX, BG_BLUR_MIN, FONT_CUSTOM, FONT_LABELS, FONT_PRESETS, TINT_DEFAULT_COLOR, fontKeyOf, getAutoCheck, getBackgroundBlur, getBackgroundImage, getBackgroundMode, getChineseConvert, getCloseAction, getDecode,
+  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMenuBlur, getOnlineTtml, getPrevBehavior, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundBlur, setBackgroundImage, setBackgroundMode, setChineseConvert, setCloseAction, setDecor, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricFontPreset, setMenuBlur, setOnlineTtml, setPrevBehavior, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel } from "../lib/prefs";
 import type { BackgroundMode, ChineseConvert, CloseAction, DecorMode, DlColorMode, DlMode, FadePreset, FallbackSort, PrevBehavior, ThemeMode, TintMode, UpdateChannel } from "../lib/prefs";
 import { applyTint } from "../lib/tint";
 import { TTML_DB_DEFAULT_URL, isTtmlDatabaseUrl } from "../lib/ttml";
@@ -395,7 +397,14 @@ export default async function settingsView(root: HTMLElement) {
 
       <div class="set-group">
         <div class="set-label">调试</div>
-        <div class="set-debug"><button class="ghost-btn" id="open-log" type="button">打开日志页面</button></div>
+        <div class="set-debug">
+          <button class="ghost-btn" id="open-log" type="button">打开日志页面</button>
+          <button class="ghost-btn" id="open-dbg" type="button">进程与内存自检</button>
+        </div>
+        <p class="muted set-hint">自检弹窗逐进程列出 RSS / Pss / CPU 与首屏解析量（数据源在主进程：
+          <code>app.getAppMetrics</code> + <code>/proc</code>），里面另有「开发者模式」开 DevTools。
+          <code>F12</code> 默认不绑定 —— 插件宿主里 DevTools 是能把任何代码敲进渲染层的口子，
+          只走这个显式按钮。</p>
       </div>
 
       <div class="set-group set-about">
@@ -1241,6 +1250,8 @@ export default async function settingsView(root: HTMLElement) {
 
   // 调试：日志页面（壳层把 ui/electron-dev.log 经 /api/log 尾部暴露为纯文本，见 relay.ts）
   wrap.querySelector<HTMLElement>("#open-log")!.onclick = () => (location.hash = "#/log");
+  // 自检弹窗：一次性动作，无常驻状态（弹窗自己管定时器）
+  wrap.querySelector<HTMLElement>("#open-dbg")!.onclick = () => showDebugDialog();
 
   // Sparkle 面板：切路由时清理插件设置区的订阅与 render 清理函数
   const sparklePanel = wrap.querySelector<HTMLElement>('[data-panel="plugins"]')!;

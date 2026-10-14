@@ -24,6 +24,13 @@ interface UpdateProgressPayload {
 // Sparkle 第三方插件桥（electron/preload.cts 暴露；浏览器 dev 下不存在）。
 // 本文件是 ambient 声明文件（无 import/export），Window 直接全局合并。
 interface Window {
+  // 调试桥（设置 → 通用 → 调试）：开发者控制台开关 + 进程/内存自检。
+  // 事实源在主进程（app.getAppMetrics / /proc），渲染层只负责摆出来。
+  quaverDebug?: {
+    devtools(msg: Record<string, unknown>): Promise<any>;
+    metrics(): Promise<any>;
+  };
+
   quaverUpdate?: {
     invoke(msg: UpdateInvokeMsg): Promise<any>;
     onProgress(cb: (p: UpdateProgressPayload) => void): void;

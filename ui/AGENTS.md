@@ -511,6 +511,11 @@ Vite 8 的打包内核就是 **Rolldown**（`node_modules/rolldown` 1.2.x），�
   **不做 idle 全量预热** —— 那是把刚省下的解析与内存再吃回去，还顺带污染首屏。
   shell 的 `renderRoute` 里 `await loadView(path)` **必须**在 await 之后再验一次 `gen !== renderGen`
   （快速连点导航时晚到的旧一轮只能写进已脱离 DOM 的死容器）；这条与 `.entering` 动画同属竞态护栏。
+- **桌面歌词覆盖层的契约与实现分家**：类型/常量/`Window` 声明在 `src/lib/desktop-lyrics-protocol.ts`
+  （零依赖），主窗侧的镜像实现留在 `src/lib/desktop-lyrics.ts`。覆盖层从前只 import 一个
+  `CLOCK_COMP_MS`，却把整条 player 依赖链（player/api/color/accent/vip/local …）拖进自己的首屏 ——
+  一个「绝不持有播放器」的镜像窗，启动时却 new 了一个播放器。分家后覆盖层静态闭包 486.7KB → 437.0KB。
+  加字段改协议那份，别把重依赖带回契约里。
 - 更新链路（`lib/updater` + `lib/update-core` + `UpdateDialog` ≈ 22KB）不在首屏：`main.ts` 把
   「启动 3s 后检查」的延时留在调用侧，到点才 `import()`。延时口径没变，只是把加载缝隙钉在了那里。
 - `output.codeSplitting.groups` 只给**第三方重量级懒加载依赖**命名（`amll-*`、`cjk-cn2t`、`cjk-t2cn`），

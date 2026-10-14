@@ -155,9 +155,10 @@ check("quaverDesktopLyrics 双面（主窗推/收 + 覆盖层收/发）齐", /se
 check("quaverConfig.onChanged 暴露（跨窗配置广播）", /onChanged[\s\S]{0,120}quaver:config-changed/.test(preload));
 
 // ——— 6. 主窗桥（渲染层） ———
-section("src/lib/desktop-lyrics.ts 桥");
+section("src/lib/desktop-lyrics.ts 桥（契约在 desktop-lyrics-protocol.ts）");
 const bridge = src("src/lib/desktop-lyrics.ts");
-check("时钟补偿 200ms 与 NowPlaying 组 ctx 的 +0.2 同值", bridge.includes("CLOCK_COMP_MS = 200")
+const proto = src("src/lib/desktop-lyrics-protocol.ts");
+check("时钟补偿 200ms 与 NowPlaying 组 ctx 的 +0.2 同值", proto.includes("CLOCK_COMP_MS = 200")
   && /\(player\.time \+ 0\.2\) \* 1000/.test(src("src/components/NowPlaying.ts")));
 check("posMs 是裸播放头（不含补偿不含延迟）", /posMs: Math\.max\(0, \(player\.time \|\| 0\) \* 1000\)/.test(bridge));
 check("只在覆盖层在线时推镜像（active 门）", /if \(active\) pushAll\(\)/.test(bridge));

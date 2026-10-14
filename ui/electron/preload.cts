@@ -104,6 +104,13 @@ contextBridge.exposeInMainWorld("quaverConfig", {
     }),
 });
 
+// 调试（设置 → 通用 → 调试）：开发者控制台开关与进程/内存自检。
+// 自检必须问主进程 —— 渲染层看不见主进程、GPU 进程与外部子进程（sidecar/mpv/mpris）。
+contextBridge.exposeInMainWorld("quaverDebug", {
+  devtools: (msg: Record<string, unknown>) => ipcRenderer.invoke("quaver:devtools", msg),
+  metrics: () => ipcRenderer.invoke("quaver:metrics"),
+});
+
 // 凭证存储状态（只读、不含凭证本体）：确认这次走的是系统密钥管理器还是 0600 明文。
 contextBridge.exposeInMainWorld("quaverSecurity", {
   info: () => ipcRenderer.invoke("quaver:credential-info"),

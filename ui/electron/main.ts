@@ -3,10 +3,10 @@
 // frame:false：无原生标题栏——窗口右上角平铺三个窗口按钮（min/max/close）+抓握点，经 preload IPC 接管。
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, session, Tray, nativeImage, nativeTheme, safeStorage, shell } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { basename, extname, join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1010,6 +1010,116 @@ ipcMain.on("quaver:quit", () => app.quit());
 
 // 设置页查询全局热键注册现状（Linux 门户状态 / win·mac 登记数）
 ipcMain.handle("quaver:hotkeys-info", () => hotkeys.info());
+
+// ——— 调试：开发者控制台（F12）与进程/内存自检 ———
+// 入口只有一个：自检弹窗里的「开发者模式」按钮（设置 → 通用 → 调试）。**F12 不绑定** ——
+// 本应用是插件宿主，DevTools 等于把渲染层控制台与网络面板交给任何能碰到键盘的人，
+// 所以宁可多两次点击，也不要一个顺手就能按开的口子。
+
+/** 外部子进程（sidecar / mpris / mpv / 看门狗）不在 Chromium 的进程表里，只能自己读。
+ *  Linux 走 /proc，其余平台退到 ps；拿不到就返回 null —— 自检面板少一行，不该整块坏掉。 */
+function rssKBOf(pid: number): number | null {
+  if (!pid || pid <= 0) return null;
+  try {
+    if (process.platform === "linux") {
+      const m = readFileSync("/proc/" + pid + "/status", "utf8").match(/^VmRSS:\s*(\d+) kB/m);
+      return m ? Number(m[1]) : null;
+    }
+    const out = execFileSync("ps", ["-o", "rss=", "-p", String(pid)], { encoding: "utf8" }).trim();
+    return out ? Math.round(Number(out) ) : null;
+  } catch { return null; }
+}
+
+/** Pss（按比例摊掉共享页后的占用）：Linux 从 smaps_rollup 读，其余平台没有等价物 → null。
+ *  为什么值得读：Chromium 各进程共享同一批映射（electron 二进制、ICU、字体、/dev/shm），
+ *  RSS 逐行相加必然虚高，Pss 相加才接近真实占用。 */
+function pssKBOf(pid: number): number | null {
+  if (process.platform !== "linux" || !pid || pid <= 0) return null;
+  try {
+    const m = readFileSync("/proc/" + pid + "/smaps_rollup", "utf8").match(/^Pss:\s*(\d+) kB/m);
+    return m ? Number(m[1]) : null;
+  } catch { return null; }
+}
+
+const PROC_LABELS: Record<string, string> = {
+  Browser: "主进程", Tab: "渲染进程（页面）", Page: "渲染进程", DevTools: "DevTools 窗口",
+  GPU: "GPU 进程", Utility: "工具进程（网络/存储）", Zygote: "fork 池（zygote）",
+  "Sandbox helper": "沙箱助手", "Pepper Plugin": "Pepper 插件", "Pepper Plugin Broker": "插件代理",
+  Unknown: "未分类",
+};
+
+ipcMain.handle("quaver:devtools", (_e, msg) => {
+  const op = String(msg?.op ?? "");
+  if (op !== "toggle" && op !== "open" && op !== "close" && op !== "state") return { ok: false, error: "unknown op: " + op };
+  if (!win || win.isDestroyed()) return { ok: false, error: "主窗口还没起来" };
+  if (op === "state" || op === "toggle") {
+    const wasOpen = win.webContents.isDevToolsOpened();
+    if (op === "toggle") win.webContents.toggleDevTools();
+    const open = op === "state" ? wasOpen : !wasOpen;
+    if (op === "toggle") log("[quaver] DevTools", open ? "打开（自检弹窗里的「开发者模式」）" : "关闭");
+    return { ok: true, open };
+  }
+  if (op === "open") { win.webContents.openDevTools(); log("[quaver] DevTools 打开（自检弹窗里的「开发者模式」）"); return { ok: true, open: true }; }
+  win.webContents.closeDevTools();
+  return { ok: true, open: false };
+});
+
+// 进程/内存自检：一次拍平所有事实源，渲染层只负责摆出来（口径说明写在 DebugPanel 里）。
+// 为什么不在渲染层自己量：Chromium 的多进程模型里，渲染层看不见主进程、GPU 进程与外部子进程。
+ipcMain.handle("quaver:metrics", () => {
+  const mainPid = win && !win.isDestroyed() ? win.webContents.getOSProcessId() : 0;
+  const dlPid = desktopLyrics?.win && !desktopLyrics.win.isDestroyed()
+    ? desktopLyrics.win.webContents.getOSProcessId() : 0;
+  const procs = app.getAppMetrics().map((m: Electron.ProcessMetric) => {
+    const label = PROC_LABELS[m.type] ?? m.type;
+    const tag = m.pid === process.pid ? "主进程（本进程）"
+      : m.pid === mainPid ? label + " · 主窗"
+        : m.pid === dlPid ? label + " · 桌面歌词"
+          : (m as { name?: string }).name ? label + " · " + (m as { name?: string }).name : label;
+    return {
+      pid: m.pid, type: m.type, tag,
+      rssKB: m.memory?.workingSetSize ?? 0,
+      peakKB: m.memory?.peakWorkingSetSize ?? 0,
+      // win32 有现成的 privateBytes（不与别进程共享的字节），Linux 用 smaps 的 Pss —— 同一个
+      // 「真成本」口径；两处都没有时面板退到 RSS 并说明（macOS 的 getAppMetrics 不给 Pss）
+      privKB: m.memory?.privateBytes ? Math.round(m.memory.privateBytes / 1024) : pssKBOf(m.pid),
+      cpu: Number((m.cpu?.percentCPUUsage ?? 0).toFixed(1)),
+    };
+  }).sort((a, b) => b.rssKB - a.rssKB);
+  const external = [
+    { pid: sidecar?.pid, tag: "外部 · sidecar（typhoeus-go）" },
+    { pid: mprisDaemon?.pid, tag: "外部 · MPRIS 守护（node）" },
+    { pid: audioEngine.mpv?.child?.pid ?? null, tag: "外部 · mpv（音频）" },
+    { pid: audioEngine.watchdog?.pid ?? null, tag: "外部 · mpv 看门狗" },
+  ].map((x) => ({ pid: x.pid ?? 0, tag: x.tag, rssKB: rssKBOf(x.pid), privKB: pssKBOf(x.pid) }))
+    .filter((x) => x.rssKB !== null);
+  const mem = process.memoryUsage();
+  return {
+    ok: true,
+    app: {
+      version: sparkleHostVersion(), packaged: app.isPackaged, platform: process.platform, arch: process.arch,
+      electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node,
+      configDir: CONFIG_DIR,
+    },
+    main: {
+      pid: process.pid, rssKB: rssKBOf(process.pid) ?? Math.round(mem.rss / 1024),
+      heapUsedMB: +(mem.heapUsed / 1048576).toFixed(1),
+      heapTotalMB: +(mem.heapTotal / 1048576).toFixed(1),
+      externalMB: +(mem.external / 1048576).toFixed(1),
+      uptimeSec: Math.round(process.uptime()),
+    },
+    windows: { mainPid, dlPid },
+    procs, external,
+    totals: {
+      chromiumRSSKB: procs.reduce((a, x) => a + x.rssKB, 0),
+      externalRSSKB: external.reduce((a, x) => a + (x.rssKB ?? 0), 0),
+      privKB: procs.reduce((a, x) => a + (x.privKB ?? 0), 0) + external.reduce((a, x) => a + (x.privKB ?? 0), 0),
+      privKnown: procs.some((x) => typeof x.privKB === "number"),
+      count: procs.length + external.length,
+    },
+  };
+});
+
 
 ipcMain.on("quaver:win", (_e, action) => {
   if (!win) return;

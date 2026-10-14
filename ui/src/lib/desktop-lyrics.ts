@@ -13,6 +13,8 @@
 // 播放、行点击 seek、歌词延迟 −/+ 全部在主窗执行（延迟仍落 localStorage 按歌曲表），
 // 覆盖层只是遥控器。
 //
+// 契约（类型/常量/Window 声明）在 src/lib/desktop-lyrics-protocol.ts —— 覆盖层只 import 那份，
+// 不碰本模块的 player 依赖链。
 // 时间口径（对齐 NowPlaying 组 ctx 的两处 `+0.2` 字面量，三处必须同规）：
 //   sync.posMs = player.time * 1000（裸播放头，不含补偿不含延迟）；
 //   覆盖层 ctx.time() = posMs + 外推 + CLOCK_COMP_MS；歌词时钟 = ctx.time() − lyricDelay()。
@@ -24,79 +26,13 @@ import { getLyricDelayMs, setLyricDelayMs, LYRIC_DELAY_MAX_MS, LYRIC_DELAY_STEP_
 import { getDesktopLyricsScale, setDesktopLyricsScale, DL_SCALE_MAX, DL_SCALE_MIN } from "./prefs";
 import type { SparkleKaraokeLine } from "@quaver/sparkle";
 
-/** 歌词时钟固定补偿（秒 → 毫秒）：与 src/components/NowPlaying.ts 组 render ctx 处同源口径。 */
-export const CLOCK_COMP_MS = 200;
+// 契约在 ./desktop-lyrics-protocol.ts：本模块**用**它也**替两侧转发**它（老 import 路径不破）。
+import {
+  CLOCK_COMP_MS, type DlCmd, type DlLine, type DlStateSnapshot, type DlSyncPayload, type DlTrackPayload,
+} from "./desktop-lyrics-protocol";
+export { CLOCK_COMP_MS };
+export type { DlCmd, DlLine, DlStateSnapshot, DlSyncPayload, DlTrackPayload };
 
-/** 行级歌词（含翻译/音译两路原文 —— 上屏哪一路由覆盖层按档位现选，恒不在此处挑）。 */
-export interface DlLine {
-  t: number; // 秒
-  text: string;
-  trans?: string;
-  roma?: string;
-}
-
-export interface DlTrackPayload {
-  v: 1;
-  key: string;
-  mid: string;
-  lyricState: "idle" | "loading" | "ok" | "none";
-  durationSec: number;
-  /** 逐字行（在位提供器解析产物；毫秒）—— 覆盖层交给内置 AMLL 直接渲染 */
-  karaoke: SparkleKaraokeLine[];
-  /** 行级兜底（player.lyrics）；karaoke 为空时覆盖层自行整形为「整行单音节」 */
-  lines: DlLine[];
-  /** 封面染色（toUiColors 的 accent 档，与正在播放页歌词 --cvg-accent 同源同派生）；取不到 null。
-   *  「桌面歌词·颜色=封面染色」用它 —— 覆盖层零网络，取色永远发生在主窗这一侧。 */
-  accent: string | null;
-  /** 系统强调色（lib/accent.ts 现值；探测失败 null → 覆盖层回落白字） */
-  systemAccent: string | null;
-}
-
-export interface DlSyncPayload {
-  v: 1;
-  posMs: number;
-  playing: boolean;
-  /** 当前曲「歌词延迟」（毫秒，正=歌词延后）；覆盖层的 −/+ 遥控最终也回这里取数 */
-  delayMs: number;
-  durationSec: number;
-  canPrev: boolean;
-  canNext: boolean;
-}
-
-export interface DlStateSnapshot {
-  open: boolean;
-  enabled: boolean;
-}
-
-/** 覆盖层回传的控制命令（主进程只转发，执行在本模块）。 */
-export type DlCmd =
-  | { cmd: "playpause" }
-  | { cmd: "prev" }
-  | { cmd: "next" }
-  | { cmd: "seek"; ms: number }
-  | { cmd: "delay"; op: "step" | "zero"; dir?: 1 | -1 }
-  /** 字号倍率 ±0.1 一档（0.5..2）：写 [DesktopLyrics] Scale 偏好，广播回覆盖层即时生效 */
-  | { cmd: "scale"; dir?: 1 | -1 };
-
-declare global {
-  interface Window {
-    quaverDesktopLyrics?: {
-      // 主窗侧
-      sendTrack(payload: unknown): void;
-      sendSync(payload: unknown): void;
-      control(msg: Record<string, unknown>): Promise<unknown>;
-      activeSync(): DlStateSnapshot | null;
-      onActive(cb: (s: unknown) => void): void;
-      onCmd(cb: (msg: unknown) => void): void;
-      // 覆盖层侧
-      onTrack(cb: (p: unknown) => void): void;
-      onSync(cb: (p: unknown) => void): void;
-      sendCmd(msg: unknown): void;
-      /** 窗口级动作：只剩「边缘缩放」与「关窗」—— 挪窗走 CSD 拖拽区，不经桥 */
-      windowOp(msg: unknown): void;
-    };
-  }
-}
 
 let started = false;
 let active = false;
