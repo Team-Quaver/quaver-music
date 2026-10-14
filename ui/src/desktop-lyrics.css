@@ -1,0 +1,261 @@
+/* Quaver — 桌面歌词覆盖层样式（desktop-lyrics.html 专属，别混进 SPA 的 style.css）
+ *
+ * 窗体本身由主进程建成「无边框 + 全透明 + 置顶」（**纯 CSD**：无原生标题栏、无穿透档），
+ * 页面只画三层：歌词舞台（AMLL）、悬停控制条、底部进度线 + 右下角缩放手把。
+ *
+ * 拖动全靠 CSD 拖拽区：#dl-root 整层 -webkit-app-region: drag，控制条/进度线/缩放手把
+ * 声明 no-drag 收回点击（与主窗 .winbtns 同一套做法）。这样挪窗交给窗口管理器做交互移动
+ * —— Wayland 下 setPosition 会被合成器无视，拖拽区是唯一真能挪窗的路。
+ *
+ * 歌词颜色：白字 + 双层投影（贴任何壁纸都能读）。AMLL 的取色变量是 --amll-lp-color；
+ * 字号是 --amll-lp-font-size（主窗在 .np-kara-host 上重排过，本窗恒用专属变量
+ * --dl-font-size：字体家族跟随「歌词字体」，字号倍率跟随 [DesktopLyrics] Scale）。
+ *
+ * 两层不透明度，别混：
+ *   • [DesktopLyrics] Opacity → --dl-opacity（#dl-root 整层，含控制条）—— 调的是**字**；
+ *   • [DesktopLyrics] Backdrop → --dl-win-alpha（#dl-board）—— 调的是**窗体的面**，
+ *     也就是铺满整扇窗的那块背板；0（默认）= 没有面，只有字。
+ * 背板是 #dl-root 的**兄弟**（不是子元素）：#dl-root 的 opacity 只管字，不能连背板一起乘。
+ */
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+body {
+  user-select: none;
+  -webkit-user-select: none;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  /* 覆盖层不吃深浅主题：文字恒白、投影恒深 */
+  color: #fff;
+}
+
+#dl-root {
+  position: fixed;
+  inset: 0;
+  /* 整层就是 CSD 抓握区：拖哪都能挪窗；下面三处控件用 no-drag 把点击收回来。
+     opacity 是**歌词层**不透明度（[DesktopLyrics] Opacity）—— 半透明照样能拖、能点。
+     窗体的可见面（背板）不在这里，在 #dl-clip 的 background（见上）。 */
+  -webkit-app-region: drag;
+  opacity: var(--dl-opacity, 1);
+}
+
+/* —— 歌词视口（#dl-stage 铺满窗体；#dl-clip 是 AMLL 宿主 = **恒定高度**的视口）——
+ * 换行永不改视口尺寸（这正是上一版抽帧的根源：容器逐行 resize → 重排风暴）。
+ * 可见条带用 clip-path 开在视口上：--dl-win-t/--dl-win-h 由 JS 按**实测文字盒**写
+ * （高 = 文字块高 + 上下呼吸位，顶 = 居中于视口），inset 是合成器属性 —— 迁移零重排。
+ * 窗口几何与锚位的配套公式在 src/desktop-lyrics.ts（textBox / rowsOf / tightenStrip）。 */
+/* —— 窗体背板（[DesktopLyrics] Backdrop）——
+ * 铺满**整扇窗**（inset:0 = 窗体的矩形，拖右下角缩放时跟着变），画在歌词下面。
+ * 0（默认）时完全透明 —— 只剩字；调高就是给这扇窗一块可读的底，字本身不变。
+ * 它是 #dl-root 的兄弟：在 root 之外，所以不受「歌词不透明度」（root 的 opacity）牵连。 */
+#dl-board {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / var(--dl-win-alpha, 0));
+  border-radius: 10px;
+  pointer-events: none; /* 别抢拖拽/悬停 */
+}
+
+#dl-stage {
+  position: absolute;
+  inset: 0;
+  font-family: var(--dl-font, inherit);
+}
+#dl-clip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: calc(var(--dl-font-size, 24px) * 7.5);
+  /* 初值 = 「单行」档的窗口（主行文字盒 1.2em + 上下各 0.25em 呼吸位，居中于视口）；
+   * JS 首帧量到真实文字块后整体改写 */
+  --dl-win-t: calc((100% - var(--dl-font-size, 24px) * 1.7) / 2);
+  --dl-win-h: calc(var(--dl-font-size, 24px) * 1.7);
+  clip-path: inset(var(--dl-win-t) 0 calc(100% - var(--dl-win-t) - var(--dl-win-h)) 0);
+  transition: clip-path .18s ease-out;
+  --amll-lp-font-size: var(--dl-font-size, 24px);
+  --amll-lp-color: var(--dl-ink, #fff);
+  --amll-lp-hover-bg-color: transparent;
+  --amll-lp-bottom-line-font-size: max(0.62em, 10px);
+  filter: drop-shadow(0 1px 12px rgb(0 0 0 / 60%)) drop-shadow(0 1px 2px rgb(0 0 0 / 50%));
+}
+/* 透明窗上的 plus-lighter 混合在部分合成器上会连页面 alpha 一起加算 —— 覆盖层不需要
+ * 它（深色页面里那层「提亮」在这里没有对应物），关掉换确定行为 */
+#dl-clip .amll-lyric-player {
+  mix-blend-mode: normal;
+}
+
+/* —— 超长行的横向滚动 ——
+ * 由 src/desktop-lyrics.ts 的 updateMarquee 给「真的超宽」的那一行挂 .dl-scrolling
+ * （加在 core 的行元素上），并给它**自己**的子行写 translate —— 翻译/音译各判各的，
+ * 主行滚的时候翻译不动，翻译自己太长时才自己滚。
+ * 行元素自带的 paint containment（content-visibility:auto 也隐含一层）会把 translate 出
+ * 行盒的字裁掉，所以这里只对在滚的行摘掉；横向裁切交还给播放器自己的
+ * contain:strict / overflow:hidden（= 窗口边界），纵向另有 clip-path。 */
+#dl-clip .amll-lyric-player .dl-scrolling {
+  content-visibility: visible;
+  contain: layout style;
+}
+
+/* —— 桌面歌词专属排版：单行到底 + 水平居中 ——
+ * AMLL 默认允许长行折行（还会插 <br> 做「平衡断行」），主行盒 100% 宽 + contain:paint
+ * 会把溢出裁在右缘 —— 桌面歌词要的是「一行到底、各自居中」：
+ *   ① nowrap + 藏掉 core 插的平衡 <br>（br 换行对 nowrap 免疫，必须显式吃掉）；
+ *   ② 行盒从满宽改 fit-content 并由 flex 居中 —— 整块（取最宽的那一行）居中；
+ *   ③ 块内每行 text-align:center —— 翻译/音译比主行短时**自己居中**（不跟着主行的左缘
+ *      跑到天边），比主行长时也不被主行的宽度带走；对唱行的靠右在覆盖层里一并归中
+ *      （桌面上没有「谁唱哪边」的语义）；
+ *   ④ 超长行不折、不裁死：交给上面 .dl-scrolling 的横向滚动（各滚各的）。
+ * 这几条只作用于本视口 —— 主窗正在播放页的 Apple 式左对齐不受影响。 */
+#dl-clip .amll-lyric-player > div {
+  white-space: nowrap;
+  align-items: center;
+}
+#dl-clip .amll-lyric-player > div > div {
+  width: fit-content;
+  min-width: 0;
+  max-width: none;
+  text-align: center;
+}
+#dl-clip br {
+  display: none;
+}
+/* 染色档（封面/系统/自定义）下投影加重一档：浅色字压浅壁纸时靠影子托轮廓 */
+#dl-root:not(.ink-default) #dl-clip {
+  filter: drop-shadow(0 1px 14px rgb(0 0 0 / 70%)) drop-shadow(0 1px 3px rgb(0 0 0 / 55%));
+}
+
+/* —— 空态提示（等待播放 / 加载中 / 暂无歌词）—— */
+#dl-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: rgb(255 255 255 / 82%);
+  text-shadow: 0 1px 6px rgb(0 0 0 / 65%);
+  pointer-events: none;
+}
+#dl-empty[hidden] { display: none; }
+
+/* —— 悬停控制条 —— */
+#dl-tools {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 6px;
+  border-radius: 12px;
+  background: rgb(12 14 18 / 55%);
+  color: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+#dl-root:hover #dl-tools {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#dl-tools button {
+  all: unset;
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1;
+  color: #fff;
+  cursor: pointer;
+}
+#dl-tools button:hover { background: rgb(255 255 255 / 18%); }
+#dl-tools button:disabled { opacity: 0.35; cursor: default; }
+#dl-tools button svg { width: 15px; height: 15px; }
+#dl-tools button svg.solid { fill: currentColor; }
+#dl-tools button svg.line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* 歌词延迟读数：点一下归零，字号比图标略大保证可读 */
+#dl-delay-val { font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+
+#dl-tools .dl-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: rgb(255 255 255 / 25%);
+}
+
+/* —— 底部进度线（点击 seek）—— */
+#dl-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 12px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+#dl-root:hover #dl-progress { opacity: 1; }
+#dl-progress::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 4px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgb(255 255 255 / 22%);
+}
+#dl-progress-fill {
+  position: absolute;
+  left: 8px;
+  bottom: 4px;
+  height: 3px;
+  max-width: calc(100% - 16px);
+  border-radius: 2px;
+  background: rgb(255 255 255 / 85%);
+}
+
+/* —— 右下角缩放手把 —— */
+#dl-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+  background:
+    linear-gradient(135deg, transparent 52%, rgb(255 255 255 / 55%) 53%, transparent 56%,
+      transparent 66%, rgb(255 255 255 / 55%) 67%, transparent 70%,
+      transparent 80%, rgb(255 255 255 / 55%) 81%, transparent 84%);
+}
+#dl-root:hover #dl-resize { opacity: 1; }
+
+/* —— CSD 拖拽区里的三处「要收点击」的例外 ——
+ * 关键：no-drag 的豁免只在**同一子树内**成立（主窗顶带踩过：兄弟子树里的 no-drag 挡不住
+ * 铺过来的 drag 矩形，三颗按钮一点就变拖动）。这里三个控件都是 #dl-root 的直接子元素，
+ * 正好在同一子树内，挖洞有效；按钮再各打一遍 no-drag，与主窗 .winbtns 同款保险。 */
+#dl-tools,
+#dl-progress,
+#dl-resize,
+#dl-tools button {
+  -webkit-app-region: no-drag;
+}

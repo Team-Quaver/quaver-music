@@ -27,13 +27,20 @@ function appVersion(): string {
   }
 }
 
-const PAGES = ["index", "guess", "daily", "liked", "playlist", "user", "settings", "login"];
+// desktop-lyrics 是真页面（透明覆盖层独立入口），其余旧 <name>.html 只是 SPA 深链跳转壳
+const PAGES = ["index", "guess", "daily", "liked", "playlist", "user", "settings", "login", "desktop-lyrics"];
 
 function attachRelay(server: ViteDevServer | PreviewServer) {
   (server.middlewares as Connect.Server).use("/api", apiRelay());
 }
 
 export default defineConfig({
+  // 项目根钉死在本文件所在目录（= ui/）。vite 的 root **默认取 process.cwd()**，而开发态的
+  // preview 是主进程用程序化 API 起的（electron/main.ts），进程 cwd 未必是 ui/：从启动器里
+  // 点 linux-desktop 写的桌面项时 cwd 是 $HOME，root 跟着 cwd 走 → preview 去服务
+  // <cwd>/dist（不存在）→ 窗口拿到 404 白页，表现就是「applications 里那个 Desktop 点不开」。
+  // 绝对 root 让 vite dev/build/preview 全部与 cwd 无关，进程在哪儿起都对。
+  root: fileURLToPath(new URL(".", import.meta.url)),
   define: {
     __APP_VERSION__: JSON.stringify(appVersion()),
   },

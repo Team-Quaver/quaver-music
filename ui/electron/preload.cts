@@ -42,6 +42,41 @@ contextBridge.exposeInMainWorld("quaverMpris", {
     }),
 });
 
+// 桌面歌词（Desktop Lyrics）双面桥：同一座 preload 挂在主窗与透明覆盖层窗上，按频道分流。
+// 主窗侧（src/lib/desktop-lyrics.ts）：推曲目/时钟快照（sendTrack/sendSync）、读状态/下控制（control/activeSync）、
+//   收激活广播与控制命令（onActive/onCmd）。
+// 覆盖层侧（src/desktop-lyrics.ts）：收数据（onTrack/onSync）、回控制命令（sendCmd）、
+//   窗口级动作（windowOp：拖拽挪窗/边缘缩放/关窗/自助关穿透）。
+// 中转与穿透落地都在主进程 electron/desktop-lyrics.ts；浏览器 dev 没有本桥 → 两侧功能整体缺席。
+contextBridge.exposeInMainWorld("quaverDesktopLyrics", {
+  // —— 主窗侧 ——
+  sendTrack: (payload: unknown) => ipcRenderer.send("quaver:dl-track", payload),
+  sendSync: (payload: unknown) => ipcRenderer.send("quaver:dl-sync", payload),
+  control: (msg: Record<string, unknown>) => ipcRenderer.invoke("quaver:dl-control", msg),
+  activeSync: () => {
+    try { return ipcRenderer.sendSync("quaver:dl-active"); } catch { return null; }
+  },
+  onActive: (cb: (s: unknown) => void) =>
+    ipcRenderer.on("quaver:dl-active", (_e: Electron.IpcRendererEvent, s: unknown) => {
+      try { cb(s); } catch (err) { console.warn("desktop-lyrics active failed", err); }
+    }),
+  onCmd: (cb: (msg: unknown) => void) =>
+    ipcRenderer.on("quaver:dl-cmd", (_e: Electron.IpcRendererEvent, msg: unknown) => {
+      try { cb(msg); } catch (err) { console.warn("desktop-lyrics cmd failed", err); }
+    }),
+  // —— 覆盖层侧 ——（主进程把主窗快照原样转发到 dl 窗的同名频道）
+  onTrack: (cb: (p: unknown) => void) =>
+    ipcRenderer.on("quaver:dl-track", (_e: Electron.IpcRendererEvent, p: unknown) => {
+      try { cb(p); } catch (err) { console.warn("desktop-lyrics track failed", err); }
+    }),
+  onSync: (cb: (p: unknown) => void) =>
+    ipcRenderer.on("quaver:dl-sync", (_e: Electron.IpcRendererEvent, p: unknown) => {
+      try { cb(p); } catch (err) { console.warn("desktop-lyrics sync failed", err); }
+    }),
+  sendCmd: (msg: unknown) => ipcRenderer.send("quaver:dl-cmd", msg),
+  windowOp: (msg: unknown) => ipcRenderer.send("quaver:dl-window", msg),
+});
+
 // 配置文件（quaver.conf）：启动时**同步**取一份快照，之后改一项写一项。
 // 为什么是 sendSync：渲染层模块（player 实例化 / prefs 读值）在 ESM import 阶段就跑完，
 // 静态 import 提升让任何 await 都排在它们之后 —— 异步取配置会让启动期全落在默认值上。
@@ -61,6 +96,12 @@ contextBridge.exposeInMainWorld("quaverConfig", {
   set: (patch: Record<string, string>) => ipcRenderer.invoke("quaver:config", { op: "set", patch }),
   reset: () => ipcRenderer.invoke("quaver:config", { op: "reset" }),
   reveal: () => ipcRenderer.invoke("quaver:config", { op: "reveal" }),
+  // 配置变更广播（主进程在任意窗口写盘成功后发给全部窗口）：{ keys, values } = 增量，
+  // { all: true } = 重置（监听方整表重载）。多窗共用一份 quaver.conf，靠这条保持同步。
+  onChanged: (cb: (p: unknown) => void) =>
+    ipcRenderer.on("quaver:config-changed", (_e: Electron.IpcRendererEvent, p: unknown) => {
+      try { cb(p); } catch (err) { console.warn("config-changed failed", err); }
+    }),
 });
 
 // 凭证存储状态（只读、不含凭证本体）：确认这次走的是系统密钥管理器还是 0600 明文。

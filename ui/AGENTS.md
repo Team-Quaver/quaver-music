@@ -185,6 +185,39 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
 在正文前后与信封里都挂对 ruby，并用 QQ《怪物》真实样本对齐上游期望，需 dev server）、`node scripts/verify-np-gallery.ts`
 （渲染层：三档辅助行行为 + 「辅助行只有一条」+ ruby 真画在词上方）、`verify:sparkle`（源码接线）。
 
+## 桌面歌词（透明覆盖层窗）
+
+一个**独立的 Electron 窗**（`electron/desktop-lyrics.ts` + 页 `desktop-lyrics.html` / `src/desktop-lyrics.ts`），
+与主窗单向上镜像数据（主窗 player 是唯一事实源，见 `src/lib/desktop-lyrics.ts`）。几条别踩的：
+
+- **窗体是纯 CSD，没有「点击穿透」这一档**。拖拽区由页面自己划（`#dl-root{-webkit-app-region:drag}`
+  + 控制条/进度条/缩放手把 `no-drag`），挪窗交给窗口管理器 —— Wayland 下 `setPosition()` 会被
+  合成器无视，拖拽区是唯一真能挪窗的路（旧版 move-by IPC 已删）。`no-drag` 的豁免**只在同一子树内**
+  成立（主窗顶带踩过：兄弟子树里的 no-drag 挡不住铺过来的 drag 矩形）——本窗三个控件都是
+  `#dl-root` 的直接子元素才挖得动洞。
+- **两层不透明度，别混成一个**：`Opacity` = **歌词层**（`#dl-root{opacity}`：字 + 控制条 + 进度线
+  一起淡）；`Backdrop` = **窗体不透明度**（`#dl-board`，`inset:0` **铺满整扇窗**、画在歌词下面，
+  默认 0 = 整扇窗全透明、只有字）。背板刻意是 `#dl-root` 的**兄弟**、变量挂在 `<html>` 上 ——
+  放进 root 里就会被 `#dl-root{opacity}` 连坐乘一遍（两个滑条就不独立了）。
+  想要「窗体」有可调的面就调背板，**不要**去碰字。
+  为什么不做原生 `win.setOpacity()`：Linux 上 Electron 不实现（文档原话「On Linux, does nothing」），
+  按平台分叉两条路只会让三平台口径不一致 —— 一律用「背板」这一层表达窗体，三平台同一套。
+- **垂直居中：钉的是整块文字的实测中心**（主行 + 翻译/音译；条带高 = 块高 + 上下 0.25em 呼吸位，
+  条带恒居中于视口）。量尺走 `textBox()`（文本节点 Range）而不是元素矩形 —— core 给行/词盒铺了
+  ±1em 的 margin/padding，量盒子会虚增近一倍。纯公式在 `src/lib/desktop-lyrics-layout.ts`
+  （有真单测），DOM 量测在 `src/desktop-lyrics.ts:tightenStrip`。
+- **换锚位必须补一刀 `player.calcLayout(LayoutReason.ConfigChange)`**：AMLL 的 `calcLayout` 只在
+  *时间线状态**真的**变了*时才跑（换行/间奏/seek/重建…），光写 `setAlignPosition()` 不会立刻重排 ——
+  实测不补这刀，新锚位要等下一行才生效，当前行整块吊在旧位置（就是「歌词整体偏下」）。
+- **超长行横向滚动**：`updateMarquee` 只给「真的超宽」的那一行挂 `.dl-scrolling`（摘掉 core 行元素的
+  paint containment，否则字被行盒裁掉）并写**该行自己**的 `translate` —— 主行滚的时候翻译/音译不动，
+  它们自己太长才自己滚。滚法是**来回滚（三角波）**：停顿→走到末尾→停顿→退回开头，两头都连续
+  （回卷/一次性停死都会被当成故障）。相位按行元素记（`marqueeStart`），4Hz 重测不重锚。
+- 位置/大小/开关写 `[DesktopLyrics]`（主进程写 X/Y/W/H 记忆坐标；渲染层只碰开关/字号/透明度）。
+
+验证：`node scripts/verify-desktop-lyrics.ts`（纯逻辑 + 几何真单测 + 整链「无穿透档」红线 + 源码接线；
+已进 `verify:static`）。
+
 ## 本地音乐 / NAS（扫描 · 播放 · 刮削 · QRC 逐字）
 
 读盘侧真相在 `electron/local/library.ts`（零 electron、纯 Node）：**两处同构挂载** ——

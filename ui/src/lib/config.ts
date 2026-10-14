@@ -58,6 +58,21 @@ const FALLBACK: ConfigSnapshot = {
   "Lyrics.OnlineTtml": "True",
   "Lyrics.TtmlDatabase": "https://amlldb.bikonoo.com/%p/%s.ttml",
   "Lyrics.TtmlLibrary": "",
+  // [DesktopLyrics] 桌面歌词覆盖层（判据与 electron/config.ts 的 [DesktopLyrics] 段同规）。
+  // X/Y/W/H 由主进程回写，渲染层只读不写；列在这里是为了与 SCHEMA 一一对应，
+  // 别让浏览器 dev 与桌面端的取值表分叉。
+  "DesktopLyrics.Enabled": "False",
+  "DesktopLyrics.Opacity": "1",
+  "DesktopLyrics.Backdrop": "0",
+  "DesktopLyrics.Scale": "1",
+  "DesktopLyrics.Mode": "single",
+  "DesktopLyrics.SingleCenter": "True",
+  "DesktopLyrics.ColorMode": "default",
+  "DesktopLyrics.Color": "#ffffff",
+  "DesktopLyrics.X": "",
+  "DesktopLyrics.Y": "",
+  "DesktopLyrics.W": "",
+  "DesktopLyrics.H": "",
   // [Security] 只有主进程读（凭证存储走 electron/keyring.ts），渲染层没有对应 getter ——
   // 列在这里只是为了与 SCHEMA 的默认值保持一一对应，别让两种环境的取值表分叉。
   "Security.CredentialStore": "auto",
@@ -92,8 +107,29 @@ function adopt(r: any): boolean {
 // 为什么必须同步：ESM 静态 import 提升 —— player 的实例化、各模块对 cfg() 的读取都发生在
 // 任何 await 之前；异步装载会让启动期全部落在默认值上（音量、后端、歌词开关…），
 // 那不是「慢一点」，是「读到错的值」。
+/**
+ * 主进程配置写入后的广播（quaverConfig.onChanged）→ 本窗内存快照跟进。
+ * 动机：桌面歌词的开关/穿透会被**另一条路**改写（托盘菜单经主进程直接落盘），
+ * 设置页下次渲染读的就是这份内存 —— 不跟进就会显示过期勾选态。
+ * 增量合并（广播携带新值），不做整表重载：重载 = 再发一次 IPC + 与本页在途的
+ * 防抖写入打架；合并只认「已在快照里的键」，不接收广播投喂的未知键。
+ */
+function mergeFromBroadcast(payload: unknown): void {
+  const p = payload as { all?: boolean; values?: ConfigSnapshot } | null;
+  if (p?.all) { void loadConfig(); return; }
+  const vs = p?.values;
+  if (!vs || typeof vs !== "object") return;
+  for (const [k, v] of Object.entries(vs)) {
+    if (!(k in values)) continue;
+    const s = String(v);
+    if (values[k] === s) continue;
+    values[k] = s;
+  }
+}
+
 (function boot() {
   const b = bridge();
+  if (b?.onChanged) { try { b.onChanged(mergeFromBroadcast); } catch { /* 桥形状不符：只丢广播，不影响读写 */ } }
   if (b?.boot && adopt(b.boot)) return;
   try {
     values = { ...FALLBACK, ...(JSON.parse(localStorage.getItem(LS_KEY) ?? "{}") as ConfigSnapshot) };

@@ -2,6 +2,7 @@
 // 起一个进程内 vite preview（dist/ + /api 中继插件），窗口加载 http://127.0.0.1:<port>
 // frame:false：无原生标题栏——窗口右上角平铺三个窗口按钮（min/max/close）+抓握点，经 preload IPC 接管。
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, session, Tray, nativeImage, nativeTheme, safeStorage, shell } from "electron";
+import type { MenuItemConstructorOptions } from "electron";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
@@ -17,6 +18,8 @@ import { configDir, configFile, ensureConfigDir, logFile, readValues, resetConfi
 // （dev/preview 走 src/relay.ts、打包态走 native-server.ts，同一个 backgroundResponse）
 import { BG_DIALOG_EXTENSIONS, backgroundInfo, backgroundMime } from "./background.ts";
 import { revealTarget } from "./local/library.ts";
+// 桌面歌词：透明置顶覆盖层窗口的生命周期 + IPC 中转（平台口径见 desktop-lyrics-core.ts 头）
+import { DesktopLyricsController } from "./desktop-lyrics.ts";
 // 系统深浅色探测（Linux 桌面各自的真相来源，见模块头）：「跟随系统」要靠它才真的跟得上；
 // macOS 的菜单栏深浅、Windows 的任务栏/通知区域深浅（都是托盘图用的**外壳**判据）也在这里
 // ——三者是不同的问题，别混
@@ -196,6 +199,10 @@ process.on("unhandledRejection", (r) => log("[quaver] unhandled rejection:", Str
 
 let win = null;
 let cachedUrl = null; // preview 服务器只起一次；CSD/SSD 重建窗口时复用
+// 应用页真实基地址（含 QUAVER_URL 覆盖）：桌面歌词窗加载同源页要用它，createWindow 里每次导航前刷新
+let appUrl = null;
+// 桌面歌词控制器：whenReady 里构造（IPC 注册 + 平台判据），boot 由 createWindow 尾部触发
+let desktopLyrics = null;
 let sidecar = null;   // 打包态自拉起的 Python sidecar 子进程
 let credentialStore = null; // 凭证存档（ready 之后才能建：safeStorage 要 ready 才可用）
 // 窗口装饰模式：csd=自绘（frame:false，右上角按钮簇）；ssd=系统标题栏。初值取 quaver.conf 的 [Window] Decor。
@@ -415,6 +422,20 @@ function trayCmd(cmd, extra = {}) {
   if (win && !win.isDestroyed()) win.webContents.send("quaver:mpris-cmd", { cmd, ...extra });
 }
 
+/** 托盘「桌面歌词」子菜单：只留显示开关（窗体是纯 CSD，拖拽区在页面上；没有穿透档）。
+ *  状态每次现读控制器（控制器在状态迁移里会清签名重建菜单，勾选态恒新鲜）。 */
+function buildDesktopLyricsMenu(): MenuItemConstructorOptions[] {
+  const st = desktopLyrics?.state?.() ?? { open: false, enabled: false, scale: 1 };
+  return [
+    {
+      label: "显示桌面歌词",
+      type: "checkbox",
+      checked: !!st.open,
+      click: () => desktopLyrics?.setEnabled(!st.open),
+    },
+  ];
+}
+
 function buildTrayMenu() {
   const s = trayState;
   const t = s?.track ?? null;
@@ -441,6 +462,12 @@ function buildTrayMenu() {
       ],
     },
     { type: "separator" },
+    // 桌面歌词：只有显示开关 —— 窗体是纯 CSD（拖拽区在页面上），没有穿透档要管。
+    {
+      label: "桌面歌词",
+      submenu: buildDesktopLyricsMenu(),
+    },
+    { type: "separator" },
     { label: "显示/隐藏 Quaver Music", click: toggleWindow },
     { type: "separator" },
     { label: "退出", click: () => app.quit() },
@@ -463,6 +490,12 @@ function updateTrayMenu(state) {
   if (sig === trayMenuSig) return;
   trayMenuSig = sig;
   try { tray?.setContextMenu(buildTrayMenu()); } catch (e) { log("[quaver] tray menu update failed:", String(e)); }
+}
+
+/** 桌面歌词状态迁移（开/关）→ 强制重建一次托盘菜单（勾选态落进去）。 */
+function refreshTrayMenu() {
+  trayMenuSig = "";
+  updateTrayMenu(trayState);
 }
 
 /** sidecar 交回新凭证（登录 DONE / 令牌刷新）或登出（null）→ 加密落盘 / 清存档。 */
@@ -724,8 +757,11 @@ async function createWindow() {
   // —— ③ 交接：闪屏至少演完一遍全程（含底部「Built by Team Quaver」），淡出与导航并行。
   // 应用是本地服务，提交通常快于淡出收尾；万一先提交也只是硬切，闪屏永不挡已就绪的应用。 ——
   log("[quaver] loading", url);
+  appUrl = url; // 桌面歌词窗加载同源页的基地址（warmBoot/重建/QUAVER_URL 各路径都在这条尾线上）
   await dismissSplash(win);
   win.loadURL(url);
+  // 磁盘上开着桌面歌词 → 主窗导航发起后即可拉起覆盖层（不等主窗加载完：数据桥自己会补发缓存）
+  try { desktopLyrics?.boot(); } catch (e) { log("[quaver] desktop-lyrics boot failed:", String(e)); }
 }
 
 // ——— quaver.conf 读写桥 ———
@@ -745,6 +781,17 @@ ipcMain.on("quaver:config-sync", (e) => {
     e.returnValue = { ok: false, error: String(err) };
   }
 });
+
+/** 配置写入后的全窗广播（payload.keys=null 表示「整表重载」）。主窗自身的 cfgSet 已在内存
+ *  先行更新，收到自己引发的广播只是冗余刷新；桌面歌词窗则靠它保持字体/字号/翻译档实时。 */
+function broadcastConfigChanged(written, patch) {
+  const values = {};
+  for (const k of written ?? []) values[k] = String(patch?.[k] ?? "");
+  const payload = written ? { keys: written, values } : { all: true };
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send("quaver:config-changed", payload);
+  }
+}
 
 ipcMain.handle("quaver:config", (_e, msg) => {
   const op = msg?.op;
@@ -766,10 +813,17 @@ ipcMain.handle("quaver:config", (_e, msg) => {
       // 全局热键绑定刚变：重注册（注意只看 Global 段 —— Focus 段由渲染层 keydown 实时读，
       // 门户重绑会走「关旧会话再建」，GNOME 上还要重弹授权框，焦点键的改动犯不着）
       if (written.some((k) => k.startsWith("Hotkeys.Global."))) hotkeys.apply();
+      // [DesktopLyrics] 开关可能刚被改：控制器按磁盘现值对齐窗口（幂等 —— 设置页的 cfgSet
+      // 与 control() 双写同值时，syncFromConf 只是空转一次）
+      if (written.some((k) => k.startsWith("DesktopLyrics."))) desktopLyrics?.syncFromConf();
+      // 广播给其余窗口：配置真相是同一份文件，桌面歌词窗靠这条实时跟随字体/字号/翻译档位
+      broadcastConfigChanged(written, msg?.patch ?? {});
       return { ok: true, written };
     }
     if (op === "reset") {
       const values = resetConfig();
+      desktopLyrics?.syncFromConf(); // 重置模板里 Enabled=False：覆盖层随之收起
+      broadcastConfigChanged(null); // null = 全量失效，监听方整表重载
       themePref = values["Style.Style"] ?? "dark";
       applyThemeSource();
       hotkeys.apply(); // 绑定整体回到默认
@@ -1120,6 +1174,20 @@ app.whenReady().then(() => {
   if (process.platform === "darwin" && !app.isPackaged && app.dock) {
     try { app.dock.setIcon(buildRes("icon.png")); } catch {}
   }
+  // 桌面歌词控制器：先于主窗与托盘构造 —— IPC 通道在页面加载前就位（sendSync 问路 /
+  // 主窗桥启动即推快照都经它中转），托盘首帧菜单也要读它的状态。依赖全走惰性取值器，
+  // 主窗与 appUrl 晚建不冲突。
+  desktopLyrics = new DesktopLyricsController({
+    log,
+    getUrl: () => appUrl,
+    getMainWindow: () => win,
+    isQuitting: () => quitting,
+    refreshTrayMenu: () => refreshTrayMenu(),
+    crotchet: CROTCHET,
+    // 控制器自发写盘（Enabled 的托盘/✕ 路径）同样广播增量 —— 渲染层内存不跟进，
+    // cfgSet 的「值没变」短路就会把「再开一次」吃掉（关了打不开的根因，见 desktop-lyrics.ts:persistConf）
+    broadcastConfig: (values) => broadcastConfigChanged(Object.keys(values), values),
+  });
   createWindow().catch((e) => {
     log("[quaver] startup failed:", String(e && e.stack || e));
     app.quit();

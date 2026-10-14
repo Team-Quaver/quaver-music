@@ -388,6 +388,104 @@ export function setTtmlLibrary(v: string) {
 }
 
 
+// —— 桌面歌词（[DesktopLyrics] 段）：总开关 / 字号倍率 / 整体不透明度 ——
+// 覆盖层窗口本体在主进程（electron/desktop-lyrics.ts）；这里只做「开关 + 观感」的偏好门面。
+// 判据与 electron/config.ts 的 [DesktopLyrics] schema 同规（改一处要改两处）。
+// 注意：开关的**生效**要走主进程控制通道（开窗/关窗），cfgSet 只落盘 —— 设置页与桥
+// （src/lib/desktop-lyrics.ts）在写偏好后都会再 call control()。
+
+/** 桌面歌词总开关（默认关）。 */
+export function getDesktopLyrics(): boolean {
+  return /^(true|1|yes)$/i.test(cfg("DesktopLyrics.Enabled", "False").trim());
+}
+export function setDesktopLyrics(v: boolean) {
+  cfgSet({ "DesktopLyrics.Enabled": v ? "True" : "False" });
+}
+
+export const DL_OPACITY_MIN = 0.1;
+export const DL_OPACITY_MAX = 1;
+
+/** 桌面歌词**歌词层**不透明度 0.1..1（1=默认完全不透明）—— 调的是字。覆盖层经配置广播即时跟随。 */
+export function getDesktopLyricsOpacity(): number {
+  const n = Number(cfg("DesktopLyrics.Opacity", "1"));
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(DL_OPACITY_MAX, Math.max(DL_OPACITY_MIN, Math.round(n * 100) / 100));
+}
+export function setDesktopLyricsOpacity(v: number) {
+  const clamped = Math.min(DL_OPACITY_MAX, Math.max(DL_OPACITY_MIN, Number(v) || 1));
+  cfgSetSoon({ "DesktopLyrics.Opacity": String(Math.round(clamped * 100) / 100) });
+}
+
+/** 桌面歌词**窗体不透明度**（背板）0..1，0=没有背板（默认，整扇窗全透明、只有字）。
+ *  这块背板铺满整个窗体矩形（就是「窗体的面」），字本身不受它影响。
+ *  三平台同一套（不做原生 setOpacity：那条 Linux 不实现，会造成口径分叉）。 */
+export function getDesktopLyricsBackdrop(): number {
+  const n = Number(cfg("DesktopLyrics.Backdrop", "0"));
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(1, Math.max(0, Math.round(n * 100) / 100));
+}
+export function setDesktopLyricsBackdrop(v: number) {
+  const clamped = Math.min(1, Math.max(0, Number(v) || 0));
+  cfgSetSoon({ "DesktopLyrics.Backdrop": String(Math.round(clamped * 100) / 100) });
+}
+
+// 行数：single=只当前句（AMLL 行对齐钉到条带中线 + 裁掉邻行）｜dual=当前句 + 下一句。
+export type DlMode = "single" | "dual";
+export function getDesktopLyricsMode(): DlMode {
+  return cfg("DesktopLyrics.Mode", "single").trim() === "dual" ? "dual" : "single";
+}
+export function setDesktopLyricsMode(v: DlMode) {
+  cfgSet({ "DesktopLyrics.Mode": v });
+}
+
+
+/** 单行居中档（默认开）：开 = 条带只装当前句（主行 + 翻译/音译，和声行裁掉）；关 = 连和声
+ *  行一起装进条带。两档的条带都恒居中于视口、文字块整体居中（见 src/desktop-lyrics.ts）。 */
+export function getDesktopLyricsSingleCenter(): boolean {
+  return !/^(false|0|no)$/i.test(cfg("DesktopLyrics.SingleCenter", "True"));
+}
+export function setDesktopLyricsSingleCenter(v: boolean) {
+  cfgSet({ "DesktopLyrics.SingleCenter": v ? "True" : "False" });
+}
+
+// 颜色：default=白字（现状）｜cover=封面染色｜system=系统强调色｜custom=自选 HEX。
+// cover/system 的**取色源**由主窗桥随曲目镜像带来（与正在播放页同源，桌面歌词窗不碰网络）；
+// 混色公式与 .np-kara-host 一致（color-mix(in srgb, accent 55%, #fff)），改一处要改两处。
+export type DlColorMode = "default" | "cover" | "system" | "custom";
+const DL_COLOR_MODES: DlColorMode[] = ["default", "cover", "system", "custom"];
+export function getDesktopLyricsColorMode(): DlColorMode {
+  const raw = cfg("DesktopLyrics.ColorMode", "default").trim() as DlColorMode;
+  return DL_COLOR_MODES.includes(raw) ? raw : "default";
+}
+export function setDesktopLyricsColorMode(v: DlColorMode) {
+  cfgSet({ "DesktopLyrics.ColorMode": v });
+}
+
+/** 自定义色（HEX）；parseHex 认不下就回落白字（与 tint 自定义色同一进表口径）。 */
+export function getDesktopLyricsColor(): string {
+  const rgb = parseHex(cfg("DesktopLyrics.Color", "#ffffff"));
+  return rgb ? toHex(rgb) : "#ffffff";
+}
+export function setDesktopLyricsColor(v: string) {
+  const rgb = parseHex(String(v ?? ""));
+  cfgSet({ "DesktopLyrics.Color": rgb ? toHex(rgb) : "#ffffff" });
+}
+
+export const DL_SCALE_MIN = 0.5;
+export const DL_SCALE_MAX = 2;
+
+/** 桌面歌词字号倍率 0.5..2（1=默认）；字体家族恒跟随「歌词字体」（Style.DefaultLyricsFonts）。 */
+export function getDesktopLyricsScale(): number {
+  const n = Number(cfg("DesktopLyrics.Scale", "1"));
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(DL_SCALE_MAX, Math.max(DL_SCALE_MIN, Math.round(n * 100) / 100));
+}
+export function setDesktopLyricsScale(v: number) {
+  const clamped = Math.min(DL_SCALE_MAX, Math.max(DL_SCALE_MIN, Number(v) || 1));
+  cfgSetSoon({ "DesktopLyrics.Scale": String(Math.round(clamped * 100) / 100) });
+}
+
+
 // —— 音质 Fallback 排序：False=自动/回退时不优先落到臻品全景声（默认，母带优先），
 //    True=按标准 rank 降序回退（全景声在其 rank 位置自然参与） ——
 export type FallbackSort = "no-atmos" | "rank";

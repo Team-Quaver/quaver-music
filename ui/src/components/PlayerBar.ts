@@ -4,7 +4,7 @@
 // 进度：整个 Bar 按下去即可拖拽 seek（拖中圆点/时间跟手，松手才真正提交），顶边细线只是视觉指示
 // 音量：浮窗形式 —— 悬停/点击静音按钮弹出玻璃小窗，静音图标 + 滑杆 + 读数一体
 import { player, type Mode } from "../player";
-import { getPrevBehavior } from "../lib/prefs";
+import { getPrevBehavior, setDesktopLyrics } from "../lib/prefs";
 import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQuality, QUALITY_SHORT, QUALITIES, songMissingTiers, songTitle, type Quality } from "../lib/api";
 // getLastStream 仍由 paintQ 使用（胶囊显示实际已应用档位）
 import { fmtDur } from "../lyric";
@@ -37,6 +37,7 @@ export function PlayerBar(): HTMLElement {
       <button class="pb-q" id="pb-quality" title="音质（本会话生效，不保存；高档自动回退可播档）"></button>
       <button class="pb-btn pb-ghost" id="pb-love" aria-label="收藏">${icons.heart}</button>
       <button class="pb-btn pb-ghost" id="pb-gallery" aria-label="画廊模式"></button>
+      <button class="pb-btn pb-ghost" id="pb-dl" aria-label="桌面歌词"></button>
       <button class="pb-btn pb-ghost" id="pb-queue" aria-label="播放队列">${icons.queue}</button>
     </div>
     <!-- 音量浮窗：静音控制 + 滑杆 + 读数 -->
@@ -76,6 +77,27 @@ export function PlayerBar(): HTMLElement {
   $("pb-next").onclick = () => player.next(false);
   love.onclick = () => player.toggleLove(player.current);
   $("pb-queue").onclick = () => { player.queueOpen = !player.queueOpen; player.notifyPublic(); };
+  // —— 桌面歌词开关 ——
+  // 写路走偏好（quaver.conf 的 DesktopLyrics.Enabled）：主进程 config 落盘口看到该段键变更
+  // 即 syncFromConf() 开/关覆盖层，与设置页同一扇门；按钮亮灭只认主进程回推的**窗口真相**
+  // （dl-active 广播 + 启动 sendSync），不是本地内存 —— 托盘/✕ 关窗等旁路改动能立刻反映。
+  const dl = $("pb-dl");
+  dl.innerHTML = icons.desktopLyric;
+  const dlBridge = window.quaverDesktopLyrics;
+  if (!dlBridge) dl.remove(); // 浏览器 dev 没有覆盖层窗：藏钮（与「打开位置」按钮同款处置）
+  else {
+    let dlOpen = false;
+    const paintDl = (open: boolean) => {
+      if (open === dlOpen && dl.classList.contains("on") === open) return;
+      dlOpen = open;
+      dl.classList.toggle("on", open);
+      dl.title = open ? "桌面歌词：开（点击关闭）" : "桌面歌词：关（点击开启）";
+      dl.setAttribute("aria-pressed", String(open));
+    };
+    try { paintDl(!!dlBridge.activeSync?.()?.open); } catch { /* handler 未就位：等广播 */ }
+    dlBridge.onActive?.((s) => paintDl(!!(s as { open?: boolean })?.open));
+    dl.onclick = () => setDesktopLyrics(!dlOpen);
+  }
   // 画廊模式开关（运行时态）：开 = 展开正在播放页并进全屏；再点 = 收起并还原窗口。
   // 无歌不开页（与封面钮同口径）；收起本页的其它路径（ESC/封面钮/跳转）由 NowPlaying
   // 的 expanded 迁移统一退全屏并清 gallery。

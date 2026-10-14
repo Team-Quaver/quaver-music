@@ -49,6 +49,14 @@ import {
   getLyricFontList,
   getMenuBlur,
   getChineseConvert,
+  getDesktopLyrics,
+  getDesktopLyricsColor,
+  getDesktopLyricsColorMode,
+  getDesktopLyricsMode,
+  getDesktopLyricsBackdrop,
+  getDesktopLyricsOpacity,
+  getDesktopLyricsScale,
+  getDesktopLyricsSingleCenter,
   getOnlineTtml,
   getPrevBehavior,
   getTheme,
@@ -66,6 +74,14 @@ import {
   setChineseConvert,
   setCloseAction,
   setDecor,
+  setDesktopLyrics,
+  setDesktopLyricsColor,
+  setDesktopLyricsColorMode,
+  setDesktopLyricsMode,
+  setDesktopLyricsBackdrop,
+  setDesktopLyricsOpacity,
+  setDesktopLyricsScale,
+  setDesktopLyricsSingleCenter,
   setOnlineTtml,
   setTtmlDatabase,
   setTtmlLibrary,
@@ -82,6 +98,8 @@ import {
   setUiFontPreset,
   setUpdateChannel,
   TINT_DEFAULT_COLOR,
+  type DlColorMode,
+  type DlMode,
   type PrevBehavior,
   type ThemeMode,
   type TintMode,
@@ -1487,6 +1505,67 @@ async function settingsView(root: HTMLElement) {
           「歌名-歌手.ttml」/「歌手-歌名.ttml」（连字符两侧空格均可）、以及「歌名.ttml」。
           查询顺序：本地库先于在线库；两者都只补「没有逐字」的歌，手动导入永远优先。设置后即时重拉当前曲。</p>
       </div>
+
+      <div class="set-group">
+        <div class="set-label">桌面歌词 <span class="set-note-inline">透明置顶的桌面歌词层</span></div>
+        <div class="set-row"><span class="set-row__label">启用</span>
+          <div class="opt-cards" id="dl-enable-cards">
+            <button class="opt-card" data-opt="on" type="button">开启</button>
+            <button class="opt-card" data-opt="off" type="button">关闭</button>
+          </div>
+        </div>
+        <div class="set-row"><span class="set-row__label">字号</span>
+          <div class="set-row__ctrl">
+            <input class="set-blur" id="dl-scale" type="range" min="50" max="200" step="5" aria-label="桌面歌词字号" />
+            <span class="bg-blur-val" id="dl-scale-val"></span>
+          </div>
+        </div>
+        <div class="set-row"><span class="set-row__label">歌词不透明度</span>
+          <div class="set-row__ctrl">
+            <input class="set-blur" id="dl-opacity" type="range" min="10" max="100" step="5" aria-label="桌面歌词歌词不透明度" />
+            <span class="bg-blur-val" id="dl-opacity-val"></span>
+          </div>
+        </div>
+        <div class="set-row"><span class="set-row__label">窗体不透明度</span>
+          <div class="set-row__ctrl">
+            <input class="set-blur" id="dl-backdrop" type="range" min="0" max="100" step="5" aria-label="桌面歌词窗体不透明度（整扇窗的背板）" />
+            <span class="bg-blur-val" id="dl-backdrop-val"></span>
+          </div>
+        </div>
+        <div class="set-row"><span class="set-row__label">行数</span>
+          <div class="opt-cards" id="dl-mode-cards">
+            <button class="opt-card" data-opt="single" type="button">单行</button>
+            <button class="opt-card" data-opt="dual" type="button">双行</button>
+          </div>
+        </div>
+        <div class="set-row" id="dl-center-row"><span class="set-row__label">单行居中</span>
+          <div class="opt-cards" id="dl-center-cards">
+            <button class="opt-card" data-opt="on" type="button">开启</button>
+            <button class="opt-card" data-opt="off" type="button">关闭</button>
+          </div>
+        </div>
+        <div class="set-row"><span class="set-row__label">颜色</span>
+          <div class="opt-cards" id="dl-color-cards">
+            <button class="opt-card" data-opt="default" type="button">默认</button>
+            <button class="opt-card" data-opt="cover" type="button">封面染色</button>
+            <button class="opt-card" data-opt="system" type="button">系统染色</button>
+            <button class="opt-card" data-opt="custom" type="button">自定义颜色</button>
+          </div>
+        </div>
+        <div class="set-row" id="dl-color-row" hidden><span class="set-row__label">自定义颜色</span>
+          <div class="set-row__ctrl">
+            <input class="dl-color" id="dl-color" type="color" aria-label="桌面歌词颜色" />
+            <input id="dl-color-hex" type="text" spellcheck="false" autocomplete="off" size="9" maxlength="7" aria-label="桌面歌词颜色 HEX" />
+          </div>
+        </div>
+        <p class="muted set-hint">歌词层背景全透明、恒置顶、不进任务栏；字体家族跟随「外观 → 歌词字体」，逐字引擎与正在播放页同为内置 AMLL。
+          行数=单行只当前句、双行多带下一句；歌词块整体居中于歌词层，超长行自动横向滚动（翻译/音译各自判断，主行滚时它不动）；
+          颜色默认是白字 + 深投影（任何壁纸可读），封面/系统染色与正在播放页同源派生（探测/取色失败自动回落白字）。
+          「歌词不透明度」调的是字；「窗体不透明度」调的是**整扇窗的那块底**（铺满窗体的背板）——默认 0 = 整扇窗全透明、只有字，
+          花壁纸上想读清就把这块底往上调一点。</p>
+        <p class="muted set-hint">悬停歌词层浮现控制条：播放/上一曲/下一曲、字号 A−/A+、歌词延迟 −/＋（一档 0.1s，点读数归零）与关窗；
+          歌词层是纯 CSD 窗口 —— **拖任意歌词区域**挪位置、右下角把手缩放，位置大小会记住（没有点击穿透档：不想挡桌面就把它拖到空闲处）。</p>
+      </div>
     </section>
 
     <!-- 热键面板：内容由 ui/src/components/HotkeySettings.ts 填充（全局/焦点内两组绑定） -->
@@ -2177,6 +2256,97 @@ async function settingsView(root: HTMLElement) {
     }
   };
   libClear.onclick = () => { setTtmlLibrary(""); paintLib(); player.reloadLyric(); };
+
+  // —— 桌面歌词（[DesktopLyrics]）——
+  // 开关只写配置：主进程 config set 处理器看到 DesktopLyrics.* 落盘即 syncFromConf()
+  // 开/关覆盖层窗（electron/main.ts），本窗无需再经 control() 走第二条写盘路。
+  bindOptCards<"on" | "off">(
+    wrap.querySelector<HTMLElement>("#dl-enable-cards")!,
+    () => (getDesktopLyrics() ? "on" : "off"),
+    (v) => setDesktopLyrics(v === "on"),
+  );
+  // 行数：single=只当前句（裁切条带一条），dual=多带下一句 —— 纯偏好，覆盖层经广播现读现换
+  bindOptCards<DlMode>(
+    wrap.querySelector<HTMLElement>("#dl-mode-cards")!,
+    getDesktopLyricsMode,
+    (v) => setDesktopLyricsMode(v),
+  );
+  // 颜色四档：default=白字｜cover=封面染色｜system=系统染色｜custom=自选 HEX。
+  // cover/system 的取色源随曲目镜像到覆盖层（主窗侧算好带过去），这里只管档位本身。
+  bindOptCards<DlColorMode>(
+    wrap.querySelector<HTMLElement>("#dl-color-cards")!,
+    getDesktopLyricsColorMode,
+    (v) => { setDesktopLyricsColorMode(v); paintDlColorRow(); },
+  );
+  // 单行居中：仅行数=单行时有意义（双行本来就铺两行，无从「裁成一行」）
+  const dlCenterRow = wrap.querySelector<HTMLElement>("#dl-center-row")!;
+  const paintDlCenterRow = () => { dlCenterRow.hidden = getDesktopLyricsMode() !== "single"; };
+  bindOptCards<"on" | "off">(
+    wrap.querySelector<HTMLElement>("#dl-center-cards")!,
+    () => (getDesktopLyricsSingleCenter() ? "on" : "off"),
+    (v) => setDesktopLyricsSingleCenter(v === "on"),
+  );
+  paintDlCenterRow();
+  const dlModeCards = wrap.querySelector<HTMLElement>("#dl-mode-cards")!;
+  dlModeCards.querySelectorAll<HTMLButtonElement>("button").forEach((b) => b.addEventListener("click", paintDlCenterRow));
+  const dlColorRow = wrap.querySelector<HTMLElement>("#dl-color-row")!;
+  const dlColorInput = wrap.querySelector<HTMLInputElement>("#dl-color")!;
+  const dlColorHex = wrap.querySelector<HTMLInputElement>("#dl-color-hex")!;
+  function paintDlColorRow() {
+    dlColorRow.hidden = getDesktopLyricsColorMode() !== "custom";
+    const hex = getDesktopLyricsColor();
+    dlColorInput.value = hex;
+    dlColorHex.value = hex;
+  }
+  paintDlColorRow();
+  dlColorInput.oninput = () => {
+    setDesktopLyricsColor(dlColorInput.value);
+    dlColorHex.value = getDesktopLyricsColor();
+  };
+  dlColorHex.onchange = () => {
+    const raw = dlColorHex.value.trim();
+    setDesktopLyricsColor(raw.startsWith("#") ? raw : `#${raw}`);
+    paintDlColorRow(); // 认不下的 HEX 由 prefs 回落现值 —— 输入框永远回显「当前生效值」
+  };
+  const dlScale = wrap.querySelector<HTMLInputElement>("#dl-scale")!;
+  const dlScaleVal = wrap.querySelector<HTMLElement>("#dl-scale-val")!;
+  const paintDlScale = () => {
+    const pct = Math.round(getDesktopLyricsScale() * 100);
+    dlScale.value = String(pct);
+    dlScaleVal.textContent = `${pct}%`;
+  };
+  paintDlScale();
+  dlScale.oninput = () => {
+    setDesktopLyricsScale(Number(dlScale.value) / 100);
+    dlScaleVal.textContent = `${dlScale.value}%`;
+  };
+  // 歌词层不透明度：0.1..1（滑条 10..100%）—— 调的是**字**（含控制条/进度线，整层淡出）。
+  const dlOpacity = wrap.querySelector<HTMLInputElement>("#dl-opacity")!;
+  const dlOpacityVal = wrap.querySelector<HTMLElement>("#dl-opacity-val")!;
+  const paintDlOpacity = () => {
+    const pct = Math.round(getDesktopLyricsOpacity() * 100);
+    dlOpacity.value = String(pct);
+    dlOpacityVal.textContent = `${pct}%`;
+  };
+  paintDlOpacity();
+  dlOpacity.oninput = () => {
+    setDesktopLyricsOpacity(Number(dlOpacity.value) / 100);
+    dlOpacityVal.textContent = `${dlOpacity.value}%`;
+  };
+  // 窗体不透明度（背板）：0..1（滑条 0..100%，默认 0）—— 调的是**整扇窗**那块底，字不受影响。
+  // 几何/取色都在覆盖层自己算，这里只写偏好（写盘即广播）。
+  const dlBackdrop = wrap.querySelector<HTMLInputElement>("#dl-backdrop")!;
+  const dlBackdropVal = wrap.querySelector<HTMLElement>("#dl-backdrop-val")!;
+  const paintDlBackdrop = () => {
+    const pct = Math.round(getDesktopLyricsBackdrop() * 100);
+    dlBackdrop.value = String(pct);
+    dlBackdropVal.textContent = `${pct}%`;
+  };
+  paintDlBackdrop();
+  dlBackdrop.oninput = () => {
+    setDesktopLyricsBackdrop(Number(dlBackdrop.value) / 100);
+    dlBackdropVal.textContent = `${dlBackdrop.value}%`;
+  };
 
   // 配置文件：展示磁盘路径 + 一键定位 / 重置（浏览器 dev 下没有文件，只提示真相在哪）
   const conf = configInfo();

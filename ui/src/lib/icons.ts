@@ -32,4 +32,6 @@ export const icons = {
   more: svg('<circle cx="12" cy="5.5" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="18.5" r="1.7" fill="currentColor" stroke="none"/>', 18),
   // 画廊模式（播放条开关）：四角括号 = 全屏化正在播放页
   gallery: svg('<path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3"/>', 18),
+  // 桌面歌词：屏幕里躺着两行「词」，正是要盖在桌面上的那层
+  desktopLyric: svg('<rect x="3.5" y="4.5" width="17" height="12" rx="2"/><path d="M7.5 8.5h9M7.5 12h5.5"/><path d="M9 20.5h6"/>', 18),
 };

@@ -223,6 +223,12 @@ export function isTtmlDatabaseUrlTemplate(v: string): boolean {
 /** 繁简转换档位（[Lyrics] ChineseConvert）：off=不转换 ｜ simplified=繁体转简体 ｜ traditional=简体转繁体。 */
 const isChineseConvert = (v: string): boolean => ["off", "simplified", "traditional"].includes(String(v ?? "").trim().toLowerCase());
 
+/** 布尔型配置的统一值域（与历史内联写法同一张表）；新增布尔键一律用它，别再抄第五份数组 */
+export const isBoolValue = (v: string): boolean => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v);
+
+/** 整数坐标/尺寸：允许留空（= 未记录过，首次开窗按默认落位），非空必须是有限数 */
+const isIntOrEmpty = (v: string): boolean => v.trim() === "" || (Number.isFinite(Number(v)) && Number.isInteger(Number(v)));
+
 /** Sparkle 插件 id 的形状（同时也是插件目录名 / plugin.json 的 id / main.ts 的 SPARKLE_ID_RE）： */
 export const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -502,6 +508,80 @@ export const SCHEMA: SectionSpec[] = [
         ],
         valid: isLocalPathValue,
       },
+    ],
+  },
+  {
+    // 桌面歌词（透明置顶覆盖层）：见 electron/desktop-lyrics-core.ts 文件头的形态口径。
+    // X/Y/W/H 是**主进程写**的记忆坐标（窗口拖动后回写，dp 取整）；渲染层只碰开关/字号/透明度。
+    section: "DesktopLyrics",
+    keys: [
+      {
+        key: "Enabled",
+        def: "False",
+        doc: ["桌面歌词总开关：True=启动即开覆盖层｜False（默认）=关闭。也可由托盘菜单/设置页「桌面歌词」即时切换"],
+        valid: isBoolValue,
+      },
+      {
+        key: "Opacity",
+        def: "1",
+        doc: [
+          "桌面歌词**歌词层**不透明度：0.1..1，1（默认）=完全不透明。整层一起淡出（歌词 + 悬停控制条 + 进度线）——",
+          "贴浅色/深色壁纸时想让它更「退后」一点就调小；半透明不影响命中测试，窗口照样能拖能点。",
+          "注意这调的是**字**；要「窗体的可见面」（字后面那块背板）用 Backdrop。",
+        ],
+        valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0.1 && Number(v) <= 1,
+      },
+      {
+        key: "Backdrop",
+        def: "0",
+        doc: [
+          "桌面歌词**窗体不透明度**（背板）：0..1，0（默认）=没有背板、只有字（整扇窗全透明）。",
+          "调高就是给**整扇窗**铺一层压暗的底（inset:0，铺满窗体矩形，拖角缩放时跟着变）——",
+          "字本身不受影响（那是 Opacity 的事）。贴花壁纸想读清就把这块底调出来。",
+          "不做原生 win.setOpacity：那条在 Linux 上不实现（Electron 文档：On Linux, does nothing），",
+          "会造成三平台不同口径；这里一律用「背板」这一层表达窗体，三平台同一套。",
+        ],
+        valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 1,
+      },
+      {
+        key: "Scale",
+        def: "1",
+        doc: ["桌面歌词字号倍率：0.5..2，1=默认（约 24px 基准）。字体家族恒跟随 [Style] DefaultLyricsFonts"],
+        valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0.5 && Number(v) <= 2,
+      },
+      {
+        key: "Mode",
+        def: "single",
+        doc: ["桌面歌词行数：single=单行（只当前句）｜dual=双行（当前句 + 下一句）。排版由内置 AMLL 的行对齐与裁切条带实现（见 src/desktop-lyrics.ts）"],
+        valid: (v: string) => ["single", "dual"].includes(v),
+      },
+      {
+        key: "SingleCenter",
+        def: "True",
+        doc: [
+          "单行歌词居中（仅 Mode=single 生效）：True（默认）= 窗口恒为主行行盒高、当前句垂直居中，",
+          "和声第二行/翻译子行/折行一律裁掉，换行时窗口尺寸不变，无伸缩抖动；",
+          "False = 窗口跟随当前行整行盒伸缩（翻译等辅助行可见）。",
+        ],
+        valid: isBoolValue,
+      },
+      {
+        key: "ColorMode",
+        def: "default",
+        doc: ["桌面歌词颜色：default=白字+深投影（默认，任何壁纸可读）｜cover=封面染色（与正在播放页同源口径 color-mix 55% 洗白）｜",
+          "system=系统染色（系统强调色，探测失败回落白字）｜custom=自定义颜色（取值见 Color）"],
+        valid: (v: string) => ["default", "cover", "system", "custom"].includes(v),
+      },
+      {
+        key: "Color",
+        def: "#ffffff",
+        doc: ["自定义歌词颜色（HEX，#rgb 或 #rrggbb）；仅 ColorMode=custom 时使用"],
+        valid: isHexColor,
+      },
+      { key: "X", def: "", doc: ["覆盖层位置/大小（主进程在窗口移动/缩放后回写；留空=按默认落位：屏幕底部居中）"], valid: isIntOrEmpty },
+      { key: "Y", def: "", valid: isIntOrEmpty },
+      { key: "W", def: "", valid: isIntOrEmpty },
+      { key: "H", def: "", valid: isIntOrEmpty },
     ],
   },
   {

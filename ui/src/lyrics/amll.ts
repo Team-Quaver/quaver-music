@@ -255,11 +255,19 @@ function toCoreLines(lines: SparkleKaraokeLine[], mode: LyricAuxMode): CoreLyric
   }));
 }
 
+/** 渲染中的 host → LyricPlayer 实例对照表。
+ *  SDK 契约只给 render/cleanup 两件事，但宿主集成方（桌面歌词窗）需要按场景调
+ *  **排版旋钮**（setAlignPosition / setHidePassedLines —— AMLL 实例方法，不在 SDK 里）。
+ *  与其让集成方复制一份渲染实现（口径必然漂移），不如从这一处把实例递出去 ——
+ *  渲染主体仍是唯一一份，桌面歌词与正在播放页永远吃同一个引擎。 */
+export const amllPlayerByHost = new WeakMap<HTMLElement, LyricPlayer>();
+
 /** 接管歌词容器：DomLyricPlayer + 自驱 rAF 时钟。
  *  宿主 notify 只有 4Hz，逐字扫色要逐帧时间；播放态/翻译开关/展开收起每帧轮询
  *  ctx 闭包（读到的永远是当前态），收起时停表冻结、展开即恢复。 */
 function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: SparkleKaraokeRenderCtx): () => void {
   const player = new LyricPlayer();
+  amllPlayerByHost.set(host, player);
   const el = player.getElement();
   el.style.position = "absolute";
   el.style.inset = "0";
@@ -336,6 +344,7 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
   const offNotify = ctx.onNotify(syncRunning);
 
   return () => {
+    amllPlayerByHost.delete(host);
     offNotify();
     if (raf) window.cancelAnimationFrame(raf);
     raf = 0;

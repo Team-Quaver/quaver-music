@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Quaver 桌面歌词</title>
+    <!-- 独立窗口页（非 SPA 路由）：主进程 desktop-lyrics.ts 建窗加载本页。
+         CSP 的 script-src 只有 'self' blob:（见 electron/csp.ts），入口必须是外链模块。
+         窗体是纯 CSD：页面自己划拖拽区（-webkit-app-region: drag），没有穿透档。 -->
+    <script type="module" src="/src/desktop-lyrics.ts"></script>
+  </head>
+  <body>
+    <!-- 窗体背板：[DesktopLyrics] Backdrop 就是这一层 —— **铺满整个窗体**的一块底，
+         字后面有面、字本身不受它影响。放在 #dl-root 之外是故意的：#dl-root 的 opacity
+         是「歌词不透明度」，背板不该跟着一起淡。 -->
+    <div id="dl-board"></div>
+    <div id="dl-root">
+      <div id="dl-stage"><div id="dl-clip"></div></div>
+      <div id="dl-empty" hidden>等待播放</div>
+      <div id="dl-tools">
+        <button id="dl-prev" type="button" title="上一曲" aria-label="上一曲"></button>
+        <button id="dl-play" type="button" title="播放/暂停" aria-label="播放或暂停"></button>
+        <button id="dl-next" type="button" title="下一曲" aria-label="下一曲"></button>
+        <span class="dl-sep"></span>
+        <button id="dl-font-dec" type="button" title="歌词字号缩小" aria-label="字号缩小">A−</button>
+        <button id="dl-font-inc" type="button" title="歌词字号放大" aria-label="字号放大">A+</button>
+        <span class="dl-sep"></span>
+        <button id="dl-delay-dec" type="button" title="歌词提前 0.1s" aria-label="歌词提前">−</button>
+        <button id="dl-delay-val" type="button" title="点击归零">0.0s</button>
+        <button id="dl-delay-inc" type="button" title="歌词延后 0.1s" aria-label="歌词延后">+</button>
+        <span class="dl-sep"></span>
+        <button id="dl-close" type="button" title="关闭桌面歌词" aria-label="关闭桌面歌词"></button>
+      </div>
+      <div id="dl-progress"><i id="dl-progress-fill"></i></div>
+      <div id="dl-resize" title="拖动缩放"></div>
+    </div>
+  </body>
+</html>

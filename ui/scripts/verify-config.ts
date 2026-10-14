@@ -77,10 +77,10 @@ eq("注释行不会被当成键", IniDoc.parse("[A]\n; c=1\n# d=2\nZ=3\n").value
 // ——— 首次运行 ———
 section("首次运行");
 check("模板随读取落地", (readValues(), existsSync(FILE)));
-check("模板含全部段", ["[Style]", "[Window]", "[Playing]", "[Quality]", "[Lyrics]", "[Security]", "[Update]"].every((s) => template().includes(s)));
+check("模板含全部段", ["[Style]", "[Window]", "[Playing]", "[Quality]", "[Lyrics]", "[DesktopLyrics]", "[Security]", "[Update]"].every((s) => template().includes(s)));
 check("模板注释来自 schema", template().includes("可选 dark,light,follow-system"));
 eq("默认值与模板占位一致", (() => { const v = readValues().values; return v["Style.Style"] === "dark" && v["Playing.Backend"] === "MPV" && v["Quality.DefaultQuality"] === "Auto" && v["Quality.FallbackToQMAtmos"] === "False"; })(), true);
-eq("schema 默认值表条数", Object.keys(defaults()).length, 47); // [Lyrics] 4 键（ChineseConvert 繁简档/OnlineTtml 在线逐字开关/TtmlDatabase 地址模板/TtmlLibrary 本地库目录）；LyricAux 为歌词辅助行（关闭/翻译/音译，两路同位置且各按档位回落）；LyricScale 为行级歌词缩放；Background/BackgroundImage/BackgroundBlur 为默认主题背景（模式/自定义图/模糊强度）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；MenuBlur 为浮层菜单毛玻璃开关；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
+eq("schema 默认值表条数", Object.keys(defaults()).length, 59); // [DesktopLyrics] 12 键（Enabled/Opacity/Backdrop/Scale/Mode/SingleCenter/ColorMode/Color + X/Y/W/H 记忆坐标）；[Lyrics] 4 键（ChineseConvert 繁简档/OnlineTtml 在线逐字开关/TtmlDatabase 地址模板/TtmlLibrary 本地库目录）；LyricAux 为歌词辅助行（关闭/翻译/音译，两路同位置且各按档位回落）；LyricScale 为行级歌词缩放；Background/BackgroundImage/BackgroundBlur 为默认主题背景（模式/自定义图/模糊强度）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；MenuBlur 为浮层菜单毛玻璃开关；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
 check("模板含热键两段", ["[Hotkeys.Global]", "[Hotkeys.Focus]"].every((s) => template().includes(s)));
 eq("全局热键默认 Ctrl+Alt+P", defaults()["Hotkeys.Global.Toggle"], "Ctrl+Alt+P");
 eq("焦点退出默认 Ctrl+Q", defaults()["Hotkeys.Focus.Quit"], "Ctrl+Q");
@@ -96,6 +96,22 @@ eq("繁简转换默认不转", defaults()["Lyrics.ChineseConvert"], "off");
 eq("在线 TTML 默认开", defaults()["Lyrics.OnlineTtml"], "True");
 eq("TTML 数据库默认模板（全平台 %p）", defaults()["Lyrics.TtmlDatabase"], "https://amlldb.bikonoo.com/%p/%s.ttml");
 eq("本地 TTML 库默认未设置", defaults()["Lyrics.TtmlLibrary"], "");
+eq("桌面歌词默认关", defaults()["DesktopLyrics.Enabled"], "False");
+eq("桌面歌词歌词层默认完全不透明", defaults()["DesktopLyrics.Opacity"], "1");
+eq("桌面歌词窗体默认无背板（全透明，只有字）", defaults()["DesktopLyrics.Backdrop"], "0");
+eq("桌面歌词字号默认 1", defaults()["DesktopLyrics.Scale"], "1");
+eq("桌面歌词默认单行", defaults()["DesktopLyrics.Mode"], "single");
+eq("桌面歌词默认单行居中", defaults()["DesktopLyrics.SingleCenter"], "True");
+eq("桌面歌词颜色默认档", defaults()["DesktopLyrics.ColorMode"], "default");
+eq("桌面歌词自定义色默认白", defaults()["DesktopLyrics.Color"], "#ffffff");
+eq("桌面歌词行数拒绝瞎写", writeValues({ "DesktopLyrics.Mode": "triple" }), []);
+eq("桌面歌词颜色档拒绝瞎写", writeValues({ "DesktopLyrics.ColorMode": "rainbow" }), []);
+eq("桌面歌词自定义色拒绝非 HEX", writeValues({ "DesktopLyrics.Color": "red" }), []);
+eq("桌面歌词自定义色接受 HEX", writeValues({ "DesktopLyrics.Color": "#19c2d8" }).length, 1);
+eq("桌面歌词坐标默认未记忆", defaults()["DesktopLyrics.X"], "");
+eq("桌面歌词拒绝瞎写的字号", writeValues({ "DesktopLyrics.Scale": "9" }), []);
+eq("桌面歌词接受合法字号", writeValues({ "DesktopLyrics.Scale": "1.3" }).length, 1);
+eq("桌面歌词接受负坐标（多屏副屏在左）", writeValues({ "DesktopLyrics.X": "-1920" }).length, 1);
 eq("繁简档拒绝瞎写", writeValues({ "Lyrics.ChineseConvert": "both" }), []);
 eq("繁简档接受三档", writeValues({ "Lyrics.ChineseConvert": "simplified" }).length, 1);
 eq("繁简档拒绝简转繁以外的乱写回落", (() => { writeValues({ "Lyrics.ChineseConvert": "traditional" }); return readValues().values["Lyrics.ChineseConvert"]; })(), "traditional");
