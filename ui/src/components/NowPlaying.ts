@@ -44,6 +44,9 @@ export function NowPlaying(): HTMLElement {
     <div class="np-bg" id="np-bg"></div>
     <div class="np-bg np-bg2" id="np-bg2"></div>
     <div class="np-scrim"></div>
+    <!-- CSD 拖拽把手层：主界面 .win-dragtop 的本页替身（顶缘 8px 透明条），页面内容照常交互。
+         SSD 态有系统标题栏，这层不出场。 -->
+    <div class="np-drag" aria-hidden="true"></div>
     <div class="np-inner">
       <div class="np-lyrics" id="np-lyrics"></div>
       <div class="np-kara-host" id="np-karaoke"></div>
