@@ -13,6 +13,7 @@ import { addNavItem, repaintSidebarPlaylists } from "../shell";
 import { applyTint } from "../lib/tint";
 import { applyBackground } from "../lib/ambient";
 import { applyMenuGlass } from "../lib/menu-glass";
+import { applyControlBar } from "../lib/control-bar";
 import { sparkBlockReason } from "./policy";
 import {
   activateStyle, mountStyleLayer, onStyleChange, resetStyle, stylePacks, styleState,
@@ -67,11 +68,13 @@ function applySparkleTheme() {
   const known = active && sparkleThemes().some((t) => t.id === active) ? active : null;
   if (known) root.dataset.sparkleTheme = known;
   else delete root.dataset.sparkleTheme;
-  // 主题会决定三样东西归谁：高亮色（tint）、背景（background）、浮层菜单的外观（menus）。
-  // 没声明的主题自带那一块，宿主必须让位。换主题/停用主题后都要重算一次，否则会停在上一套策略上。
+  // 主题会决定这些归谁：高亮色（tint）、背景（background）、浮层菜单的外观（menus）、
+  // 播放控制条停靠形态（controlBar）。前三者缺省是主题自带；控制条缺省归宿主偏好。
+  // 换主题/停用主题后都要重算一次，否则会停在上一套策略上。
   applyTint();
   applyBackground();
   applyMenuGlass();
+  applyControlBar();
 }
 
 function injectThemeStyle(t: SparkleTheme) {

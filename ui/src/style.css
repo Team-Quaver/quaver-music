@@ -110,6 +110,11 @@ html[data-menu-glass="off"] .np {
   --menu-line: #ffffff1f;
   --menu-edge: transparent;
 }
+/* 控制条底片也跟着模糊开关走：off 时从玻璃换成实底。模糊没了 + 底片仍半透明会看不出差别；
+   主题可用 --control-bar-surface 单独接管控制条的底片，不影响其它菜单。 */
+html[data-menu-glass="off"] body {
+  --control-bar-surface: var(--card);
+}
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 /* 全站禁选中：这是桌面应用，指针手势是「点 / 拖 / 双击播放」，不是选词 —— 一选中，
@@ -166,7 +171,6 @@ input:focus, textarea:focus, select:focus {
 .ambient[data-mode="custom"] .ambient-art { filter: blur(var(--ambient-blur, 70px)); }
 .ambient[data-mode="custom"] .ambient-art.ready { opacity: 1; }
 
-.frame { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; position: relative; }
 /* CSD（frame:false）：无标题栏、无浮窗。三按钮+抓握点平铺在窗口右上角，
    容器底即拖拽区（双击最大化），按钮本体 no-drag。浏览器 dev 下同样可见（点击走占位事件）。
    top 下探到 ContentView 面板缘（y=10）之下：钮完全落在面板内，不压边框。 */
@@ -195,8 +199,28 @@ input:focus, textarea:focus, select:focus {
   -webkit-app-region: drag; cursor: grab; user-select: none;
 }
 
+/* 播放条停靠令牌：高度/底部槽位/悬浮内边距集中在这里，Sparkle 主题/样式层可以整体接管。
+   ControlBar=bottom 时 .frame 第二行给播放条常驻高度；floating 时同一行收为 0，
+   侧栏与 Content View 随同一帧动画释放空间（不用 JS 量高度）。 */
+body {
+  --control-bar-height: 64px;
+  --control-bar-slot: calc(var(--control-bar-height) + var(--control-bar-gap));
+  --control-bar-inset: 10px;
+  --control-bar-gap: 10px;
+  --control-bar-lift: 14px;
+  --control-bar-surface: var(--glass);
+  --control-bar-width: min(680px, calc(var(--control-bar-content-width) - 40px));
+  --control-bar-content-width: calc(100vw - var(--side-w, 216px) - var(--control-bar-inset) * 2 - var(--control-bar-gap));
+}
+body.side-collapsed {
+  --control-bar-content-width: calc(100vw - 64px - var(--control-bar-inset) * 2 - var(--control-bar-gap));
+}
+/* 播放条改为 grid 行（仅 .body + 控制条两行；窗口按钮/拖拽层都是 fixed）：
+   第二行用可插值的显式槽位，而不是 auto —— floating 切换时内容区/侧栏的高度才真的是动画。 */
+.frame { display: grid; grid-template-rows: minmax(0, 1fr) var(--control-bar-slot); height: 100dvh; overflow: hidden; position: relative;
+  transition: grid-template-rows .34s cubic-bezier(.32,.72,.24,1); }
 /* .body 底部不再给播放条留 absolute 空间——播放条已改为 .frame 流内固定行（任何窗口高度都必然可见） */
-.body { flex: 1; display: flex; gap: 10px; padding: 10px; min-height: 0; }
+.body { display: flex; gap: 10px; padding: 10px; min-height: 0; min-width: 0; }
 /* 侧栏宽度：默认 216px，可由 shell.ts 的分隔条拖拽写入的 --side-w 覆盖
    （缩态 64px 由 body.side-collapsed 的高优先级规则接管，见文件下方） */
 .sidebar {
@@ -428,7 +452,8 @@ body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-b
 .content-body { flex: 1; min-height: 0; display: flex; min-width: 0; position: relative; }
 .route { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; --route-pad-top: 6px; padding: var(--route-pad-top) 24px 20px;
   /* 滚动槽常驻：列表从"不滚"变"可滚"时，吸顶头与条内控件不会左右跳一下 */
-  scrollbar-gutter: stable; }
+  scrollbar-gutter: stable;
+  transition: padding-bottom .34s cubic-bezier(.32,.72,.24,1); }
 /* ContentView 进入动画：只让视图容器的直接子元素淡入上移，容器本身保持稳定 ——
    滚动位置 / 容器背景不闪，避免「整个 ContentView 刷新」的观感。entering class 常驻
    在本次导航的视图 host（.route > .entering，renderRoute 每次导航换新发放）上，
@@ -714,7 +739,7 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
   position: relative; z-index: 60; flex: 0 0 auto; margin: 0 10px 10px;
   height: 64px; border-radius: 14px;
   display: flex; align-items: center; gap: 14px; padding: 0 16px; color: var(--ink2);
-  background: var(--glass); border: 1px solid var(--glass-line);
+  background: var(--control-bar-surface, var(--glass)); border: 1px solid var(--glass-line);
   box-shadow: 0 6px 28px rgba(15,20,30,.12);
   /* 本元素的玻璃**不写在这里**，见下面 .player::before。
      原因：带 filter 系属性的元素会成为后代 backdrop-filter 的 backdrop root —— 挂在条上方
@@ -726,7 +751,9 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 }
 .player::before {
   content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: -1;
-  backdrop-filter: blur(26px) saturate(1.5); /* 无前缀！见文件顶部「别补 -webkit-」那段 */
+  /* 控制条也吃「菜单毛玻璃」总开关：开关只控制模糊，不抢 .player 的 --glass 底片 ——
+     主题依旧可用 --glass 自己换皮；主题接管菜单外观时可覆盖 --menu-filter。 */
+  backdrop-filter: var(--menu-filter); /* 无前缀！见文件顶部「别补 -webkit-」那段 */
   pointer-events: none;
 }
 /* 窄窗口防溢出：三列可收缩 + 中列按钮间隙收紧（播放/暂停永远留位） */
@@ -740,6 +767,45 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
   .pb-q, .pb-btn#pb-love { display: none; }
   .now .s { display: none; }
 }
+/* —— 悬浮控制条（Style.ControlBar=floating）——
+   依然只有一个 #player-bar 节点：停靠态留在 .frame 第二行；悬浮态改为 fixed 并钉在
+   Content View 底部，并按 --control-bar-width 在该区域里水平居中。
+   行高收到 0 + route 底部 padding 同步过渡，是「让位」的同一套动画；--side-w 跟着侧栏
+   拖拽/缩回变化，条的位置不会飞出内容区。主题/插件接管时优先覆盖下面这些 --control-bar-*。 */
+body[data-control-bar="floating"] .frame { grid-template-rows: minmax(0, 1fr) 0px; }
+body[data-control-bar="floating"] .player {
+  position: fixed; z-index: 60;
+  left: calc(var(--side-w, 216px) + var(--control-bar-inset) * 2
+    + (var(--control-bar-content-width) - var(--control-bar-width)) / 2);
+  bottom: calc(var(--control-bar-inset) * 2 + var(--control-bar-lift));
+  margin: 0; width: var(--control-bar-width); height: var(--control-bar-height);
+  /* Content View 中心 ⇄ 窗口中心的水平位移走同一条 NowPlaying 曲线 */
+  transition: left .34s cubic-bezier(.32,.72,.24,1), bottom .34s cubic-bezier(.32,.72,.24,1);
+  animation: control-bar-float-in .34s cubic-bezier(.32,.72,.24,1) both;
+}
+body[data-control-bar="floating"].side-collapsed .player {
+  left: calc(64px + var(--control-bar-inset) * 2
+    + (var(--control-bar-content-width) - var(--control-bar-width)) / 2);
+}
+/* 默认「正在播放」展开时（插件接管由 np-takeover 藏条），控制条以窗口水平居中 */
+body[data-control-bar="floating"]:has(> .np.open) .player {
+  left: calc((100% - var(--control-bar-width)) / 2);
+}
+/* 悬浮态紧凑排版：680px 内完整保留控制能力，但收缩左块与外距，时间强制单行 */
+body[data-control-bar="floating"] .player { padding: 0 12px; gap: 10px; }
+body[data-control-bar="floating"] .pb-left { flex: 0 1 200px; width: auto; max-width: 200px; }
+body[data-control-bar="floating"] .pb-time { white-space: nowrap; }
+/* 悬浮条仍要给 route 留出安全区：列表/正文不能被遮住。模糊只在有背景层或
+   内容卡本身透出的环境色时可感知；背景关闭时控制条底下本来就没有可糊的纹理。 */
+body[data-control-bar="floating"] .route {
+  padding-bottom: calc(var(--control-bar-height) + var(--control-bar-gap) + var(--control-bar-inset) + var(--control-bar-lift));
+}
+body[data-control-bar="floating"] .queue-panel.float { bottom: calc(var(--control-bar-inset) * 2 + var(--control-bar-lift) + var(--control-bar-height) + var(--control-bar-gap)); }
+@keyframes control-bar-float-in {
+  from { opacity: 0; transform: translateY(14px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
+
 /* 高亮色进度条：已播区 = tint 染色（色源与档位见 src/lib/tint.ts）。fill 的母容器 .pb-fill-clip 负责裁切：
    inset:1px 贴紧 border 内侧两端（R 角与 .player(14px) 同心 = 13px），
    overflow:hidden 把已播区永远裁在内沿圆角矩形里 —— 之前 fill 自带 13px 圆角，
@@ -869,6 +935,8 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
    所以只做一件事：把前景的亮度锚到 --ink，accent 仍贡献色相。
    accent 占比 0.48 是脚本解出的上限（图标门槛 3:1），取满以尽量多留封面色。 */
 .pb-ghost.on { color: color-mix(in srgb, var(--cvg-accent, var(--cyan)) 48%, var(--ink)); }
+/* 收藏与桌面歌词不用染色表达状态：红心=空心/实心，桌面歌词=无杠/斜杠，颜色与其余静止图标一致 */
+.pb-ghost#pb-love.on, .pb-ghost#pb-dl.on { color: var(--ink3); }
 /* 音量浮窗：挂在 Bar 上方右侧，玻璃底；静音钮 + 滑杆 + 读数一体 */
 .pb-volpop {
   position: absolute; right: 8px; bottom: calc(100% + 10px); z-index: 70;
@@ -2030,6 +2098,8 @@ html[data-theme="dark"] .upd-warn.upd-switch.is-risk { color: #e66; }
 
 @media (prefers-reduced-motion: reduce) {
   .upd-overlay, .upd-dialog, .upd-overlay.leaving, .upd-overlay.leaving .upd-dialog { animation: none; }
+  .frame, .route { transition: none; }
+  body[data-control-bar="floating"] .player { animation: none; }
 }
 
 /* —— 本地插件警告弹窗（components/LocalPluginDialog.ts）——

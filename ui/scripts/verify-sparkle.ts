@@ -74,7 +74,9 @@ ok("sdk: 支持最低宿主版本与 Beta 开关", has(src.types, "minHostVersio
 ok("Lumen: 最低宿主版本为 1.4.1 且允许 Beta", has(src.md3Meta, '"minHostVersion": "1.4.1"') && has(src.md3Meta, '"allowBeta": true') && has(src.md3, 'minHostVersion: "1.4.1"') && has(src.md3, "allowBeta: true"));
 ok("版本比较：主进程安装前执行宿主版本门禁", has(src.mainMjs, "sparkleHostVersionError") && has(src.mainMjs, "minHostVersion"));
 ok("版本比较：Marketplace 构建透传最低宿主版本", has(src.mkBuild, "minHostVersion: meta.minHostVersion"));
-ok("sdk: die-for-you 走 registerSettingsSection", has(src.dfy, "registerSettingsSection") && has(src.dfy, "die-for-you"));
+ok("sdk: 控制条停靠可由主题接管", has(src.types, "interface SparkleThemeControlBar") && has(src.types, "controlBar?: SparkleThemeControlBar"));
+ok("sparkle: 控制条策略纯函数并接入主题切换", has(read("src/sparkle/theme-control-bar.ts"), "export function controlBarPolicyOf") && has(src.host, "applyControlBar();"));
+ok("settings: 主题切换后重算控制条停靠", has(src.views, "paintControlBarPolicy();"));ok("sdk: die-for-you 走 registerSettingsSection", has(src.dfy, "registerSettingsSection") && has(src.dfy, "die-for-you"));
 ok("sdk: 作者指南存在且覆盖扩展点", has(src.guide, "registerStreamSource") && has(src.guide, "Marketplace") === false || true);
 ok("sdk: marketplace 文档固化索引格式", has(read("../vendor/Sparkle/docs/marketplace.md"), "download"));
 ok("sparkle 仓库: marketplace 构建脚本 + CI（json 交 quaver-doc）齐备", (() => {

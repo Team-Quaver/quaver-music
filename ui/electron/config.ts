@@ -349,6 +349,16 @@ export const SCHEMA: SectionSpec[] = [
         valid: isHexColor,
       },
       {
+        key: "ControlBar",
+        def: "bottom",
+        doc: [
+          "播放控制条的停靠形态：bottom=窗口底部整条停靠（**默认**）｜floating=悬浮在 Content View 底部。",
+          "悬浮态会释放底部行给侧栏/内容区，并给路由底部预留安全区；Sparkle 主题可用",
+          "body[data-control-bar=\"floating\"] 与 --control-bar-* 令牌接管外观",
+        ],
+        valid: (v: string) => ["bottom", "floating"].includes(v),
+      },
+      {
         key: "MenuBlur",
         def: "True",
         doc: [

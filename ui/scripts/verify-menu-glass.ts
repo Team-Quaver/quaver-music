@@ -139,9 +139,10 @@ check(".player 自己的规则不带 backdrop-filter（带了就是那三颗浮�
 const playerBefore = ruleOf(noComments(css), ".player::before");
 check(".player 的玻璃挪到 ::before：铺满 + 圆角继承 + z-index:-1（压在内容之下、自身背景之上）",
   playerBefore.includes("inset: 0") && playerBefore.includes("border-radius: inherit")
-  && playerBefore.includes("z-index: -1") && /backdrop-filter: blur\(26px\)/.test(playerBefore),
+  && playerBefore.includes("z-index: -1") && playerBefore.includes("backdrop-filter: var(--menu-filter)"),
   playerBefore.replace(/\s+/g, " ").slice(0, 150));
 check("…且 ::before 不吃指针（它铺满整条）", /\.player::before \{[\s\S]*?pointer-events: none/.test(css));
+check("关闭菜单毛玻璃时控制条底片退回实底", /html\[data-menu-glass="off"\] body \{[^}]*--control-bar-surface: var\(--card\)/.test(css));
 
 for (const sel of MENU_SELECTORS) {
   const body = ruleOf(css, sel);
@@ -250,9 +251,11 @@ section("产物级（dist 存在时）");
       !built.includes("-webkit-backdrop-filter") || /-webkit-backdrop-filter:([^;}]+);\s*backdrop-filter:\1/.test(built));
     check("产物里的菜单玻璃走令牌 var(--menu-filter)",
       /(?<!-)backdrop-filter:var\(--menu-filter\)/.test(built));
-    check("产物里的 .player 玻璃在 :before 上，.player 自身不带 backdrop-filter",
-      /\.player:before\{[^}]*(?<!-)\bbackdrop-filter:blur\(26px\)/.test(built)
+    check("产物里的 .player 玻璃在 :before 上，并走菜单模糊令牌",
+      /\.player:before\{[^}]*(?<!-)\bbackdrop-filter:var\(--menu-filter\)/.test(built)
       && !/\.player\{[^}]*backdrop-filter/.test(built));
+    check("产物里的控制条关闭档换实底（不只是模糊变 none）",
+      /--control-bar-surface:var\(--card\)/.test(built));
     check("产物里的关闭档是 none（不是 blur(0px)）", /--menu-filter:none/.test(built));
   }
 }

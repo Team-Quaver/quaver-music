@@ -12,9 +12,9 @@ import type { RGB } from "../lib/color";
 import { configInfo, resetConfig, revealConfig } from "../lib/config";
 import { syncInhibit } from "../lib/inhibit";
 import { applyMenuGlass } from "../lib/menu-glass";
-import { BG_BLUR_MAX, BG_BLUR_MIN, FONT_CUSTOM, FONT_LABELS, FONT_PRESETS, TINT_DEFAULT_COLOR, fontKeyOf, getAutoCheck, getBackgroundBlur, getBackgroundImage, getBackgroundMode, getChineseConvert, getCloseAction, getDecode,
-  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMenuBlur, getOnlineTtml, getPrevBehavior, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundBlur, setBackgroundImage, setBackgroundMode, setChineseConvert, setCloseAction, setDecor, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricFontPreset, setMenuBlur, setOnlineTtml, setPrevBehavior, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel } from "../lib/prefs";
-import type { BackgroundMode, ChineseConvert, CloseAction, DecorMode, DlColorMode, DlMode, FadePreset, FallbackSort, PrevBehavior, ThemeMode, TintMode, UpdateChannel } from "../lib/prefs";
+import { BG_BLUR_MAX, BG_BLUR_MIN, FONT_CUSTOM, FONT_LABELS, FONT_PRESETS, TINT_DEFAULT_COLOR, fontKeyOf, getAutoCheck, getBackgroundBlur, getBackgroundImage, getBackgroundMode, getChineseConvert, getCloseAction, getControlBarMode, getDecode,
+  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMenuBlur, getOnlineTtml, getPrevBehavior, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundBlur, setBackgroundImage, setBackgroundMode, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricFontPreset, setMenuBlur, setOnlineTtml, setPrevBehavior, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel } from "../lib/prefs";
+import type { BackgroundMode, ChineseConvert, CloseAction, ControlBarMode, DecorMode, DlColorMode, DlMode, FadePreset, FallbackSort, PrevBehavior, ThemeMode, TintMode, UpdateChannel } from "../lib/prefs";
 import { applyTint } from "../lib/tint";
 import { TTML_DB_DEFAULT_URL, isTtmlDatabaseUrl } from "../lib/ttml";
 import { buildChannel, channelLabel, describeBuild, parseVersion } from "../lib/update-core";
@@ -25,6 +25,7 @@ import { onSparkleChange, sparkleActiveTheme, sparkleThemes } from "../sparkle/r
 import { mountSparklePanel } from "../sparkle/settings";
 import { backgroundPolicyOf } from "../sparkle/theme-background";
 import { menuGlassPolicyOf } from "../sparkle/theme-menus";
+import { controlBarPolicyOf } from "../sparkle/theme-control-bar";
 import { TINT_PRESET_COVER, TINT_PRESET_SYSTEM, resolvePresetColor, sparkSetTintChoice, sparkTintChoice, tintPolicyOf } from "../sparkle/theme-tint";
 import type { SparkleTintPreset } from "@quaver/sparkle";
 import { errText, h, watchBackendChange } from "./_shared";
@@ -134,6 +135,17 @@ export default async function settingsView(root: HTMLElement) {
           <button class="opt-card" data-opt="off" type="button">关闭</button>
         </div>
         <p class="muted set-hint" id="menu-glass-hint"></p>
+      </div>
+
+      <!-- 播放控制条：底部停靠 / Content View 内悬浮。悬浮态的让位动画与安全区全在
+           style.css 的 --control-bar-*；Sparkle 主题/样式层可覆盖同一组令牌或重画形态。 -->
+      <div class="set-group">
+        <div class="set-label">播放控制条 <span class="set-note-inline">悬浮时 Content View 与侧栏会让出底部空间</span></div>
+        <div class="opt-cards" id="control-bar-cards">
+          <button class="opt-card" data-opt="bottom" type="button">底部停靠</button>
+          <button class="opt-card" data-opt="floating" type="button">内容区悬浮</button>
+        </div>
+        <p class="muted set-hint" id="control-bar-hint">悬浮在 Content View 底部，列表滚动不会被遮住；展开「正在播放」时滑回窗口底部并保持尺寸。</p>
       </div>
 
       <!-- 花火面具：卡片由下方 renderSparkleThemes 动态填充（无插件主题时整组隐藏） -->
@@ -831,6 +843,27 @@ export default async function settingsView(root: HTMLElement) {
     const active = sparkleThemes().some((t) => t.id === activeId) ? (activeId ?? "") : "";
     syncSel(sparkleThemeCards, "opt", active);
   };
+  // 播放控制条：底部停靠（默认）/ Content View 内悬浮。主题声明 controlBar 时是最终态，
+  // 这里整组禁用并显示实际生效值；宿主态由 setControlBarMode + applyControlBar 即时同步。
+  const CONTROL_BAR_HINT = "悬浮在 Content View 底部，列表滚动不会被遮住；展开「正在播放」时滑回窗口底部并保持尺寸。";
+  const controlBarCards = wrap.querySelector<HTMLElement>("#control-bar-cards")!;
+  const controlBarHint = wrap.querySelector<HTMLElement>("#control-bar-hint")!;
+  const paintControlBarPolicy = () => {
+    const policy = controlBarPolicyOf(activeSparkTheme());
+    const locked = policy.mode !== "host";
+    controlBarCards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = locked; });
+    syncSel(controlBarCards, "opt", locked ? policy.mode : getControlBarMode());
+    controlBarHint.textContent = locked
+      ? `当前花火面具「${activeSparkTheme()?.name ?? ""}」接管控制条停靠；切到「默认」主题或让主题声明 controlBar:"host" 才可调。`
+      : CONTROL_BAR_HINT;
+  };
+  controlBarCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
+    b.onclick = () => {
+      setControlBarMode(b.dataset.opt as ControlBarMode);
+      paintControlBarPolicy();
+    };
+  });
+  paintControlBarPolicy();
   const renderSparkleThemes = () => {
     const themes = sparkleThemes();
     sparkleThemeGroup.hidden = themes.length === 0;
@@ -847,6 +880,7 @@ export default async function settingsView(root: HTMLElement) {
         paintTintPolicy(); // 主题决定高亮色归谁：切完要把上面那组重新收口
         paintBgPolicy();   // 背景归谁同理
         paintMenuGlassPolicy(); // 浮层菜单的外观归谁同理
+        paintControlBarPolicy(); // 控制条停靠形态归谁同理
       };
       return b;
     };
@@ -856,6 +890,7 @@ export default async function settingsView(root: HTMLElement) {
     paintTintPolicy(); // 主题列表变了（插件启停）→ 高亮色那组的可用性也要跟着重算
     paintBgPolicy();   // 背景那组同理
     paintMenuGlassPolicy(); // 菜单外观那组同理
+    paintControlBarPolicy(); // 控制条停靠那组同理
   };
   renderSparkleThemes();
   const offSparkleThemes = onSparkleChange(renderSparkleThemes);

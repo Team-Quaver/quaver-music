@@ -39,6 +39,7 @@ const cssVars = new Map();
 const htmlDataset = {};
 const htmlClasses = new Set();
 const bodyClasses = new Set();
+const bodyDataset: Record<string, string> = {};
 const mkClassList = (set) => ({ toggle: (n, on) => (on ? set.add(n) : set.delete(n)), contains: (n) => set.has(n) });
 globalThis.localStorage = {
   getItem: (k) => (ls.has(k) ? ls.get(k) : null),
@@ -55,7 +56,7 @@ globalThis.document = {
       getPropertyValue: (k) => cssVars.get(k) ?? "",
     },
   },
-  body: { classList: mkClassList(bodyClasses) },
+  body: { classList: mkClassList(bodyClasses), dataset: bodyDataset },
   addEventListener: () => {},
   visibilityState: "visible",
 };
@@ -99,6 +100,9 @@ eq("字体默认（族列表 ⇒ 认成系统默认）", [P.getUiFont(), P.getLy
 eq("背景默认关闭（只有主题底色）", P.getBackgroundMode(), "off");
 eq("背景图默认未选择", P.getBackgroundImage(), "");
 eq("背景模糊默认 70", P.getBackgroundBlur(), 70);
+eq("控制条默认底部停靠", P.getControlBarMode(), "bottom");
+ls.set("quaver.conf.v1", JSON.stringify({ "Style.ControlBar": "bad" })); await P.loadConfig();
+eq("控制条模式坏值回落停靠", P.getControlBarMode(), "bottom");
 eq("菜单毛玻璃默认开", P.getMenuBlur(), true);
 eq("歌词辅助默认翻译", P.getLyricAux(), "translation");
 eq("翻译门面默认开", P.getShowTrans(), true);
@@ -150,6 +154,17 @@ await settle();
 // 浮层菜单的毛玻璃（[Style] MenuBlur）：一棵布尔开关，落 False/True
 P.setMenuBlur(false); eq("关闭菜单毛玻璃 → MenuBlur=False", conf()["Style.MenuBlur"], "False");
 eq("读回来也是关", P.getMenuBlur(), false);
+P.setMenuBlur(true);  eq("开启 → True", conf()["Style.MenuBlur"], "True");
+
+// 播放控制条（[Style] ControlBar）：bottom=底部行停靠（默认）｜floating=Content View 内悬浮
+P.setControlBarMode("floating");
+eq("悬浮 → floating", [P.getControlBarMode(), conf()["Style.ControlBar"]], ["floating", "floating"]);
+check("body 悬浮 class/data 属性同步", bodyClasses.has("control-bar-floating") && bodyDataset.controlBar === "floating", JSON.stringify({cls:[...bodyClasses], ds:bodyDataset}));
+P.setControlBarMode("bottom");
+eq("底部 → bottom", [P.getControlBarMode(), conf()["Style.ControlBar"]], ["bottom", "bottom"]);
+check("body 底部 class/data 属性同步", !bodyClasses.has("control-bar-floating") && bodyDataset.controlBar === "bottom", JSON.stringify({cls:[...bodyClasses], ds:bodyDataset}));
+P.setControlBarMode("bad" as any);
+eq("非法写入回落 bottom", [P.getControlBarMode(), conf()["Style.ControlBar"]], ["bottom", "bottom"]);
 P.setMenuBlur(true);  eq("开启 → True", conf()["Style.MenuBlur"], "True");
 
 // 三档替换关系：写 LyricAux 同时写兼容键 ShowTranslation

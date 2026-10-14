@@ -82,7 +82,7 @@ export function PlayerBar(): HTMLElement {
   // 即 syncFromConf() 开/关覆盖层，与设置页同一扇门；按钮亮灭只认主进程回推的**窗口真相**
   // （dl-active 广播 + 启动 sendSync），不是本地内存 —— 托盘/✕ 关窗等旁路改动能立刻反映。
   const dl = $("pb-dl");
-  dl.innerHTML = icons.desktopLyric;
+  dl.innerHTML = icons.desktopLyricOff; // 初始画「关」态，paintDl 再按主进程真相修正
   const dlBridge = window.quaverDesktopLyrics;
   if (!dlBridge) dl.remove(); // 浏览器 dev 没有覆盖层窗：藏钮（与「打开位置」按钮同款处置）
   else {
@@ -91,6 +91,7 @@ export function PlayerBar(): HTMLElement {
       if (open === dlOpen && dl.classList.contains("on") === open) return;
       dlOpen = open;
       dl.classList.toggle("on", open);
+      dl.innerHTML = open ? icons.desktopLyric : icons.desktopLyricOff;
       dl.title = open ? "桌面歌词：开（点击关闭）" : "桌面歌词：关（点击开启）";
       dl.setAttribute("aria-pressed", String(open));
     };

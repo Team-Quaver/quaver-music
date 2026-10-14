@@ -174,6 +174,26 @@ export function setMenuBlur(v: boolean) {
   cfgSet({ "Style.MenuBlur": v ? "True" : "False" });
 }
 
+// —— 播放控制条：底部停靠（默认）｜Content View 内悬浮 ——
+// 配置值落在 [Style] ControlBar；DOM 状态挂 body（class + data-control-bar），
+// 布局与动画只消费 style.css 的 --control-bar-* 令牌。Sparkle 主题/样式层可直接覆盖
+// 这些令牌或按 body[data-control-bar="floating"] 重画形态，不需要改渲染层。
+export type ControlBarMode = "bottom" | "floating";
+const CONTROL_BAR_MODES: readonly string[] = ["bottom", "floating"];
+
+export function getControlBarMode(): ControlBarMode {
+  const v = cfg("Style.ControlBar");
+  return CONTROL_BAR_MODES.includes(v) ? (v as ControlBarMode) : "bottom";
+}
+export function applyControlBarMode(mode: ControlBarMode = getControlBarMode()) {
+  document.body.classList.toggle("control-bar-floating", mode === "floating");
+  document.body.dataset.controlBar = mode;
+}
+export function setControlBarMode(m: ControlBarMode) {
+  cfgSet({ "Style.ControlBar": CONTROL_BAR_MODES.includes(m) ? m : "bottom" });
+  applyControlBarMode();
+}
+
 // —— 界面高亮色（tint）：--cvg-accent / --cvg-glow 的来源 ——
 // 四档落在 quaver.conf 的 [Style] Tint（default=固定青色｜cover=跟随封面｜system=系统强调色｜
 // custom=自定义色），自定义色的取值落在 TintColor（#rrggbb）。这里同样**只**管「枚举 ⇄ 配置取值」：
