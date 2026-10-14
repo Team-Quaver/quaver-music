@@ -869,8 +869,6 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
    所以只做一件事：把前景的亮度锚到 --ink，accent 仍贡献色相。
    accent 占比 0.48 是脚本解出的上限（图标门槛 3:1），取满以尽量多留封面色。 */
 .pb-ghost.on { color: color-mix(in srgb, var(--cvg-accent, var(--cyan)) 48%, var(--ink)); }
-/* 红心是固定色，与封面无关、对比度本就够（浅 3.35:1 / 深 4.4:1），保持原样不动 */
-.pb-ghost#pb-love.on { color: #e8465a; }
 /* 音量浮窗：挂在 Bar 上方右侧，玻璃底；静音钮 + 滑杆 + 读数一体 */
 .pb-volpop {
   position: absolute; right: 8px; bottom: calc(100% + 10px); z-index: 70;
