@@ -299,10 +299,11 @@ export function setInhibitSleep(v: boolean) {
 
 // —— 歌词辅助行：关闭 / 翻译 / 音译。翻译与音译是替换关系，且都在歌词**下方**那一行 ——
 //    翻译档：优先翻译，本行没翻译则回落音译；音译档：优先音译，本行没音译则回落翻译。
-//    同一条规则有四处实现（互 import 不到），改规则一起改：src/lyric.ts 的 pickAux（行级）、
-//    AMLL 插件的 pickAuxLine（逐字）、np-view 交出去的行级 trans（已挑好）、flowscape 的 auxText。
+//    规则只有 src/lyric.ts 的 pickAux 一份：行级视图与内置歌词引擎（src/lyrics/amll.ts）都
+//    用它；np-view 交出去的行级 trans 已按档位挑好；vendor 里的 flowscape 主题另有 auxText
+//    （在 submodule 里 import 不到宿主，改规则时那一处要手动跟）。
 //    清单与理由见 ui/AGENTS.md「歌词辅助行」。音译是 romaji/拼音这类「整行换套读音」，
-//    不是日文振假名那种词上方注音（那是 Ruby）。
+//    不是日文振假名那种词上方注音（那是 Ruby，来自 QRC 的 [kana:] 标签，见 src/lyrics/qrc-kana.ts）。
 export type LyricAuxMode = "off" | "translation" | "romanization";
 export const LYRIC_AUX_MODES: LyricAuxMode[] = ["off", "translation", "romanization"];
 

@@ -2,7 +2,24 @@
 
 ## [amll-dev/applemusic-like-lyrics](https://github.com/amll-dev/applemusic-like-lyrics)
 
-This is used by Quaver to parse word-by-word (karaoke) lyrics (QRC/KRC/YRC/TTML) and align translations / render.
+This is used by Quaver as the built-in lyrics engine: parse word-by-word (karaoke) lyrics
+(QRC/TTML) and line-level LRC, align translations / romanization, and render the now-playing
+lyrics (including furigana `ruby`). It is part of the app itself (`ui/src/lyrics/`),
+not an optional plugin.
+
+The project is licensed under AGPL-3.0. Please checkout the project license.
+
+## [SPlayer-Dev/lyric-kit](https://github.com/SPlayer-Dev/lyric-kit)
+
+Quaver is **not** depending on this package. Only one of its systems — **QRCKana**, the
+`[kana: ...]` tag that carries Japanese furigana readings for QRC word-by-word lyrics
+(`src/utils/kana.ts`: `parseKanaUnits` / `applyKanaToLines`, plus how `src/parse/qrc.ts`
+handles the `[kana:]` tag; alignment semantics tracked to v0.6.1) — was ported into
+`ui/src/lyrics/qrc-kana.ts`, because the app needs nothing else from the toolkit
+(other formats' parsers, serializers and language inference are intentionally not used).
+The port is kept behaviourally identical to upstream: golden cases come from upstream's own
+`tests/kana.spec.ts`, and a byte-for-byte differential against the installed package runs in
+`ui/scripts/verify-kana.ts` (skipped when the package is absent).
 
 The project is licensed under AGPL-3.0. Please checkout the project license.
 

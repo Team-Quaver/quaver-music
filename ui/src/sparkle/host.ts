@@ -5,7 +5,7 @@
 // 侧栏重画（shell.repaintSidebarPlaylists）、主题 CSS 注入（document.head）。
 import type { SparkleContext, SparkleNpWidget, SparklePlugin, SparklePlayerFacade, SparkleTheme } from "@quaver/sparkle";
 import { toast } from "../components/SongMenu";
-import { isSparkleRequired, OFFICIAL_META } from "./loader";
+import { OFFICIAL_META } from "./loader";
 import { player } from "../player";
 import { addNavItem, repaintSidebarPlaylists } from "../shell";
 // 高亮色（tint）的交接：换主题后要重算宿主让不让位（见 lib/tint.ts / sparkle/theme-tint.ts）。
@@ -36,6 +36,7 @@ const OFFICIAL_OFF_KEY = "quaver.sparkle.official-off.v1";
 
 /** 被用户显式停用过的官方插件 id（init 播种「新官方插件默认启用」时跳过） */
 export const sparkOfficialOffIds = (): string[] => readList(OFFICIAL_OFF_KEY);
+export const sparkSetOfficialOffIds = (ids: string[]) => localStorage.setItem(OFFICIAL_OFF_KEY, JSON.stringify([...new Set(ids)]));
 
 const readList = (key: string): string[] => {
   try {
@@ -232,13 +233,9 @@ export async function enableSparklePlugin(plugin: SparklePlugin): Promise<boolea
 }
 
 /** 停用插件：倒序反注册 + dispose，启用集合移除。
- *  内置必装插件（required，如 amll）在此拦截 —— 设置页开关已锁，这里再兜一层中央闸口，
- *  挡住键盘/脚本/未来入口的绕过（真正的「不可停用」靠 host 这一处，不靠 UI）。 */
+ *  歌词引擎不在这儿 —— 它是宿主内置能力（src/lyrics），不是插件，没有「停用」一说；
+ *  插件停用只是撤掉它自己的提供器，sparkleKaraokeProvider() 自动落回内置 AMLL。 */
 export function disableSparklePlugin(id: string) {
-  if (isSparkleRequired(id)) {
-    console.warn(`[sparkle:${id}] 内置插件不可停用，忽略 disable 请求`);
-    return;
-  }
   const record = sparkRecordOf(id);
   if (!record) return;
   // 当前路由若属于该插件 → 先跳走（views 表随后查不到，shell 的回落只对未知路径兜底，

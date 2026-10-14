@@ -26,7 +26,7 @@ Quaver Music，最早是为了解决 Linux 上 QQ 音乐官方客户端不好用
 - 🎉 百变：支持 Sparkle 插件，可用 Sparkle 插件更换主题，个性化自己的播放页
 - 🖥 跨平台：支持 Windows（X86、ARM） / ARM macOS / Linux（X86、龙芯、ARM）
 - 📚 系统集成：支持 Dbus MPRIS、Windows SMTC、macOS NowPlaying 与 Logind Inhibit、Windows 电源请求、macOS 电源断言
-- 📔 丰富歌词：支持 QRC 和 LRC，逐字高亮和翻译
+- 📔 丰富歌词：内置 AMLL 歌词引擎，支持 QRC / TTML / LRC 的逐字高亮、翻译与音译，日文歌自动显示振假名注音（QRCKana）
 - 💽 本地与 NAS：本地文件夹 / 挂载盘 / WebDAV 曲库扫描播放，自动刮削歌曲信息、封面与歌词（匹配到 QQ 曲库的本地曲目享在线 QRC 逐字）
 - 🎨 自适应主题：基于封面背景 + Tint，支持深浅模式和跟随系统
 - 💪 持续维护：基于 Vibe Coding + 人力审核，为代码健康保驾护航（吗？）

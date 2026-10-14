@@ -157,7 +157,7 @@ section("裁决：正常模式 + 黑名单");
 (window as any).quaverRedflag = false;
 await load({});
 check("无黑名单：第三方放行", reason("flowscape", "third-party") === null);
-check("无黑名单：预装放行", reason("amll", "official") === null);
+check("无黑名单：预装放行", reason("die-for-you", "official") === null);
 await load({ "Sparkle.Blacklist": "flowscape,die-for-you" });
 check("黑名单命中第三方 → 拦（理由指向 Blacklist）", (reason("flowscape", "third-party") ?? "").includes("Blacklist"));
 check("黑名单命中预装 → 同样拦（一视同仁）", (reason("die-for-you", "official") ?? "").includes("Blacklist"));
@@ -169,13 +169,15 @@ section("裁决：安全模式（QUAVER_REDFLAG=1）");
 await load({});
 check("sparkRedflag 读到开关", P.sparkRedflag() === true);
 check("第三方插件一律拦（理由指向安全模式）", (reason("flowscape", "third-party") ?? "").includes("安全模式"));
-check("预装插件不受影响（安全模式只拦外置）", reason("amll", "official") === null);
+check("预装插件不受影响（安全模式只拦外置）", reason("die-for-you", "official") === null);
 check("安全模式拦在最前：黑名单之外的第三方也拦", reason("md3", "third-party") !== null);
-await load({ "Sparkle.Blacklist": "amll" });
-check("安全模式 + 黑名单：预装被黑名单拦（两层各司其职）", (reason("amll", "official") ?? "").includes("Blacklist"));
+await load({ "Sparkle.Blacklist": "die-for-you" });
+check("安全模式 + 黑名单：预装被黑名单拦（两层各司其职）", (reason("die-for-you", "official") ?? "").includes("Blacklist"));
 (window as any).quaverRedflag = false;
 await load({});
-check("关掉安全模式：预装立刻放行（无缓存残留）", reason("amll", "official") === null);
+check("关掉安全模式：预装立刻放行（无缓存残留）", reason("die-for-you", "official") === null);
+check("歌词引擎不是插件：内置兜底提供器不走黑名单（黑名单只管插件）",
+  !read("src/sparkle/policy.ts").includes("karaoke") && read("src/sparkle/registry.ts").includes("?? builtinKaraoke"));
 
 rmSync(OUT_DIR, { recursive: true, force: true });
 rmSync(ROOT, { recursive: true, force: true });

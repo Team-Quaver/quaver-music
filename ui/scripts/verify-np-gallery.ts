@@ -8,6 +8,7 @@
 //  - 展开/画廊时 CSD、搜索及候选隐藏；收起恢复；主页面候选仍盖过吸顶区
 //  - ESC 收起本页 = 同步退出画廊全屏
 //  - kara 冒烟：AMLL 元素挂载、行级隐藏、左缘渐变蒙版仍在、karaoke 清空回退行级
+//  - kara 注音：QRCKana 的词级 ruby 真的画在词上方，且不会被算成第二条辅助行
 import puppeteer from "puppeteer-core";
 import { deflateSync } from "node:zlib";
 
@@ -113,7 +114,7 @@ const setupSong = (mid) => page.evaluate((mid) => {
 }, mid);
 
 await page.goto(`${BASE}/index.html#/`, { waitUntil: "networkidle2" });
-await sleep(1500); // 等 initSparkle（amll 官方插件动态 import）
+await sleep(1500); // 等 initSparkle（内置歌词引擎 + 官方插件都是动态 import）
 
 await step("主页面：搜索历史候选覆盖吸顶区（含无 backdrop-filter 的主题）", async () => {
   await page.evaluate(() => {
@@ -192,7 +193,7 @@ await step("换曲交叉淡化：B 淡入 → 收尾后 A 接管、B 退场", as
 });
 
 await step("kara 模式：AMLL 挂载、行级隐藏、左缘渐变蒙版仍在", async () => {
-  // amll 插件是异步注册的：就位瞬间 player 会补拉一次歌词 —— 桩环境下 API 不可达会把
+  // 歌词引擎是异步注册的：就位瞬间 player 会补拉一次歌词 —— 桩环境下 API 不可达会把
   // 桩 karaoke 清空（真实应用里这步解析真 QRC）。所以这里反复重挂桩数据直到 .np.kara 稳定。
   await page.evaluate(() => {
     const p = window.__player;
@@ -282,6 +283,67 @@ await step("kara 辅助行：翻译档优先翻译、音译档优先音译，缺
   st = await read();
   if (st.rows.some((r) => r.subs.length)) throw new Error("关闭档仍残留辅助行 " + JSON.stringify(st.rows));
 });
+await step("kara 振假名：QRCKana 解析出的 ruby 画在词上方（不占辅助行位置）", async () => {
+  // NowPlaying 只在「换曲 / 歌词状态迁移 / 接管模式切换」时清容器重挂，逐字内容本身变了
+  // 不会重建 —— 所以这里走一次 none → ok 的状态迁移，逼宿主用新行表重建 AMLL。
+  // 数据形状 = 内置引擎 parse() 的真实产物（QRC 正文 + [kana:] 对齐后的词级 ruby）。
+  await page.evaluate(() => {
+    const p = window.__player;
+    p.lyrics = []; p.karaoke = []; p.lyricState = "none";
+    p.notifyPublic();
+  });
+  await sleep(250);
+  await page.evaluate(() => {
+    const p = window.__player;
+    p.lyricState = "ok";
+    p.lyrics = [{ t: 0, text: "貴下の", trans: "尊下の（译）", roma: "きさ の" }];
+    p.karaoke = [{
+      startTime: 0, endTime: 3000, translatedLyric: "尊下の（訳）", romanLyric: "",
+      words: [
+        { word: "貴", startTime: 0, endTime: 750, ruby: [{ word: "きさ", startTime: 0, endTime: 1500 }] },
+        { word: "下", startTime: 750, endTime: 1500 },
+        { word: "の", startTime: 1500, endTime: 2250 },
+      ],
+    }];
+    p.notifyPublic();
+  });
+  await page.waitForFunction(() =>
+    document.querySelectorAll('#np-karaoke [class*="rubyWord"]').length > 0, { timeout: 8000 });
+  const st = await page.evaluate(() => {
+    const host = document.querySelector("#np-karaoke .amll-lyric-player");
+    const ruby = [...(host?.querySelectorAll('[class*="rubyWord"]') ?? [])];
+    const mains = [...(host?.querySelectorAll('[class*="lyricMainLine"]') ?? [])];
+    const rowOf = (m: Element) => [...(m.parentElement?.children ?? [])].map((c) => (c.textContent ?? "").trim());
+    return {
+      rubyText: ruby.map((e) => (e.textContent ?? "").trim()).join(""),
+      // 注音元素在 DOM 里排在主行文字**之前**（词上方），且辅助行仍只有一条
+      rubyBeforeMain: ruby.length > 0 && mains.length > 0
+        ? !!(ruby[0].compareDocumentPosition(mains[0]) & Node.DOCUMENT_POSITION_FOLLOWING) : null,
+      rows: mains.map(rowOf),
+    };
+  });
+  if (!st.rubyText.includes("きさ")) throw new Error("注音没上屏 " + JSON.stringify(st));
+  if (st.rows.some((r: string[]) => r.filter(Boolean).length > 2)) throw new Error("注音被算成额外的辅助行 " + JSON.stringify(st.rows));
+
+  // 收线：把后面两步（行级回退 / 行级辅助行）依赖的桩数据原样放回去
+  await page.evaluate(() => {
+    const p = window.__player;
+    const line = (t0: number, dur: number, ws: string[][], trans = "", roman = "") => ({
+      startTime: t0, endTime: t0 + dur,
+      words: ws.map(([w, s, d]) => ({ word: w, startTime: t0 + Number(s), endTime: t0 + Number(s) + Number(d) })),
+      translatedLyric: trans, romanLyric: roman,
+    });
+    p.lyrics = [{ t: 0, text: "第一行", trans: "第一行（译）", roma: "di yi hang" },
+      { t: 3, text: "第二行", roma: "di er hang" }];
+    p.karaoke = [
+      line(0, 3000, [["你好", "0", "1500"], ["世界", "1500", "1500"]], "你好世界（译）", "ni hao shi jie"),
+      line(3000, 3000, [["第二行", "0", "3000"]], "", "di er hang"),
+    ];
+    p.notifyPublic();
+  });
+  await sleep(250);
+});
+
 await step("行级回退：karaoke 清空后回行级列表", async () => {
   await page.evaluate(() => { const p = window.__player; p.karaoke = []; p.setLyricAuxMode("translation"); p.notifyPublic(); });
   await page.waitForFunction(() =>

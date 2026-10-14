@@ -171,8 +171,9 @@ class Player {
     // 主进程拆窗重建（CSD/SSD 切换）前派发：立刻落一次存档 —— destroy() 不保证触发
     // pagehide，而重建后的新页面要靠这份存档对齐队列/指针去接管 mpv 正在放的歌
     window.addEventListener("quaver:flush-session", () => this.saveSessionNow());
-    // Sparkle 逐字提供器是异步注册的（initSparkle 晚于首帧）：首曲歌词可能在 provider
-    // 到位前就按纯 LRC 拉完了 → provider 出现时对当前曲补拉一次（fetchLyric 自带竞态守卫）
+    // 歌词提供器是异步注册的（内置 AMLL 由 initSparkle 动态 import，晚于首帧）：首曲歌词
+    // 可能在 provider 到位前就按纯 LRC 拉完了 → provider 出现时对当前曲补拉一次
+    // （fetchLyric 自带竞态守卫）
     let lastKaraProvider: SparkleKaraokeProvider | null = null;
     onSparkleChange(() => {
       const p = sparkleKaraokeProvider();
@@ -739,15 +740,12 @@ class Player {
   }
 
   /** 拉取并解析当前歌曲歌词（startCurrent 内部调用；也供外部预热/测试）。
-   *  一次请求顺带要逐字（qrc=1）：上游有 QRC 时 lyric 字段就是逐字内容，交给 Sparkle
-   *  逐字提供器（如 amll 插件）解析成 karaoke 行 + 派生行级列表；没有提供器、逐字
-   *  解析失败或请求结果为空时回退普通 LRC 行级，行为不变。 */
-  /** 拉取并解析当前歌曲歌词（startCurrent 内部调用；也供外部预热/测试）。
    *
    *  在线管线（官方曲目恒用；本地曲目仅在**刮削命中 QQ 曲库**（local.qqMid）时优先尝试）：
-   *  一次请求顺带要逐字（qrc=1）—— 上游有 QRC 时 lyric 字段就是逐字内容，交给 Sparkle
-   *  逐字提供器（如 amll 插件）解析成 karaoke 行 + 派生行级列表；没有提供器、逐字
-   *  解析失败或请求结果为空时回退普通 LRC 行级。
+   *  一次请求顺带要逐字（qrc=1）—— 上游有 QRC 时 lyric 字段就是逐字内容，交给在位的
+   *  逐字提供器（默认 = 宿主内置 AMLL，见 src/lyrics；插件注册了自己的提供器则顶掉它）
+   *  解析成 karaoke 行 + 派生行级列表；提供器缺席（内置注册失败）、逐字解析失败或请求
+   *  结果为空时回退普通 LRC 行级。
    *
    *  本地通路（2026-10 与「本地音乐/NAS」同批引入，QRC 优先是用户明确要求）：
    *  在线拿不到内容（未刮削到 / sidecar 不可达 / 上游无词）才落回 /local/lyric ——
@@ -820,8 +818,8 @@ class Player {
   }
 
   /** 把一段歌词文本应用为当前歌词状态。解析三档：逐字提供器在场先归它
-   *  （AMLL 插件认 QRC XML/TTML/纯文本 QRC，吃到词级时间轴）；解不出或插件缺席 →
-   *  parseLrc；仍是空且格式标是 qrc/ttml → coerceLyricToLrc 拍平成行级 LRC 再解一次
+   *  （内置 AMLL 认 QRC XML/TTML/纯文本 QRC 与 [kana:] 注音，吃到词级时间轴）；
+   *  解不出或提供器缺席 → parseLrc；仍是空且格式标是 qrc/ttml → coerceLyricToLrc 拍平成行级 LRC 再解一次
    *  （用户手动导入的歌词没有「在线再拉一次」可退，行级也必须出来）。 */
   private applyLyricText(raw: string, trans: string, roma: string, format = "lrc") {
     const provider = sparkleKaraokeProvider();

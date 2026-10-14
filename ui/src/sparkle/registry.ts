@@ -297,8 +297,24 @@ export const sparkleNpWidgets = (): NpWidgetEntry[] => npWidgets;
  *  enabled() 由消费方（np-view.ts）每次 notify 重读，不在这里判。 */
 export const sparkleNpView = (): SparkleNpView | null => npViews[0]?.view ?? null;
 export const sparkleStreamSources = (): SparkleStreamSource[] => streamSources.map((e) => e.source);
-/** 歌词渲染提供器（首个注册者；无 = 宿主走内置行级歌词 DOM，如 amll 缺席时的兜底） */
-export const sparkleKaraokeProvider = (): SparkleKaraokeProvider | null => karaokeProviders[0]?.provider ?? null;
+/** 宿主内置的歌词引擎（AMLL）作为兜底提供器存在注册表里，而不是「一个摘不掉的插件」：
+ *  src/lyrics/builtin.ts 在启动时把它交进来。本模块因此**不 import** 歌词引擎本体 ——
+ *  registry 必须保持零 ui 依赖（verify-sparkle 在 node 里直接 import 它）。 */
+let builtinKaraoke: SparkleKaraokeProvider | null = null;
+
+/** 登记 / 摘除宿主内置歌词引擎（传 null 只在测试里用来复位） */
+export function setBuiltinKaraokeProvider(provider: SparkleKaraokeProvider | null) {
+  builtinKaraoke = provider;
+  emitChange(); // 到位瞬间 player 会补拉一次歌词（内置引擎解析词级 QRC）
+}
+
+/** 当前内置歌词引擎（未注册 = null） */
+export const sparkleBuiltinKaraokeProvider = (): SparkleKaraokeProvider | null => builtinKaraoke;
+
+/** 此刻在位的歌词提供器：**插件注册的排最前**（可以顶掉内置 AMLL，未来移植别的播放器
+ *  效果就走这条路），没有插件提供器时恒落到内置 AMLL。两者都没有 = 宿主回退内置行级歌词 DOM。 */
+export const sparkleKaraokeProvider = (): SparkleKaraokeProvider | null =>
+  karaokeProviders[0]?.provider ?? builtinKaraoke;
 
 /** 三处菜单追加项共用的求值：函数型条目按当时上下文现算；单个插件抛错只丢它那一项，
  *  不让一个坏插件的菜单项把整张菜单带塌。 */

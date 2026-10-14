@@ -1,7 +1,7 @@
 // LRC 歌词解析（含可选的翻译 / 音译辅助行，两路各自按时间就近对齐）
 //
 // 数据层只负责「把两路都挂上」，不负责选路：显示哪一路由「翻译选项」决定，
-// 规则集中在 pickAux()（逐字视图用同一条规则，见 vendor/Sparkle/plugins/amll 的 pickAuxLine）。
+// 规则集中在 pickAux()：行级视图与**内置歌词引擎**（src/lyrics/amll.ts）共用这一份实现。
 import type { LyricAuxMode } from "./lib/prefs";
 
 export interface LyricLine {
@@ -79,8 +79,8 @@ export const fmtDur = (sec: number) => {
   return `${m}:${String(s).padStart(2, "0")}`;
 };
 
-// —— 导入歌词的宿主兜底转换（用户手动导入 QRC/TTML 而逐字提供器缺席/解不动时）——
-// 有 AMLL 插件在场就走它的 parse（词级时间轴全保留）；这里只保证「行级也一定有词」：
+// —— 导入歌词的宿主兜底转换（用户手动导入 QRC/TTML 而内置引擎解不动时）——
+// 内置 AMLL 在场就走它的 parse（词级时间轴全保留）；这里只保证「行级也一定有词」：
 // 把 TTML <p begin=…> 或 QRC [st,dur]<w …> 拍平成 LRC 文本，再喂给 parseLrc。
 const ENT: Record<string, string> = { lt: "<", gt: ">", quot: '"', apos: "'", amp: "&", nbsp: " " };
 

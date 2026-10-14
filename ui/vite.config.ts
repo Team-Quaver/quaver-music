@@ -38,7 +38,8 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(appVersion()),
   },
   resolve: {
-    // AMLL（vendor/Sparkle 内的官方插件引用，依赖由宿主 ui 提供）强制从项目根解析
+    // 歌词引擎（AMLL）是宿主内置功能（src/lyrics），依赖由 ui 自己声明；保留 dedupe：
+    // vendor/Sparkle 里的第三方插件/主题也可能 import 它，双实例会让 core 的样式与状态打架
     dedupe: ["@applemusic-like-lyrics/core", "@applemusic-like-lyrics/lyric"],
     alias: [
       // Sparkle 插件系统 SDK（git submodule vendor/Sparkle，源码级打进 dist，见 quaver-sparkle/README）

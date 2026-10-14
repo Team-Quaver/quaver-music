@@ -11,10 +11,10 @@
 // 行内排版全走 em，字号与行距随同一系数缩放；改 font-size 不用 transform，任何档位都锐利。
 // 系数持久化在 Style.LyricScale；行级与 AMLL（逐字/行级）两种模式都吃这一档（AMLL 走
 // .np-kara-host 的 --amll-lp-font-size = 基准 × --np-ly-scale）。
-// 歌词（逐字 QRC/TTML 与行级 LRC 都算）：Sparkle 歌词提供器（内置 amll 插件 = AMLL 渲染）
-// 接管同一列位（.np-kara-host），宿主只管容器与重建时机。amll 是内置不可停用的，
-// 正常情况下这一列恒为 AMLL；仅在无提供器 / 无歌词数据时回退到下面的行级高亮 DOM。
-// amll 无设置项：逐字扫色恒开，翻译/音译档位走本页 ⋮ 菜单。
+// 歌词（逐字 QRC/TTML 与行级 LRC 都算）由「在位的歌词提供器」渲染：默认是宿主内置的
+// AMLL（src/lyrics/amll.ts，无设置项、也没有开关），插件注册了自己的提供器时由它顶掉内置。
+// 提供器接管同一列位（.np-kara-host），宿主只管容器与重建时机；无提供器（内置注册失败）/
+// 无歌词数据时回退到下面的行级高亮 DOM。逐字扫色恒开，翻译/音译档位走本页 ⋮ 菜单。
 // 右侧 = 封面在上，歌名 / 「歌手 - 专辑」在下，文本右对齐且与封面右缘齐平；
 // 信息列下缘挂 ⋮ 更多选项（同名搜索 / 跳转歌手 / 跳转专辑 / 翻译选项（关闭·翻译·音译） /
 // 歌词大小 −/+ 步进（行级与 AMLL 两种模式都出现）；也可在歌词上 Ctrl+滚轮/触控板捏合直接调）。
@@ -102,7 +102,7 @@ export function NowPlaying(): HTMLElement {
   // —— 更多选项（⋮）：同名搜索 / 跳转歌手 / 跳转专辑 / 翻译选项 ——
   // 翻译与音译是替换关系：三档互斥（关闭 / 翻译 / 音译），且两路都在歌词**下方**那一行。
   // 翻译档优先翻译、本行没翻译则回落音译；音译档反之。取路规则见 src/lyric.ts 的 pickAux
-  // （行级）与 AMLL 插件的 pickAuxLine（逐字）—— 行级视图在这里重建 DOM，逐字由插件重建行表。
+  // （行级与逐字共用同一份）—— 行级视图在这里重建 DOM，逐字由内置引擎重建行表。
   // 开合是 class 驱动的缩放动画（.np-menu，锚在按钮圆心上）；跳转类动作先播收拢动画再走 hash。
   const moreBtn = $("np-more");
   const moreMenu = $("np-menu");
@@ -354,7 +354,7 @@ export function NowPlaying(): HTMLElement {
   let lastCover: string | null = null; // 封面 img 的 src 签名（4Hz notify 里防 <img> 重建/重解码）
   let lineEls: HTMLElement[] = [];
 
-  // —— 歌词（Sparkle 提供器接管 .np-kara-host：AMLL 渲染逐字 QRC/TTML 与行级 LRC）——
+  // —— 歌词（提供器接管 .np-kara-host：内置 AMLL 渲染逐字 QRC/TTML 与行级 LRC）——
   // notify 只有 4Hz，逐字扫色要逐帧时间：逐帧时钟/播放态/翻译显隐/收起冻结全部由
   // provider 的 render 自理（经 render ctx 闭包读到的永远是当前态）；宿主只管在
   // 换曲/歌词状态/逐字开关/提供器身份变化时清容器重挂。

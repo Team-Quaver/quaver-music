@@ -67,7 +67,25 @@ sidecar 健康检查（最长 15s）与服务端就绪在后台进行；闪屏�
   （闪屏→应用的导航掐掉上一帧在途加载属正常时序）。
 - 验证：`node scripts/verify-splash.ts`（已进 `verify:static`）。
 
-## 歌词辅助行（翻译 / 音译）
+## 歌词引擎（AMLL 内置）· 辅助行 · QRCKana 振假名
+
+**AMLL 是宿主内置功能，不是插件**：`src/lyrics/amll.ts`（解析 + 渲染）、`src/lyrics/builtin.ts`
+（把它交给注册表）、`src/lyrics/qrc-kana.ts`（振假名）。它曾经是「内置且不可停用的官方插件」，
+为此攒了三层补丁（`OFFICIAL_META.required` + 启动强启 + `disableSparklePlugin` 中央闸口 + 设置页
+锁开关），现在整体撤掉：歌词是能力，不该伪装成一个「摘不掉的插件」。
+
+- 在位规则只有一条：`registry.ts:sparkleKaraokeProvider()` = **插件注册的提供器优先**，
+  没有插件提供器时落到内置 AMLL（`?? builtinKaraoke`）。所以第三方仍能用
+  `registerKaraokeProvider` 完整接管歌词（未来移植别的播放器逐字效果就走这条路），
+  内置引擎本身没有开关、也不出现在设置页的插件列表里。
+- 内置 ≠ 挤进首屏 bundle：AMLL core 约 400KB，`builtin.ts` 仍用动态 `import()`，vite 单独切
+  chunk（和它当插件时的加载形状一致）。注册到位会 `emitChange` → player 对当前曲补拉一次歌词，
+  这条既有链路负责「provider 晚到」的补齐，别改成静态 import 图省事。
+- 已撤下的官方 id 记在 `loader.ts:RETIRED_OFFICIAL_IDS`，`init.ts:pruneRetiredOfficial()` 启动
+  时把 `amll` 从启用集合 / 见过名单 / 显式停用名单里洗掉 —— 不洗，将来同名 id 的插件会莫名
+  「已停用」或「不再默认启用」。
+
+### 辅助行（翻译 / 音译）
 
 正在播放页歌词下方**只有一行**辅助行。两路数据（上游 `trans` 翻译、`roma` 音译=romaji/拼音）
 都保留在解析结果里，**上屏哪一路**由「翻译选项」三档决定，规则只有一条：
@@ -78,17 +96,40 @@ sidecar 健康检查（最长 15s）与服务端就绪在后台进行；闪屏�
 - 音译**不是**词上方的 Ruby。Ruby 是日文振假名那种逐词注音，位置在词上；romaji/拼音属翻译区域
   （AMLL 的 `lyricSubLine`）。以前把音译挂词上，读逐字歌词时会在字上方刷一层拉丁字母，
   且和扫色高亮抢版面 —— 别再改回去。
+- 同一条规则的实现收敛到**两处**（AMLL 进了宿主，直接 import `pickAux`，不再各抄一份）：
+  `ui/src/lyric.ts:pickAux`（行级视图与内置 AMLL 共用）、
+  `vendor/Sparkle/marketplace/flowscape/index.ts:auxText`（整页接管主题的逐字路径，在 vendor 里
+  import 不到宿主）。`ui/src/sparkle/np-view.ts` 交出去的行级 `lyrics().trans` **已经**按档位挑好，
+  视图不必判两路；`karaoke()` 给的是原始两路，渲染方自取。档位是宿主状态（`player.lyricAux`，
+  持久化 `Style.LyricAux`），切档后行级靠 NowPlaying 重建 DOM（`lastAuxMode` 进重建条件），
+  逐字靠内置引擎 rAF 里比 `shownMode`。
 
-同一条规则有**四处**实现，改规则必须一起改（互相 import 不到：插件/主题在 vendor 里）：
-`ui/src/lyric.ts:pickAux`（行级）、`vendor/Sparkle/plugins/amll/index.ts:pickAuxLine`（逐字）、
-`vendor/Sparkle/marketplace/flowscape/index.ts:auxText`（整页接管主题的逐字路径）、
-`ui/src/sparkle/np-view.ts`（交出去的行级 `lyrics().trans` **已经**按档位挑好，视图不必判两路，
-`karaoke()` 则是原始两路）。档位是宿主状态（`player.lyricAux`，持久化 `Style.LyricAux`），
-切档后行级靠 NowPlaying 重建 DOM（`lastAuxMode` 进重建条件），逐字靠插件 rAF 里比 `shownMode`。
+### QRCKana（QRC 振假名注音）
 
-验证：`node scripts/verify-amll-parse.ts`（解析层：词级 QRC / XML 信封 / 普通 LRC 三种音译形状
-都归一成行级 `romanLyric`，且不挂 Ruby，需 dev server）、`node scripts/verify-np-gallery.ts`
-（渲染层：逐字与行级两视图的三档行为，含「辅助行只有一个」）、`verify:sparkle`（源码接线）。
+日文逐字歌词的汉字上方假名**不在正文里**，而在 QRC 单独一行 `[kana: ...]` 标签里
+（形如 `[kana:2きさ2ぶんがく]`：数字 = 这段读音覆盖几个可注音字符，`(起始,时长)` = 假名自己的
+时间轴）。系统移植自 [SPlayer-Dev/lyric-kit](https://github.com/SPlayer-Dev/lyric-kit)
+（AGPL-3.0，对齐口径 v0.6.1）的 `src/utils/kana.ts` + `src/parse/qrc.ts` 里对 `[kana:]` 的处理
+—— **只取 QRCKana 这一套**，它的 KRC/YRC/LyS/SRT/ASS 解析、序列化、语言推断一概不要，
+所以是手写移植而不是加依赖（加 `lyric-kit` 会把一堆用不上的解析器打进包）。移植要点：
+
+- **可注音字符只有汉字**（CJK 统一表意 + 扩展 A + 々〆）：平/片假名自己不算（它们是注音素材、
+  不是被注音对象），拉丁与空格也不算。所以「貴下の」的可注音流是 `貴 下`，`の` 不占配额。
+- **数字按 token 计一位**（上游 v0.6.1 的修正，半角全角都算）：连续数字串「22」吃掉一个配额，
+  「22/7」是两个 token 而不是三个字符 —— 逐字符数会让「27 組」这类读法的注音整体后移串位。
+- 数字序列是**跨行的全局游标**：整首扫一遍字符流按序消费，写错一个 off-by-one 不报错，
+  只是注音集体串位。空读音单元也照样吃掉字符位（那是「这几个字没注音」≠「这里无事发生」）。
+- 标签必须**先摘再喂** `parseQrc`（`stripKanaTag`），它不是歌词行；落点写进 `words[].ruby`
+  （SDK 的 `SparkleKaraokeWord.ruby`），AMLL core 原生渲染词上方注音并跟着时间轴扫色。
+- 时间不换算：ruby 的时间永远取自「它挂的那个词」或标签里的音节时间轴。QRC 正文的词时间与
+  标签 `(start,dur)` 都是**绝对毫秒**，原样透传（上游同款口径），别在中间加行首偏移。
+- 只有 QRC 本体带这个标签；TTML/LRC 没有，别去那儿找。
+
+验证：`node scripts/verify-kana.ts`（移植层纯单测：上游 `tests/kana.spec.ts` 同款黄金样例
++ 与本地 lyric-kit 的逐字节差分 + 接线断言；已进 `verify:static`）、`node scripts/verify-amll-parse.ts`
+（解析层活体：词级 QRC / XML 信封 / 普通 LRC 的音译形状都归一成行级 `romanLyric`，`[kana:]`
+在正文前后与信封里都挂对 ruby，并用 QQ《怪物》真实样本对齐上游期望，需 dev server）、`node scripts/verify-np-gallery.ts`
+（渲染层：三档辅助行行为 + 「辅助行只有一条」+ ruby 真画在词上方）、`verify:sparkle`（源码接线）。
 
 ## 本地音乐 / NAS（扫描 · 播放 · 刮削 · QRC 逐字）
 
@@ -118,7 +159,7 @@ WebDAV 客户端在 `electron/local/webdav.ts`（PROPFIND + Range；NAS 走挂�
   宁缺毋滥绝不错配）→ `/song/<qqMid>/lyric?trans&roma` 落缓存 → 无内嵌封面时下载专辑封面。
   **扫描发现新歌 → 收尾自动补一轮未匹配刮削**（found>0 才跑，免每次扫描白打网络）。
 - **歌词优先级**（用户明确要求）：官方曲目恒走在线 QRC 管线；**本地曲目仅在刮削命中
-  （local.qqMid 非空）时优先复用同一条在线管线**（`pullQqLyric`：qrc=1 → Sparkle 逐字 →
+  （local.qqMid 非空）时优先复用同一条在线管线**（`pullQqLyric`：qrc=1 → 在位的逐字提供器（内置 AMLL，或被插件顶掉的版本）→
   无 provider 或 QRC 解析失败自动回退行级 LRC）；在线拿不到内容（未命中/sidecar 掉线/上游无词）
   才落回本地通路 —— 服务端 `/local/lyric` 按「**手动导入 > sidecar .lrc > 在线刮削缓存 > 内嵌**」
   合成，响应带 format（lrc/qrc/ttml）。刮削后落地 qqMid 时，正在播的本地曲经
@@ -129,7 +170,7 @@ WebDAV 客户端在 `electron/local/webdav.ts`（PROPFIND + Range；NAS 走挂�
   `lyricImport` 让 fetchLyric 跳过在线管线，materializeTrack 重扫保导入件；「撤销导入」
   （DELETE）按现存资产回退一档、指纹翻转自动触发重拉（订阅链负责，菜单不再手动补刀防双拉）。
   宿主兜底：`src/lyric.ts:ttmlToLrc/qrcToLrc/coerceLyricToLrc` 在无逐字插件时把 QRC/TTML
-  拍平成行级 LRC（AMLL 插件在场则本就吃词级，它的 parse 认这两种格式）。
+  拍平成行级 LRC（内置 AMLL 在场则本就吃词级 —— 它恒在，这条兜底只在它注册失败时生效）。
   ② 导入封面：POST `/local/cover/import`（≤8MB，`imageFormat` 魔数验 jpg/png/gif/webp）；
   `coverManual` 让重扫抽到内嵌图也不换。**同 id 原地换图 URL 恒定** —— 重导成功经
   `api.ts:bumpLocalCover` 给封面路径加 `?v=`（穿透 <img>/背景/tint 的按-URL 缓存；服务端

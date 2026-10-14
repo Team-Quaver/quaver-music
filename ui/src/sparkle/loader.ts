@@ -3,6 +3,9 @@
 // 官方插件随宿主打包（vite 代码分割成独立 chunk，启用才加载）；
 // 第三方插件装在 quaver 配置目录 plugins/<id>/main.js，经 /api/sparkle/plugin/... 
 // 以同源 URL 动态 import（@vite-ignore：构建期不分析运行时 URL）。
+//
+// 歌词渲染（AMLL）**不在这里**：它曾经是「内置且不可停用的官方插件」，现在归宿主内置功能
+// （src/lyrics/amll.ts + sparkle/registry 的兜底位）。见 RETIRED_OFFICIAL_IDS。
 import type { SparklePlugin } from "@quaver/sparkle";
 import { getSparkleHostVersionError, isSparkleVersionValid } from "../../electron/sparkle-version.ts";
 
@@ -13,9 +16,6 @@ export interface OfficialPluginMeta {
   author?: string;
   license?: string;
   description?: string;
-  /** true = 内置核心插件，**不可停用**：宿主启动强启、设置页开关锁死（见 init/host/settings）。
-   *  用于「宿主已没有它就没有可用实现」的插件（如 AMLL = 唯一歌词渲染器）。 */
-  required?: boolean;
 }
 
 export const OFFICIAL_META: OfficialPluginMeta[] = [
@@ -27,25 +27,17 @@ export const OFFICIAL_META: OfficialPluginMeta[] = [
     license: "AGPL - v3",
     description: "在设置页随机展示一句《Die For You》（《无畏契约》 2021 柏林冠军赛主题曲）歌词",
   },
-  {
-    id: "amll",
-    name: "Apple Music-like Lyrics",
-    version: "1.3.0",
-    author: "Team Quaver",
-    license: "AGPL - v3",
-    description: "正在播放页的歌词渲染器：逐字（QRC/TTML）与行级（LRC）都由 AMLL 渲染；内置且不可停用",
-    required: true,
-  },
 ];
 
-/** 内置必装（不可停用）的官方插件 id —— 唯一事实源，init/host/settings 都读这份 */
-export const SPARKLE_REQUIRED_IDS: readonly string[] = OFFICIAL_META.filter((m) => m.required).map((m) => m.id);
-export const isSparkleRequired = (id: string): boolean => SPARKLE_REQUIRED_IDS.includes(id);
+/** 已从「插件」身份撤下的官方 id：AMLL 改为宿主内置功能（src/lyrics），不再出现在
+ *  插件列表里。老用户 localStorage 的启用集合 / 见过名单 / 显式停用名单里可能还留着它，
+ *  init 启动时一并清掉，免得留下永远对不上号的幽灵记录。 */
+export const RETIRED_OFFICIAL_IDS: readonly string[] = ["amll"];
+export const isSparkleRetired = (id: string): boolean => RETIRED_OFFICIAL_IDS.includes(id);
 
 /** 官方插件模块加载表（vite 静态分析这些路径，各自成 chunk） */
 const OFFICIAL_LOADERS: Record<string, () => Promise<{ default: SparklePlugin }>> = {
   "die-for-you": () => import("@quaver/sparkle/plugins/die-for-you"),
-  "amll": () => import("@quaver/sparkle/plugins/amll"),
 };
 
 export interface InstalledPlugin {

@@ -1093,7 +1093,7 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
 .np-ly-line.cur .l1 { font-size: 1.176em; }
 .np-ly-empty { text-align: center; color: #fff8; font-size: 14px; padding: 60px 0; }
 
-/* —— 歌词（Sparkle 歌词提供器接管 .np-kara-host，内置 amll 插件 = AMLL 渲染逐字 QRC/TTML 与
+/* —— 歌词（提供器接管 .np-kara-host；默认是宿主内置的 AMLL，渲染逐字 QRC/TTML 与
    行级 LRC；行级列表隐藏） —— 高亮色落在 AMLL 的 --amll-lp-color 上：当前 tint 色（--cvg-accent，
    色源与档位见 lib/tint.ts）统一掺白提亮（55% accent + 45% 白），保留色相的同时最坏情况也可读；
    --cvg-accent 注册过 @property 且 :root 上有 transition，跟随封面档换曲时扫色平滑跟随。
