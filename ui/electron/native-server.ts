@@ -4,6 +4,7 @@
 import { createServer } from "node:http";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { createReadStream } from "node:fs";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, isAbsolute, join, normalize, relative } from "node:path";
 import { backgroundResponse } from "./background.ts";
@@ -260,8 +261,15 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
       res.statusCode = 404;
       return res.end("not found");
     }
-    res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });
-    res.end(await import("node:fs/promises").then((m) => m.readFile(file)));
+    const type = MIME[extname(file)] ?? "application/octet-stream";
+    const size = statSync(file).size;
+    res.writeHead(200, { "content-type": type, "content-length": String(size) });
+    // 流式而不是 readFile：这份服务器跑在**主进程**里，一次启动要发十几个产物
+    // （AMLL 400KB、词典 1MB、各视图块……）。整块读进内存 = 主进程按请求数攒出
+    // 几 MB 的一次性大 Buffer（还给 GC 添活），而 renderer 根本不会并发要这么多。
+    await pipeline(createReadStream(file), res).catch((e) => {
+      log("[native-server] 静态文件发送失败:", String(e));
+    });
   };
 
   let server = createServer(handler);

@@ -12,7 +12,8 @@
 import { player } from "../player";
 import { copyText, songShareUrl, songSubtitle, songTitle, stripEm, upPic } from "../lib/api";
 import { importLocalCover, importLocalLyric, isLocalSong, pickFile, revertLocalLyric, setLocalMeta, triggerScrape, type SongWithLocal } from "../lib/local.ts";
-import { showLocalMetaDialog } from "./LocalImportDialog";
+// 本地曲元信息对话框只在点那一项时才需要（LocalImportDialog）：右键菜单常驻首屏闭包，
+// 这份代码留到 run 里现拉 —— 菜单开合不受影响，少一块常驻字节。
 import {
   addSongToSonglist, isMySonglistsLoaded, loadMySonglists, mySonglists, removeSongFromSonglist,
   type MyPlaylist,
@@ -448,6 +449,7 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
                 label: "重新设置刮削信息…",
                 note: "曲名 / 歌手 / 专辑",
                 run: async () => {
+                  const { showLocalMetaDialog } = await import("./LocalImportDialog");
                   const cur = await showLocalMetaDialog({
                     title: songTitle(song),
                     artist: (song.singer ?? []).map((x: any) => x?.name).filter(Boolean).join(" / "),

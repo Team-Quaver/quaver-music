@@ -12,6 +12,7 @@ import {
   BACKENDS, CredentialStore, HANDOFF_PREFIX, STORE_MODES, STORE_NAME,
   credentialSummary, decodeHandoff, drainLines, encodeHandoff, evaluateKeyring, pickPasswordStore, probeKeyrings,
 } from "../electron/keyring.ts";
+import { viewsSource } from "./views-source.ts";
 
 let pass = 0, fail = 0;
 const section = (t) => console.log(`\n=== ${t} ===`);
@@ -304,10 +305,10 @@ check("文件名只在 config.ts 写一次（keyring.ts 不再重复字面量）
 check("打包态在 Windows 上找 quaver-server.exe（拼错就整个 sidecar 起不来）",
   mainSrc.includes('process.platform === "win32" ? "quaver-server.exe" : "quaver-server"'));
 check("用户可见文案不再提 credential.json / 0600（登录页与设置页）",
-  !read("src/views.ts").includes("credential.json") && !read("src/relay.ts").includes("credential.json")
+  !viewsSource().includes("credential.json") && !read("src/relay.ts").includes("credential.json")
   && !read("vite.config.ts").includes("credential.json"));
 check("登录页写明凭证存在系统密钥管理器",
-  read("src/views.ts").includes("系统密钥管理器"));
+  viewsSource().includes("系统密钥管理器"));
 check("verify:keyring 已挂进 verify:static", pkg.scripts["verify:static"].includes("verify-keyring.ts") && !!pkg.scripts["verify:keyring"]);
 
 for (const d of TMP_DIRS) rmSync(d, { recursive: true, force: true });

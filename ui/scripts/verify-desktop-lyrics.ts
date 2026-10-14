@@ -19,6 +19,7 @@ import {
   normalizeOpacity, normalizeScale, parseSettings, pickBounds,
 } from "../electron/desktop-lyrics-core.ts";
 import { alignFor, bandFor, scrollRange, BAND_MIN_PX } from "../src/lib/desktop-lyrics-layout.ts";
+import { viewsSource } from "./views-source.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UI = resolve(HERE, "..");
@@ -46,7 +47,7 @@ section("纯 CSD：整条链都不再有穿透档");
     ["src/lib/prefs.ts", src("src/lib/prefs.ts")],
     ["src/desktop-lyrics.ts", src("src/desktop-lyrics.ts")],
     ["desktop-lyrics.html", src("desktop-lyrics.html")],
-    ["src/views.ts", src("src/views.ts")],
+    ["src/views/*.ts", viewsSource()],
   ];
   for (const [name, text] of chain) {
     check(`${name}：无 ClickThrough/clickThrough`, !/ClickThrough|clickThrough/.test(text));
@@ -331,8 +332,8 @@ check("横滚：主行滚、翻译不滚 —— 翻译要滚只能是它自己�
   scrollRange(0, 100, -100, 200) !== null && scrollRange(0, 100, -100, -60) === null);
 
 // ——— 8. 设置页 ———
-section("src/views.ts 设置页");
-const views = src("src/views.ts");
+section("src/views/settings.ts 设置页");
+const views = viewsSource();
 check("歌词面板出现桌面歌词组（启用/字号/歌词不透明度/窗体不透明度）", /桌面歌词/.test(views)
   && /id="dl-enable-cards"/.test(views) && /id="dl-scale"/.test(views)
   && /id="dl-opacity"/.test(views) && /id="dl-backdrop"/.test(views)

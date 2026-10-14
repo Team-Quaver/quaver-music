@@ -5,6 +5,7 @@
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { viewsSource } from "./views-source.ts";
 
 const UI = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ROOT = join(UI, "..");
@@ -25,7 +26,7 @@ const src = {
   settings: read("src/sparkle/settings.ts"),
   main: read("src/main.ts"),
   shell: read("src/shell.ts"),
-  views: read("src/views.ts"),
+  views: viewsSource(),
   songmenu: read("src/components/SongMenu.ts"),
   player: read("src/player.ts"),
   np: read("src/components/NowPlaying.ts"),
@@ -94,7 +95,8 @@ ok("main.ts: bootShell 早于 initSparkle", (() => {
   const a = s.indexOf("bootShell();"), b = s.indexOf("initSparkle()");
   return a >= 0 && b > a;
 })());
-ok("shell: 未知路由先查 sparkle 视图再回落首页", has(src.shell, "views[path] ?? sparkleViewAt(path) ?? views[\"/\"]"));
+ok("views/index: 未知路由先查 sparkle 视图再回落首页（优先级随视图拆分挪进懒加载表）",
+  has(src.views, "sparkleViewAt(path)") && has(src.views, 'return await loaders["/"]()') && !has(src.shell, "sparkleViewAt(path)"));
 ok("shell: addNavItem 已导出（复用 nav 形态）", has(src.shell, "export function addNavItem"));
 ok("shell: 侧栏渲染 sparkle 歌单组", has(src.shell, "sparkleSonglistGroups()") && has(src.shell, "repaintSidebarPlaylists"));
 ok("SongMenu: buildItems 尾部追加 sparkleMenuItems", has(noComments(src.songmenu), "items.push(...sparkleMenuItems("));

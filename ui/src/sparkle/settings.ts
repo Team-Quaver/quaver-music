@@ -1,4 +1,4 @@
-// Sparkle — 设置页 Sparkle tab 的面板（ui/src/views.ts 的 settingsView 填充）
+// Sparkle — 设置页 Sparkle tab 的面板（ui/src/views/settings.ts 的 settingsView 填充）
 //
 // 四个相互隔离的标签：① 主题（已装主题，开关=启停提供它的插件；切换去 设置→外观）
 // ② 插件（已装插件）③ 扩展（已装扩展）④ Marketplace（固定索引源 + 浏览/安装 +

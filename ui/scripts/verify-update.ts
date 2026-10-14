@@ -9,6 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as viteBuild } from "vite";
+import { viewsSource } from "./views-source.ts";
+import { viewSource } from "./views-source.ts";
 
 const UI_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const OUT_DIR = mkdtempSync(join(tmpdir(), "quaver-upd-"));
@@ -303,8 +305,8 @@ section("渠道切换接线");
 {
   const updater = noComments(readSrc("src/lib/updater.ts"));
   const dialog = noComments(readSrc("src/components/UpdateDialog.ts"));
-  const views = readSrc("src/views.ts");
-  const settings = noComments(slice(views, "async function settingsView", "async function logView"));
+  const views = viewsSource();
+  const settings = noComments(viewSource("settings")); // 视图拆分后：设置页就是 src/views/settings.ts
   check("抠到 settingsView 源码", settings.length > 2000, `${settings.length} 字符`);
 
   check("updater: 当前构建渠道由版本串判定（不额外落盘）", has(updater, "const installedChannel = buildChannel(current)"));

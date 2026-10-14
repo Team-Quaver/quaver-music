@@ -11,6 +11,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { viewsSource } from "./views-source.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
@@ -125,7 +126,7 @@ ok("favs: 取消收藏按 id 匹配（收藏歌单的 id 是 disstid/pid，不�
 // ============ 6. 歌单页同步渲染 ============
 // 曾经只把订阅挂在按钮的点击期间：侧栏右键「取消收藏」后歌单页按钮停在「已收藏」，
 // 下一次点击按旧态取反 = 做出与显示相反的动作。订阅必须挂按钮一生，退订交给视图 cleanup。
-const views = read("src/views.ts");
+const views = viewsSource();
 ok("views: 收藏按钮一生期订阅 favs（别处的收藏变更同帧反映到按钮）",
   re(views, /const off = onFavSonglistsChange\(\(\) => \{ if \(!btn\.dataset\.fail\) paint\(\); \}\);\s*cleanups\.push\(off\);/));
 ok("views: 点击期间不再临时订阅（旧写法 off() 在 finally 里，点完就瞎）",

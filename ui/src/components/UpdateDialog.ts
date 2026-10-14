@@ -95,7 +95,7 @@ export function showUpdateDialog(info: UpdateInfo): void {
 
   // 覆盖层与 Esc 都是「以后再说」；下载中先取消下载。
   // 离场动画：加 .leaving 等过渡播完再摘节点；动画被禁用（reduced-motion）时
-  // animationend 永不触发，靠超时兜底 —— 跟 views.ts 的 exitMe 同一套门闩。
+  // animationend 永不触发，靠超时兜底 —— 跟 views/_shared.ts 的 exitMe 同一套门闩。
   let closing = false;
   const close = () => {
     if (closing) return;

@@ -169,7 +169,7 @@ ok("icons：shuffle 图标已加", /shuffle: svg\(/.test(read("src/lib/icons.ts"
 // 这里只卡「.pb-lpop 在那条共享规则的选择器表里，且那条规则真的带模糊」，不再要求它自己写一份
 // （各菜单各写一份正是「菜单看着没有模糊」的病根，见 scripts/verify-menu-glass.ts）。
 ok("css：模式浮窗吃到共享的菜单玻璃（不再各写一份 backdrop-filter）",
-  /\.ctx-menu, \.pb-qpop, \.pb-lpop, \.pb-volpop, \.tint-pop, \.np-menu, \.np-qinfo \{[\s\S]*?backdrop-filter: var\(--menu-filter\)/.test(css)
+  /\.ctx-menu,[^{\n]*\.pb-lpop[^{\n]*\.np-qinfo[^{\n]*\{[\s\S]{0,400}?backdrop-filter: var\(--menu-filter\)/.test(css)
   && /\.player\.lp-open \.pb-lpop \{ opacity: 1; pointer-events: auto;/.test(css));
 ok("css：菜单项选中态前景锚 --ink（裸 accent 会随色相漂）", /\.lp-i\.sel \{[^}]*var\(--ink\)/.test(css));
 ok("css：循环/随机之间有分隔线", /\.lp-sep \{/.test(css));

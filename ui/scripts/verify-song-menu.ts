@@ -8,6 +8,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { viewsSource } from "./views-source.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
@@ -18,7 +19,7 @@ const src = {
   playlists: read("src/lib/playlists.ts"),
   session: read("src/lib/session.ts"),
   player: read("src/player.ts"),
-  views: read("src/views.ts"),
+  views: viewsSource(),
   bar: read("src/components/PlayerBar.ts"),
   queue: read("src/components/QueuePanel.ts"),
   np: read("src/components/NowPlaying.ts"),

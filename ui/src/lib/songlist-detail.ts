@@ -31,6 +31,23 @@ interface Entry { detail: SonglistDetail; at: number }
 type WriteMark = { on: boolean; at: number };
 
 const cache = new Map<string, Entry>();
+// 详情缓存上限：一条 = **整单歌曲数组**（几百到几千个对象），不设上限就是「逛过的每个歌单
+// 都常驻」。取 8 张：够日常来回切（首页推荐前几张 + 正在看的歌单），又不至于攒出一座坟。
+// 淘汰从最久没被碰的那张开始（读命中会把它重新插到队尾 = LRU），但**有人订阅 / 在途回源**
+// 的歌单不动 —— 那意味着用户正看着它，抽掉缓存会让红心高亮与写后校正失去基线。
+const CACHE_MAX = 8;
+const pinned = (key: string): boolean => listeners.has(key) || inflight.has(key);
+function cacheTouch(key: string, entry: Entry): void {
+  cache.delete(key);
+  cache.set(key, entry);
+}
+function cacheTrim(): void {
+  if (cache.size <= CACHE_MAX) return;
+  for (const key of [...cache.keys()]) {
+    if (cache.size <= CACHE_MAX) break;
+    if (!pinned(key)) cache.delete(key);
+  }
+}
 const inflight = new Map<string, Promise<SonglistDetail | null>>();
 const listeners = new Map<string, Set<() => void>>();
 const syncTimers = new Map<string, number>();
@@ -87,15 +104,22 @@ export const onSonglistChange = (id: string | number, fn: () => void): (() => vo
 };
 
 /** 当前缓存的歌单详情（未拉取过时为 null；要保证拿到数据请先 await loadSonglistDetail） */
-export const getCachedSonglist = (id: string | number): SonglistDetail | null =>
-  cache.get(String(id))?.detail ?? null;
+export const getCachedSonglist = (id: string | number): SonglistDetail | null => {
+  const key = String(id);
+  const hit = cache.get(key);
+  if (hit) cacheTouch(key, hit); // 读到 = 最近在用，LRU 记一笔
+  return hit?.detail ?? null;
+};
 
 /** 整单回源（分页拉全，与旧版 playlistView 的循环同款断点）。TTL 内直接吃缓存；
  *  失败且有缓存时安静地返回缓存（ degraded ），无缓存才抛给视图显示错误。 */
 export async function loadSonglistDetail(id: string | number): Promise<SonglistDetail | null> {
   const key = String(id);
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < DETAIL_TTL) return hit.detail;
+  if (hit && Date.now() - hit.at < DETAIL_TTL) {
+    cacheTouch(key, hit);
+    return hit.detail;
+  }
   const flying = inflight.get(key);
   if (flying) return flying;
   let p!: Promise<SonglistDetail | null>;
@@ -120,7 +144,8 @@ export async function loadSonglistDetail(id: string | number): Promise<SonglistD
         if (row) songs.unshift(row); // 本地乐观行插回头部（新加入的歌在头部）
       }
       const detail: SonglistDetail = { info: info ?? old?.info ?? null, songs, total: rec.total };
-      cache.set(key, { detail, at: Date.now() });
+      cacheTouch(key, { detail, at: Date.now() });
+      cacheTrim();
       emit(key);
       return detail;
     } catch (e) {
@@ -223,7 +248,8 @@ async function syncSonglist(key: string): Promise<void> {
       }
       const tail = old.songs.filter((s) => s?.mid && !seen.has(s.mid));
       const detail: SonglistDetail = { info: old.info, songs: [...head, ...tail], total: Math.max(rec.total, prevTotal) };
-      cache.set(key, { detail, at: prevAt }); // 不刷新 TTL 时刻：窗口外没重拉，整单新鲜度不变
+      cacheTouch(key, { detail, at: prevAt }); // 不刷新 TTL 时刻：窗口外没重拉，整单新鲜度不变
+      cacheTrim();
       if (!sameOrder(prevOrder, detail.songs) || prevTotal !== detail.total) emit(key);
     } catch (e) {
       console.warn("歌单增量回源失败（保留本地）", e);

@@ -1295,7 +1295,7 @@ class Player {
       if (this.likedCache) this.likedCache = this.likedCache.filter((x) => x.mid !== mid);
       if (this.likedTotal > 0) this.likedTotal--;
     }
-    // 广播列表变更：新增行让打开中的我喜欢页立刻出现；移除由该页逐行淡出消化（views.ts）
+    // 广播列表变更：新增行让打开中的我喜欢页立刻出现；移除由该页逐行淡出消化（src/views/liked.ts）
     this.emitLovedListChange();
     this.syncLovedSoon();
     return on;
@@ -1316,7 +1316,7 @@ export { coverUrl };
 // —— 逐字歌词辅助（模块级纯函数，便于复用与测试） ——
 
 /** 两个列表是否同一批曲（同序同 mid）：一样就不广播/不重画，避免打断滚动。
- *  （与 views.ts 的 sameMids 同义；player 不能反向 import songs.ts —— 会成环） */
+ *  （与 src/views/_shared.ts 的 sameMids 同义；player 不能反向 import songs.ts —— 会成环） */
 function sameLovedOrder(a: Song[], b: Song[]) {
   return a.length === b.length && a.every((x, i) => x.mid === b[i]?.mid);
 }

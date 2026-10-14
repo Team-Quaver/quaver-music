@@ -9,7 +9,7 @@ import { watchVip } from "./lib/vip.ts";
 import { favSonglists, loadFavSonglists, onFavSonglistsChange } from "./lib/favs";
 import { getSidebarCollapsed, setSidebarCollapsed, getSidebarWidth, setSidebarWidth } from "./lib/prefs";
 import { bindHResizer } from "./lib/resizer";
-import { sparkleViewAt, sparkleSonglistGroups } from "./sparkle/registry";
+import { sparkleSonglistGroups } from "./sparkle/registry";
 import type { SparkleNavItem } from "@quaver/sparkle";
 import { player, type Song } from "./player";
 import { PlayerBar } from "./components/PlayerBar";
@@ -17,7 +17,8 @@ import { NowPlaying } from "./components/NowPlaying";
 import { QueuePanel } from "./components/QueuePanel";
 import { SearchBox } from "./components/SearchBox";
 import { playPlaylistNow, playSongsNow, openPlaylistMenu, openVirtualPlaylistMenu, type PlaylistMenuOptions } from "./components/PlaylistMenu";
-import { views, BACK_SVG } from "./views";
+import { BACK_SVG } from "./views/_shared";
+import { loadView, prefetchView } from "./views/index";
 import { bootTint } from "./lib/tint";
 import { bootBackground } from "./lib/ambient";
 import { bootMenuGlass } from "./lib/menu-glass";
@@ -108,7 +109,6 @@ export async function renderRoute() {
   mountedCleanup?.();
   mountedCleanup = null;
 
-  const view = views[path] ?? sparkleViewAt(path) ?? views["/"];
   // —— 每次导航发放一个全新的 host 容器（.route > .entering）——
   // 进入动画：entering class 挂在 host 上、随 host 一起每轮换新 —— view 填充的节点
   // 一进 DOM 即匹配 .route>.entering>* 选择器，从 from 态（opacity:0）开始播放，
@@ -120,6 +120,10 @@ export async function renderRoute() {
   state.route.replaceChildren(host);
   state.route.scrollTop = 0;
   try {
+    // 视图模块按需解析（src/views/index.ts）：首访某页才付那份字节，命中缓存则同步返回。
+    // await 之后必须再验一次代 —— 快速连点导航时，晚到的旧一轮只能写进已脱离 DOM 的死容器。
+    const view = await loadView(path);
+    if (gen !== renderGen) return;
     const cleanup = await view(host, query);
     if (gen !== renderGen) {
       if (typeof cleanup === "function") cleanup();
@@ -254,6 +258,17 @@ export function bootShell() {
   document.body.append(NowPlaying(), QueuePanel());
 
   window.addEventListener("hashchange", renderRoute);
+  // —— 路由模块预取：只由交互意图触发 ——
+  // 指针落到导航项/卡片链接上就把那一块拉起来（产物在本地磁盘/asar，代价是一次解析），
+  // 真点下去时命中缓存、零等待。不做 idle 全量预热：那等于把刚省下的内存吃回去。
+  const prefetchFromEvent = (target: EventTarget | null): void => {
+    const a = target instanceof Element ? target.closest<HTMLElement>("a[href^='#/']") : null;
+    const href = a?.getAttribute("href") ?? "";
+    if (!href) return;
+    prefetchView(href.replace(/^#/, "").split("?")[0] || "/");
+  };
+  window.addEventListener("pointerover", (e) => prefetchFromEvent(e.target), { passive: true });
+  window.addEventListener("pointerdown", (e) => prefetchFromEvent(e.target), { passive: true });
 
   // CSD 按钮：Electron 壳层里走 quaverCSD 桥；浏览器/dev 下仅派发事件占位
   document.querySelectorAll<HTMLElement>("[data-win]").forEach((b) =>

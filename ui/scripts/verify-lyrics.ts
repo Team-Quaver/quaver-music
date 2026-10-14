@@ -16,6 +16,7 @@ import {
   TTML_DB_DEFAULT_URL, TTML_PLATFORM_DIRS, expandTtmlUrl, isTtmlDatabaseUrl, looksLikeTtml,
   ttmlMissCached, ttmlMissRemember, fetchTtml,
 } from "../src/lib/ttml.ts";
+import { viewsSource } from "./views-source.ts";
 
 let pass = 0, fail = 0;
 const section = (t: string) => console.log(`\n=== ${t} ===`);
@@ -187,7 +188,7 @@ check("QRC/LRC/TTML/本地合成四路都过 cjkConvert",
   (player.match(/cjkConvert\(/g) ?? []).length >= 6 && /applyLyricText\(text, "", "", "ttml"\)/.test(player));
 check("音译不转换（roma 原文直传）", /roma = String\(d\?\.roma/g.test(player) || /roma = String\(d\?\.roma/g.test(player));
 check("设置变更即重拉", /reloadLyric\(\): void \{/.test(player));
-const views = readFileSync(join(UI, "src/views.ts"), "utf8");
+const views = viewsSource();
 check("设置页有歌词 tab 与面板", views.includes('data-tab="lyrics"') && views.includes('data-panel="lyrics"'));
 check("四项控件齐备", ["#cjk-cards", "#ttml-online-cards", "#ttml-db-url", "#ttml-lib-pick"].every((id) => views.includes(id)));
 check("档位切换挂 resetCjkConverter + reloadLyric", /setChineseConvert\(v\); resetCjkConverter\(\); player\.reloadLyric\(\);/.test(views));

@@ -7,6 +7,7 @@
 //     同构实现、渲染层薄封装在 src/lib/accent.ts、探测模块没有 Electron 依赖。
 //
 // 反向断言（把「回归写法」当输入）防正则失配让断言永远为真 —— 本仓库踩过 verify 脚本自毁。
+import { utimesSync } from "node:fs";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -36,6 +37,7 @@ const eq = (name, got, want) =>
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { viewsSource } from "./views-source.ts";
 const UI = fileURLToPath(new URL("..", import.meta.url));
 const src = (rel: string) => readFileSync(join(UI, rel), "utf8");
 
@@ -200,6 +202,8 @@ section("Noctalia palette 路径（source 把关）与模板产物");
     writeFileSync(join(schemes, "a.colors"), "");
     eq("newestFile：目录里一份 → 那一份", newestFile(schemes, ".colors"), join(schemes, "a.colors"));
     writeFileSync(join(schemes, "b.colors"), "");
+    // 显式把 b 钉成更新的一份：两次 writeFileSync 可能落在同一个 mtime 刻度里
+    utimesSync(join(schemes, "b.colors"), new Date(Date.now() + 5000), new Date(Date.now() + 5000));
     eq("newestFile：多份取最新", newestFile(schemes, ".colors"), join(schemes, "b.colors"));
     eq("newestFile：目录不存在 → null", newestFile(join(schemes, "nope"), ".colors"), null);
   } finally {
@@ -234,7 +238,7 @@ check("候选路径全写死：accentPayload 不接受路径参数（渲染层�
   accentPayload.length === 0
   && accentPayload({ run: ((_c: string, _a: string[]) => ({ stdout: "", error: true })) as never }).ok === true);
 check("设置页没把任何用户输入喂给 accent 通路",
-  !src("src/views.ts").includes("api/accent?") && src("src/views.ts").includes('from "./lib/accent"'));
+  !viewsSource().includes("api/accent?") && viewsSource().includes("./lib/accent"));
 check("tint.ts 只从 lib/accent 拿色值（自己不发请求、不拼路径）",
   src("src/lib/tint.ts").includes('from "./accent"') && !/fetch\(|["']\/api\/accent["']/.test(src("src/lib/tint.ts")));
 

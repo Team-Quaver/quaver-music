@@ -266,6 +266,14 @@ jobs:
         env:
           QUAVER_VERSION: ${{ steps.version.outputs.version }}
         run: pnpm run build
+      - name: Check bundle shape (首屏预算 / 懒加载缝 / 体积上限)
+        working-directory: ui
+        env:
+          QUAVER_VERSION: ${{ steps.version.outputs.version }}
+        # 验的是产物形状，不是总大小：入口静态闭包超预算、视图被改回静态导入、AMLL/词典/更新链路
+        # 混进首屏 —— 都在这里拦下（判据与来由见 ui/scripts/verify-bundle.ts 头注）。
+        run: pnpm run verify:bundle
+
 
       - name: electron-builder AppImage
         working-directory: ui

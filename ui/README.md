@@ -22,7 +22,7 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
 └── src/
     ├── main.ts         # bootShell()
     ├── shell.ts        # 常驻壳层：标题栏/侧栏/内容区 + hash 路由渲染
-    ├── views.ts        # 路由视图表（仅内容区：首页/猜你/每日/我喜欢/歌单/设置/我的/登录）
+    ├── views/          # 路由视图，一页一文件（index.ts 是**懒加载**注册表，_shared.ts 放共用件）
     ├── player.ts       # 全局播放器状态机（队列/模式/歌词/收藏，订阅式 notify）
     ├── lyric.ts        # LRC 解析（含翻译行）
     ├── relay.ts        # /api -> sidecar:3200 中继（透传 + 封面取色代理）
@@ -339,4 +339,4 @@ CI 两道断言：暂存后 `bins.ts --check build-res/audio`；AppImage 产出�
 - **玻璃效果**：侧栏/标题栏/播放条 = 半透明底 + backdrop-filter；色彩来源 = `.ambient` 环境色层
   （当前封面 blur 铺底，z-index:-1 画在 body 背景上、内容下，白卡不受污染）。无播放时退回纯色。
 - dev/自动化：`import.meta.env.DEV` 下 `window.__quaverPlayer` 暴露单例。
-- 新 hash 路由 = `views.ts` 注册 + `nav`（如需侧栏入口）+ 可选同名跳转层 html（记得进 `vite.config.ts` 的 `PAGES`）。
+- 新 hash 路由 = `src/views/<页面>.ts`（default 导出视图函数）+ `src/views/index.ts` 里加一条 `() => import()` + `nav`（如需侧栏入口）+ 可选同名跳转层 html（记得进 `vite.config.ts` 的 `PAGES`）。视图块默认**不进首屏**，预算由 `pnpm run verify:bundle` 守着。

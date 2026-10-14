@@ -493,6 +493,62 @@ desktop 文件名、`Icon=`、hicolor 图标文件名全部取自它，四方只
 - 曲目行是 `enabled:false` 的纯展示项；命令一律回发渲染层（`quaver:mpris-cmd`），播放器仍是唯一
   事实源。
 
+## 打包与首屏（Rolldown · 动态加载 · 内存）
+
+Vite 8 的打包内核就是 **Rolldown**（`node_modules/rolldown` 1.2.x），配置写在 `build.rolldownOptions`
+（`build.rollupOptions` 是别名，已 deprecated，别再往里塞东西）。一次构建 ~0.3s，产物形状由两份
+机器可读文件描述：`dist/.vite/manifest.json`（谁静态引谁）与 `dist/.vite/chunk-graph.json`
+（每块装了哪些模块、各占多少字节，由 vite.config.ts 里的 `quaver-chunk-graph` 插件写）。
+
+- **判据是「入口的静态闭包」，不是 bundle 总量。** 总量会随依赖漂移；决定启动要解析多少字节的
+  只有静态闭包。预算与理由在 `scripts/verify-bundle.ts`（`pnpm run verify:bundle`，CI 在
+  `pnpm run build` 之后直接跑它）：SPA 壳首屏 JS ≤ 200KB、覆盖层 ≤ 520KB，AMLL / 繁简词典 /
+  更新链路必须留在懒加载侧，视图不许回退成静态导入。
+- **视图按路由懒加载**：`src/views.ts` 已拆成 `src/views/<页面>.ts` + `src/views/_shared.ts`
+  （共用件：页头/粘顶/小工具/响应类型），路由→模块的表在 `src/views/index.ts`。
+  三条口径：① 优先级与拆分前逐字一致（宿主路由 > 插件自定义路由 > 回落首页）；② 只在**首次访问**
+  解析，解析到的函数留在表里；③ 预取只由交互意图触发（导航项/卡片 `pointerover`、`pointerdown`），
+  **不做 idle 全量预热** —— 那是把刚省下的解析与内存再吃回去，还顺带污染首屏。
+  shell 的 `renderRoute` 里 `await loadView(path)` **必须**在 await 之后再验一次 `gen !== renderGen`
+  （快速连点导航时晚到的旧一轮只能写进已脱离 DOM 的死容器）；这条与 `.entering` 动画同属竞态护栏。
+- 更新链路（`lib/updater` + `lib/update-core` + `UpdateDialog` ≈ 22KB）不在首屏：`main.ts` 把
+  「启动 3s 后检查」的延时留在调用侧，到点才 `import()`。延时口径没变，只是把加载缝隙钉在了那里。
+- `output.codeSplitting.groups` 只给**第三方重量级懒加载依赖**命名（`amll-*`、`cjk-cn2t`、`cjk-t2cn`），
+  为的是预算断言能钉住名字（自动分块的名字会随内容漂）。**Sparkle 预装插件不分组**：本来一个插件
+  一条动态 import，写组反而会把所有插件并进一块，装一个就把全部字节拉走。
+- `build.modulePreload.polyfill: false`：产物只跑在 Electron 的 Chromium 里，那段
+  `relList` 探测 + MutationObserver 补挂永远是死码（verify-bundle 有一条专门的守卫）。
+- `build.target: "esnext"`：Chromium 与 Electron 一起升，写死 `chromeNN` 只会在 Electron 升级后
+  悄悄过时，还白付一层语法税。渲染层该不该用某语法由 `tsconfig.json` 的 target/lib 说话。
+- `chunkSizeWarningLimit: 1100` **只**是为了放过那份 1.05MB 的简→繁词典（懒加载纯数据，
+  见「歌词设置」）。不要拿它当预算：真红线在 verify-bundle。
+
+### 内存：先归因，再动手（`scripts/probe-bundle.ts` 是量尺，不是闸门）
+
+```sh
+pnpm run build && node scripts/probe-bundle.ts --static   # 首屏闭包 / chunk 明细（带模块归属）
+node scripts/probe-bundle.ts --label after                # 另起隔离实例（QUAVER_CONFIG_DIR + CDP）按里程碑采样
+node scripts/probe-bundle.ts --live-only --label xxx      # 已开着带 Crotchet 调试端口的应用时只采样
+```
+
+实测（Wayland / Electron 44 / 本机）一个实例的进程树 ~2.6GB，**JS 堆只占其中约 10MB**：大头是
+Chromium 侧的 `/dev/shm` 合成器缓冲（主进程 ~620MB）与**字体映射**（思源黑体一份 .ttc 就映射
+~450MB RSS、思源宋体 ~155MB —— 这些是 clean file-backed 页，内存紧张时可回收，别当成泄漏），
+再加 renderer / gpu-process / mpv / mpris / sidecar。所以这里定的规矩是：
+
+- **改内存前先跑 `--static` 与 `--live-only` 拿到归因**，别拿「总内存好大」当依据动 GPU 或字体。
+- 应用侧真正能省的是：不进首屏的代码（解析与常驻都不付）、有上限的缓存、以及用完就丢的对象。
+  已落地的上限：`src/lib/songlist-detail.ts` 详情缓存 8 张（一条 = 整单歌曲数组），订阅中/在途的
+  歌单不淘汰；`lib/color.ts` 256 条 LRU、`lib/streaminfo.ts` 32 条、`lib/ttml.ts` 未命中表 TTL 10min。
+- 反复进出重页面**不留残留**是硬指标：探针里那 8 轮「首页 ⇄ 设置页」后的堆读数应当回到首轮水位
+  （涨 = 有东西没解绑）。AMLL 播放器随视图销毁走 `player.dispose()`（`lyrics/amll.ts`），
+  覆盖层换曲走 `disposeRender`。
+- 已知没动的（写清楚，别让人以为已经修好）：① `registerBuiltinLyrics()` 在启动就拉起 399KB 的
+  AMLL 块（改成「首次播放再注册」要重看插件提供器优先那条链）；② AMLL 的 400KB 里约 80KB 是
+  `@pixi/utils → url → qs/object-inspect` 这条依赖链；③ `src/style.css` 一份 72KB 全量进首屏，
+  没按路由拆（拆分要先有 CSS 层的视觉对拍，别裸拆）；④ mpv 的 `--demuxer-max-bytes=32MiB`
+  `--demuxer-max-back-bytes=24MiB`（≈56MB 缓冲）没调，动它等于动播放稳定性，要单独灰度。
+
 ## Documentation
 
 Vite guide: https://vite.dev/guide/

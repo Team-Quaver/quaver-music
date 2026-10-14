@@ -37,6 +37,7 @@
     "verify:playlist-menu": "node scripts/verify-playlist-menu.ts",
     "verify:lyrics": "node scripts/verify-lyrics.ts",
     "verify:desktop-lyrics": "node scripts/verify-desktop-lyrics.ts",
+    "verify:bundle": "node scripts/verify-bundle.ts",
     "verify:launch": "node scripts/verify-launch.ts",
     "verify:systheme": "node scripts/verify-systheme.ts",
     "verify:login": "node scripts/verify-login.ts",

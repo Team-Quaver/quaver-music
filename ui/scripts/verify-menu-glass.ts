@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { menuGlassPolicyOf } from "../src/sparkle/theme-menus.ts";
 import { defaults } from "../electron/config.ts";
+import { viewsSource } from "./views-source.ts";
 
 let pass = 0, fail = 0;
 const section = (t) => console.log(`\n=== ${t} ===`);
@@ -43,7 +44,7 @@ const between = (s: string, from: string, to: string, n = 6000) => {
 const css = src("src/style.css");
 const menuGlass = src("src/lib/menu-glass.ts");
 const themeMenus = src("src/sparkle/theme-menus.ts");
-const views = src("src/views.ts");
+const views = viewsSource();
 const shell = src("src/shell.ts");
 const prefs = src("src/lib/prefs.ts");
 const config = src("src/lib/config.ts");

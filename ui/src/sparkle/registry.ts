@@ -2,7 +2,7 @@
 //
 // 为什么这一层必须干净：shell.ts / player.ts / SongMenu.ts 都要从这里读数据，
 // 反向 import 任何 ui 模块都会成环。会碰 ui 模块的代码（toast / player 门面 /
-// nav DOM）全部在 host.ts，只被 main.ts 与 views.ts 消费。
+// nav DOM）全部在 host.ts，只被 main.ts 与 src/views/ 消费。
 //
 // 每个注册动作都会往对应插件 record 的 teardown 里 push 一个反注册闭包 ——
 // 停用插件 = 倒序跑完 teardown，宿主的各个接入点就自动回到无插件形态。

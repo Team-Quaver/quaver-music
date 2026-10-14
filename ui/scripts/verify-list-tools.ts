@@ -10,11 +10,12 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { viewsSource } from "./views-source.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
 const toolsSrc = read("src/components/ListTools.ts");
-const views = read("src/views.ts");
+const views = viewsSource();
 const css = read("src/style.css");
 const contrast = read("scripts/verify-highlight-contrast.ts");
 

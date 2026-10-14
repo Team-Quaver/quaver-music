@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { viewsSource } from "./views-source.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
@@ -23,7 +24,7 @@ const FIXTURE = {
 };
 const vipUrl = pathToFileURL(join(root, "src/lib/vip.ts")).href;
 const vip = await import(vipUrl);
-const views = read("src/views.ts");
+const views = viewsSource();
 const css = read("src/style.css");
 
 let checks = 0, fails = 0;

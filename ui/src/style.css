@@ -1280,7 +1280,7 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
   from { opacity: 0; transform: translateY(8px) scale(.94); }
   to   { opacity: 1; transform: none; }
 }
-/* —— 离场：退出登录先整页淡出上移一点点，再跳登录页（views.ts:exitMe）——
+/* —— 离场：退出登录先整页淡出上移一点点，再跳登录页（src/views/_shared.ts 的 exitMe）——
    登录态变化必须走整页跳转才能重置侧栏，所以只能「先把界面收掉」；pointer-events:none
    顺带把连点挡在按钮之外（JS 里也有 leaving 闸门）。 */
 .me.leaving { animation: me-out .18s cubic-bezier(.22,.61,.36,1) both; pointer-events: none; }
@@ -1288,7 +1288,7 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
   from { opacity: 1; transform: none; }
   to   { opacity: 0; transform: translateY(-6px); }
 }
-/* 系统「减弱动效」：进出场都不播（views.ts 的离场有超时兜底，跳转照走） */
+/* 系统「减弱动效」：进出场都不播（src/views/user.ts 的离场有超时兜底，跳转照走） */
 @media (prefers-reduced-motion: reduce) {
   .me > *, .me.leaving { animation: none; }
   /* 侧栏缩回/展开：直接跳到终态（收字与位移都不做过渡） */
@@ -1553,7 +1553,7 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 }
 
 /* 设置页 · 背景模糊滑块：外形与播放条音量滑块同一套语言（4px 轨道 + 12px 圆点，
-   已滑过的一段用 --cvg-accent 染色，--v 由 views.ts 随值写入）。
+   已滑过的一段用 --cvg-accent 染色，--v 由 src/views/settings.ts 随值写入）。
    选择器写成 `.set-row__ctrl input.set-blur`：上面那条通用 input 规则打了边框/底色/内距，
    单类选择器压不过它（0,1,1 vs 0,1,0），滑块会长成一个带框的方块。 */
 /* 桌面歌词·自定义颜色色块：通用 input 规则会给边框/底色/内距，type=color 需要收成小色块 */

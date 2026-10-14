@@ -19,6 +19,7 @@ import { BG_DIALOG_EXTENSIONS, BACKGROUND_MAX_BYTES, backgroundInfo, backgroundM
 import { BG_IMAGE_EXTS, configFile, defaults, writeValues } from "../electron/config.ts";
 import { startQuaverServer } from "../electron/native-server.ts";
 import { backgroundPolicyOf } from "../src/sparkle/theme-background.ts";
+import { viewsSource } from "./views-source.ts";
 
 let pass = 0, fail = 0;
 const section = (t) => console.log(`\n=== ${t} ===`);
@@ -150,7 +151,7 @@ section("端到端（native-server 的 /api/bg）");
 // ——— 源码护栏 · 渲染层 ———
 section("源码护栏 · 渲染层");
 const ambient = src("src/lib/ambient.ts");
-const views = src("src/views.ts");
+const views = viewsSource();
 const css = src("src/style.css");
 const shell = src("src/shell.ts");
 
@@ -280,7 +281,7 @@ check("激活主题只有一个解析处（registry），且读的是 host 维�
   && registrySrc.includes("document.documentElement.dataset.sparkleTheme"));
 check("…且不 import host（它反向依赖 shell，会成环）", !registrySrc.includes('from "./host"'));
 check("背景层用同一份解析（不许自己再写第三份）",
-  src("src/lib/ambient.ts").includes("sparkleActiveTheme") && src("src/views.ts").includes("sparkleActiveTheme"));
+  src("src/lib/ambient.ts").includes("sparkleActiveTheme") && viewsSource().includes("sparkleActiveTheme"));
 check("hint/空态之类不在 registry 里被 DOM 绑住（node 侧 import 不炸）",
   /typeof document === "undefined"/.test(registrySrc));
 

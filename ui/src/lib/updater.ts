@@ -269,9 +269,13 @@ export async function checkAndPrompt(
 
 /** 启动延迟检查（默认开，可在设置关闭）：只提醒、绝不静默安装。
  *  dev / 浏览器模式同样生效 —— 无壳层时直连 GitHub API（提醒能弹，「下载安装」那步才需要桥）。 */
+/** 到点就跑的那一半（不含延时）：调用方负责何时把本模块拉起来（见 src/main.ts 的延迟动态 import）。 */
+export function runAutoUpdateCheck(): void {
+  if (!getAutoCheck()) return;
+  void checkAndPrompt(undefined, { auto: true }).catch(() => { /* 检查失败不打扰启动 */ });
+}
+
+/** 启动后延迟检查更新（保留给「已经在内存里」的调用方；main.ts 用的是缝本身，见那里）。 */
 export function startAutoUpdateCheck(): void {
-  window.setTimeout(() => {
-    if (!getAutoCheck()) return;
-    void checkAndPrompt(undefined, { auto: true }).catch(() => { /* 检查失败不打扰启动 */ });
-  }, 3000);
+  window.setTimeout(runAutoUpdateCheck, 3000);
 }

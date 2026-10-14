@@ -10,10 +10,11 @@ import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { viewsSource } from "./views-source.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
-const views = read("src/views.ts");
+const views = viewsSource();
 const css = read("src/style.css");
 const contrast = read("scripts/verify-highlight-contrast.ts");
 const appGo = readFileSync(join(root, "..", "vendor", "Typhoeus-go", "server", "app.go"), "utf8");

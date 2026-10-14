@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { cmyk2rgb, hsl2rgb, isHexColor, parseHex, rgb2cmyk, rgb2hsl, toBarColors, toHex, toPixelSrc } from "../src/lib/color.ts";
 import { defaults, schemaIndex } from "../electron/config.ts";
 import { pickPreset, resolvePresetColor, sparkTintChoice, tintPolicyOf, validPresets } from "../src/sparkle/theme-tint.ts";
+import { viewsSource } from "./views-source.ts";
 
 
 let pass = 0, fail = 0;
@@ -99,7 +100,7 @@ check("渲染层 FALLBACK 与 schema 同步（改一处要改两处）",
 
 // ================= 源码接线 · 渲染层 =================
 section("源码接线 · 渲染层");
-const views = src("src/views.ts");
+const views = viewsSource();
 const prefs = src("src/lib/prefs.ts");
 const tint = src("src/lib/tint.ts");
 const shell = src("src/shell.ts");
