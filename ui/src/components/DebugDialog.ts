@@ -17,7 +17,7 @@ import { toast } from "./SongMenu";
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-type ProcRow = { pid: number; tag: string; rssKB: number; peakKB: number; privKB?: number | null; cpu: number };
+type ProcRow = { pid: number; tag: string; rssKB: number; peakKB: number; privKB?: number | null; cpu: number; ext?: boolean };
 type Metrics = {
   ok: boolean;
   app: { version: string; packaged: boolean; platform: string; arch: string; electron: string; chrome: string; node: string; configDir: string };
@@ -115,7 +115,7 @@ export function showDebugDialog(): void {
     }
     const rows: ProcRow[] = [
       ...last.procs,
-      ...last.external.map((x) => ({ pid: x.pid, tag: x.tag, rssKB: x.rssKB ?? 0, peakKB: 0, privKB: x.privKB, cpu: 0 })),
+      ...last.external.map((x) => ({ pid: x.pid, tag: x.tag, rssKB: x.rssKB ?? 0, peakKB: 0, privKB: x.privKB, cpu: 0, ext: true })),
     ];
     const rssTotal = last.totals.chromiumRSSKB + last.totals.externalRSSKB;
     body.innerHTML = `<div class="dbg-grid">
@@ -132,8 +132,9 @@ export function showDebugDialog(): void {
       </div>
       <table class="dbg-table"><thead><tr><th>进程</th><th>pid</th><th>RSS</th><th>Pss/私有</th><th>峰值</th><th>CPU</th></tr></thead>
       <tbody>${rows.map((x) => `<tr><td>${escHtml(x.tag)}</td><td>${x.pid}</td><td>${escHtml(mb(x.rssKB))}</td>`
+        // CPU 是「自上次采样以来的均值」：首采样恒 0，外部子进程压根没这个数 —— 都别显示成 0%
         + `<td>${x.privKB ? escHtml(mb(x.privKB)) : "—"}</td><td>${x.peakKB ? escHtml(mb(x.peakKB)) : "—"}</td>`
-        + `<td>${x.cpu ? x.cpu + "%" : "—"}</td></tr>`).join("")}</tbody></table>
+        + `<td>${x.ext ? "—" : x.cpu.toFixed(1) + "%"}</td></tr>`).join("")}</tbody></table>
       <p class="muted dbg-note">口径：RSS 会把共享页在每个进程各算一遍（Electron 二进制、ICU、字体、
       /dev/shm 合成缓冲），所以逐行相加必然虚高；那些还是 clean 页，内存紧张时内核直接回收。
       看趋势用合计，看真实成本用 Pss 列。开发态的主进程还兼着 vite preview 与 /api 中继（打包态没有这层）。</p>`;

@@ -530,6 +530,17 @@ Vite 8 的打包内核就是 **Rolldown**（`node_modules/rolldown` 1.2.x），�
 
 ### 内存：先归因，再动手（`scripts/probe-bundle.ts` 是量尺，不是闸门）
 
+界面里也能直接问出答案：**设置 → 通用 → 调试 → 「进程与内存自检」**（`src/components/DebugDialog.ts`，
+沿用模态弹窗那套壳 `.upd-overlay/.upd-dialog`）。逐进程列 RSS / Pss / 峰值 / CPU，外加首屏实际解析量与
+DOM 规模；数据源在主进程（`app.getAppMetrics` + Linux `/proc`，IPC 走 `quaver:metrics`）—— 渲染层看不见
+主进程、GPU 进程、zygote 池和外部子进程（sidecar / mpv / MPRIS），这三类必须在那边拍平再送过来。
+CPU 列是「自上次采样以来的均值」，所以第一次采样必是 0（外部子进程没有这个数，显示 `—`）。
+
+弹窗里的**「开发者模式」按钮是 DevTools 的唯一入口，F12 不绑定**：本应用是插件宿主，DevTools 等于把
+渲染层控制台与网络面板交给任何能碰到键盘的人 —— 宁可多两次点击，也不要一个顺手就能按开的口子。
+因此这里**没有** `[Debug]` 配置段：入口不持久化，每次都要显式点。
+
+
 ```sh
 pnpm run build && node scripts/probe-bundle.ts --static   # 首屏闭包 / chunk 明细（带模块归属）
 node scripts/probe-bundle.ts --label after                # 另起隔离实例（QUAVER_CONFIG_DIR + CDP）按里程碑采样

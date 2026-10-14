@@ -1072,10 +1072,14 @@ ipcMain.handle("quaver:metrics", () => {
     ? desktopLyrics.win.webContents.getOSProcessId() : 0;
   const procs = app.getAppMetrics().map((m: Electron.ProcessMetric) => {
     const label = PROC_LABELS[m.type] ?? m.type;
+    // 归属优先按 pid 认（webContents.getOSProcessId 是唯一可靠的对应关系）；认不出来的渲染进程
+    // 明说「未归属」而不是套个窗名 —— 那多半是 DevTools 自己的进程，标错比标不出来更误导人。
+    const orphan = m.type === "Tab" || m.type === "Page";
     const tag = m.pid === process.pid ? "主进程（本进程）"
       : m.pid === mainPid ? label + " · 主窗"
         : m.pid === dlPid ? label + " · 桌面歌词"
-          : (m as { name?: string }).name ? label + " · " + (m as { name?: string }).name : label;
+          : orphan ? label + " · 未归属（DevTools / 其它窗）"
+            : (m as { name?: string }).name ? label + " · " + (m as { name?: string }).name : label;
     return {
       pid: m.pid, type: m.type, tag,
       rssKB: m.memory?.workingSetSize ?? 0,
