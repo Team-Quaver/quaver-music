@@ -12,10 +12,12 @@
  * --dl-font-size：字体家族跟随「歌词字体」，字号倍率跟随 [DesktopLyrics] Scale）。
  *
  * 两层不透明度，别混：
- *   • [DesktopLyrics] Opacity → --dl-opacity（#dl-root 整层，含控制条）—— 调的是**字**；
+ *   • [DesktopLyrics] Opacity → --dl-opacity —— 调的是**字**（挂在内容两处：#dl-clip 与 #dl-empty，
+ *     不挂整层 #dl-root，理由见下面「悬停地板」那段）；
+ *     悬停时内容另吃 --dl-hover-opacity = max(设置, 0.3)（「悬停地板」：再透明也该看得见这扇窗）；
  *   • [DesktopLyrics] Backdrop → --dl-win-alpha（#dl-board）—— 调的是**窗体的面**，
  *     也就是铺满整扇窗的那块背板；0（默认）= 没有面，只有字。
- * 背板是 #dl-root 的**兄弟**（不是子元素）：#dl-root 的 opacity 只管字，不能连背板一起乘。
+ * 背板是 #dl-root 的**兄弟**（不是子元素）：歌词层那层 opacity 只管字，不能连背板一起乘。
  */
 
 html, body {
@@ -37,10 +39,29 @@ body {
   position: fixed;
   inset: 0;
   /* 整层就是 CSD 抓握区：拖哪都能挪窗；下面三处控件用 no-drag 把点击收回来。
-     opacity 是**歌词层**不透明度（[DesktopLyrics] Opacity）—— 半透明照样能拖、能点。
-     窗体的可见面（背板）不在这里，在 #dl-clip 的 background（见上）。 */
+     这里**不挂** opacity：透明度只管内容（#dl-clip / #dl-empty），控件管自己 —— 见下面两段。
+     窗体的可见面（背板）也不在这里，在 #dl-board（见上）。 */
   -webkit-app-region: drag;
+}
+
+/* —— 歌词层不透明度 + 悬停地板 ——
+ * 「地板」：指针停在覆盖层上（= 现在可拖动/可按按钮那个状态）时，内容至少要到 0.3，
+ * 省得调到最透明以后连这扇窗在哪儿都找不到；设置高于 0.3 就完全照设置来（--dl-hover-opacity
+ * 与 --dl-opacity 相等，这条规则等于不存在）。值由 src/desktop-lyrics.ts:applyStyle 算好
+ * （max(设置, prefs 的 DL_HOVER_OPACITY_FLOOR)），与 --dl-opacity 一起挂在 #dl-root 上供后代继承。
+ *
+ * 为什么挂在**内容两处**而不是整层 #dl-root：opacity 会被浏览器夹回 [0,1]，「整层压到 0.3 再让
+ * 控制条乘 1/0.3 补回满值」这条路在 CSS 里根本不成立（>1 直接作废）。拆成「内容归内容、控件归
+ * 控件」才两头都对 —— 控件本来就只在悬停时才出现，满值绘制才按得着。
+ * JS 缺席（纯浏览器开的这页）时 --dl-hover-opacity 没值，回落 --dl-opacity，行为退回「一切照设置」。
+ * opacity 是合成层属性，淡入淡出零重排。 */
+#dl-clip,
+#dl-empty {
   opacity: var(--dl-opacity, 1);
+}
+#dl-root:hover #dl-clip,
+#dl-root:hover #dl-empty {
+  opacity: var(--dl-hover-opacity, var(--dl-opacity, 1));
 }
 
 /* —— 歌词视口（#dl-stage 铺满窗体；#dl-clip 是 AMLL 宿主 = **恒定高度**的视口）——
@@ -77,7 +98,7 @@ body {
   --dl-win-t: calc((100% - var(--dl-font-size, 24px) * 1.7) / 2);
   --dl-win-h: calc(var(--dl-font-size, 24px) * 1.7);
   clip-path: inset(var(--dl-win-t) 0 calc(100% - var(--dl-win-t) - var(--dl-win-h)) 0);
-  transition: clip-path .18s ease-out;
+  transition: clip-path .18s ease-out, opacity .12s ease-out;
   --amll-lp-font-size: var(--dl-font-size, 24px);
   --amll-lp-color: var(--dl-ink, #fff);
   --amll-lp-hover-bg-color: transparent;
@@ -132,6 +153,7 @@ body {
 
 /* —— 空态提示（等待播放 / 加载中 / 暂无歌词）—— */
 #dl-empty {
+  transition: opacity .12s ease-out;
   position: absolute;
   inset: 0;
   display: flex;
@@ -148,7 +170,10 @@ body {
 #dl-tools {
   position: absolute;
   left: 50%;
-  bottom: 18px;
+  /* 贴着窗体下缘：默认高度是「一条字 + 一点余量」的紧凑带（见 desktop-lyrics-core.ts
+     的 defaultHeightFor），悬停态本来就只在该窗口出现，压在字上面 0.12s 就过去了 ——
+     再往上抬就会常驻在歌词正中，比贴着下缘碍眼得多。 */
+  bottom: 6px;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
@@ -162,6 +187,7 @@ body {
   transition: opacity 0.18s ease;
 }
 #dl-root:hover #dl-tools {
+  /* 控件不受「歌词不透明度」牵连（见上面「地板」那段）：它只在悬停时出现，出现就是要按的 */
   opacity: 1;
   pointer-events: auto;
 }
@@ -206,7 +232,7 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 12px;
+  height: 8px;
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.18s ease;
@@ -217,7 +243,7 @@ body {
   position: absolute;
   left: 8px;
   right: 8px;
-  bottom: 4px;
+  bottom: 2px;
   height: 3px;
   border-radius: 2px;
   background: rgb(255 255 255 / 22%);
@@ -225,7 +251,7 @@ body {
 #dl-progress-fill {
   position: absolute;
   left: 8px;
-  bottom: 4px;
+  bottom: 2px;
   height: 3px;
   max-width: calc(100% - 16px);
   border-radius: 2px;

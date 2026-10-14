@@ -425,11 +425,30 @@ export function setDesktopLyrics(v: boolean) {
 export const DL_OPACITY_MIN = 0.1;
 export const DL_OPACITY_MAX = 1;
 
-/** 桌面歌词**歌词层**不透明度 0.1..1（1=默认完全不透明）—— 调的是字。覆盖层经配置广播即时跟随。 */
-export function getDesktopLyricsOpacity(): number {
-  const n = Number(cfg("DesktopLyrics.Opacity", "1"));
+/** 悬停地板：鼠标停在覆盖层上（=「可拖动」那个状态）时，歌词层至少要到 0.3。
+ *  调得再透明，一悬停也该看得见这扇窗的边界；设置本身高于 0.3 就按设置来 —— 也就是说
+ *  悬停只「抬到地板」，不做「hover 一律变最亮」那种重复劳动。
+ *  刻意**不是**一个新的设置项：复用 [DesktopLyrics] Opacity 那条链（滑条 + 配置广播 + CSS 变量），
+ *  也不碰原生 win.setOpacity（Linux 不实现，见下面 Backdrop 的注释）。 */
+export const DL_HOVER_OPACITY_FLOOR = 0.3;
+
+/** 0.1..1 的那把夹子（坏值回落 1，与 electron/desktop-lyrics-core.ts 的 normalizeOpacity 同规）。 */
+function clampDlOpacity(n: number): number {
   if (!Number.isFinite(n)) return 1;
   return Math.min(DL_OPACITY_MAX, Math.max(DL_OPACITY_MIN, Math.round(n * 100) / 100));
+}
+
+/** 桌面歌词**歌词层**不透明度 0.1..1（1=默认完全不透明）—— 调的是字。覆盖层经配置广播即时跟随。 */
+export function getDesktopLyricsOpacity(): number {
+  return clampDlOpacity(Number(cfg("DesktopLyrics.Opacity", "1")));
+}
+
+/** 悬停时的**内容**不透明度 = max(设置值, 地板)：0.1..0.3 一律给 0.3，高于地板的原样返回。 */
+export function hoverOpacityOf(opacity: number): number {
+  return Math.max(clampDlOpacity(opacity), DL_HOVER_OPACITY_FLOOR);
+}
+export function getDesktopLyricsHoverOpacity(): number {
+  return hoverOpacityOf(getDesktopLyricsOpacity());
 }
 export function setDesktopLyricsOpacity(v: number) {
   const clamped = Math.min(DL_OPACITY_MAX, Math.max(DL_OPACITY_MIN, Number(v) || 1));

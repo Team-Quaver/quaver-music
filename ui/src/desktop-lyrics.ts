@@ -13,7 +13,10 @@
 //
 // 字体：家族恒跟随「设置 → 外观 → 歌词字体」（Style.DefaultLyricsFonts，配置广播实时跟随）；
 // 字号倍率走 [DesktopLyrics] Scale、歌词层不透明度走 [DesktopLyrics] Opacity、窗体不透明度
-// （背板）走 [DesktopLyrics] Backdrop（都是设置页滑条，经配置广播实时跟随）。窗面默认全透明，
+// （背板）走 [DesktopLyrics] Backdrop（都是设置页滑条，经配置广播实时跟随）。歌词层另有一道「悬停地板」：
+// 鼠标停在覆盖层上（= 可拖动那个状态）时内容至少 0.3，设置高于 0.3 就照设置来 —— 见 prefs 的
+// DL_HOVER_OPACITY_FLOOR，值由 applyStyle 算成 --dl-hover-opacity（悬停控件不跟随，恒满值）。
+// 窗面默认全透明，
 // 白字 + 投影，深浅壁纸都能读；要更稳的底就在设置里把背板调出来。
 //
 // 版面：可见条带（clip-path）恒居中于视口，当前行**整块文字**（主行 + 翻译/音译）的实测
@@ -29,7 +32,7 @@
 //   • 底部细进度条：点击 seek。
 import "./desktop-lyrics.css";
 import { cfg, loadConfig } from "./lib/config";
-import { fontCssOf, getDesktopLyricsBackdrop, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getLyricAux } from "./lib/prefs";
+import { fontCssOf, getDesktopLyricsBackdrop, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsHoverOpacity, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getLyricAux } from "./lib/prefs";
 import { fmtLyricDelay, LYRIC_DELAY_MAX_MS, LYRIC_DELAY_STEP_MS } from "./lib/lyric-delay";
 import { alignFor, bandFor, scrollRange } from "./lib/desktop-lyrics-layout";
 import { CLOCK_COMP_MS, type DlCmd, type DlLine, type DlSyncPayload, type DlTrackPayload } from "./lib/desktop-lyrics-protocol";
@@ -528,11 +531,14 @@ function applyStyle(): void {
   root.style.setProperty("--dl-font-size", `${Math.round(24 * scale)}px`);
   root.style.setProperty("--dl-ink", lyricInk());
   // 两层不透明度分开，各管各的（别再混成一个）：
-  //   • --dl-opacity（[DesktopLyrics] Opacity）= **歌词层**：整层淡出（字 + 控制条 + 进度线）；
+  //   • --dl-opacity（[DesktopLyrics] Opacity）= **歌词层**：淡出内容（字 + 空态提示）；悬停控件不连坐；
   //   • --dl-win-alpha（[DesktopLyrics] Backdrop）= **窗体的面**：#dl-board 那块铺满整扇窗的背板。
   // 一个挂 root（在 root 之内消费），一个挂 <html>（#dl-board 是 root 的兄弟，挂 root 传不过去）。
   docEl.style.setProperty("--dl-win-alpha", String(getDesktopLyricsBackdrop()));
   root.style.setProperty("--dl-opacity", String(getDesktopLyricsOpacity()));
+  // 悬停地板：停在覆盖层上（= 要拖动的那个状态）时，内容抬到 max(设置, 0.3) —— 变量挂在 root 上
+  // 供后代继承，CSS 只在 :hover 里消费，离开悬停自动回落 --dl-opacity。控件不参与（见 CSS 同段注释）。
+  root.style.setProperty("--dl-hover-opacity", String(getDesktopLyricsHoverOpacity()));
   // default 档是纯白字，影子轻一档；染色/自定义色压浅壁纸时靠更重的投影托轮廓
   root.classList.toggle("ink-default", getDesktopLyricsColorMode() === "default");
   applyPlayerLayout();

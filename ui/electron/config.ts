@@ -535,9 +535,11 @@ export const SCHEMA: SectionSpec[] = [
         key: "Opacity",
         def: "1",
         doc: [
-          "桌面歌词**歌词层**不透明度：0.1..1，1（默认）=完全不透明。整层一起淡出（歌词 + 悬停控制条 + 进度线）——",
+          "桌面歌词**歌词层**不透明度：0.1..1，1（默认）=完全不透明。淡出的是**内容**（歌词与空态提示）——",
           "贴浅色/深色壁纸时想让它更「退后」一点就调小；半透明不影响命中测试，窗口照样能拖能点。",
           "注意这调的是**字**；要「窗体的可见面」（字后面那块背板）用 Backdrop。",
+          "悬停地板：鼠标停在覆盖层上（= 可拖动那个状态）时内容至少 0.3，设得比 0.3 高就照设置来 ——",
+          "由 src/lib/prefs.ts 的 DL_HOVER_OPACITY_FLOOR 算成 CSS 变量，不另开开关也不落新键。",
         ],
         valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0.1 && Number(v) <= 1,
       },
@@ -556,7 +558,11 @@ export const SCHEMA: SectionSpec[] = [
       {
         key: "Scale",
         def: "1",
-        doc: ["桌面歌词字号倍率：0.5..2，1=默认（约 24px 基准）。字体家族恒跟随 [Style] DefaultLyricsFonts"],
+        doc: [
+          "桌面歌词字号倍率：0.5..2，1=默认（约 24px 基准）。字体家族恒跟随 [Style] DefaultLyricsFonts。",
+          "初始窗高按「字号 × 行数」贴合内容（electron/desktop-lyrics-core.ts 的 defaultHeightFor）——",
+          "没拖过右下角把手时，改字号/行数会把窗高重新贴合（只长不缩）。",
+        ],
         valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0.5 && Number(v) <= 2,
       },
       {

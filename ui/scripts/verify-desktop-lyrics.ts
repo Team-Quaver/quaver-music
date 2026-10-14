@@ -2,20 +2,22 @@
 //
 // 抓的三类回归：
 //   • 纯逻辑（electron/desktop-lyrics-core.ts 不 import electron，直接函数断言）：
-//     边界回落/夹取、配置解析的坏值韧性（开关/字号/透明度/坐标）。
+//     边界回落/夹取、配置解析的坏值韧性（开关/字号/透明度/行数/坐标）、**初始尺寸贴合内容**
+//     （defaultHeightFor 按字号×行数算窗高；旧的 720×150 大空带不当作用户偏好）。
 //   • 双写红线：[DesktopLyrics] 的 schema 默认值 ⇄ src/lib/config.ts FALLBACK 逐键一致。
 //   • 覆盖层几何（src/lib/desktop-lyrics-layout.ts 纯函数）：块心对齐、条带居中、超长行滚动区间。
 //   • 「没有点击穿透这一档」红线：整条链（core/主进程/preload/桥/页/CSS/设置页/托盘）都不许
 //     再出现 ClickThrough / setIgnoreMouseEvents / click-through；窗体改成纯 CSD（拖拽区）。
 //   • 接线护栏（源码正则）：主进程开窗选项（透明/置顶/不抢焦点/movable）、CSD 拖拽区与
-//     no-drag 例外、整层不透明度、退出连带关窗不写 Enabled、桥的 active 门与曲目指纹去抖、
+//     no-drag 例外、歌词层/窗体两层不透明度与悬停地板、退出连带关窗不写 Enabled、桥的 active 门与曲目指纹去抖、
 //     DL 页零 player 依赖、时钟补偿与 NowPlaying 同值、vite 入口与 CSP。
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defaults } from "../electron/config.ts";
 import {
-  boundsToPatch, clampSize, confBool, defaultBounds,
+  boundsToPatch, clampSize, confBool, defaultBounds, defaultHeightFor, defaultSizeFor,
+  DL_DEFAULT_SIZE, DL_SIZE_MAX, DL_SIZE_MIN, isLegacyDefaultSize,
   normalizeOpacity, normalizeScale, parseSettings, pickBounds,
 } from "../electron/desktop-lyrics-core.ts";
 import { alignFor, bandFor, scrollRange, BAND_MIN_PX } from "../src/lib/desktop-lyrics-layout.ts";
@@ -63,9 +65,34 @@ section("纯 CSD：整条链都不再有穿透档");
   check("CSS 里也没有 click-through 残留", !/click-through/.test(src("src/desktop-lyrics.css")));
 }
 
+// ——— 1.5 没有「最大化/全屏」这一档（覆盖层是一条横带，不是普通窗口） ———
+section("不支持最大化/全屏");
+{
+  const dl = src("electron/desktop-lyrics.ts");
+  check("构造参数关掉最大化与全屏（连同 minimizable 一起）",
+    /maximizable: false/.test(dl) && /fullscreenable: false/.test(dl) && /minimizable: false/.test(dl));
+  check("反应式兜底：被 WM 最大化 → unmaximize 还原（maximizable 拦不住 Snap/平铺手势与双击拖拽区）",
+    /win\.on\("maximize", \(\) => rejectState\("最大化"\)\);/.test(dl) && /win\.isMaximized\(\)\) win\.unmaximize\(\)/.test(dl));
+  check("反应式兜底：被拉进全屏 → setFullScreen(false)",
+    /win\.on\("enter-full-screen", \(\) => rejectState\("全屏"\)\);/.test(dl) && /win\.isFullScreen\(\)\) win\.setFullScreen\(false\)/.test(dl));
+  check("反应式兜底：被最小化 → restore（skipTaskbar 的窗缩进去就再也点不回来，只能靠托盘）",
+    /win\.on\("minimize", \(\) => rejectState\("最小化"\)\);/.test(dl) && /win\.isMinimized\(\)\) win\.restore\(\)/.test(dl));
+  check("还原前先判一次现值（事件抢跑时不重复动手、也不刷日志）",
+    /if \(!win\.isMaximized\(\) && !win\.isMinimized\(\) && !win\.isFullScreen\(\)\) return;/.test(dl));
+  check("尺寸上限给到 WM 一道硬约束（贴边/平铺也长不过 DL_SIZE_MAX）",
+    /win\.setMaximumSize\(DL_SIZE_MAX\.width, DL_SIZE_MAX\.height\)/.test(dl));
+  check("本模块从不主动 maximize（只有 unmaximize 这个还原方向）", !/(^|[^n])maximize\(/m.test(dl.replace(/unmaximize\(/g, "@")));
+}
+
 // ——— 2. 配置解析与兜底 ———
 section("parseSettings / normalizeScale / normalizeOpacity / confBool");
-eq("缺省：关 + 字号1 + 透明度1 + 无坐标", parseSettings({}), { enabled: false, scale: 1, opacity: 1, bounds: null });
+eq("缺省：关 + 字号1 + 透明度1 + 单行 + 辅助行开 + 无坐标", parseSettings({}),
+  { enabled: false, scale: 1, opacity: 1, mode: "single", aux: true, bounds: null });
+eq("辅助行=off 时初始窗高少留一行（覆盖层真的不渲染那一路）",
+  parseSettings({ "Style.LyricAux": "off" }).aux, false);
+eq("辅助行=roman 也算开", parseSettings({ "Style.LyricAux": "roman" }).aux, true);
+eq("行数只认 dual（别的值回落单行，与渲染层 prefs 同规）", parseSettings({ "DesktopLyrics.Mode": "triple" }).mode, "single");
+eq("行数 dual 生效（初始窗高要按它算）", parseSettings({ "DesktopLyrics.Mode": "dual" }).mode, "dual");
 eq("True/yes/1 都算开", parseSettings({ "DesktopLyrics.Enabled": "yes" }).enabled, true);
 eq("字号越界夹回", normalizeScale("9"), 2);
 eq("字号坏值回落 1", normalizeScale("abc"), 1);
@@ -87,11 +114,43 @@ check("记忆位置在副屏 → 原样恢复", remembered?.x === 2000 && rememb
 const offscreen = pickBounds({ x: 99999, y: 99999, width: 640, height: 120 }, [AREA_MAIN]);
 check("拔掉副屏后陈旧坐标回落初始落位（不丢进虚空）", !!offscreen && offscreen.x >= 0 && offscreen.y > 600 && offscreen.width === 640, JSON.stringify(offscreen));
 const tiny = pickBounds({ x: 100, y: 100, width: 40, height: 20 }, [AREA_MAIN]);
-check("尺寸过小手被夹到下限", tiny?.width === 260 && tiny?.height === 70, JSON.stringify(tiny));
+check("尺寸过小手被夹到下限（下限已降到 44：压到极扁也得有条活路）",
+  tiny?.width === DL_SIZE_MIN.width && tiny?.height === DL_SIZE_MIN.height, JSON.stringify(tiny));
 eq("无屏幕数据返回 null（调用方自便）", pickBounds(null, []), null);
 const def = defaultBounds(AREA_MAIN);
 check("初始落位=底部居中的横带", def.width === 720 && def.y + def.height <= 1080 && def.y > 700, JSON.stringify(def));
 eq("bounds→补丁字符串", boundsToPatch({ x: 12.6, y: -8, width: 300.2, height: 80 }), { "DesktopLyrics.X": "13", "DesktopLyrics.Y": "-8", "DesktopLyrics.W": "300", "DesktopLyrics.H": "80" });
+
+section("初始尺寸 = 字号 × 行数档位（不再一律 150px 大空带）");
+// 下面这些期望值 = headless 实测条带高（47/62/94/128 …）套同一公式的落点，改动系数要重新量
+eq("字号1 单行·辅助开 = 83（旧版一律 150，实测条带只要 62）", defaultHeightFor(1, "single", true), 83);
+eq("字号1 单行·辅助关 = 66", defaultHeightFor(1, "single", false), 66);
+eq("字号1 双行·辅助开 = 137（实测条带 128）", defaultHeightFor(1, "dual", true), 137);
+eq("字号0.5 单行·辅助开 = 56", defaultHeightFor(0.5, "single", true), 56);
+eq("字号2 双行·辅助开 = 258（最紧的一档：实测条带 253）", defaultHeightFor(2, "dual", true), 258);
+check("字号越大越高、双行不低于单行、辅助行不低于纯主行",
+  defaultHeightFor(2, "single") > defaultHeightFor(1, "single")
+  && defaultHeightFor(1, "dual") > defaultHeightFor(1, "single")
+  && defaultHeightFor(1, "single", true) > defaultHeightFor(1, "single", false));
+check("恒在夹取范围内（越界字号也长不出屏）",
+  [0.5, 1, 2].every((sc) => (["single", "dual"] as const).every((m) => ([true, false]).every((aux) =>
+    defaultHeightFor(sc, m, aux) >= DL_SIZE_MIN.height && defaultHeightFor(sc, m, aux) <= DL_SIZE_MAX.height))));
+eq("DL_DEFAULT_SIZE = 「字号1 + 单行 + 辅助开」口径", DL_DEFAULT_SIZE, { width: 720, height: defaultHeightFor(1, "single", true) });
+eq("defaultSizeFor 宽恒 720、高走档位", defaultSizeFor({ scale: 2, mode: "dual", aux: true }), { width: 720, height: 258 });
+check("旧默认 720×150 认成「从没拖过角」，新的贴合值不算",
+  isLegacyDefaultSize({ x: 0, y: 0, width: 720, height: 150 })
+  && !isLegacyDefaultSize({ x: 0, y: 0, width: 720, height: 75 })
+  && !isLegacyDefaultSize({ x: 0, y: 0, width: 640, height: 150 })
+  && !isLegacyDefaultSize(null));
+{
+  const legacy = pickBounds({ x: 300, y: 400, width: 720, height: 150 }, [AREA_MAIN], { width: 720, height: 83 });
+  check("旧默认尺寸：位置照旧恢复，尺寸换成贴合值",
+    legacy?.x === 300 && legacy?.y === 400 && legacy?.height === 83 && legacy?.width === 720, JSON.stringify(legacy));
+  const mine = pickBounds({ x: 300, y: 400, width: 500, height: 120 }, [AREA_MAIN], { width: 720, height: 83 });
+  check("用户拖过的尺寸不动", mine?.width === 500 && mine?.height === 120, JSON.stringify(mine));
+  const hinted = pickBounds(null, [AREA_MAIN], { width: 800, height: 90 });
+  check("无记忆尺寸时按 hint 落位", hinted?.width === 800 && hinted?.height === 90, JSON.stringify(hinted));
+}
 
 // ——— 3. 双写红线：schema 默认 ⇄ 渲染层 FALLBACK ———
 section("[DesktopLyrics] 默认值双写一致");
@@ -124,6 +183,20 @@ check("preload 与主窗同桥", /preload: join\(__dirname, "preload\.cts"\)/.te
 check("窗口可移动（CSD 拖拽区生效的前提：movable: true；Wayland 下这是唯一真能挪窗的路）",
   /movable: true/.test(dl) && !/setMovable/.test(dl));
 check("加载同源 desktop-lyrics.html", /new URL\("desktop-lyrics\.html", base\)/.test(dl));
+check("初始尺寸来自「字号 × 行数」的贴合值（不再写死 720/150 那条大空带）",
+  /const hint = defaultSizeFor\(this\.settings\);/.test(dl)
+  && /pickBounds\(this\.settings\.bounds, displays, hint\)/.test(dl)
+  && /width: bounds\?\.width \?\? hint\.width/.test(dl)
+  && /height: bounds\?\.height \?\? hint\.height/.test(dl)
+  && !/\?\? 150/.test(dl) && !/\?\? 720/.test(dl));
+{
+  const refitBody = (dl.match(/private refitHeight\(\)[\s\S]*?\n  \}/) ?? [""])[0];
+  check("档位（字号/行数/辅助行）变了把窗高重新贴合，且**只长不缩**（用户拖窄的高度不该被配置改动抹掉）",
+    /const capacityChanged = this\.settings\.scale !== next\.scale\s*\|\| this\.settings\.mode !== next\.mode \|\| this\.settings\.aux !== next\.aux;/.test(dl)
+    && /else if \(capacityChanged\) this\.refitHeight\(\);/.test(dl)
+    && /const want = defaultSizeFor\(this\.settings\)\.height;/.test(refitBody)
+    && /if \(h >= want\) return;/.test(refitBody));
+}
 check("did-finish-load 补发 track/sync（晚到的窗；this.win 身份门防拆窗竞态）", /did-finish-load[\s\S]*?this\.win !== win[\s\S]*?latestTrack[\s\S]*?latestSync/.test(dl));
 check("关闭覆盖层落 Enabled=False，但随应用退出被销毁时不写", /isQuitting\(\)[\s\S]{0,120}DesktopLyrics\.Enabled"\: "False"/.test(dl) || (/if \(!this\.deps\.isQuitting\(\)\)/.test(dl) && /"DesktopLyrics\.Enabled": "False"/.test(dl)));
 check('命令/窗口操作有 sender 校验（dl-cmd 只收覆盖层、dl-track 只收主窗）', /fromDlWin\(e\.sender\)/.test(dl) && /fromMainWin\(e\.sender\)/.test(dl));
@@ -185,10 +258,13 @@ check("缩放把手走窗口操作通道（挪窗交给 CSD 拖拽区，不走 I
 check("行点击不跳转（产品决定：覆盖层只读，seek 只走进度条）", /seek: \(_ms: number\) => \{\}/.test(page) && !/suppressSeekUntil/.test(page));
 check("进度条点击 seek 保留（播放控制器的一部分）", /progress\.onclick[\s\S]*sendCmd\(\{ cmd: "seek", ms: ratio \* dur \* 1000 \}\)/.test(page));
 check("行级兜底整形为整行单音节（对齐内置引擎对 LRC 的约定）", /function linesToKaraoke/.test(page) && /words: \[\{ word: l\.text/.test(page));
-check("两层不透明度各管各的：歌词层走 --dl-opacity（root 整层），窗体背板走 --dl-win-alpha（<html> → #dl-board）",
+check("两层不透明度各管各的：歌词层走 --dl-opacity（内容两处：#dl-clip/#dl-empty），窗体背板走 --dl-win-alpha（<html> → #dl-board）",
   /root\.style\.setProperty\("--dl-opacity", String\(getDesktopLyricsOpacity\(\)\)\)/.test(page)
   && /docEl\.style\.setProperty\("--dl-win-alpha", String\(getDesktopLyricsBackdrop\(\)\)\)/.test(page)
   && /getDesktopLyricsBackdrop/.test(src("src/lib/prefs.ts")));
+check("字号基准两处同源：core 的 DL_FONT_BASE_PX ⇄ 覆盖层 applyStyle 的 `24 * scale`（默认窗高靠它算）",
+  /root\.style\.setProperty\("--dl-font-size", `\$\{Math\.round\(24 \* scale\)\}px`\)/.test(page)
+  && /export const DL_FONT_BASE_PX = 24;/.test(src("electron/desktop-lyrics-core.ts")));
 const pageHtml = src("desktop-lyrics.html");
 check("页面壳存在且入口为外链模块（CSP script-src 无 inline）", /<script type="module" src="\/src\/desktop-lyrics\.ts"><\/script>/.test(pageHtml) && !/<script>(?!<)/.test(pageHtml.replace(/<script [^>]*><\/script>/g, "")));
 check("CSP 样式允许注入（style-src 'unsafe-inline' 覆盖内联 style 属性，勿改 script 姿态）", /style-src 'self' 'unsafe-inline'/.test(src("electron/csp.ts")));
@@ -199,8 +275,30 @@ check("透明页面：body 无底色", /html, body \{[\s\S]*?background: transpa
 check("CSD 拖拽区：整层 drag + 三处控件 no-drag（同一子树内才挖得动洞）",
   /#dl-root \{[\s\S]*?-webkit-app-region: drag;/.test(css)
   && /#dl-tools,[\s\S]{0,120}#dl-progress,[\s\S]{0,120}#dl-resize,[\s\S]{0,120}#dl-tools button \{[\s\S]{0,80}-webkit-app-region: no-drag;/.test(css));
-check("歌词层透明度吃 --dl-opacity（root 整层）",
-  /#dl-root \{[\s\S]*?opacity: var\(--dl-opacity, 1\);/.test(css));
+check("歌词层透明度吃 --dl-opacity，且挂在内容而不是整层 #dl-root（控件与背板都不该被它连坐）",
+  /#dl-clip,[\s\S]{0,40}?#dl-empty \{[\s\S]{0,60}?opacity: var\(--dl-opacity, 1\);/.test(css)
+  && !/#dl-root \{[\s\S]{0,400}?opacity: var\(--dl-opacity/.test(css));
+{
+  const prefsText = src("src/lib/prefs.ts");
+  check("悬停地板的常量与判据在 prefs：max(设置, 0.3) —— 高于 0.3 完全照设置来；不新增配置键、不碰原生 setOpacity",
+    /export const DL_HOVER_OPACITY_FLOOR = 0\.3;/.test(prefsText)
+    && /return Math\.max\(clampDlOpacity\(opacity\), DL_HOVER_OPACITY_FLOOR\)/.test(prefsText)
+    && /hoverOpacityOf\(getDesktopLyricsOpacity\(\)\)/.test(prefsText)
+    && !/DesktopLyrics\.HoverOpacity/.test(prefsText)
+    && !/win\.setOpacity\(/.test(prefsText));
+  check("覆盖层把地板算成一个 CSS 变量挂在 root 上（内容两处继承它），控件不连坐",
+    /root\.style\.setProperty\("--dl-hover-opacity", String\(getDesktopLyricsHoverOpacity\(\)\)\)/.test(page)
+    && !/--dl-hover-comp/.test(page) && !/hoverCompOf/.test(prefsText));
+  check("CSS：悬停时内容吃 --dl-hover-opacity（JS 缺席回落 --dl-opacity），进出悬停淡一下不跳",
+    /#dl-root:hover #dl-clip,[\s\S]{0,140}?opacity: var\(--dl-hover-opacity, var\(--dl-opacity, 1\)\);/.test(css)
+    && /#dl-clip \{[\s\S]*?transition: clip-path [\d.]+m?s ease-out, opacity [\d.]+m?s ease-out;/.test(css));
+  check("悬停控件恒满值：opacity 会被浏览器夹回 1，「整层压低再给控件乘补偿」在 CSS 里根本不成立 —— 拆开才是对的",
+    /#dl-root:hover #dl-tools \{[\s\S]{0,200}?opacity: 1;/.test(css)
+    && /#dl-root:hover #dl-progress \{ opacity: 1; \}/.test(css)
+    && /#dl-root:hover #dl-resize \{ opacity: 1; \}/.test(css));
+  check("控制条贴窗体下缘（紧凑带里 hover 控件压在下边，不常驻在歌词正中）",
+    /#dl-tools \{[\s\S]*?bottom: 6px;/.test(css));
+}
 check("窗体背板 = 铺满**整扇窗**的一层（inset:0 的 #dl-board，不是只包歌词条带的窄条）",
   /#dl-board \{[\s\S]*?position: fixed;[\s\S]*?inset: 0;[\s\S]*?background: rgb\(0 0 0 \/ var\(--dl-win-alpha, 0\)\);/.test(css)
   && /<div id="dl-board"><\/div>/.test(src("desktop-lyrics.html")));
@@ -352,6 +450,9 @@ check("歌词不透明度滑条 10..100%（调的是字）",
   /id="dl-opacity" type="range" min="10" max="100" step="5"/.test(views)
   && /歌词不透明度/.test(views)
   && /setDesktopLyricsOpacity\(Number\(dlOpacity\.value\) \/ 100\)/.test(views));
+check("设置页交代悬停地板（停在歌词层上字至少 30%）、初始高度贴合内容、不支持最大化",
+  /悬停地板/.test(views) && /字至少\s*回到\s*30%/.test(views) && /设得比 30% 高就完全按你的设置来/.test(views)
+  && /初始高度按字号与行数贴合内容/.test(views) && /不支持最大化/.test(views));
 check("窗体不透明度滑条 0..100%（调背板，默认 0 = 只有字）——与歌词那条分开、命名不混",
   /id="dl-backdrop" type="range" min="0" max="100" step="5"/.test(views)
   && /窗体不透明度/.test(views)

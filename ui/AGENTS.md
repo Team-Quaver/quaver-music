@@ -195,13 +195,30 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
   合成器无视，拖拽区是唯一真能挪窗的路（旧版 move-by IPC 已删）。`no-drag` 的豁免**只在同一子树内**
   成立（主窗顶带踩过：兄弟子树里的 no-drag 挡不住铺过来的 drag 矩形）——本窗三个控件都是
   `#dl-root` 的直接子元素才挖得动洞。
-- **两层不透明度，别混成一个**：`Opacity` = **歌词层**（`#dl-root{opacity}`：字 + 控制条 + 进度线
-  一起淡）；`Backdrop` = **窗体不透明度**（`#dl-board`，`inset:0` **铺满整扇窗**、画在歌词下面，
-  默认 0 = 整扇窗全透明、只有字）。背板刻意是 `#dl-root` 的**兄弟**、变量挂在 `<html>` 上 ——
-  放进 root 里就会被 `#dl-root{opacity}` 连坐乘一遍（两个滑条就不独立了）。
+- **两层不透明度，别混成一个**：`Opacity` = **歌词层**（挂在**内容**两处：`#dl-clip` 与 `#dl-empty`
+  的 `opacity: var(--dl-opacity)`）；`Backdrop` = **窗体不透明度**（`#dl-board`，`inset:0` **铺满整扇窗**、
+  画在歌词下面，默认 0 = 整扇窗全透明、只有字）。背板刻意是 `#dl-root` 的**兄弟**、变量挂在 `<html>` 上 ——
+  放进 root 里就会被歌词层的 opacity 连坐乘一遍（两个滑条就不独立了）。
   想要「窗体」有可调的面就调背板，**不要**去碰字。
   为什么不做原生 `win.setOpacity()`：Linux 上 Electron 不实现（文档原话「On Linux, does nothing」），
   按平台分叉两条路只会让三平台口径不一致 —— 一律用「背板」这一层表达窗体，三平台同一套。
+- **悬停地板：歌词层的透明度挂在「内容」而不是整层 `#dl-root`**。指针停在覆盖层上（= 可拖动那个状态）
+  时内容至少要到 0.3（`prefs` 的 `DL_HOVER_OPACITY_FLOOR` → `applyStyle` 算成 `--dl-hover-opacity`，
+  CSS 只在 `#dl-root:hover` 里消费），设置高于 0.3 就完全照设置来 —— 复用同一条透明度链，**不新增设置项**。
+  为什么不整层压住再给控件乘补偿系数：CSS `opacity` 被浏览器夹回 `[0,1]`，`1/0.3` 这种补偿直接作废
+  （真机踩过：补偿值算出来是 3.33，读回来还是 1）。控件本来就只在悬停时才出现，让它恒满值才按得着。
+- **初始尺寸贴合内容**（`desktop-lyrics-core.ts:defaultHeightFor`）：窗高 = 主行/辅助行/呼吸位的容量
+  × 留量 + 落位余量，系数是 headless 量 `__dl.stripDiag().applied` **实测标定**的（12 种档位组合逐一核过，
+  最紧的一档 字号2+双行+辅助 = 258 vs 实测条带 253）。旧版一律给 720×150 那条大空带 —— 一条 24px 的字
+  吊在半空 + 一整片看不见的点击区，是不合理的。三条配套：① `isLegacyDefaultSize` 把落在 720×150 的
+  记忆尺寸认成「用户从没拖过角」（位置照旧恢复、尺寸换贴合值）；② 字号/行数/辅助行变了 → `refitHeight`
+  **只长不缩**（用户拖窄的高度不该被配置改动抹掉，但字被条带切掉是实打实的坏画面）；③ 辅助行容量取自
+  全局 `[Style] LyricAux`（覆盖层真的会多渲染那一行）。
+- **没有「最大化/全屏」这一档**：`maximizable:false` + `fullscreenable:false` 只是「不给按钮」，拦不住
+  窗口管理器的手势（Windows 顶边 Aero Snap、KDE/GNOME 平铺与 Super+Up、无边框窗双击拖拽区）——
+  所以另有一道反应式兜底：`maximize` / `enter-full-screen` 一到就 `unmaximize()` / `setFullScreen(false)`，
+  外加 `setMaximumSize(DL_SIZE_MAX…)` 给 WM 一条硬上限。别改成 `resizable:false`：那是想连我们的
+  右下角把手一起关掉（`resize-by` 走的是 `setSize`，X11 下还会被 WM 的 min=max 尺寸约束夹住）。
 - **垂直居中：钉的是整块文字的实测中心**（主行 + 翻译/音译；条带高 = 块高 + 上下 0.25em 呼吸位，
   条带恒居中于视口）。量尺走 `textBox()`（文本节点 Range）而不是元素矩形 —— core 给行/词盒铺了
   ±1em 的 margin/padding，量盒子会虚增近一倍。纯公式在 `src/lib/desktop-lyrics-layout.ts`
@@ -215,7 +232,7 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
   （回卷/一次性停死都会被当成故障）。相位按行元素记（`marqueeStart`），4Hz 重测不重锚。
 - 位置/大小/开关写 `[DesktopLyrics]`（主进程写 X/Y/W/H 记忆坐标；渲染层只碰开关/字号/透明度）。
 
-验证：`node scripts/verify-desktop-lyrics.ts`（纯逻辑 + 几何真单测 + 整链「无穿透档」红线 + 源码接线；
+验证：`node scripts/verify-desktop-lyrics.ts`（纯逻辑 + 几何真单测 + 尺寸贴合/悬停地板 + 整链「无穿透档」「无最大化档」红线 + 源码接线；
 已进 `verify:static`）。
 
 ## 本地音乐 / NAS（扫描 · 播放 · 刮削 · QRC 逐字）

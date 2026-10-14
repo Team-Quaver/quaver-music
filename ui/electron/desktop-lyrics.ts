@@ -14,13 +14,16 @@
 //
 // 窗体形态：**纯 CSD** —— 无边框 + 页面自己划拖拽区（-webkit-app-region: drag）。
 // 没有「点击穿透」这一档：需要它不挡桌面时把窗口拖到空闲处；理由见 desktop-lyrics-core.ts 头。
+// 也没有「最大化/全屏」这一档：歌词是贴桌面的横带，铺满整屏读不了也拖不回来 —— 构造参数只是
+// 「不给按钮」，拦不住窗口管理器的手势，所以另有一道「被最大化就立刻退回」的反应式守卫。
+// 初始尺寸由「字号倍率 × 行数档位」贴合内容算出（defaultSizeFor），不再是一律 150px 的大空带。
 // 配置解析/边界兜底在 desktop-lyrics-core.ts，窗口生命周期全在本文件。
 import { BrowserWindow, ipcMain, screen } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readValues, writeValues } from "./config.ts";
 import {
-  boundsToPatch, clampSize, parseSettings, pickBounds,
+  boundsToPatch, clampSize, defaultSizeFor, DL_SIZE_MAX, parseSettings, pickBounds,
   type DlSettings, type Rect,
 } from "./desktop-lyrics-core.ts";
 
@@ -177,9 +180,13 @@ export class DesktopLyricsController {
   syncFromConf(): void {
     const next = parseSettings(this.readConf());
     const open = !!this.win && !this.win.isDestroyed();
+    // 字号/行数/辅助行变了 = 内容容量变了：窗还开着就把高度重新贴合（见 refitHeight）
+    const capacityChanged = this.settings.scale !== next.scale
+      || this.settings.mode !== next.mode || this.settings.aux !== next.aux;
     this.settings = next;
     if (next.enabled && !open) this.open();
     else if (!next.enabled && open) this.closeWindow();
+    else if (capacityChanged) this.refitHeight();
     this.broadcastActive();
     this.deps.refreshTrayMenu();
   }
@@ -210,10 +217,12 @@ export class DesktopLyricsController {
       return;
     }
     const displays: Rect[] = screen.getAllDisplays().map((d) => d.workArea);
-    const bounds = pickBounds(this.settings.bounds, displays);
+    // 初始尺寸跟着「字号 × 行数」贴内容；用户拖过右下角把手才是他自己的尺寸
+    const hint = defaultSizeFor(this.settings);
+    const bounds = pickBounds(this.settings.bounds, displays, hint);
     const win = new BrowserWindow({
-      width: bounds?.width ?? 720,
-      height: bounds?.height ?? 150,
+      width: bounds?.width ?? hint.width,
+      height: bounds?.height ?? hint.height,
       x: bounds?.x,
       y: bounds?.y,
       show: false,
@@ -258,6 +267,31 @@ export class DesktopLyricsController {
       });
       win.webContents.on("render-process-gone", (_e, gone) => this.deps.log("[dl-renderer:gone]", JSON.stringify(gone)));
     }
+    // ——— 「不支持最大化」的兜底 ———
+    // maximizable/fullscreenable=false 只拿掉了按钮，挡不住窗口管理器：Windows 拖到顶边的 Aero Snap、
+    // KDE/GNOME 的平铺手势与 Super+Up、无边框窗双击拖拽区都能把它整屏化。整屏的覆盖层既读不了歌词
+    // 又会把记忆坐标写歪（resized 会落盘，见下面），所以两道一起上：
+    //   ① 尺寸上限 = DL_SIZE_MAX，WM 再怎么贴边也只允许长到文档允许的范围；
+    //   ② 真的被最大化/全屏/最小化了，当场退回（unmaximize 还原到 maximize 前的 bounds；500ms 的
+    //      落盘去抖会把这中间的抖动合成一次，最终写下去的就是还原后的尺寸）。
+    //      最小化这一档更该拦：本窗 skipTaskbar，缩进任务栏外就再也点不回来了（只能靠托盘开关）。
+    win.setMaximumSize(DL_SIZE_MAX.width, DL_SIZE_MAX.height);
+    const rejectState = (what: string): void => {
+      if (this.win !== win || win.isDestroyed()) return;
+      if (!win.isMaximized() && !win.isMinimized() && !win.isFullScreen()) return; // 事件抢跑：已经好了
+      try {
+        if (win.isFullScreen()) win.setFullScreen(false);
+        if (win.isMaximized()) win.unmaximize();
+        if (win.isMinimized()) win.restore();
+      } catch (e) {
+        this.deps.log("[quaver] desktop-lyrics: 还原窗体失败:", String(e));
+        return;
+      }
+      this.deps.log(`[quaver] desktop-lyrics: 覆盖层不支持${what}，已还原`);
+    };
+    win.on("maximize", () => rejectState("最大化"));
+    win.on("enter-full-screen", () => rejectState("全屏"));
+    win.on("minimize", () => rejectState("最小化"));
     win.on("moved", () => this.schedulePersist());
     win.on("resized", () => this.schedulePersist());
     win.on("closed", () => {
@@ -288,6 +322,20 @@ export class DesktopLyricsController {
   }
 
   // ——— DL 窗的窗口级动作 ———
+
+  /** 档位（字号 / 行数 / 辅助行）变了把窗高重新贴合内容：**只长不缩** —— 用户自己拖窄的高度不该被一次
+   *  配置改动抹掉，而「字被条带切掉」是实打实的坏画面。宽度与左上角都不动（高度向下长；
+   *  Wayland 下 setPosition 本来就被合成器无视，挪顶边这条路不可靠）。
+   *  setSize 触发 'resized' → 去抖落盘 W/H，尺寸自此归用户。 */
+  private refitHeight(): void {
+    const win = this.win;
+    if (!win || win.isDestroyed()) return;
+    const want = defaultSizeFor(this.settings).height;
+    const [w, h] = win.getSize();
+    if (h >= want) return;
+    win.setSize(w, want);
+    this.deps.log(`[quaver] desktop-lyrics: 档位变化，窗高贴合 ${h} -> ${want}`);
+  }
 
   private handleWindowOp(msg: { op?: string; dx?: number; dy?: number; on?: boolean }): void {
     // 挪窗不在这里：整层是 CSD 拖拽区（-webkit-app-region: drag，见 src/desktop-lyrics.css），

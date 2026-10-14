@@ -361,9 +361,12 @@ export default async function settingsView(root: HTMLElement) {
           行数=单行只当前句、双行多带下一句；歌词块整体居中于歌词层，超长行自动横向滚动（翻译/音译各自判断，主行滚时它不动）；
           颜色默认是白字 + 深投影（任何壁纸可读），封面/系统染色与正在播放页同源派生（探测/取色失败自动回落白字）。
           「歌词不透明度」调的是字；「窗体不透明度」调的是**整扇窗的那块底**（铺满窗体的背板）——默认 0 = 整扇窗全透明、只有字，
-          花壁纸上想读清就把这块底往上调一点。</p>
+          花壁纸上想读清就把这块底往上调一点。歌词不透明度有条**悬停地板**：鼠标停在歌词层上（也就是可拖动的那个状态）时字至少
+          回到 30%，方便你找到这扇窗；设得比 30% 高就完全按你的设置来，这里不另开开关。浮现出来的控制条不跟着淡——它只在你要按的时候出现。</p>
         <p class="muted set-hint">悬停歌词层浮现控制条：播放/上一曲/下一曲、字号 A−/A+、歌词延迟 −/＋（一档 0.1s，点读数归零）与关窗；
-          歌词层是纯 CSD 窗口 —— **拖任意歌词区域**挪位置、右下角把手缩放，位置大小会记住（没有点击穿透档：不想挡桌面就把它拖到空闲处）。</p>
+          歌词层是纯 CSD 窗口 —— **拖任意歌词区域**挪位置、右下角把手缩放，位置大小会记住（没有点击穿透档：不想挡桌面就把它拖到空闲处）。
+          初始高度按字号与行数贴合内容（不再是一律 150px 的空旷大横带）；**不支持最大化/全屏** —— 被窗口管理器贴到屏幕边缘或按出
+          平铺手势时会当场还原回横带。</p>
       </div>
     </section>
 
@@ -1149,7 +1152,7 @@ export default async function settingsView(root: HTMLElement) {
     setDesktopLyricsScale(Number(dlScale.value) / 100);
     dlScaleVal.textContent = `${dlScale.value}%`;
   };
-  // 歌词层不透明度：0.1..1（滑条 10..100%）—— 调的是**字**（含控制条/进度线，整层淡出）。
+  // 歌词层不透明度：0.1..1（滑条 10..100%）—— 调的是**字**（内容淡出；悬停控件与背板各管各的）。
   const dlOpacity = wrap.querySelector<HTMLInputElement>("#dl-opacity")!;
   const dlOpacityVal = wrap.querySelector<HTMLElement>("#dl-opacity-val")!;
   const paintDlOpacity = () => {
