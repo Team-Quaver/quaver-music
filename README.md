@@ -19,6 +19,13 @@ Quaver Music，最早是为了解决 Linux 上 QQ 音乐官方客户端不好用
 > 
 > 本软件系 Vibe Coding 的产物，虽然我会尽力尝试个人维护，但不提供可用性保证
 
+> [!CAUTION]
+> 关于鸿蒙移植：
+> 
+> 若您有针对鸿蒙移植的意愿，请你在 Issue 提出，并移植后使用 AGPLv3 协议同等开源
+>
+> 若未使用同等开源协议，则视为 AGPLv3 违规，遇到的问题后果自负
+
 与此同时，非 WebView 版本的 Quaver Music Astra 也正在路上 -> [传送门](https://github.com/team-quaver/quaver-astra)，复用 Typhoeus-Go 后端，基于 Golang + MyGO 框架设计。
 
 # 功能特性
@@ -64,13 +71,13 @@ z：修补版本号
 | ------ | ------- | -------------- | ---------------- |
 | v0.x.x | Neon    | Prototype      | Prototype        |
 | v1.0.0 | Ellen   | Chisa          | Stable           |
-| v1.0.x | Ellen   | Chisa          | Stable - PatchX* |
-| v1.1.0 | Ellen   | Cyrene         | Stable - FEP1*   |
-| v1.2.0 | Ellen   | Phoebe         | Stable - FEP2*   |
-| v1.2.0 | Ellen   | Evanescia      | Stable - FEP3*   |
-| v1.4.0 | Ellen   | Aemeath        | Stable - FEP4*   |
-| v1.5.0 | Ellen   | Herta          | Stable - FEP5*   |
-| v1.6.0 | Ellen   | Denia          | Stable - FEP6*   |
+| v1.0.x | Ellen   | Chisa          | Stable           |
+| v1.1.0 | Ellen   | Cyrene         | Stable           |
+| v1.2.0 | Ellen   | Phoebe         | Stable           |
+| v1.2.0 | Ellen   | Evanescia      | Stable           |
+| v1.4.0 | Ellen   | Aemeath        | Stable           |
+| v1.5.0 | Ellen   | Herta          | Stable           |
+| v1.6.0 | Ellen   | Denia          | Stable           |
 
 
 > PatchX：修复包版本 

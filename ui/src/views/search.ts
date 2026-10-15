@@ -92,13 +92,32 @@ export default async function searchView(root: HTMLElement, q: URLSearchParams) 
           <div class="sub">${x.nickname ? stripEm(x.nickname) + " 创建" : ""}${x.songnum ? ` · ${x.songnum} 首` : ""}</div></a>`).join("");
       }
     }
+    // —— 分页栏：上一页 / 页码（当前 ±1，两端补齐，间隔省略）/ 下一页 ——
+    // 页大小与上面请求的 num=30 严格一致；total_num 缺失时以 nextpage 兜底保证能往后翻。
     const total: number = d.total_num ?? 0;
-    if (d.nextpage && d.nextpage !== -1) {
-      const more = h("div", "more-bar");
-      const btn = h("button", "ghost-btn", `加载更多（共 ${total || "?"} 条）`);
-      btn.onclick = () => go(page + 1);
-      more.append(btn);
-      box.append(more);
+    const hasNext = !!d.nextpage && d.nextpage !== -1;
+    const totalPages = Math.max(1, Math.ceil(total / 30) || 1, hasNext ? page + 1 : 1);
+    if (page > 1 || totalPages > 1) {
+      const pager = h("div", "pager");
+      const mk = (label: string, p: number, cls: string, disabled = false) => {
+        const b = h("button", cls, label) as HTMLButtonElement;
+        b.type = "button";
+        b.disabled = disabled;
+        if (!disabled) b.onclick = () => go(p);
+        return b;
+      };
+      pager.append(mk("上一页", page - 1, "pg-btn", page <= 1));
+      // 页码窗口：1、末页恒显；当前页前后各留一页；断档处放省略号
+      const set = new Set<number>([1, totalPages, page - 1, page, page + 1]);
+      const nums = [...set].filter((n) => n >= 1 && n <= totalPages).sort((a, b) => a - b);
+      let prev = 0;
+      for (const n of nums) {
+        if (prev && n - prev > 1) pager.append(h("span", "pg-dots", "…"));
+        pager.append(mk(String(n), n, `pg-btn${n === page ? " sel" : ""}`));
+        prev = n;
+      }
+      pager.append(mk("下一页", page + 1, "pg-btn", !hasNext && page >= totalPages));
+      box.append(pager);
     }
   } catch (e) {
     box.innerHTML = `<div class="muted">搜索失败：${errText(e)}</div>`;
