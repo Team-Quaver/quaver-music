@@ -1273,8 +1273,12 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
 .np-side { display: flex; flex-direction: column; align-items: flex-end; gap: 0; min-width: 0; width: min(360px, 100%); margin-left: auto; }
 .np-cover {
   width: min(320px, 38vh); aspect-ratio: 1; border-radius: 18px; overflow: hidden; background: #ffffff14;
-  box-shadow: 0 20px 60px #0006; display: grid; place-items: center; color: #fff5;
+  /* 悬浮感 = 封面投影，只属于「正在播放」：暂停时收干净（随 notify 的 .playing 同步），
+     过渡做在透明度上，播放/暂停来回不跳变 */
+  box-shadow: 0 20px 60px #0000; transition: box-shadow .5s ease;
+  display: grid; place-items: center; color: #fff5;
 }
+.np.playing .np-cover { box-shadow: 0 20px 60px #0006; }
 .np-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 /* position:relative = .np-menu 的定位锚（菜单弹出在整块信息列上方、右缘齐平） */
 .np-meta { position: relative; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 0; max-width: 100%; margin-top: 18px; text-align: right; }

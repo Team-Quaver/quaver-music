@@ -604,6 +604,9 @@ export function NowPlaying(): HTMLElement {
     }
     el.classList.toggle("open", open);
     el.classList.toggle("hide-trans", !player.showTrans);
+    // 封面悬浮感的开关：只在真的在放（有歌 + 未暂停）时挂 .playing，
+    // 暂停/无歌收掉投影（CSS 侧过渡到透明，见 .np-cover）
+    el.classList.toggle("playing", !!s && player.playing);
     // 菜单开着时同步翻译选项（外部插件 toggleTrans 等别的改法也能跟上）
     if (menuOpen()) syncAuxButtons();
     // 音质胶囊：直接显示最后实际应用的档位（lastStream；未在播放时回落到当前设置）——
