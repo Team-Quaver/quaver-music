@@ -51,7 +51,7 @@ export function NowPlaying(): HTMLElement {
       <div class="np-lyrics" id="np-lyrics"></div>
       <div class="np-kara-host" id="np-karaoke"></div>
       <div class="np-side">
-        <div class="np-cover" id="np-cover"></div>
+        <div class="np-cover-wrap"><div class="np-cover" id="np-cover"></div></div>
         <div class="np-meta">
           <div class="np-title np-marquee" id="np-title"><span class="mt">未在播放</span></div>
           <div class="np-artist np-marquee" id="np-artist"><span class="mt"></span></div>
@@ -605,7 +605,7 @@ export function NowPlaying(): HTMLElement {
     el.classList.toggle("open", open);
     el.classList.toggle("hide-trans", !player.showTrans);
     // 封面悬浮感的开关：只在真的在放（有歌 + 未暂停）时挂 .playing，
-    // 暂停/无歌收掉投影（CSS 侧过渡到透明，见 .np-cover）
+    // 暂停/无歌收掉投影（CSS 侧过渡到透明，见 .np-cover-wrap::before）
     el.classList.toggle("playing", !!s && player.playing);
     // 菜单开着时同步翻译选项（外部插件 toggleTrans 等别的改法也能跟上）
     if (menuOpen()) syncAuxButtons();
