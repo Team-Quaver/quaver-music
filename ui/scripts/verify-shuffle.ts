@@ -4,8 +4,8 @@
 //  ① 种子只由**本地日期**决定 → 同一天内顺序必须完全一致（反复开关 / 退出重进都是同一套）。
 //     真随机（每次 Math.random）会把用户刚记住的听感打散，反复开关就换一批歌。
 //  ② 跨本地零点换序、跨队列变更换序；缓存键 = 队列版本 + 日期键，漏一个就会顺序错位。
-//  ③ 「顺序播放」的自然结束要收尾，不能像手动点「下一首」那样回绕到队首；
-//     且随机开时「末尾」是当日顺序的末尾，不是队列的末尾。
+//  ③ 播放顺序末位一律回绕（「顺序播放」档已移除，只剩列表/单曲循环 + 随机）；
+//     随机开时走的是当日顺序的邻曲，不是队列下标 ±1。
 //
 // 用法：node scripts/verify-shuffle.ts
 import { execFileSync } from "node:child_process";
@@ -84,7 +84,7 @@ eq("step：下一首", step(o, 3, 1, true), 0);
 eq("step：上一首", step(o, 0, -1, false), 3);
 eq("step：wrap=true 末位回绕到首位", step(o, 2, 1, true), 3);
 eq("step：wrap=true 首位的上一首回绕到末位", step(o, 3, -1, true), 2);
-eq("step：wrap=false 末位的下一首 = -1（顺序播放收尾）", step(o, 2, 1, false), -1);
+eq("step：wrap=false 末位越界返回 -1（songAtOffset 边界用）", step(o, 2, 1, false), -1);
 eq("step：wrap=false 首位的上一首 = -1", step(o, 3, -1, false), -1);
 eq("step：空序列 → -1", step([], 0, 1, true), -1);
 // cur 不在当日顺序里（用户从列表直接点了一首不在序的歌 / 队列刚换过）：
@@ -129,14 +129,14 @@ ok("player：shuffle 是公开状态（UI/MPRIS 读得到）", /^\s*shuffle = fa
 ok("player：缓存记了队列版本", /shuffleCache\s*=\s*\{\s*ver:\s*this\.queueVersion/.test(player) || /c\.ver === this\.queueVersion/.test(player));
 ok("player：缓存记了日期键（跨零点自动换序）", /c\.day === day/.test(player));
 ok("player：顺序由 lib/shuffle 的洗牌生成", /shuffleOrder\(this\.queue\.length, daySeed\(day\)\)/.test(player));
-ok("player：切歌/播完统一走 stepInOrder", /stepInOrder\(1, !auto \|\| this\.mode !== "off"\)/.test(player));
-ok("player：播完收尾判定在步进原语里（随机时末尾≠队尾），next() 不自己判", /return step\(this\.orderOf\(\), this\.index, dir, wrap\)/.test(player) && /if \(!wrap\) return -1;/.test(shuffleSrc) && !/onEnded[\s\S]{0,200}queue\.length - 1/.test(player));
+ok("player：切歌/播完统一走 stepInOrder（末位一律回绕）", /const i = this\.stepInOrder\(1\);/.test(player));
+ok("player：步进原语恒回绕（顺序播放档已移除，next() 不自己判末曲）", /return step\(this\.orderOf\(\), this\.index, dir, true\)/.test(player) && !/this\.mode !== "off"/.test(player) && !/onEnded[\s\S]{0,200}queue\.length - 1/.test(player));
 // 多步前进必须走 walk（每步从上一步的落点继续）。曾经的写法是循环调 stepInOrder ——
 // 它永远从 this.index 出发，循环 N 次只走一步：songAtOffset(±2) === ±1，封面流左右
 // 各出现一对重复封面，jumpToOffset(±2) 也只跳一首。
 ok("player：songAtOffset/jumpToOffset 走 walk（别再循环调「从当前走一步」）", /const i = walk\(this\.orderOf\(\), this\.index, Math\.abs\(offset\), dir, false\);/.test(player) && /const i = walk\(this\.orderOf\(\), this\.index, Math\.abs\(offset\), dir, true\);/.test(player) && !/this\.stepInOrder\(dir,/.test(player));
 ok("player：onEnded 不再自己判末曲（交给 stepInOrder）", /private onEnded\(\)[\s\S]{0,160}this\.next\(true\);/.test(player) && !/onEnded[\s\S]{0,200}queue\.length - 1/.test(player));
-ok("player：坏流回退沿当日顺序走（不打乱当天听感）", /const i = this\.stepInOrder\(1, true\);/.test(player));
+ok("player：坏流回退沿当日顺序走（不打乱当天听感）", /skipSong[\s\S]{0,600}const i = this\.stepInOrder\(1\);/.test(player));
 ok("player：菜单需要直接落档的 setter", /setMode\(m: Mode\)/.test(player));
 ok("player：cycleMode 仍在（MPRIS/热键兼容）", /cycleMode\(\)/.test(player));
 ok("player：toggleShuffle 存在且翻转自身", /toggleShuffle\(\)\s*\{\s*this\.shuffle = !this\.shuffle;/.test(player));
@@ -151,7 +151,7 @@ ok("player：存盘时带 shuffle", /shuffle: this\.shuffle,/.test(player));
 // —— 播放条：按钮开菜单（不再是直接轮转）
 ok("bar：循环按钮不再直接 cycleMode", !/loop\.onclick = \(\) => player\.cycleMode\(\)/.test(bar));
 ok("bar：循环按钮点击开菜单", /loop\.onclick = \(\) => \{\s*const open = el\.classList\.toggle\("lp-open"\)/.test(bar));
-ok("bar：菜单四档齐全（顺序/列表/单曲 + 随机）", /id: "off"[\s\S]*id: "all"[\s\S]*id: "one"/.test(bar) && /data-shuffle/.test(bar));
+ok("bar：菜单三档齐全（列表/单曲循环 + 随机，无顺序播放）", !/id: "off"/.test(bar) && /id: "all"[\s\S]*id: "one"/.test(bar) && /data-shuffle/.test(bar));
 ok("bar：随机项调 toggleShuffle", /player\.toggleShuffle\(\); closeLPop\(\);/.test(bar));
 ok("bar：循环项调 setMode（不是靠轮转猜）", /player\.setMode\(m\.id\); closeLPop\(\);/.test(bar));
 ok("bar：菜单外点击关闭", /#pb-loop, #pb-lpop/.test(bar));

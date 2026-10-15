@@ -108,7 +108,8 @@ export function loadSession(): SessionSnapshot | null {
     if (!Array.isArray(d?.queue) || !d.queue.length) return null;
     const queue = d.queue.filter((s) => s && typeof s.mid === "string" && s.mid);
     if (!queue.length) return null;
-    const mode: Mode = d.mode === "one" || d.mode === "off" ? d.mode : "all";
+    // 旧存档可能是已移除的「off（顺序播放）」：一律落回列表循环
+    const mode: Mode = d.mode === "one" ? "one" : "all";
     const ls = d.lastStream;
     return {
       queue,

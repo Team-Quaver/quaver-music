@@ -111,13 +111,12 @@ export function PlayerBar(): HTMLElement {
   mute.onclick = () => player.toggleMute();
   mute2.onclick = () => player.toggleMute();
 
-  // —— 播放模式菜单：循环三档 + 随机播放 ——
-  // 按钮不再自己轮转，改成开菜单（循环只有三档 + 随机一共四项，轮转要多点几次且看不出当前档）。
+  // —— 播放模式菜单：循环两档 + 随机播放 ——
+  // 按钮不再自己轮转，改成开菜单（循环只有两档 + 随机一共三项，轮转要多点几次且看不出当前档）。
   // 图标口径：随机开 → 画随机图标（一眼看出洗牌生效）；关 → 画当前循环档图标。
-  // 勾选态同时进 title/aria-label：四个选项里「列表循环/单曲循环」光看图标只差一个 9px 的「1」。
+  // 勾选态同时进 title/aria-label：「列表循环/单曲循环」光看图标只差一个 9px 的「1」。
   const lPop = $("pb-lpop");
   const LOOP_MODES: { id: Mode; label: string; icon: string; note: string }[] = [
-    { id: "off", label: "顺序播放", icon: icons.loopOff, note: "播完即止" },
     { id: "all", label: "列表循环", icon: icons.loopAll, note: "循环整列" },
     { id: "one", label: "单曲循环", icon: icons.loopOne, note: "重复当前" },
   ];
@@ -144,7 +143,6 @@ export function PlayerBar(): HTMLElement {
     lPop.append(sh);
   }
   function syncLPop() {
-    lPop.querySelector<HTMLElement>('[data-mode="off"]')?.classList.toggle("sel", player.mode === "off");
     lPop.querySelector<HTMLElement>('[data-mode="all"]')?.classList.toggle("sel", player.mode === "all");
     lPop.querySelector<HTMLElement>('[data-mode="one"]')?.classList.toggle("sel", player.mode === "one");
     lPop.querySelector<HTMLElement>('[data-shuffle]')?.classList.toggle("sel", player.shuffle);
@@ -365,10 +363,10 @@ export function PlayerBar(): HTMLElement {
     const loopSig = `${player.mode}|${player.shuffle}`;
     if (loopSig !== lastLoop) {
       lastLoop = loopSig;
-      const loopName = player.mode === "off" ? "顺序播放" : player.mode === "all" ? "列表循环" : "单曲循环";
-      loop.innerHTML = player.shuffle ? icons.shuffle : player.mode === "off" ? icons.loopOff : player.mode === "all" ? icons.loopAll : icons.loopOne;
+      const loopName = player.mode === "all" ? "列表循环" : "单曲循环";
+      loop.innerHTML = player.shuffle ? icons.shuffle : player.mode === "all" ? icons.loopAll : icons.loopOne;
       // 「列表循环」与「单曲循环」的图形只差一个 9px 的「1」，光看图标分不出来 —— 把模式名挂到
-      // title / aria-label 上，悬停与读屏都能确认当前处于哪一档（点按钮开菜单，四档里选一）。
+      // title / aria-label 上，悬停与读屏都能确认当前处于哪一档（点按钮开菜单，三档里选一）。
       const shufNote = player.shuffle ? "随机播放 开（每日一套顺序）" : "随机播放 关";
       loop.title = `${loopName} · ${shufNote}（点击打开菜单）`;
       loop.setAttribute("aria-label", `播放模式：${loopName}，${shufNote}`);

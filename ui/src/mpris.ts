@@ -48,7 +48,7 @@ function snapshot(seeked = false) {
     status,
     posUs: Math.floor((player.time || 0) * 1e6),
     volume: player.muted ? 0 : player.volume,
-    loop: player.mode === "one" ? "Track" : player.mode === "all" ? "Playlist" : "None",
+    loop: player.mode === "one" ? "Track" : "Playlist",
     shuffle: player.shuffle, // 每日一套顺序（种子=本地日期，见 lib/shuffle.ts）：上报真实能力
     seeked,
     track: c
@@ -220,7 +220,7 @@ export function startMprisBridge(): void {
       }
       case "setLoop": {
         const want = msg.loop;
-        player.setMode(want === "Track" ? "one" : want === "Playlist" ? "all" : "off");
+        player.setMode(want === "Track" ? "one" : "all"); // None（顺序播放）已移除：外部请求 None 落回列表循环
         break;
       }
       case "setShuffle":

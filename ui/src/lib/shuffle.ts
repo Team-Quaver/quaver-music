@@ -56,7 +56,7 @@ export function shuffleOrder(n: number, seed: number): number[] {
  * @param order 当日洗牌后的下标排列
  * @param cur   当前所在下标（-1 = 还没在播）
  * @param dir   +1 下一首 / -1 上一首
- * @param wrap  末位之后是否回绕（手动跳与列表循环为 true；顺序播放的自然结束为 false → 返回 -1 收尾）
+ * @param wrap  末位之后是否回绕（播放顺序一律回绕；songAtOffset 用 false → 越界返回 -1）
  * @returns 目标下标；-1 = 播放序列到此为止
  */
 export function step(order: number[], cur: number, dir: 1 | -1, wrap: boolean): number {

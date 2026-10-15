@@ -40,7 +40,8 @@ export type Song = {
   local?: LocalSongFingerprint;
 };
 
-export type Mode = "off" | "all" | "one";
+/** 播放模式只剩循环两档：「顺序播放（off）」已移除 —— 列表到尾一律回绕。 */
+export type Mode = "all" | "one";
 /** 实际生效的播放管线（transport.kind 投影；设置页据此展示） */
 export type ActiveBackend = "mpv" | "web";
 
@@ -668,9 +669,8 @@ class Player {
   }
 
   /** 回退穷尽/取链失败 → 跳下一曲。failStreak 防全队列坏流/断网时无限快跳：连续失败满队列长度即停。
-   *  不用 next(true)（单曲循环语义是原地重播，坏流会死循环），也不走 stepInOrder 的
-   *  「顺序播放到末尾就停」—— 换曲是救济路径，必须一直有下一首可试；随机开着时同样沿
-   *  当日顺序走，免得坏流把当天的听感打乱。 */
+   *  不用 next(true)（单曲循环语义是原地重播，坏流会死循环）—— 换曲是救济路径，
+   *  必须一直有下一首可试；随机开着时同样沿当日顺序走，免得坏流把当天的听感打乱。 */
   private skipSong(reason: string) {
     this.failStreak++;
     if (!this.queue.length || this.failStreak >= this.queue.length) {
@@ -679,7 +679,7 @@ class Player {
       this.notify();
       return;
     }
-    const i = this.stepInOrder(1, true);
+    const i = this.stepInOrder(1);
     if (i < 0) { this.loading = false; this.notify(); return; }
     this.jump(i);
   }
@@ -965,7 +965,7 @@ class Player {
     return order;
   }
 
-  /** 恒等顺序（0..n-1，缓存到队列长度变化为止）：顺序播放时它就是「播放顺序数组」，
+  /** 恒等顺序（0..n-1，缓存到队列长度变化为止）：非随机时它就是「播放顺序数组」，
    *  这样「走一步 / 走 N 步」两种模式共用同一套 step/walk，不必各写一份下标算术。 */
   private identityOrder: number[] = [];
   private orderOf(): number[] {
@@ -976,18 +976,17 @@ class Player {
     return this.identityOrder;
   }
 
-  /** 按当前播放顺序走一步（从当前曲出发），返回目标下标；-1 = 已到序列末尾（该停）。
-   *  shuffle 开 → 当日洗牌顺序；关 → 队列原序。
-   *  wrap=false 用于「顺序播放」的自然结束：走到末尾就收尾，不回到队首。 */
-  private stepInOrder(dir: 1 | -1, wrap: boolean): number {
+  /** 按当前播放顺序走一步（从当前曲出发），返回目标下标；-1 = 空队列。
+   *  shuffle 开 → 当日洗牌顺序；关 → 队列原序。末位一律回绕（顺序播放档已移除）。 */
+  private stepInOrder(dir: 1 | -1): number {
     if (!this.queue.length) return -1;
-    return step(this.orderOf(), this.index, dir, wrap);
+    return step(this.orderOf(), this.index, dir, true);
   }
 
   /** 播放顺序上的相邻下标（-1 = 没有）：随机播放时按当日洗牌序，与 stepInOrder 同源。
    *  正在播放页的封面流用它取左右邻曲 —— 别自己写 index±1（随机序下会指错歌）。 */
   neighbors(): { prev: number; next: number } {
-    return { prev: this.stepInOrder(-1, true), next: this.stepInOrder(1, true) };
+    return { prev: this.stepInOrder(-1), next: this.stepInOrder(1) };
   }
 
   /**
@@ -1007,7 +1006,7 @@ class Player {
     // 它每次都从 this.index 出发，循环 N 次也只走一步，±2 会取回 ±1 那首
     // （封面流两侧各出现一对重复封面的根因，见 lib/shuffle.ts:walk 的注释）。
     const i = walk(this.orderOf(), this.index, Math.abs(offset), dir, false);
-    return i < 0 ? undefined : this.queue[i]; // 越界（顺序播放到头）→ 该槽位没有曲子
+    return i < 0 ? undefined : this.queue[i]; // 越界（offset 超出序列长度）→ 该槽位没有曲子
   }
 
   /** 跳到播放顺序上偏移 offset 首（0 = 当前即原地重播）。给封面流「点第几张跳第几首」用。 */
@@ -1026,8 +1025,8 @@ class Player {
       if (this.transport.paused) void this.transport.play().catch(() => {});
       return;
     }
-    // 手动点「下一首」永远能走（末位回绕到队首，与洗牌无关）；自然结束才受「顺序播放」收尾约束
-    const i = this.stepInOrder(1, !auto || this.mode !== "off");
+    // 手动/自然结束都走下一步：末位回绕到队首，与洗牌无关（顺序播放档已移除）
+    const i = this.stepInOrder(1);
     if (i < 0) { this.notify(); return; }
     this.jump(i);
   }
@@ -1038,7 +1037,7 @@ class Player {
     // replay=把当前曲从头重放（播放条双击走 force 直接切上一首）；previous=直接切到队列里的上一首。
     // force 只由播放条双击与媒体键/热键的连按判定传：单次动作永远按单击逻辑走
     if (!force && getPrevBehavior() === "replay") { this.transport.seek(0); return; }
-    const i = this.stepInOrder(-1, true);
+    const i = this.stepInOrder(-1);
     if (i < 0) return;
     this.jump(i);
   }
@@ -1060,7 +1059,7 @@ class Player {
   }
 
   cycleMode() {
-    this.setMode(this.mode === "off" ? "all" : this.mode === "all" ? "one" : "off");
+    this.setMode(this.mode === "all" ? "one" : "all");
   }
 
   /** 播放模式菜单用：直接落某一档（不再靠 cycleMode 推进，菜单点哪档就是哪档） */
