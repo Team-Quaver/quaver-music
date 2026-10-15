@@ -260,6 +260,78 @@ await step("吸顶页头：首页回顶与下翻都贴死顶带（不留 .route 
   return `回顶 gap=${top.gap}px / 下翻 gap=${down.gap}px，页头无底色，顶带纯渐变（渐隐=${down.fade}）`;
 });
 
+await step("停靠播放列表：吸顶底按面板左缘收边（不再压住面板头/首行）", async () => {
+  // 内容区够宽时队列面板停靠在 .content-body 右缘，而「吸顶底」（.content::before，铺满整个
+  // 内容卡的那层渐变，用来压住 route 里滚到顶带底下的内容）是**全宽**的 —— 面板与 route 并排
+  // 常驻、自己不滚，全宽底片就把它连头一起洗掉：暗色下吸顶后标题亮像素归零（整条读不出来），
+  // 亮色下泛白。判据 = 顶带（--top-band-h 以上）保持全宽，顶带以下底片右缘落在面板左缘上；
+  // 面板收起（0 宽）或转浮窗时整层照旧铺满。
+  await page.setViewport({ width: 1440, height: 900 });
+  await page.goto(`${BASE}/index.html`, { waitUntil: "domcontentloaded" });
+  await page.evaluate(() => {
+    // 会话存档里塞一条队列：启动即还原，点播放条的队列按钮就有内容可看（面板本体是常驻 DOM）
+    localStorage.setItem("quaver.session.v1", JSON.stringify({
+      queue: Array.from({ length: 12 }, (_, i) => ({ mid: `00${i}VERIFY`, id: 9000 + i, type: 0, name: `验证曲目 ${i + 1}`, interval: 200 })),
+      index: 0, position: 0, mode: "off", shuffle: false, at: Date.now(),
+    }));
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await sleep(1500);
+  const veil = () => page.evaluate(() => {
+    const c = document.querySelector<HTMLElement>(".content")!;
+    const qp = document.querySelector<HTMLElement>("#queue-panel")!;
+    const cs = getComputedStyle(c);
+    const padRight = c.getBoundingClientRect().right - parseFloat(cs.borderRightWidth);
+    // 计算值保留 %/calc：polygon(0px 0px, 100% 0px, 100% 42px, calc(100% - 300px) 42px, …)
+    // 顶点 3 = 顶带下缘（应全宽），顶点 4 = 顶带以下的收边（应落在面板左缘）。
+    // 注意顶点串里的 calc 自带空格，只能按逗号切顶点、在顶点串里正则取值。
+    const verts = getComputedStyle(c, "::before").clipPath.replace(/^polygon\(|\)$/g, "").split(",").map((v) => v.trim());
+    const edgeOf = (v: string) => { const m = /calc\(100% - ([\d.]+)px\)/.exec(v); return m ? padRight - parseFloat(m[1]!) : padRight; };
+    return { cls: qp.className, parent: qp.parentElement?.className ?? "", qpVar: cs.getPropertyValue("--qp-w").trim(),
+      padRight: Math.round(padRight), bandBottom: Math.round(parseFloat(/(-?[\d.]+)px\s*$/.exec(verts[2]!)![1]!)),
+      bandRight: Math.round(edgeOf(verts[2]!)), veilRight: Math.round(edgeOf(verts[3]!)),
+      panelLeft: Math.round(qp.getBoundingClientRect().left), panelW: Math.round(qp.getBoundingClientRect().width),
+      topBandH: Math.round(c.querySelector<HTMLElement>(".content-top")!.getBoundingClientRect().height) };
+  });
+  const closed = await veil();
+  await page.click("#pb-queue");
+  await sleep(700);
+  const open = await veil();
+  const bad: string[] = [];
+  if (!open.cls.includes("dock") || !open.cls.includes("open")) bad.push(`宽窗未停靠展开：${open.cls}/${open.parent}`);
+  if (!open.qpVar) bad.push("--qp-w 不在 .content 上（面板与吸顶底读不到同一份宽度）");
+  if (open.bandRight !== open.padRight) bad.push(`顶带没保持全宽：${open.bandRight}/${open.padRight}（CSD 行会被切出竖缝）`);
+  if (open.bandBottom !== open.topBandH) bad.push(`收口折点不在顶带下缘：${open.bandBottom}/${open.topBandH}`);
+  if (Math.abs(open.veilRight - open.panelLeft) > 1) bad.push(`收边没落在面板左缘：底片右缘=${open.veilRight} 面板左缘=${open.panelLeft}`);
+  if (closed.veilRight !== closed.padRight) bad.push(`面板收起时底片没铺满：${closed.veilRight}/${closed.padRight}`);
+  // 吸顶变色同步：底片被 clip 收走的那段由面板列自己补画（同变量同定位），吸顶实底一开两边一起变。
+  // 真正的吸顶触发由上面「吸顶页头」步覆盖，这里直接置态量 CSS 接线。
+  await page.evaluate(() => { const c = document.querySelector<HTMLElement>(".content")!;
+    c.classList.add("has-stuck"); c.style.setProperty("--stuck-h", "70px"); });
+  await sleep(300);
+  const sync = await page.evaluate(() => {
+    const c = document.querySelector<HTMLElement>(".content")!;
+    const qp = document.querySelector<HTMLElement>("#queue-panel")!;
+    const veil = getComputedStyle(c, "::before"), p = getComputedStyle(qp);
+    return { sameImage: veil.backgroundImage === p.backgroundImage, posY: parseFloat(p.backgroundPositionY),
+      sizePx: parseFloat(/([\d.]+)px/.exec(p.backgroundSize)![1]!), veilH: parseFloat(veil.height),
+      bandH: Math.round(c.querySelector<HTMLElement>(".content-top")!.getBoundingClientRect().height) };
+  });
+  if (!sync.sameImage) bad.push("吸顶时面板列底片与吸顶底不同图（变色不同步）");
+  if (Math.abs(sync.posY + sync.bandH) > 0.5) bad.push(`面板列底片定位没对齐内容卡坐标系：${sync.posY} vs -${sync.bandH}`);
+  if (Math.abs(sync.sizePx - sync.veilH) > 0.5) bad.push(`面板列底片尺寸没跟底片高度走：${sync.sizePx} vs ${sync.veilH}`);
+  await page.evaluate(() => { const c = document.querySelector<HTMLElement>(".content")!;
+    c.classList.remove("has-stuck"); c.style.removeProperty("--stuck-h"); });
+  await sleep(300);
+  await page.click("#pb-queue");
+  await sleep(600);
+  const back = await veil();
+  if (back.veilRight !== back.padRight) bad.push(`收起后底片没复原：${back.veilRight}/${back.padRight}`);
+  await page.evaluate(() => localStorage.removeItem("quaver.session.v1"));
+  if (bad.length) throw new Error(bad.join("; "));
+  return `停靠展开：顶带全宽 ${open.bandRight}，折点 ${open.bandBottom}（顶带 ${open.topBandH}），底片右缘 ${open.veilRight} = 面板左缘 ${open.panelLeft}（面板 ${open.panelW}px / --qp-w ${open.qpVar}）；吸顶实底同图同位（posY=${sync.posY}, h=${sync.sizePx}/${sync.veilH}）`;
+});
+
 await step("截图存档（三档关键尺寸）", async () => {
   const fs = await import("node:fs");
   fs.mkdirSync("/tmp/quaver-layout", { recursive: true });

@@ -24,6 +24,9 @@
   /* 环境色层的模糊强度与扩边系数：由 src/lib/ambient.ts 按偏好写在这两个变量上
      （这里给的是 CSS 侧兜底默认，与 BG_BLUR_DEFAULT / SCALE_AT_70 同值）。 */
   --ambient-blur: 70px; --ambient-scale: 1.15;
+  /* 内容区顶带（CSD 按钮簇/搜索框那一行）的高度：.content-top 的 min-height 与
+     吸顶底（.content::before）的收口折点共用这一个值 —— 改顶带几何只动这里。 */
+  --top-band-h: 42px;
 }
 html[data-theme="dark"] {
   --bg: #131417; --card: #232529; --side: #1b1d21; --ink: #e6e8ec; --ink2: #a6adb8;
@@ -370,6 +373,8 @@ body.col-resizing, body.col-resizing * { cursor: ew-resize !important; }
 /* 拖拽进行中停掉宽度过渡（.sidebar/.queue-panel.dock 的 flex-basis/width 有 .24s 过渡，不停会滞后于指针） */
 body.side-resizing .sidebar { transition: none; }
 .queue-panel.dock.resizing { transition: none; }
+/* 同上：拖宽度时吸顶底的收边也要跟手（否则底片边缘会以 .28s 的速度在后面追指针） */
+.content:has(> .content-body > .queue-panel.resizing)::before { transition: none; }
 /* 侧栏缩回时宽度由缩态样式接管，分隔条不给拖 */
 body.side-collapsed .side-resizer { display: none; }
 
@@ -380,6 +385,12 @@ body.side-collapsed .side-resizer { display: none; }
    挂到 :root 的话 var(--stuck-h) 会在 :root 上解析、永远是 0。 */
 .content { flex: 1; border-radius: 14px; overflow: hidden; padding: 0; min-width: 0; min-height: 0; position: relative;
   display: flex; flex-direction: column;
+  /* 未吸顶时的温和渐隐层：底片（::before）与停靠面板列（.queue-panel.dock）共用这一份，
+     两列才谈得上「同色同变」。吸顶实底是 --stuck-cover（见下），同样双消费。 */
+  --veil-gentle: linear-gradient(to bottom,
+    var(--panel) 0%,
+    color-mix(in srgb, var(--panel) 55%, transparent) 45%,
+    transparent 100%);
   --stuck-cover: linear-gradient(to bottom,
     var(--panel) 0,
     var(--panel) calc(46px + var(--stuck-h, 0px)),
@@ -396,18 +407,26 @@ body.side-collapsed .side-resizer { display: none; }
    它在滚动容器**外面**：左/右都到内容卡边，那 10px 滚动条槽也在渐变里 —— 吸顶底不会
    被滚动条裁掉一条边（旧版把底片画在吸顶节点自己身上，最多铺到 padding box，右缘就断）。
    盖在 route 之上（z:1），pointer-events:none 不挡交互；搜索框 z:6、CSD 按钮 z:90、吸顶条
-   z:5/6 都在其上，所以条内文字/控件不会被它压住。 */
+   z:5/6 都在其上，所以条内文字/控件不会被它压住。
+   唯一要收边的例外是停靠态播放列表：它跟 route 并排、自己不跟着滚，被这层全宽底片压住的是
+   **面板本身**（面板头 + 前两行一起发灰）—— 面板停靠且展开时，顶带以下按面板左缘收口
+   （顶带保持全宽），见下方 :has 规则与 .content::before 里的 clip-path 注释。 */
 .content::before {
   content: ""; position: absolute; top: 0; left: 0; right: 0; z-index: 1;
   height: calc(46px + var(--stuck-h, 0px)); min-height: 112px;
   /* 默认（未吸顶）：温和渐隐的顶带 —— 我喜欢/设置这类**不吸顶**的大标题是普通内容，
      不能被压成鬼影，实底只在 .has-stuck（trackStuck 报告真正吸顶）时启用。 */
-  background: linear-gradient(to bottom,
-    var(--panel) 0%,
-    color-mix(in srgb, var(--panel) 55%, transparent) 45%,
-    transparent 100%);
+  background: var(--veil-gentle);
   border-radius: 14px 14px 0 0; pointer-events: none;
-  transition: opacity .18s ease;
+  /* 收口裁剪：顶带（--top-band-h 以上）永远全宽 —— 顶带不滚动、也没有别的底色
+     （verify-layout-responsive 钉死「顶带无底」），它的连续性全靠这层，右缘收进去会在
+     CSD 按钮簇/搜索框那一行切出一条竖向色阶缝；面板是从顶带**下缘**开始的，收口也从那里开始。
+     基础态写成「零宽凹口」（与展开态同 6 个顶点）：顶点数一致才能插值，
+     展开/收起时凹口随面板一起从顶带下缘长出来/收回去。 */
+  clip-path: polygon(0 0, 100% 0, 100% var(--top-band-h, 42px), 100% var(--top-band-h, 42px), 100% 100%, 0 100%);
+  /* clip-path 也要在**基础规则**里过渡：面板收起时 .content 上不再匹配 :has 规则，
+     过渡列表取的是变化后的那份 —— 只写在 :has 里就变成「展开会动、收起瞬跳」。 */
+  transition: clip-path .28s cubic-bezier(.32,.72,.24,1), opacity .18s ease;
 }
 /* 吸顶中：实底一路撑到吸顶区**下缘**（46px 顶带 + 吸顶区高度），到缘即止、硬切。
    否则旧渐变到吸顶区下缘几乎全透，下滚内容会隔着吸顶页头浮现，「今日精选」直接叠在
@@ -422,6 +441,20 @@ body.side-collapsed .side-resizer { display: none; }
     var(--stuck-cover),
     var(--stuck-cover);
 }
+/* 停靠态播放列表（.dock）压在吸顶底上：底片本该只盖住 route 里滚到顶带底下的内容，而面板
+   是并排的常驻列、压根不跟着 route 滚，全宽的底片只是把它的头和前两行一起洗灰（暗色下
+   吸顶后标题整条读不出来、亮色下泛白）。停靠且展开时把底片右缘收到面板左缘 —— 但只收
+   顶带**以下**的部分（见 .content::before 的注释）。
+   内缩量直接是 --qp-w：面板出自 .content-body 的 flex 行、box-sizing:border-box，
+   border box 宽度就是面板占位，左缘正好落在「内容卡 padding 盒右缘 − --qp-w」上；该变量由
+   QueuePanel 写在 .content 内联样式里（面板自己也从这儿继承，见 QueuePanel.ts:setQpW）。
+   收起态（面板 0 宽）与浮窗态不匹配 :has，底片照旧铺满；展开/收起同面板一样走 .28s 同一条
+   缓动，收口与面板边缘同步收放。 */
+.content:has(> .content-body > .queue-panel.dock.open)::before {
+  clip-path: polygon(0 0, 100% 0, 100% var(--top-band-h, 42px),
+    calc(100% - var(--qp-w, 300px)) var(--top-band-h, 42px),
+    calc(100% - var(--qp-w, 300px)) 100%, 0 100%);
+}
 /* 内容区顶带：常驻搜索框所在的独立一行（不再与页面标题同带浮层）。
    顶带本身就是 CSD 按钮簇所在的水平区间——右缘永远为其预留避让位（SSD 下不预留），
    #route 从顶带之下开始滚动，滚动条与内容都碰不到按钮簇。
@@ -429,7 +462,7 @@ body.side-collapsed .side-resizer { display: none; }
    而非容器 padding——这样 margin:auto 的搜索框仍精确居于整条带的几何中心，
    只是当条带可用宽 < 搜索框宽+簇宽 时（极窄窗）才会被幽灵项推开，届时装不下的将是胶囊本身（可接受）。 */
 .content-top {
-  flex: 0 0 auto; position: relative; display: flex; align-items: center; min-height: 42px; padding: 6px 24px 4px;
+  flex: 0 0 auto; position: relative; display: flex; align-items: center; min-height: var(--top-band-h); padding: 6px 24px 4px;
   transition: background-color .18s ease;
 }
 /* CSD 顶带拖拽：把手是顶带内的**独立层** .top-drag，而不是 .content-top 整块。
@@ -1256,10 +1289,24 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
 .queue-panel.dock {
   flex: 0 0 var(--qp-w, 300px); width: var(--qp-w, 300px); min-width: 0; min-height: 0;
   border-left: 1px solid var(--line);
-  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  /* 吸顶底的「面板列」：底片在顶带以下被 clip 收走（见 .content::before 的 clip-path），
+     这一段由面板自己画回来 —— 同一组变量（--veil-gentle / --stuck-cover / --stuck-h）、
+     同一尺寸（底片高 = max(112px, 46px + --stuck-h)，min-height 也算在内）、
+     同一定位（上移一个顶带高度，对齐到内容卡坐标系）。于是两列在接缝处逐像素同色：
+     吸顶变色时播放列表跟着一起变，而面板头文字画在自己背景**之上**，不会再被底片洗掉。 */
+  background-image: var(--veil-gentle);
+  background-position: 0 calc(-1 * var(--top-band-h, 42px));
+  background-size: 100% max(112px, calc(46px + var(--stuck-h, 0px)));
+  background-repeat: no-repeat;
+  background-color: color-mix(in srgb, var(--ink) 4%, transparent);
   overflow: hidden;
   transition: flex-basis .28s cubic-bezier(.32,.72,.24,1), width .28s cubic-bezier(.32,.72,.24,1),
     opacity .24s ease, transform .28s cubic-bezier(.32,.72,.24,1), border-color .24s;
+}
+/* 吸顶中：面板列的底片段跟着 .content.has-stuck::before 一起换三层实底 ——
+   两列的图、高、位都由同一组变量算出，变色天然同步，不存在谁先谁后。 */
+.content.has-stuck .queue-panel.dock {
+  background-image: var(--stuck-cover), var(--stuck-cover), var(--stuck-cover);
 }
 /* dock 打开/关闭动画：不再用 display:none（那样无过渡）。关闭时缩到 0 宽 + 淡出 + 右移，
    内部内容由 overflow:hidden 裁切（min-width:300px 保证 qp-head/qp-list 不被挤压重排），

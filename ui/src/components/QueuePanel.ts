@@ -32,6 +32,12 @@ export function QueuePanel(): HTMLElement {
   el.querySelector<HTMLElement>("#qp-close")!.onclick = () => { player.queueOpen = false; player.notifyPublic(); };
   el.querySelector<HTMLElement>("#qp-clear")!.onclick = () => player.clearQueue();
 
+  // —— 形态查询（停靠宽度、开合、全屏态都要用，先于宽度块定义） ——
+  const contentEl = () => document.querySelector<HTMLElement>(".content");
+  const contentBody = () => document.querySelector<HTMLElement>(".content-body");
+  const npEl = () => document.querySelector<HTMLElement>(".np");
+  const dockable = () => { const c = contentEl(); return !!c && c.clientWidth >= DOCK_MIN_CONTENT; };
+
   // —— 停靠宽度可拖拽：分隔条挂在面板左缘（随 .dock 一起进 .content-body），宽度持久化在
   //    Window.QueueWidth，经 --qp-w 变量驱动 .queue-panel.dock 的 flex-basis/width 与
   //    qp-head/qp-list 的 min-width（关合动画的 0 宽由更高优先级规则接管，不受变量影响）。
@@ -40,7 +46,11 @@ export function QueuePanel(): HTMLElement {
   const QP_MIN_W = 260;
   const QP_MAX_W = 560;
   let qpW = getQueueWidth() ?? QP_DEFAULT_W;
-  el.style.setProperty("--qp-w", `${qpW}px`);
+  /** --qp-w 的**唯一落点**是外层 .content，不是面板自己：
+   *  面板（flex-basis/width/min-width）与 .content::before（吸顶底按面板左缘收边）都从它继承，
+   *  两边必须读同一个值 —— 写在面板身上就分成两份、吸顶底再也够不着（踩过）。 */
+  const setQpW = (px: number) => { contentEl()?.style.setProperty("--qp-w", `${px}px`); };
+  setQpW(qpW);
   const qpResizer = document.createElement("div");
   qpResizer.className = "qp-resizer";
   qpResizer.title = "拖拽调整播放列表宽度；双击恢复默认";
@@ -53,7 +63,7 @@ export function QueuePanel(): HTMLElement {
       const max = Math.max(QP_MIN_W, Math.min(QP_MAX_W, (contentEl()?.clientWidth ?? 1000) - 420));
       qpW = Math.round(Math.max(QP_MIN_W, Math.min(max, w)));
       el.classList.add("resizing"); // 停掉 .dock 的宽度过渡，跟手
-      el.style.setProperty("--qp-w", `${qpW}px`);
+      setQpW(qpW);
     },
     end: () => {
       el.classList.remove("resizing");
@@ -61,17 +71,12 @@ export function QueuePanel(): HTMLElement {
     },
     dbl: () => {
       qpW = QP_DEFAULT_W;
-      el.style.setProperty("--qp-w", `${QP_DEFAULT_W}px`);
+      setQpW(QP_DEFAULT_W);
       setQueueWidth(QP_DEFAULT_W);
     },
   });
 
   // —— 形态切换：停靠 / 浮窗（**与开合解耦**，见 applyLayout 的注释）——
-  const contentEl = () => document.querySelector<HTMLElement>(".content");
-  const contentBody = () => document.querySelector<HTMLElement>(".content-body");
-  const npEl = () => document.querySelector<HTMLElement>(".np");
-  const dockable = () => { const c = contentEl(); return !!c && c.clientWidth >= DOCK_MIN_CONTENT; };
-
   /** 定形态（停靠 .dock / 浮窗 .float）并换到对应父节点；返回**是否真的换了父节点**。
    *
    *  关键：形态只看内容区宽度，**跟开关无关 —— 关闭时也要定好**。

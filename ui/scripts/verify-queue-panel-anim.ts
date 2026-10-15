@@ -52,10 +52,13 @@ ok("关闭态 inert：常驻 DOM 但不能被 Tab 聚焦（聚焦会把它滚进
   re(code, /el\.toggleAttribute\("inert", !open\)/));
 
 // ============ CSS：关闭态必须是「可过渡的隐藏」，不能用 display:none ============
-const floatBlock = css.match(/\.queue-panel\.float \{([^}]*)\}/)?.[1] ?? "";
-const floatOpen = css.match(/\.queue-panel\.float\.open \{([^}]*)\}/)?.[1] ?? "";
-const dockBlock = css.match(/\.queue-panel\.dock \{([^}]*)\}/)?.[1] ?? "";
-const dockClosed = css.match(/\.queue-panel\.dock:not\(\.open\) \{([^}]*)\}/)?.[1] ?? "";
+// 规则块一律**从行首**取：`.queue-panel.float {` 在文件里还有一条带前缀的兄弟规则
+// （body[data-control-bar="floating"] .queue-panel.float，管浮窗底距），不锚行首会先命中它。
+const blockOf = (sel: string) => css.match(new RegExp(`(?:^|\\n)${sel} \\{([^}]*)\\}`))?.[1] ?? "";
+const floatBlock = blockOf("\\.queue-panel\\.float");
+const floatOpen = blockOf("\\.queue-panel\\.float\\.open");
+const dockBlock = blockOf("\\.queue-panel\\.dock");
+const dockClosed = blockOf("\\.queue-panel\\.dock:not\\(\\.open\\)");
 ok("css: 浮窗态有 transition（opacity + transform）",
   /transition:[^;]*opacity/.test(floatBlock) && /transition:[^;]*transform/.test(floatBlock));
 ok("css: 浮窗关闭态 = 透明 + 缩放位移（起始帧可过渡）",
@@ -70,6 +73,45 @@ ok("css: 队列面板任何一态都不用 display:none（用了就没有过渡�
   !/\.queue-panel[^{]*\{[^}]*display:\s*none/.test(css));
 ok("css: 停靠关闭态不占位（启动即停靠也不会挤到 route）",
   /flex-basis:\s*0/.test(dockClosed) && /width:\s*0/.test(dockClosed) && /min-width:\s*300px/.test(css));
+
+// ============ 停靠态与吸顶底（.content::before）的边界 ============
+// 底片是铺满整个内容卡的渐变（盖住 route 里滚到顶带底下的内容）。面板停靠时与 route
+// **并排常驻**、自己不滚，全宽底片就把它当头两行一起压掉：暗色下吸顶后标题直接消失
+// （实测面板头矩形内亮像素归零），亮色下整体泛白。修法 = 停靠且展开时用 clip-path 把
+// 底片右缘收到面板左缘 —— 但**只收顶带以下**：顶带不滚、也没有自己的底色
+// （verify-layout-responsive 钉死「顶带无底」），连续性全靠这层，右缘收进去会在
+// CSD 按钮簇/搜索框那行切出一条竖向色阶缝。收边量取面板自身宽度 --qp-w。
+const veilBase = blockOf("\\.content::before");
+const veilClip = css.match(/\.content:has\(> \.content-body > \.queue-panel\.dock\.open\)::before \{([^}]*)\}/)?.[1] ?? "";
+ok("js: --qp-w 写在 .content（面板与吸顶底读同一份），不再写在面板自己身上",
+  re(code, /contentEl\(\)\?\.style\.setProperty\("--qp-w"/) && !re(code, /el\.style\.setProperty\("--qp-w"/));
+ok("css: 顶带高度是单一事实源 --top-band-h（.content-top 与吸顶底收口共用）",
+  /--top-band-h:\s*42px/.test(css) && /min-height:\s*var\(--top-band-h\)/.test(css));
+ok("css: 停靠展开时吸顶底右缘收到面板左缘（内缩量 = --qp-w，折点在顶带下缘）",
+  /clip-path:\s*polygon\([\s\S]*?calc\(100% - var\(--qp-w, 300px\)\) var\(--top-band-h, 42px\)/.test(veilClip));
+ok("css: 顶带段保持全宽（第三顶点仍是 100%，收口从顶带下缘才开始）",
+  /clip-path:\s*polygon\(\s*0 0,\s*100% 0,\s*100% var\(--top-band-h, 42px\)/.test(veilClip));
+ok("css: 基础态是零宽凹口（与展开态同 6 顶点，收起/浮窗时底片照旧铺满）",
+  /clip-path:\s*polygon\(\s*0 0,\s*100% 0,\s*100% var\(--top-band-h, 42px\),\s*100% var\(--top-band-h, 42px\),\s*100% 100%,\s*0 100%\)/.test(veilBase));
+ok("css: clip-path 在 ::before 的基础 transition 里（收起方向也要跟着面板卷回）",
+  /transition:[^;]*clip-path[^;]*;/.test(veilBase));
+ok("css: 拖面板宽度时停掉底片过渡（否则边缘拖在指针后面）",
+  /\.content:has\(> \.content-body > \.queue-panel\.resizing\)::before \{\s*transition:\s*none/.test(css));
+
+// ============ 吸顶变色同步：面板列自己补画底片段 ============
+// 底片被 clip 收走的那段若没人补，吸顶实底一亮起来就只有 route 列变色、面板列原地不动。
+// 面板列用**同一组变量**（--veil-gentle / --stuck-cover / --stuck-h）与同一定位把这段画回来，
+// 两列逐像素同色；面板头文字画在自己背景之上，不会被实底洗掉。
+ok("css: 顶带渐变是单一事实源 --veil-gentle（底片与面板列共用）",
+  /--veil-gentle:\s*linear-gradient/.test(css)
+  && /background:\s*var\(--veil-gentle\)/.test(blockOf("\\.content::before"))
+  && /background-image:\s*var\(--veil-gentle\)/.test(dockBlock));
+const dockBlockFull = dockBlock;
+ok("css: 面板列底片段定位/尺寸与底片一致（上移一个顶带、高 = max(112, 46+--stuck-h)）",
+  /background-position:\s*0 calc\(-1 \* var\(--top-band-h, 42px\)\)/.test(dockBlockFull)
+  && /background-size:\s*100% max\(112px, calc\(46px \+ var\(--stuck-h, 0px\)\)\)/.test(dockBlockFull));
+ok("css: 吸顶实底同步到面板列（三层 --stuck-cover，与 .content.has-stuck::before 同构）",
+  /\.content\.has-stuck \.queue-panel\.dock \{\s*background-image:\s*var\(--stuck-cover\), var\(--stuck-cover\), var\(--stuck-cover\);/.test(css));
 
 // ============ 祖先滚动卫生：绝不用 scrollIntoView ============
 // 它会把**所有**可滚祖先的 scrollport 一起滚，而 `overflow:hidden` 的盒子程序化照样能滚
