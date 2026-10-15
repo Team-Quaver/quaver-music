@@ -16,14 +16,19 @@
 // 没有「点击穿透」这一档：需要它不挡桌面时把窗口拖到空闲处；理由见 desktop-lyrics-core.ts 头。
 // 也没有「最大化/全屏」这一档：歌词是贴桌面的横带，铺满整屏读不了也拖不回来 —— 构造参数只是
 // 「不给按钮」，拦不住窗口管理器的手势，所以另有一道「被最大化就立刻退回」的反应式守卫。
-// 初始尺寸由「字号倍率 × 行数档位」贴合内容算出（defaultSizeFor），不再是一律 150px 的大空带。
+// 初始尺寸由「字号倍率 × 行数档位」贴合内容算出（defaultSizeFor，记忆里有能用的尺寸就用记忆的），
+// 不再是一律 150px 的大空带；同时带上 min/max 尺寸提示 = **「申请浮窗」**（高度那条轴 min == max，
+// 平铺合成器据此放它出布局，见 desktop-lyrics-core.ts:sizeHintsFor）—— 提示必须在构造参数里就给，
+// 别等 show 之后再补：窗口映射那一刻合成器就会按它判一次浮窗与否。拖把手 = 把提示重钉到新值
+// （拖动中两条轴都钉、松手只把宽度放回区间，见 pinSize / releaseWidth）—— 浮窗不掉，
+// Wayland 下靠合成器夹取，而 setSize 只改我们这边的视口、改不动盒子。
 // 配置解析/边界兜底在 desktop-lyrics-core.ts，窗口生命周期全在本文件。
 import { BrowserWindow, ipcMain, screen } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readValues, writeValues } from "./config.ts";
 import {
-  boundsToPatch, clampSize, defaultSizeFor, DL_SIZE_MAX, parseSettings, pickBounds,
+  boundsToPatch, clampSize, defaultSizeFor, parseSettings, pickBounds, pinnedHintsFor, sizeHintsFor,
   type DlSettings, type Rect,
 } from "./desktop-lyrics-core.ts";
 
@@ -55,6 +60,12 @@ export class DesktopLyricsController {
   latestTrack: unknown;
   latestSync: unknown;
   persistTimer: ReturnType<typeof setTimeout> | null;
+  /** 当前钉住的尺寸（尺寸提示里那对 min/max 的值）：拖动的**基准**，见 pinSize。
+   *  为什么不拿 win.getSize() 当基准：Wayland 下那份尺寸要等合成器 configure 回来才更新，
+   *  逐帧增量撞上一个滞后的基准会被吃掉（快速拖会缩水）；高度那条轴 WM 改不动（提示钉着），
+   *  宽度在拖动那几帧也被我们钉着 —— 两条都以这里为准。0 = 还没开窗/未知。 */
+  pinnedWidth: number;
+  pinnedHeight: number;
 
   constructor(deps: DlDeps) {
     this.deps = deps;
@@ -64,6 +75,8 @@ export class DesktopLyricsController {
     this.latestTrack = null;
     this.latestSync = null;
     this.persistTimer = null;
+    this.pinnedWidth = 0;
+    this.pinnedHeight = 0;
     this.registerIpc();
   }
 
@@ -217,14 +230,21 @@ export class DesktopLyricsController {
       return;
     }
     const displays: Rect[] = screen.getAllDisplays().map((d) => d.workArea);
-    // 初始尺寸跟着「字号 × 行数」贴内容；用户拖过右下角把手才是他自己的尺寸
+    // 初始尺寸跟着「字号 × 行数」贴内容；记忆里若是用户拖过且合理的尺寸，照旧恢复
     const hint = defaultSizeFor(this.settings);
     const bounds = pickBounds(this.settings.bounds, displays, hint);
+    // 「申请浮窗」：min/max 尺寸提示必须在**构造参数**里给 —— 窗口映射那一刻合成器就按它判浮窗
+    // （高度 min == max = 有一条不可变的轴），之后 show 再补就晚了那一帧。机制见 sizeHintsFor。
+    const hints = sizeHintsFor(bounds?.height ?? hint.height);
     const win = new BrowserWindow({
       width: bounds?.width ?? hint.width,
       height: bounds?.height ?? hint.height,
       x: bounds?.x,
       y: bounds?.y,
+      minWidth: hints.minWidth,
+      maxWidth: hints.maxWidth,
+      minHeight: hints.minHeight,
+      maxHeight: hints.maxHeight,
       show: false,
       frame: false,
       transparent: true,                 // 背景全透明：只留歌词与控制条
@@ -271,11 +291,12 @@ export class DesktopLyricsController {
     // maximizable/fullscreenable=false 只拿掉了按钮，挡不住窗口管理器：Windows 拖到顶边的 Aero Snap、
     // KDE/GNOME 的平铺手势与 Super+Up、无边框窗双击拖拽区都能把它整屏化。整屏的覆盖层既读不了歌词
     // 又会把记忆坐标写歪（resized 会落盘，见下面），所以两道一起上：
-    //   ① 尺寸上限 = DL_SIZE_MAX，WM 再怎么贴边也只允许长到文档允许的范围；
+    //   ① 尺寸上限在构造参数里（maxWidth = DL_SIZE_MAX.width；高度那条轴被 min == max 钉死，长不了）——
+    //      「申请浮窗」用的就是这一对提示（见 sizeHintsFor），别在这里再 setMaximumSize 覆盖它：
+    //      一旦把 maxHeight 改成别的值，轴就不等了，合成器会重新把窗平铺回布局里；
     //   ② 真的被最大化/全屏/最小化了，当场退回（unmaximize 还原到 maximize 前的 bounds；500ms 的
     //      落盘去抖会把这中间的抖动合成一次，最终写下去的就是还原后的尺寸）。
     //      最小化这一档更该拦：本窗 skipTaskbar，缩进任务栏外就再也点不回来了（只能靠托盘开关）。
-    win.setMaximumSize(DL_SIZE_MAX.width, DL_SIZE_MAX.height);
     const rejectState = (what: string): void => {
       if (this.win !== win || win.isDestroyed()) return;
       if (!win.isMaximized() && !win.isMinimized() && !win.isFullScreen()) return; // 事件抢跑：已经好了
@@ -308,6 +329,9 @@ export class DesktopLyricsController {
       this.deps.refreshTrayMenu();
     });
     this.win = win;
+    // 构造参数里的 min/max 就是第一次「钉」（见 sizeHintsFor）：基准跟着一起记
+    this.pinnedWidth = bounds?.width ?? hint.width;
+    this.pinnedHeight = hints.minHeight;
     win.loadURL(url.toString());
     this.deps.log("[quaver] desktop-lyrics: 已开", url.toString(), bounds ? `@${bounds.x},${bounds.y} ${bounds.width}x${bounds.height}` : "(无屏幕坐标)");
     this.deps.refreshTrayMenu();
@@ -323,18 +347,58 @@ export class DesktopLyricsController {
 
   // ——— DL 窗的窗口级动作 ———
 
-  /** 档位（字号 / 行数 / 辅助行）变了把窗高重新贴合内容：**只长不缩** —— 用户自己拖窄的高度不该被一次
-   *  配置改动抹掉，而「字被条带切掉」是实打实的坏画面。宽度与左上角都不动（高度向下长；
+  /** 档位（字号 / 行数 / 辅助行）变了把窗高重新贴合内容：**只长不缩** —— 用户自己拖出来的高度
+   *  不该被一次配置改动抹掉，而「字被条带切掉」是实打实的坏画面。宽度与左上角都不动（高度向下长；
    *  Wayland 下 setPosition 本来就被合成器无视，挪顶边这条路不可靠）。
-   *  setSize 触发 'resized' → 去抖落盘 W/H，尺寸自此归用户。 */
+   *  高度是 min == max 那条「钉死的轴」（见 sizeHintsFor）：钉的不是「不许改」而是值的唯一性，
+   *  所以这里把**提示与窗体一起**重钉到新值（合成器随后按提示夹取，Wayland 下这才是真生效的那一步）。
+   *  setSize 触发 'resized' → 去抖落盘 W/H。 */
   private refitHeight(): void {
     const win = this.win;
     if (!win || win.isDestroyed()) return;
-    const want = defaultSizeFor(this.settings).height;
+    const [w, h] = win.getSize(); // 档位变化时没有拖动，读窗体即可（拖动中另说，见 pinSize）
+    const from = this.pinnedHeight || h;
+    const want = Math.max(defaultSizeFor(this.settings).height, from);
+    if (from >= want) return;
+    this.pinHeight(w, want);
+    this.deps.log(`[quaver] desktop-lyrics: 档位变化，窗高贴合 ${from} -> ${want}`);
+  }
+
+  /** 只钉高度（宽度留区间，WM 拖边改宽照旧）：档位变化与松手走这条。
+   *  高度那条 min == max 的提示既是「申请浮窗」的判据，也是让合成器把窗夹到该高度的**唯一**手段 ——
+   *  Wayland 下 setSize 改不动窗体盒（见 pinnedHintsFor）。setSize 在这里是给 X11/Windows/macOS 的
+   *  那一刀，四个平台同一套口径。pinned* 两个镜像只在本方法与 pinSize 里写（开窗那一次在 open()
+   *  里补记，构造里置 0）。 */
+  private pinHeight(width: number, height: number): void {
+    const win = this.win;
+    if (!win || win.isDestroyed()) return;
+    const hints = sizeHintsFor(height);
+    win.setMinimumSize(hints.minWidth, hints.minHeight);
+    win.setMaximumSize(hints.maxWidth, hints.maxHeight);
+    win.setSize(width, hints.minHeight);
+    this.pinnedWidth = width;
+    this.pinnedHeight = hints.minHeight;
+  }
+
+  /** 拖动中：两条轴一起钉（min == max），合成器每帧都跟得上 —— 见 pinnedHintsFor 的实测记录。
+   *  松手由 releaseWidth() 把宽度放回区间。 */
+  private pinSize(width: number, height: number): void {
+    const win = this.win;
+    if (!win || win.isDestroyed()) return;
+    const hints = pinnedHintsFor(width, height);
+    win.setMinimumSize(hints.minWidth, hints.minHeight);
+    win.setMaximumSize(hints.maxWidth, hints.maxHeight);
+    win.setSize(hints.minWidth, hints.minHeight);
+    this.pinnedWidth = hints.minWidth;
+    this.pinnedHeight = hints.minHeight;
+  }
+
+  /** 拖完松手：宽度放回区间（高度继续钉死）—— 常态下窗口的宽度还是交给 WM 拖边。 */
+  private releaseWidth(): void {
+    const win = this.win;
+    if (!win || win.isDestroyed()) return;
     const [w, h] = win.getSize();
-    if (h >= want) return;
-    win.setSize(w, want);
-    this.deps.log(`[quaver] desktop-lyrics: 档位变化，窗高贴合 ${h} -> ${want}`);
+    this.pinHeight(this.pinnedWidth || w, this.pinnedHeight || h);
   }
 
   private handleWindowOp(msg: { op?: string; dx?: number; dy?: number; on?: boolean }): void {
@@ -349,11 +413,21 @@ export class DesktopLyricsController {
         const dy = Number(msg?.dy) || 0;
         if (!dx && !dy) return;
         const [w, h] = win.getSize();
-        const size = clampSize(w + dx, h + dy);
-        win.setSize(size.width, size.height);
+        // 两条轴都以我们自己钉的值为基准（见 pinnedWidth/pinnedHeight）：读 win.getSize() 在
+        // Wayland 上会滞后，逐帧增量会被吃掉（快速拖会缩水）。还没钉过就退回读窗体。
+        const fromW = this.pinnedWidth || w;
+        const fromH = this.pinnedHeight || h;
+        const size = clampSize(fromW + dx, fromH + dy);
+        if (size.width === fromW && size.height === fromH) return;
+        this.pinSize(size.width, size.height); // 两条轴都推提示：Wayland 下 setSize 跟不上盒子
         this.schedulePersist();
         break;
       }
+      case "resize-end":
+        // 松手：宽度放回区间（见 releaseWidth），高度继续钉死
+        this.releaseWidth();
+        this.schedulePersist();
+        break;
       case "close":
         this.setEnabled(false);
         break;

@@ -20,10 +20,19 @@
 // Aero Snap、KDE/GNOME 平铺与 Super+Up、无边框窗双击拖拽区），所以主进程那边还有一道
 // 「被最大化就立刻退回」的反应式兜底（见 desktop-lyrics.ts:open 的 maximize 守卫）。
 //
-// **初始尺寸贴合内容**：默认窗高由「字号倍率 × 行数档位」算出（defaultHeightFor），
-// 不再一律给一条 150px 的空旷大横带 —— 一行字吊在半空 + 一整片看不见的点击区，是不合理的。
-// 老版本把那条默认带原样落过盘（720×150），isLegacyDefaultSize 把它识别成「用户从没拖过角」，
-// 位置照旧恢复、尺寸改用新的贴合值。
+// **尺寸：高度是一条「钉死的轴」，但值可以拖**（sizeHintsFor）。这一对提示（minHeight == maxHeight）
+// 同时是「申请浮窗」：平铺合成器把「有一条不可变的轴」的窗判成浮窗（Hyprland 0.56 的 shouldBeFloated
+// 就是这条判据，详见 sizeHintsFor 的注释）。被平铺的后果是真机踩过的：合成器给的窗体盒由布局决定
+// （整块屏宽、高度也不由我们定），而客户端表面被自己的 max 提示夹住 —— 窗体的下半截就空着露桌面，
+// 页面的 #dl-board（inset:0）只能盖到客户端表面，那一块谁也画不了。
+// 注意「钉死」钉的是**值的唯一性**，不是「不许改」：拖把手 = 把 min/max 一起改到新值（真机验过
+// Hyprland 会随即把浮窗夹到新高度，所以 Wayland 下这条路比 setSize 更可靠），拖动过程仍恒有那一对
+// 相等的轴，浮窗不会掉。宽度常态是 260..2560 的区间（WM 拖边改宽照旧），只在**拖动那几帧**连同
+// 宽度一起钉（pinnedHintsFor：Wayland 下 setSize 改不动窗体盒，钉提示才跟得上），松手再放回区间。
+//
+// **记忆尺寸要过筛**：老版本落过盘的 720×150 空带（isLegacyDefaultSize）与 compositor 事故留下的
+// 越界尺寸（isSaneSavedSize：H=1224 这种只可能来自「合成器把窗拉爆后静默落盘」）都不算用户偏好 ——
+// 位置照旧恢复，尺寸回落当前贴合值；合格的记忆高度照旧恢复（那是用户拖出来的）。
 //
 // 窗口位置/大小持久化在 quaver.conf 的 [DesktopLyrics]（主进程写，渲染层只读写入开关/字号/透明度）。
 
@@ -43,8 +52,9 @@ export const DL_SIZE_MAX: { width: number; height: number } = { width: 2560, hei
 /** 覆盖层字号基准（px）：src/desktop-lyrics.ts 的 applyStyle 写 `--dl-font-size = 24 × Scale`，
  *  默认尺寸与它同源（verify-desktop-lyrics 有一条正则钉住那边的 24 字面量，改一处两处都会红）。 */
 export const DL_FONT_BASE_PX = 24;
-/** 默认窗宽：一条横带的老口径，长句另有横向滚动兜着，不跟着字号变。 */
-export const DL_DEFAULT_WIDTH = 720;
+/** 默认窗宽（px）：一条横带的口径。长句另有横向滚动兜着，不跟着字号变。
+ *  宽度是**唯一留给用户拖**的那条轴（高度自本版起由 app 独占，见 sizeHintsFor）。 */
+export const DL_DEFAULT_WIDTH = 560;
 /* 文字块容量 —— 下面几个系数是**实测标定**的（headless Chromium 跑 desktop-lyrics.html，
  * 按档位量 __dl.stripDiag().applied = 条带高），不是拍脑袋：
  *   字号24 单行·无辅助 47 ｜ 单行·带辅助 62 ｜ 双行·无辅助 94 ｜ 双行·带辅助 128
@@ -169,16 +179,86 @@ export function isLegacyDefaultSize(b: Rect | null): boolean {
   return !!b && b.width === DL_LEGACY_DEFAULT_SIZE.width && b.height === DL_LEGACY_DEFAULT_SIZE.height;
 }
 
-/** 按当前设置给初始尺寸（主进程开窗用；渲染层改了字号/行数/辅助行后重开也走这条路）。 */
+/** 记忆尺寸是否可用：两条轴都落在我们自己会写的范围内（clampSize 的上下限）。
+ *  越界的条目只可能来自「合成器把窗拉爆 → persistBoundsNow 把合成器给的窗体盒原样落盘」——
+ *  真机踩过 H=1224（一整块屏高）：那不是用户偏好，是事故现场，读回来只会让每次开窗都吊着一条
+ *  半空的带。宽度的下限也顺手挡掉「被拉成一条缝」的落盘。 */
+export function isSaneSavedSize(b: Rect | null): boolean {
+  return !!b
+    && b.width >= DL_SIZE_MIN.width && b.width <= DL_SIZE_MAX.width
+    && b.height >= DL_SIZE_MIN.height && b.height <= DL_SIZE_MAX.height;
+}
+
+/** 记忆里那个「能用的尺寸」：两条轴都合理（isSaneSavedSize）且不是 v1 的 720×150 空带。
+ *  两条轴一起判、一起用 —— 越界条目的宽度也一并不可信（那份落盘出自同一次事故）。 */
+function usableSavedSize(b: Rect | null): Rect | null {
+  return b && isSaneSavedSize(b) && !isLegacyDefaultSize(b) ? b : null;
+}
+
+/** 按当前设置给初始尺寸（主进程开窗用；渲染层改了字号/行数/辅助行后重开也走这条路）。
+ *  这是「没有可用记忆」时的口径：宽 DL_DEFAULT_WIDTH、高按字号×行数贴合内容。
+ *  记忆里有能用的尺寸时由 pickBounds 顶掉（用户拖过的宽和高都要留着）。 */
 export function defaultSizeFor(s: Pick<DlSettings, "scale" | "mode" | "aux">): { width: number; height: number } {
   return { width: DL_DEFAULT_WIDTH, height: defaultHeightFor(s.scale, s.mode, s.aux) };
+}
+
+/**
+ * 窗体的 min/max 尺寸提示 —— **「申请浮窗」的全部机制在这里**。
+ *
+ * 主进程把它原样喂给 BrowserWindow 的 minWidth/maxWidth/minHeight/maxHeight（Electron 侧就是
+ * setMinimumSize/setMaximumSize），最终落到 Wayland 的 xdg_toplevel.set_min_size/set_max_size
+ * （链路：NativeWindow::InitFromOptions → views::Widget::OnSizeConstraintsChanged →
+ * DesktopWindowTreeHostPlatform → WaylandToplevelWindow::SetSizeConstraints）。
+ *
+ * 为什么这一手等于「申请浮窗」：**高度那条轴 min == max** —— 对平铺合成器来说这是「这条轴由
+ * 客户端定，布局别动它」，而它正是各家判浮窗的判据。Hyprland 0.56 的
+ * CHyprXWaylandManager::shouldBeFloated（Wayland 分支）：
+ *     if (toplevel->m_parent ||
+ *         (minSize.x != 0 && minSize.y != 0 && (minSize.x == maxSize.x || minSize.y == maxSize.y)))
+ *       → 浮窗
+ * 浮窗之后 Hyprland 再用同一对提示把窗体夹到该尺寸（Window.cpp:clampWindowSize），
+ * 于是「合成器给的窗体盒」和「客户端表面」就永远一样大 —— 背板盖不满的病根也一并没了。
+ * 宽度留区间（DL_SIZE_MIN/MAX.width）：WM 拖边改宽照旧，那两条轴不等所以不影响判据。
+ *
+ * height 传的是**当前该多高**（记忆里能用的值 ?? 内容贴合值，拖把手时就是拖到的新值）。
+ * 钉死的是值的唯一性、不是「不许改」：改高度 = 把 min/max 一起改到新值，恒有那一对相等的轴，
+ * 浮窗不掉（真机验过 Hyprland 会随即把浮窗夹到新高度 —— Wayland 下这比 setSize 可靠，
+ * 客户端本来就定不了自己的尺寸）。别把高度改成**区间**：提示里一旦没有相等的轴，
+ * 窗会被重新平铺回布局给的格子，盒子和表面的错位就回来了。
+ */
+export function sizeHintsFor(height: number): {
+  minWidth: number; maxWidth: number; minHeight: number; maxHeight: number;
+} {
+  const h = clampHeight(height);
+  return { minWidth: DL_SIZE_MIN.width, maxWidth: DL_SIZE_MAX.width, minHeight: h, maxHeight: h };
+}
+
+/**
+ * 两条轴都钉死的尺寸提示：**拖动中**每帧用它，松手再回到 sizeHintsFor（宽度放回区间）。
+ *
+ * 为什么宽度也得推提示而不用 setSize：Wayland 下客户端定不了自己的尺寸，setSize 只改**我们这边**
+ * 的视口，合成器给的窗体盒不动 —— 真机量过：`setSize(900)` 之后 renderer 的 innerWidth 是 900，
+ * 而合成器的盒子仍是 560。两个值一脱钩，歌词就在那半张看不见的宽度里居中、进度条与把手也跑到框外。
+ * 推提示（min == max）+ 合成器夹取是唯一让盒子跟上的路，所以拖动期间两条轴都钉，松手才放开宽度。
+ */
+export function pinnedHintsFor(width: number, height: number): {
+  minWidth: number; maxWidth: number; minHeight: number; maxHeight: number;
+} {
+  const h = clampHeight(height);
+  const w = clampSize(width, h).width;
+  return { minWidth: w, maxWidth: w, minHeight: h, maxHeight: h };
+}
+
+/** 高度夹取（下限让窗压得到极扁，上限防遮屏）—— clampSize 的单轴版，尺寸提示只钉这一条。 */
+export function clampHeight(height: number): number {
+  return Math.min(DL_SIZE_MAX.height, Math.max(DL_SIZE_MIN.height, Math.round(height)));
 }
 
 /** 尺寸夹取（下限保证歌词可读，上限防遮屏）。 */
 export function clampSize(width: number, height: number): { width: number; height: number } {
   return {
     width: Math.min(DL_SIZE_MAX.width, Math.max(DL_SIZE_MIN.width, Math.round(width))),
-    height: Math.min(DL_SIZE_MAX.height, Math.max(DL_SIZE_MIN.height, Math.round(height))),
+    height: clampHeight(height),
   };
 }
 
@@ -202,8 +282,10 @@ export function defaultBounds(area: Rect, size?: { width: number; height: number
 /**
  * 落位决策：优先记忆位置，但必须**与某块屏幕的工作区有交集** —— 拔掉一块副屏后
  * 陈旧坐标会把歌词窗丢在虚空里（拉不回也看不见），这时回落初始落位而不是硬夹。
- * 尺寸 = 记忆尺寸（「旧默认尺寸」除外，见 isLegacyDefaultSize）?? hint（默认 DL_DEFAULT_SIZE），
- * 恒过 clampSize。displays 空数组（headless/异常探测）返回 null，调用方自便。
+ * 尺寸 = 记忆尺寸（「旧默认尺寸」与越界条目除外，见 isLegacyDefaultSize / isSaneSavedSize）
+ * ?? hint（默认 DL_DEFAULT_SIZE），恒过 clampSize。**高度也是记忆值**（用户拖过的高度要留着）——
+ * 它随后会以 min == max 的形式钉进尺寸提示（见 sizeHintsFor）。
+ * displays 空数组（headless/异常探测）返回 null，调用方自便。
  */
 export function pickBounds(
   saved: Rect | null,
@@ -211,8 +293,8 @@ export function pickBounds(
   hint: { width: number; height: number } = DL_DEFAULT_SIZE,
 ): Rect | null {
   if (!displays.length) return null;
-  // 记忆尺寸优先，但「旧默认尺寸」不算记忆（见 isLegacyDefaultSize），回落当前的贴合值
-  const kept = saved && !isLegacyDefaultSize(saved) ? saved : null;
+  // 记忆尺寸优先（两条轴都合理 + 不是旧的 720×150 空带），回落当前的贴合值
+  const kept = usableSavedSize(saved);
   const size = clampSize(kept?.width ?? hint.width, kept?.height ?? hint.height);
   if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
     const rect: Rect = { x: Math.round(saved.x), y: Math.round(saved.y), ...size };

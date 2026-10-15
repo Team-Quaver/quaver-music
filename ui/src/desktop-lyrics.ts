@@ -27,7 +27,7 @@
 // 拖哪都能挪窗；控制条/进度条/缩放手把是 no-drag，各自收点击。没有「点击穿透」这一档。
 // 交互分层：
 //   • 拖动任意歌词区 = 挪窗（CSD 拖拽区，由窗口管理器做交互移动）；
-//   • 右下角把手 = 缩放（无对应的 CSS 能力，走指针位移 → 主进程 setSize）；
+//   • 右下角把手 = 缩放（无对应的 CSS 能力，走指针位移 → 主进程；高度那条钉死的轴要连提示一起改）；
 //   • 悬停浮现控制条：⏮ ⏯ ⏭ ｜ 字号 A−/A+ ｜ 延迟 −/读数(点=归零)/＋ ｜ 关窗；
 //   • 底部细进度条：点击 seek。
 import "./desktop-lyrics.css";
@@ -597,7 +597,10 @@ progress.onclick = (e) => {
 // —— 边缘缩放 ——
 // 挪窗**不在这里**：整层是 CSD 拖拽区（desktop-lyrics.css 的 -webkit-app-region: drag），
 // 由窗口管理器做交互移动 —— 这也是 Wayland 下唯一真能挪窗的路（setPosition 会被合成器无视）。
-// 缩放没有对应的 CSS/合成器能力，只能走「指针位移 → 主进程 setSize」这条路。
+// 缩放没有对应的 CSS/合成器能力，只能走「指针位移 → 主进程」这条路：主进程拖动期间把**两条轴**的
+// min/max 一起重钉（合成器据此夹取 —— Wayland 下 setSize 只改我们这边的视口，改不动窗体盒，
+// 两个值一脱钩歌词就跑到看不见的那半张宽里去了，见 electron/desktop-lyrics-core.ts 的 pinnedHintsFor），
+// 松手再发一发 resize-end 让宽度放回区间。两个分量都发。
 
 function startDragResize(e: PointerEvent): void {
   let lastX = e.screenX;
@@ -618,6 +621,8 @@ function startDragResize(e: PointerEvent): void {
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("pointercancel", onUp);
+    // 松手：把宽度那条轴放回区间（拖动期间两条轴都钉着，见主进程 releaseWidth）
+    if (total > 4) windowOp({ op: "resize-end" });
   };
   window.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);
@@ -635,7 +640,7 @@ applyStyle();
 paintEmpty();
 syncTools();
 
-// 窗体尺寸（用户拖右下角把手）/字体迟到都会改文字盒 → 立刻重估条带、锚位与滚动量
+// 窗体尺寸（用户拖右下角把手 / 档位变化后主进程贴高）/字体迟到都会改文字盒 → 立刻重估条带、锚位与滚动量
 window.addEventListener("resize", () => tightenStrip(true));
 void document.fonts?.ready.then(() => tightenStrip(true));
 

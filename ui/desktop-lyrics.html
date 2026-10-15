@@ -5,11 +5,15 @@
     <title>Quaver 桌面歌词</title>
     <!-- 独立窗口页（非 SPA 路由）：主进程 desktop-lyrics.ts 建窗加载本页。
          CSP 的 script-src 只有 'self' blob:（见 electron/csp.ts），入口必须是外链模块。
-         窗体是纯 CSD：页面自己划拖拽区（-webkit-app-region: drag），没有穿透档。 -->
+         窗体是纯 CSD：页面自己划拖拽区（-webkit-app-region: drag），没有穿透档。
+         窗体尺寸提示（min == max 的高度轴 = 「申请浮窗」）在主进程构造参数里，与页面无关：
+         见 electron/desktop-lyrics-core.ts:sizeHintsFor。 -->
     <script type="module" src="/src/desktop-lyrics.ts"></script>
   </head>
   <body>
-    <!-- 窗体背板：[DesktopLyrics] Backdrop 就是这一层 —— **铺满整个窗体**的一块底，
+    <!-- 窗体背板：[DesktopLyrics] Backdrop 就是这一层 —— **铺满客户端表面**的一块底
+         （页面能画的最大范围就是它；合成器给的窗体盒若更大，那一截谁也画不了，见
+         electron/desktop-lyrics-core.ts:sizeHintsFor 的「申请浮窗」），
          字后面有面、字本身不受它影响。放在 #dl-root 之外是故意的：#dl-root 的 opacity
          是「歌词不透明度」，背板不该跟着一起淡。 -->
     <div id="dl-board"></div>

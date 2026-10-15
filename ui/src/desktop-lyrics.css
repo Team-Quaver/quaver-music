@@ -1,7 +1,9 @@
 /* Quaver — 桌面歌词覆盖层样式（desktop-lyrics.html 专属，别混进 SPA 的 style.css）
  *
  * 窗体本身由主进程建成「无边框 + 全透明 + 置顶」（**纯 CSD**：无原生标题栏、无穿透档），
- * 页面只画三层：歌词舞台（AMLL）、悬停控制条、底部进度线 + 右下角缩放手把。
+ * 页面只画三层：歌词舞台（AMLL）、悬停控制条、底部进度线 + 右下角缩放手把（高度由主进程用
+ * min == max 的尺寸提示表达 —— 那对提示同时就是「申请浮窗」，拖高度就是重钉这对提示，见
+ * electron/desktop-lyrics-core.ts:sizeHintsFor）。
  *
  * 拖动全靠 CSD 拖拽区：#dl-root 整层 -webkit-app-region: drag，控制条/进度线/缩放手把
  * 声明 no-drag 收回点击（与主窗 .winbtns 同一套做法）。这样挪窗交给窗口管理器做交互移动
@@ -70,9 +72,14 @@ body {
  * （高 = 文字块高 + 上下呼吸位，顶 = 居中于视口），inset 是合成器属性 —— 迁移零重排。
  * 窗口几何与锚位的配套公式在 src/desktop-lyrics.ts（textBox / rowsOf / tightenStrip）。 */
 /* —— 窗体背板（[DesktopLyrics] Backdrop）——
- * 铺满**整扇窗**（inset:0 = 窗体的矩形，拖右下角缩放时跟着变），画在歌词下面。
+ * 铺满**客户端表面**（inset:0），画在歌词下面：这就是我们能画的最大范围。
  * 0（默认）时完全透明 —— 只剩字；调高就是给这扇窗一块可读的底，字本身不变。
- * 它是 #dl-root 的兄弟：在 root 之外，所以不受「歌词不透明度」（root 的 opacity）牵连。 */
+ * 它是 #dl-root 的兄弟：在 root 之外，所以不受「歌词不透明度」（root 的 opacity）牵连。
+ *
+ * 真机踩过一次「背板只有上面一截」：那不是这里的锅。窗口被平铺时，合成器给的**窗体盒**由
+ * 布局决定，而客户端表面被自己的 max 尺寸提示夹住 —— 窗体盒比表面多出来的那一截不归页面画，
+ * 谁都盖不住（桌面直接透出来）。病根在尺寸提示没有「不变的轴」，见
+ * electron/desktop-lyrics-core.ts:sizeHintsFor 的「申请浮窗」。 */
 #dl-board {
   position: fixed;
   inset: 0;
@@ -258,7 +265,10 @@ body {
   background: rgb(255 255 255 / 85%);
 }
 
-/* —— 右下角缩放手把 —— */
+/* —— 右下角缩放手把（两条轴都能拖）——
+ * 高度是「钉死的轴」，钉的是值的唯一性不是「不许改」：拖这里 = 主进程把 min/max 一起重钉到新值
+ * （见 electron/desktop-lyrics-core.ts 的 sizeHintsFor / desktop-lyrics.ts:pinSize），
+ * 所以光标照旧斜向，两条轴都有反馈。 */
 #dl-resize {
   position: absolute;
   right: 0;

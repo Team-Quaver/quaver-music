@@ -196,29 +196,53 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
   成立（主窗顶带踩过：兄弟子树里的 no-drag 挡不住铺过来的 drag 矩形）——本窗三个控件都是
   `#dl-root` 的直接子元素才挖得动洞。
 - **两层不透明度，别混成一个**：`Opacity` = **歌词层**（挂在**内容**两处：`#dl-clip` 与 `#dl-empty`
-  的 `opacity: var(--dl-opacity)`）；`Backdrop` = **窗体不透明度**（`#dl-board`，`inset:0` **铺满整扇窗**、
+  的 `opacity: var(--dl-opacity)`）；`Backdrop` = **窗体不透明度**（`#dl-board`，`inset:0` **铺满客户端表面**、
   画在歌词下面，默认 0 = 整扇窗全透明、只有字）。背板刻意是 `#dl-root` 的**兄弟**、变量挂在 `<html>` 上 ——
   放进 root 里就会被歌词层的 opacity 连坐乘一遍（两个滑条就不独立了）。
   想要「窗体」有可调的面就调背板，**不要**去碰字。
   为什么不做原生 `win.setOpacity()`：Linux 上 Electron 不实现（文档原话「On Linux, does nothing」），
   按平台分叉两条路只会让三平台口径不一致 —— 一律用「背板」这一层表达窗体，三平台同一套。
+  真机踩过「背板只盖了上面一截、下面露出桌面」：**不是页面的锅** —— 被平铺时合成器给的窗体盒由
+  布局决定，而客户端表面被自己的 max 尺寸提示夹住，盒子里多出来的那一截不归页面画，`inset:0`
+  只能盖到客户端表面。病根是尺寸提示缺一条「不变的轴」，见下面「申请浮窗」那条。
 - **悬停地板：歌词层的透明度挂在「内容」而不是整层 `#dl-root`**。指针停在覆盖层上（= 可拖动那个状态）
   时内容至少要到 0.3（`prefs` 的 `DL_HOVER_OPACITY_FLOOR` → `applyStyle` 算成 `--dl-hover-opacity`，
   CSS 只在 `#dl-root:hover` 里消费），设置高于 0.3 就完全照设置来 —— 复用同一条透明度链，**不新增设置项**。
   为什么不整层压住再给控件乘补偿系数：CSS `opacity` 被浏览器夹回 `[0,1]`，`1/0.3` 这种补偿直接作废
   （真机踩过：补偿值算出来是 3.33，读回来还是 1）。控件本来就只在悬停时才出现，让它恒满值才按得着。
-- **初始尺寸贴合内容**（`desktop-lyrics-core.ts:defaultHeightFor`）：窗高 = 主行/辅助行/呼吸位的容量
-  × 留量 + 落位余量，系数是 headless 量 `__dl.stripDiag().applied` **实测标定**的（12 种档位组合逐一核过，
-  最紧的一档 字号2+双行+辅助 = 258 vs 实测条带 253）。旧版一律给 720×150 那条大空带 —— 一条 24px 的字
-  吊在半空 + 一整片看不见的点击区，是不合理的。三条配套：① `isLegacyDefaultSize` 把落在 720×150 的
-  记忆尺寸认成「用户从没拖过角」（位置照旧恢复、尺寸换贴合值）；② 字号/行数/辅助行变了 → `refitHeight`
-  **只长不缩**（用户拖窄的高度不该被配置改动抹掉，但字被条带切掉是实打实的坏画面）；③ 辅助行容量取自
-  全局 `[Style] LyricAux`（覆盖层真的会多渲染那一行）。
+- **尺寸：高度是一条「钉死的轴」，但值能拖；宽度是区间**（`desktop-lyrics-core.ts:sizeHintsFor`）。
+  默认窗高 = 主行/辅助行/呼吸位的容量 × 留量 + 落位余量（`defaultHeightFor`），系数是 headless 量
+  `__dl.stripDiag().applied` **实测标定**的（12 种档位组合逐一核过，最紧的一档 字号2+双行+辅助 = 258
+  vs 实测条带 253）；默认宽度 560（`DL_DEFAULT_WIDTH`）。四条配套：
+  ① 高度以 **`minHeight == maxHeight` 的提示**钉死（既是「这条轴由我定」也是「申请浮窗」的判据，见下条）；
+  ② **改尺寸 = 重钉提示**，钉的是「值的唯一性」不是「不许改」：拖动中 `pinSize` 把**两条轴**一起钉
+  （`pinnedHintsFor`），松手 `releaseWidth` 只把宽度放回区间。为什么宽度也得推提示：Wayland 下客户端
+  定不了自己的尺寸，`setSize` 只改**我们这边**的视口 —— 真机量过 `setSize(900)` 之后 renderer 的
+  innerWidth 是 900 而合成器盒子仍是 560，两个值一脱钩歌词就在那半张看不见的宽里居中；推提示
+  （min == max）才是让盒子跟上的唯一路。实测：拖动期间合成器盒子逐帧跟上、浮窗不掉，松手把宽度放回
+  区间后盒子与浮窗都保持；③ 字号/行数/辅助行变了 → `refitHeight` **只长不缩**（用户拖出来的高度不该被
+  一次配置改动抹掉）；④ 辅助行容量取自全局 `[Style] LyricAux`（覆盖层真的会多渲染那一行）。
+- **记忆尺寸要过筛**：`isLegacyDefaultSize`（旧版一律 720×150 的那条大空带）与 `isSaneSavedSize`
+  （越界值只可能来自合成器把窗拉爆后的静默落盘，真机踩过 H=1224）都不算用户偏好 —— 位置照旧恢复、
+  尺寸回落当前贴合值；合格的记忆高度照旧恢复（那是用户拖出来的，`pickBounds` 两条轴一起用）。
+- **「申请浮窗」= xdg 的 min/max 尺寸提示**（`sizeHintsFor` → BrowserWindow 的 `minWidth/maxWidth/
+  minHeight/maxHeight`）。链路：`NativeWindow::InitFromOptions` → `views::Widget::OnSizeConstraintsChanged`
+  → `DesktopWindowTreeHostPlatform` → `WaylandToplevelWindow::SetSizeConstraints` →
+  `xdg_toplevel.set_min_size/set_max_size`。平铺合成器就是按「有没有一条不可变的轴」判浮窗的，
+  Hyprland 0.56 `CHyprXWaylandManager::shouldBeFloated`（Wayland 分支）：
+  `minSize.x != 0 && minSize.y != 0 && (minSize.x == maxSize.x || minSize.y == maxSize.y)` → 浮窗；
+  浮窗后再用同一对提示把窗夹到该尺寸（`Window.cpp:clampWindowSize`），于是「合成器给的窗体盒」与
+  「客户端表面」永远一样大 —— 背板盖不满的病根一并解决。**别把高度改成区间**（提示里一旦没有相等的轴，
+  窗会被重新平铺回布局格子，错位就回来了），也**别在 show 之后再补提示**（构造参数里就给：窗口映射
+  那一刻合成器就判一次）。改尺寸的入口只有三个方法：`pinSize`（拖动中两条轴）/`pinHeight`（只钉高度）/
+  `releaseWidth`（放回宽度，内部复用 `pinHeight`），而 `setMinimumSize/setMaximumSize` 只在这**两**处成对
+  出现 —— 单独改一条会把轴打散。
 - **没有「最大化/全屏」这一档**：`maximizable:false` + `fullscreenable:false` 只是「不给按钮」，拦不住
   窗口管理器的手势（Windows 顶边 Aero Snap、KDE/GNOME 平铺与 Super+Up、无边框窗双击拖拽区）——
-  所以另有一道反应式兜底：`maximize` / `enter-full-screen` 一到就 `unmaximize()` / `setFullScreen(false)`，
-  外加 `setMaximumSize(DL_SIZE_MAX…)` 给 WM 一条硬上限。别改成 `resizable:false`：那是想连我们的
-  右下角把手一起关掉（`resize-by` 走的是 `setSize`，X11 下还会被 WM 的 min=max 尺寸约束夹住）。
+  所以另有一道反应式兜底：`maximize` / `enter-full-screen` 一到就 `unmaximize()` / `setFullScreen(false)`。
+  尺寸上限就在那对提示里（宽度 `DL_SIZE_MAX.width`，高度由 `min == max` 钉死），而**改高度只能走
+  `pinSize` 的成对重钉** —— 单独 `setMaximumSize` 会只改一条，把那条轴打散。也别改成 `resizable:false`：
+  那正是 Electron 在 Linux 上实现「不可缩放」的路子（min = max = 当前尺寸），它会连我们的把手一起废掉。
 - **垂直居中：钉的是整块文字的实测中心**（主行 + 翻译/音译；条带高 = 块高 + 上下 0.25em 呼吸位，
   条带恒居中于视口）。量尺走 `textBox()`（文本节点 Range）而不是元素矩形 —— core 给行/词盒铺了
   ±1em 的 margin/padding，量盒子会虚增近一倍。纯公式在 `src/lib/desktop-lyrics-layout.ts`
@@ -232,8 +256,8 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
   （回卷/一次性停死都会被当成故障）。相位按行元素记（`marqueeStart`），4Hz 重测不重锚。
 - 位置/大小/开关写 `[DesktopLyrics]`（主进程写 X/Y/W/H 记忆坐标；渲染层只碰开关/字号/透明度）。
 
-验证：`node scripts/verify-desktop-lyrics.ts`（纯逻辑 + 几何真单测 + 尺寸贴合/悬停地板 + 整链「无穿透档」「无最大化档」红线 + 源码接线；
-已进 `verify:static`）。
+验证：`node scripts/verify-desktop-lyrics.ts`（纯逻辑 + 几何真单测 + 尺寸贴合/尺寸提示（浮窗轴，高度 min==max）/
+悬停地板 + 整链「无穿透档」「无最大化档」红线 + 源码接线；已进 `verify:static`）。
 
 ## 本地音乐 / NAS（扫描 · 播放 · 刮削 · QRC 逐字）
 

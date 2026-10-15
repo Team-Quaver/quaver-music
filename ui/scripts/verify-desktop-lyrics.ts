@@ -3,22 +3,24 @@
 // 抓的三类回归：
 //   • 纯逻辑（electron/desktop-lyrics-core.ts 不 import electron，直接函数断言）：
 //     边界回落/夹取、配置解析的坏值韧性（开关/字号/透明度/行数/坐标）、**初始尺寸贴合内容**
-//     （defaultHeightFor 按字号×行数算窗高；旧的 720×150 大空带不当作用户偏好）。
+//     （defaultHeightFor 按字号×行数算窗高；旧的 720×150 大空带与合成器拉爆后的越界尺寸都不当用户偏好）、
+//     **「申请浮窗」的尺寸提示**（sizeHintsFor：高度那条轴 min == max —— 平铺合成器判浮窗的判据；
+//     钉的是值的唯一性，拖把手改高度 = 把这对提示一起重钉）。
 //   • 双写红线：[DesktopLyrics] 的 schema 默认值 ⇄ src/lib/config.ts FALLBACK 逐键一致。
 //   • 覆盖层几何（src/lib/desktop-lyrics-layout.ts 纯函数）：块心对齐、条带居中、超长行滚动区间。
 //   • 「没有点击穿透这一档」红线：整条链（core/主进程/preload/桥/页/CSS/设置页/托盘）都不许
 //     再出现 ClickThrough / setIgnoreMouseEvents / click-through；窗体改成纯 CSD（拖拽区）。
-//   • 接线护栏（源码正则）：主进程开窗选项（透明/置顶/不抢焦点/movable）、CSD 拖拽区与
-//     no-drag 例外、歌词层/窗体两层不透明度与悬停地板、退出连带关窗不写 Enabled、桥的 active 门与曲目指纹去抖、
-//     DL 页零 player 依赖、时钟补偿与 NowPlaying 同值、vite 入口与 CSP。
+//   • 接线护栏（源码正则）：主进程开窗选项（透明/置顶/不抢焦点/movable/**min==max 的尺寸提示**）、
+//     CSD 拖拽区与 no-drag 例外、歌词层/窗体两层不透明度与悬停地板、退出连带关窗不写 Enabled、
+//     桥的 active 门与曲目指纹去抖、DL 页零 player 依赖、时钟补偿与 NowPlaying 同值、vite 入口与 CSP。
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defaults } from "../electron/config.ts";
 import {
   boundsToPatch, clampSize, confBool, defaultBounds, defaultHeightFor, defaultSizeFor,
-  DL_DEFAULT_SIZE, DL_SIZE_MAX, DL_SIZE_MIN, isLegacyDefaultSize,
-  normalizeOpacity, normalizeScale, parseSettings, pickBounds,
+  DL_DEFAULT_SIZE, DL_SIZE_MAX, DL_SIZE_MIN, isLegacyDefaultSize, isSaneSavedSize,
+  normalizeOpacity, normalizeScale, parseSettings, pickBounds, pinnedHintsFor, sizeHintsFor,
 } from "../electron/desktop-lyrics-core.ts";
 import { alignFor, bandFor, scrollRange, BAND_MIN_PX } from "../src/lib/desktop-lyrics-layout.ts";
 import { viewsSource } from "./views-source.ts";
@@ -79,8 +81,13 @@ section("不支持最大化/全屏");
     /win\.on\("minimize", \(\) => rejectState\("最小化"\)\);/.test(dl) && /win\.isMinimized\(\)\) win\.restore\(\)/.test(dl));
   check("还原前先判一次现值（事件抢跑时不重复动手、也不刷日志）",
     /if \(!win\.isMaximized\(\) && !win\.isMinimized\(\) && !win\.isFullScreen\(\)\) return;/.test(dl));
-  check("尺寸上限给到 WM 一道硬约束（贴边/平铺也长不过 DL_SIZE_MAX）",
-    /win\.setMaximumSize\(DL_SIZE_MAX\.width, DL_SIZE_MAX\.height\)/.test(dl));
+  check("尺寸提示只在两个方法里**成对**更新（pinHeight / pinSize；单独 setMaximumSize 会把浮窗那条轴打散）",
+    (dl.match(/setMaximumSize\(/g) ?? []).length === 2
+    && (dl.match(/setMinimumSize\(/g) ?? []).length === 2
+    && /win\.setMaximumSize\(hints\.maxWidth, hints\.maxHeight\);/.test(dl)
+    && /win\.setMinimumSize\(hints\.minWidth, hints\.minHeight\);/.test(dl)
+    && /win\.setMaximumSize\(hints\.maxWidth, hints\.maxHeight\);/.test(dl.slice(dl.indexOf("private pinSize"), dl.indexOf("private releaseWidth")))
+    && /win\.setMinimumSize\(hints\.minWidth, hints\.minHeight\);/.test(dl.slice(dl.indexOf("private pinSize"), dl.indexOf("private releaseWidth"))));
   check("本模块从不主动 maximize（只有 unmaximize 这个还原方向）", !/(^|[^n])maximize\(/m.test(dl.replace(/unmaximize\(/g, "@")));
 }
 
@@ -114,11 +121,11 @@ check("记忆位置在副屏 → 原样恢复", remembered?.x === 2000 && rememb
 const offscreen = pickBounds({ x: 99999, y: 99999, width: 640, height: 120 }, [AREA_MAIN]);
 check("拔掉副屏后陈旧坐标回落初始落位（不丢进虚空）", !!offscreen && offscreen.x >= 0 && offscreen.y > 600 && offscreen.width === 640, JSON.stringify(offscreen));
 const tiny = pickBounds({ x: 100, y: 100, width: 40, height: 20 }, [AREA_MAIN]);
-check("尺寸过小手被夹到下限（下限已降到 44：压到极扁也得有条活路）",
-  tiny?.width === DL_SIZE_MIN.width && tiny?.height === DL_SIZE_MIN.height, JSON.stringify(tiny));
+check("尺寸过小的记忆条目同样不算数（我们自己从不会写 <260×44 的值）→ 回落默认口径，而不是夹成一条缝",
+  tiny?.width === DL_DEFAULT_SIZE.width && tiny?.height === DL_DEFAULT_SIZE.height, JSON.stringify(tiny));
 eq("无屏幕数据返回 null（调用方自便）", pickBounds(null, []), null);
 const def = defaultBounds(AREA_MAIN);
-check("初始落位=底部居中的横带", def.width === 720 && def.y + def.height <= 1080 && def.y > 700, JSON.stringify(def));
+check("初始落位=底部居中的横带", def.width === 560 && def.y + def.height <= 1080 && def.y > 700, JSON.stringify(def));
 eq("bounds→补丁字符串", boundsToPatch({ x: 12.6, y: -8, width: 300.2, height: 80 }), { "DesktopLyrics.X": "13", "DesktopLyrics.Y": "-8", "DesktopLyrics.W": "300", "DesktopLyrics.H": "80" });
 
 section("初始尺寸 = 字号 × 行数档位（不再一律 150px 大空带）");
@@ -135,19 +142,49 @@ check("字号越大越高、双行不低于单行、辅助行不低于纯主行"
 check("恒在夹取范围内（越界字号也长不出屏）",
   [0.5, 1, 2].every((sc) => (["single", "dual"] as const).every((m) => ([true, false]).every((aux) =>
     defaultHeightFor(sc, m, aux) >= DL_SIZE_MIN.height && defaultHeightFor(sc, m, aux) <= DL_SIZE_MAX.height))));
-eq("DL_DEFAULT_SIZE = 「字号1 + 单行 + 辅助开」口径", DL_DEFAULT_SIZE, { width: 720, height: defaultHeightFor(1, "single", true) });
-eq("defaultSizeFor 宽恒 720、高走档位", defaultSizeFor({ scale: 2, mode: "dual", aux: true }), { width: 720, height: 258 });
+eq("DL_DEFAULT_SIZE = 「字号1 + 单行 + 辅助开」口径", DL_DEFAULT_SIZE, { width: 560, height: defaultHeightFor(1, "single", true) });
+eq("defaultSizeFor 宽走默认口径、高走档位", defaultSizeFor({ scale: 2, mode: "dual", aux: true }), { width: 560, height: 258 });
+
+section("尺寸提示 = 「申请浮窗」（高度那条轴 min == max，值可重钉）");
+eq("高度 83：宽度留区间，高度两轴相等",
+  sizeHintsFor(83),
+  { minWidth: DL_SIZE_MIN.width, maxWidth: DL_SIZE_MAX.width, minHeight: 83, maxHeight: 83 });
+check("12 档组合的贴合高度全过浮窗判据：两条 min 轴非 0，且高度 min == max（平铺合成器的判据）",
+  [0.5, 1, 1.6, 2].every((sc) => (["single", "dual"] as const).every((m) => ([true, false]).every((aux) => {
+    const h = sizeHintsFor(defaultSizeFor({ scale: sc, mode: m, aux }).height);
+    return h.minWidth > 0 && h.minHeight > 0 && h.minHeight === h.maxHeight;
+  }))));
+check("宽度两条轴不相等（WM 拖边改宽照旧，不影响浮窗判据）",
+  [0.5, 1, 2].every((h) => sizeHintsFor(h).minWidth !== DL_SIZE_MAX.width));
+check("重钉自由高度（用户拖过的高度照旧钉得进去，仍恒 min == max）",
+  [44, 83, 120, 150, 300, 480].every((h) => { const x = sizeHintsFor(h); return x.minHeight === h && x.maxHeight === h; }));
+check("越界高度过夹取（拖到天边也不会把窗钉出屏）",
+  sizeHintsFor(9999).minHeight === DL_SIZE_MAX.height && sizeHintsFor(1).minHeight === DL_SIZE_MIN.height);
+eq("拖动中：两条轴都钉死（合成器才跟得上 —— Wayland 下 setSize 只改我们这边的视口）",
+  pinnedHintsFor(700, 150), { minWidth: 700, maxWidth: 700, minHeight: 150, maxHeight: 150 });
+check("拖动中的提示也过夹取（宽度/高度都拉不出去）",
+  pinnedHintsFor(99999, 99999).minWidth === DL_SIZE_MAX.width && pinnedHintsFor(0, 0).minHeight === DL_SIZE_MIN.height
+  && pinnedHintsFor(0, 0).minWidth === DL_SIZE_MIN.width);
 check("旧默认 720×150 认成「从没拖过角」，新的贴合值不算",
   isLegacyDefaultSize({ x: 0, y: 0, width: 720, height: 150 })
   && !isLegacyDefaultSize({ x: 0, y: 0, width: 720, height: 75 })
   && !isLegacyDefaultSize({ x: 0, y: 0, width: 640, height: 150 })
   && !isLegacyDefaultSize(null));
+check("越界记忆尺寸不算数（只可能来自合成器把窗拉爆后的静默落盘）",
+  isSaneSavedSize({ x: 0, y: 0, width: 1000, height: 83 })
+  && !isSaneSavedSize({ x: 0, y: 0, width: 1000, height: 1224 })
+  && !isSaneSavedSize({ x: 0, y: 0, width: 40, height: 83 })
+  && !isSaneSavedSize(null));
 {
-  const legacy = pickBounds({ x: 300, y: 400, width: 720, height: 150 }, [AREA_MAIN], { width: 720, height: 83 });
+  const legacy = pickBounds({ x: 300, y: 400, width: 720, height: 150 }, [AREA_MAIN], { width: 560, height: 83 });
   check("旧默认尺寸：位置照旧恢复，尺寸换成贴合值",
-    legacy?.x === 300 && legacy?.y === 400 && legacy?.height === 83 && legacy?.width === 720, JSON.stringify(legacy));
-  const mine = pickBounds({ x: 300, y: 400, width: 500, height: 120 }, [AREA_MAIN], { width: 720, height: 83 });
-  check("用户拖过的尺寸不动", mine?.width === 500 && mine?.height === 120, JSON.stringify(mine));
+    legacy?.x === 300 && legacy?.y === 400 && legacy?.height === 83 && legacy?.width === 560, JSON.stringify(legacy));
+  const mine = pickBounds({ x: 300, y: 400, width: 500, height: 120 }, [AREA_MAIN], { width: 560, height: 83 });
+  check("用户拖过的尺寸照旧恢复（高度也是用户拖的，要留着）",
+    mine?.width === 500 && mine?.height === 120, JSON.stringify(mine));
+  const blown = pickBounds({ x: 300, y: 400, width: 1000, height: 1224 }, [AREA_MAIN], { width: 560, height: 83 });
+  check("被拉爆的记忆尺寸（H=1224）两条轴都不认，回落默认口径",
+    blown?.width === 560 && blown?.height === 83 && blown?.x === 300, JSON.stringify(blown));
   const hinted = pickBounds(null, [AREA_MAIN], { width: 800, height: 90 });
   check("无记忆尺寸时按 hint 落位", hinted?.width === 800 && hinted?.height === 90, JSON.stringify(hinted));
 }
@@ -190,12 +227,37 @@ check("初始尺寸来自「字号 × 行数」的贴合值（不再写死 720/1
   && /height: bounds\?\.height \?\? hint\.height/.test(dl)
   && !/\?\? 150/.test(dl) && !/\?\? 720/.test(dl));
 {
+  // 开窗构造块：从尺寸提示那一行到标题（四个 min/max 选项都在这一段里）
+  const ctorBody = dl.slice(dl.indexOf("const hints = sizeHintsFor(bounds?.height"), dl.indexOf("title: \"Quaver 桌面歌词\""));
+  check("**申请浮窗**：min/max 尺寸提示进构造参数，吃的是「记忆里能用的高度 ?? 贴合高度」（映射那一刻合成器就判浮窗，show 之后再补就晚了一帧）",
+    /const hints = sizeHintsFor\(bounds\?\.height \?\? hint\.height\);/.test(ctorBody)
+    && /minWidth: hints\.minWidth/.test(ctorBody) && /maxWidth: hints\.maxWidth/.test(ctorBody)
+    && /minHeight: hints\.minHeight/.test(ctorBody) && /maxHeight: hints\.maxHeight/.test(ctorBody));
   const refitBody = (dl.match(/private refitHeight\(\)[\s\S]*?\n  \}/) ?? [""])[0];
-  check("档位（字号/行数/辅助行）变了把窗高重新贴合，且**只长不缩**（用户拖窄的高度不该被配置改动抹掉）",
+  check("档位（字号/行数/辅助行）变了把窗高重新贴合，且**只长不缩**（用户拖出来的高度不该被配置改动抹掉）",
     /const capacityChanged = this\.settings\.scale !== next\.scale\s*\|\| this\.settings\.mode !== next\.mode \|\| this\.settings\.aux !== next\.aux;/.test(dl)
     && /else if \(capacityChanged\) this\.refitHeight\(\);/.test(dl)
-    && /const want = defaultSizeFor\(this\.settings\)\.height;/.test(refitBody)
-    && /if \(h >= want\) return;/.test(refitBody));
+    && /const from = this\.pinnedHeight \|\| h;/.test(refitBody)
+    && /const want = Math\.max\(defaultSizeFor\(this\.settings\)\.height, from\);/.test(refitBody)
+    && /if \(from >= want\) return;/.test(refitBody)
+    && /this\.pinHeight\(w, want\);/.test(refitBody));
+  const pinHBody = (dl.match(/private pinHeight\([\s\S]*?\n  \}/) ?? [""])[0];
+  const pinBody = (dl.match(/private pinSize\([\s\S]*?\n  \}/) ?? [""])[0];
+  const relBody = (dl.match(/private releaseWidth\([\s\S]*?\n  \}/) ?? [""])[0];
+  check("pinHeight = 只钉高度（宽度留区间）+ setSize：档位变化/开窗/松手走它，提示是 Wayland 下唯一真生效的那步",
+    /const hints = sizeHintsFor\(height\);/.test(pinHBody)
+    && /win\.setMinimumSize\(hints\.minWidth, hints\.minHeight\);/.test(pinHBody)
+    && /win\.setMaximumSize\(hints\.maxWidth, hints\.maxHeight\);/.test(pinHBody)
+    && /win\.setSize\(width, hints\.minHeight\);/.test(pinHBody)
+    && /this\.pinnedHeight = hints\.minHeight;/.test(pinHBody));
+  check("pinSize = 拖动中**两条轴一起钉**（pinnedHintsFor）：Wayland 下 setSize 改不动窗体盒，只推提示才跟得上",
+    /const hints = pinnedHintsFor\(width, height\);/.test(pinBody)
+    && /win\.setMinimumSize\(hints\.minWidth, hints\.minHeight\);/.test(pinBody)
+    && /win\.setMaximumSize\(hints\.maxWidth, hints\.maxHeight\);/.test(pinBody)
+    && /win\.setSize\(hints\.minWidth, hints\.minHeight\);/.test(pinBody)
+    && /this\.pinnedWidth = hints\.minWidth;/.test(pinBody) && /this\.pinnedHeight = hints\.minHeight;/.test(pinBody));
+  check("releaseWidth = 松手把宽度放回区间（拖完仍交给 WM 拖边），高度继续钉死",
+    /this\.pinHeight\(this\.pinnedWidth \|\| w, this\.pinnedHeight \|\| h\);/.test(relBody));
 }
 check("did-finish-load 补发 track/sync（晚到的窗；this.win 身份门防拆窗竞态）", /did-finish-load[\s\S]*?this\.win !== win[\s\S]*?latestTrack[\s\S]*?latestSync/.test(dl));
 check("关闭覆盖层落 Enabled=False，但随应用退出被销毁时不写", /isQuitting\(\)[\s\S]{0,120}DesktopLyrics\.Enabled"\: "False"/.test(dl) || (/if \(!this\.deps\.isQuitting\(\)\)/.test(dl) && /"DesktopLyrics\.Enabled": "False"/.test(dl)));
@@ -204,6 +266,22 @@ check("位置落盘去抖（别一帧一次 INI）", /setTimeout\(\(\) => this\.
 check("挪窗不再走 IPC（move-by 整条路删掉：setPosition 在 Wayland 上本就无效）",
   !/move-by/.test(dl) && !/move-by/.test(src("src/desktop-lyrics.ts"))
   && /resize-by/.test(dl) && /op: "resize-by"/.test(src("src/desktop-lyrics.ts")));
+check("resize-by 两条轴都走 pinSize（拖动期间两条轴都钉）；resize-end 才放回宽度",
+  /const dx = Number\(msg\?\.dx\) \|\| 0;/.test(dl) && /const dy = Number\(msg\?\.dy\) \|\| 0;/.test(dl)
+  && /const size = clampSize\(fromW \+ dx, fromH \+ dy\);/.test(dl)
+  && /this\.pinSize\(size\.width, size\.height\);/.test(dl)
+  && /case "resize-end":/.test(dl) && /this\.releaseWidth\(\);/.test(dl)
+  && /windowOp\(\{ op: "resize-by", dx, dy \}\)/.test(src("src/desktop-lyrics.ts"))
+  && /windowOp\(\{ op: "resize-end" \}\)/.test(src("src/desktop-lyrics.ts")));
+check("拖动的基准取 pinned* 镜像，不读 win.getSize()（Wayland 上后者滞后，逐帧增量会被吃掉）",
+  /const fromW = this\.pinnedWidth \|\| w;/.test(dl)
+  && /const fromH = this\.pinnedHeight \|\| h;/.test(dl)
+  && !/clampSize\(w \+ dx, h \+ dy\)/.test(dl)
+  && /this\.pinnedWidth = bounds\?\.width \?\? hint\.width;/.test(dl.slice(dl.indexOf("this.win = win;"), dl.indexOf("win.loadURL")))
+  && /this\.pinnedHeight = hints\.minHeight;/.test(dl.slice(dl.indexOf("this.win = win;"), dl.indexOf("win.loadURL"))));
+check("把手照旧是右下角斜向（两条轴都有反馈）",
+  /cursor: nwse-resize/.test(src("src/desktop-lyrics.css"))
+  && /right: 0;\s*\n\s*bottom: 0;/.test(src("src/desktop-lyrics.css")));
 check("窗体不透明度不做原生 setOpacity（Linux 不实现会造成三平台口径分叉）：一律用「背板」这一层表达",
   !/NATIVE_WIN_OPACITY|winOpacity|setOpacity/.test(dl)
   && /key: "Backdrop"/.test(src("electron/config.ts")));const syncBody = (dl.match(/syncFromConf\(\)[\s\S]*?\n  \}/) ?? [""])[0];
@@ -450,9 +528,10 @@ check("歌词不透明度滑条 10..100%（调的是字）",
   /id="dl-opacity" type="range" min="10" max="100" step="5"/.test(views)
   && /歌词不透明度/.test(views)
   && /setDesktopLyricsOpacity\(Number\(dlOpacity\.value\) \/ 100\)/.test(views));
-check("设置页交代悬停地板（停在歌词层上字至少 30%）、初始高度贴合内容、不支持最大化",
+check("设置页交代悬停地板（停在歌词层上字至少 30%）、高度可拖、申请浮窗、不支持最大化",
   /悬停地板/.test(views) && /字至少\s*回到\s*30%/.test(views) && /设得比 30% 高就完全按你的设置来/.test(views)
-  && /初始高度按字号与行数贴合内容/.test(views) && /不支持最大化/.test(views));
+  && /高度默认按字号与行数贴合内容，拖把手也能自己改/.test(views) && /申请浮窗/.test(views)
+  && /拖右下角把手\*\*缩放/.test(views) && /不支持最大化/.test(views));
 check("窗体不透明度滑条 0..100%（调背板，默认 0 = 只有字）——与歌词那条分开、命名不混",
   /id="dl-backdrop" type="range" min="0" max="100" step="5"/.test(views)
   && /窗体不透明度/.test(views)
