@@ -84,6 +84,14 @@ sidecar 健康检查（最长 15s）与服务端就绪在后台进行；闪屏�
 - 已撤下的官方 id 记在 `loader.ts:RETIRED_OFFICIAL_IDS`，`init.ts:pruneRetiredOfficial()` 启动
   时把 `amll` 从启用集合 / 见过名单 / 显式停用名单里洗掉 —— 不洗，将来同名 id 的插件会莫名
   「已停用」或「不再默认启用」。
+- **AMLL 的歌词是「自发光」的**：`.amll-lyric-player` 自带 `mix-blend-mode: plus-lighter`（文字给
+  底色**加光**），未唱那半句与辅助行的「变淡」也是减 alpha 而不是换灰。这套口径的前提是背景恒为深色
+  （本页原本就是模糊封面 + 深色遮罩）。谁把这一页换成**浅色**表面（Sparkle 主题接管，例：Lumen 的
+  「随主题设置」档），往近白底色上加光 = 整层歌词洗白 —— 墨色、混合模式、`--dark-mask-alpha`、子行
+  opacity 四处必须成套翻面，只改一项读不回来。桌面歌词窗早就摘掉了 plus-lighter（`desktop-lyrics.css`）。
+  验证在 `scripts/verify-lumen-np.ts`（`pnpm verify:lumen-np`，先打包 marketplace）：真浏览器里把宿主
+  style.css + AMLL style.css + 真实打包的主题 CSS 叠一起量像素，连「播放有影 / 暂停无影」的封面投影
+  一起量（该特效的颜色必须由主题的 Tint 派生，纯黑投影压在深色表面上等于没画）。
 
 ### 歌词设置（[Lyrics] 段）· 繁简转换 · TTML 逐字库（本地目录 + 在线数据库）
 
