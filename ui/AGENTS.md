@@ -185,6 +185,31 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
 在正文前后与信封里都挂对 ruby，并用 QQ《怪物》真实样本对齐上游期望，需 dev server）、`node scripts/verify-np-gallery.ts`
 （渲染层：三档辅助行行为 + 「辅助行只有一条」+ ruby 真画在词上方）、`verify:sparkle`（源码接线）。
 
+## 播放控制条（底部停靠 / 内容区悬浮）· 音量浮窗与滚轮
+
+- 形态只有一条 DOM 状态：`body[data-control-bar]`（外加 `.control-bar-floating`），由
+  `lib/prefs.ts:applyControlBarMode()` 写、`lib/control-bar.ts` 与 Sparkle 主题策略合流；布局全在
+  style.css 的 `--control-bar-*` 令牌（悬浮态 = fixed + 在内容区居中，不 JS 量高度）。
+- **挂在条上方的浮窗，锚点必须跟着它自己的按钮走**，不贴 Bar 右缘、也不写死 `right: calc(...)`。
+  两个原因：① 悬浮态条只有 `--control-bar-width`（默认 680px）且在内容区居中，贴右缘会把整块浮窗
+  甩到收藏/画廊/队列那一排上面（音量浮窗实测差 55px+，就是用户报的「悬浮模式错位」）；② 右侧按钮
+  会增删（画廊/桌面歌词/收藏按宽度隐藏、画质胶囊随档名变宽），写死的偏移改版即过期
+  （`.pb-lpop` 如今就是这么过期的，尚未修）。音量浮窗的形状：`<div class="pb-volhost">` 把音量钮
+  与浮窗装进同一个定位锚，`left: -13px`（= 浮窗自己的 1px 描边 + 12px 内边距）让浮窗里的喇叭压在
+  条上那颗的正上方；竖向余量按 `--control-bar-height` 算 —— 锚点换成钮之后 `100%` 不再是条高，
+  漏掉这项浮窗会骑在条顶（实测压住 5px）。窄条（`minWidth: 760` / 半屏吸附）放不下整块浮窗，
+  于是 `showPop()` 前 `clampVolPop()` 量一次余量，只往左退、不退过条的左内缘（与 SongMenu 的
+  视口夹取同一套路：锚点交给 CSS，越界修正交给一次测量）。
+- **滚轮在整条上 = 微调音量**（音质/播放模式浮窗内、以及那颗胶囊与循环钮例外 —— 浮窗里那点是
+  菜单自己的滚动，preventDefault 会把它杀掉）。滑杆「谁在改音量」只认**指针态**：`volEditing`
+  由 `pointerdown` 起、`pointerup` / `lostpointercapture` / `blur` 收。**别拿
+  `document.activeElement` 当判据**：range 一被点/拖就拿到焦点、而且焦点一直留着（移开鼠标、
+  收起浮窗都不掉），拿焦点当「正在编辑」= 此后所有外部改的音量（滚轮 / 全局热键 / MPRIS / 设置页）
+  全都回不到滑杆上 —— 条与读数冻在聚焦那一刻的值，声音明明在变。松手立刻回写播放器真值，
+  别留「拖中滚过轮」的那一截差（94 vs 98 那种假读数）。
+- 验证：`pnpm run verify:volume-bar`（源码接线 + 反向自证 + 活体：两种形态 × 六档尺寸的锚点与
+  越界退位、滚轮四态四值一致、拖动跟手与松手回写；活体段需 dev server，`QBASE` 可指别处）。
+
 ## 桌面歌词（透明覆盖层窗）
 
 一个**独立的 Electron 窗**（`electron/desktop-lyrics.ts` + 页 `desktop-lyrics.html` / `src/desktop-lyrics.ts`），

@@ -1001,9 +1001,22 @@ body[data-control-bar="floating"] .settings-page .set-view {
 .pb-ghost.on { color: color-mix(in srgb, var(--cvg-accent, var(--cyan)) 48%, var(--ink)); }
 /* 收藏与桌面歌词不用染色表达状态：红心=空心/实心，桌面歌词=无杠/斜杠，颜色与其余静止图标一致 */
 .pb-ghost#pb-love.on, .pb-ghost#pb-dl.on { color: var(--ink3); }
-/* 音量浮窗：挂在 Bar 上方右侧，玻璃底；静音钮 + 滑杆 + 读数一体 */
+/* 音量浮窗：锚在**音量钮正上方**（.pb-volhost 是那条钮 + 浮窗共用的定位锚），玻璃底；
+   静音钮 + 滑杆 + 读数一体。
+   为什么不锚在 Bar 右缘（旧写法 right: 8px）：停靠态条铺满窗口宽，贴右缘看着像「右下角的小卡」，
+   勉强成立；悬浮态（Style.ControlBar=floating）条只有 --control-bar-width（默认 680px）且在内容区
+   居中，贴右缘就把整块浮窗甩到收藏/画廊/队列那一排上面，浮窗里的喇叭图标和条上那颗差出一整颗
+   按钮（实测 55px+）—— 看着就是错位。锚点跟着钮走还顺手免疫了「右侧按钮增删/画质胶囊变宽」这类
+   改版（.pb-lpop 那条写死偏移正是这么过期的）。
+   left:-13px = 浮窗自己的 1px 描边 + 12px 内边距：浮窗内那颗 #pb-mute2（34px，与条上同尺寸）
+   正好压在条上那颗的正上方。 */
+.pb-volhost { position: relative; display: flex; }
 .pb-volpop {
-  position: absolute; right: 8px; bottom: calc(100% + 10px); z-index: 70;
+  position: absolute; left: -13px; z-index: 70;
+  /* 竖向仍要开在**整条**上方（锚点换成那颗 34px 的钮之后，100% 不再是条高）：
+     余量 = 钮在条里的上下留白 (条高 - 钮高)/2 + 10px 呼吸位。写成 --control-bar-height
+     的算式，主题改条高时浮窗跟着抬，不会骑到条身上（实测漏掉这项会压住条顶 5px）。 */
+  bottom: calc(100% + (var(--control-bar-height, 64px) - 100%) / 2 + 10px);
   display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px;
   /* 底片 / 描边 / 模糊 / 阴影同上（共享规则） */
   opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity .16s, transform .16s;

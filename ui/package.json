@@ -71,7 +71,8 @@
     "verify:accent": "node scripts/verify-accent.ts",
     "verify:mpv": "node scripts/verify-mpv.ts",
     "verify:redflag": "node scripts/verify-redflag.ts",
-    "verify:local": "node scripts/verify-local.ts"
+    "verify:local": "node scripts/verify-local.ts",
+    "verify:volume-bar": "node scripts/verify-volume-bar.ts"
   },
   "build": {
     "appId": "red.0w0.quaver",

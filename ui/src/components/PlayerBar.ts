@@ -3,6 +3,7 @@
 // 中：上一首 · 播放/暂停 · 下一首；右：静音 · 循环 · 红心 · 队列 · 展开
 // 进度：整个 Bar 按下去即可拖拽 seek（拖中圆点/时间跟手，松手才真正提交），顶边细线只是视觉指示
 // 音量：浮窗形式 —— 悬停/点击静音按钮弹出玻璃小窗，静音图标 + 滑杆 + 读数一体
+//      浮窗锚在音量钮正上方（跟着钮走，不跟着 Bar 右缘走）；滚轮在整条上 = 微调音量
 import { player, type Mode } from "../player";
 import { getPrevBehavior, setDesktopLyrics } from "../lib/prefs";
 import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQuality, QUALITY_SHORT, QUALITIES, songMissingTiers, songTitle, type Quality } from "../lib/api";
@@ -32,19 +33,23 @@ export function PlayerBar(): HTMLElement {
     </div>
     <div class="pb-right">
       <span class="pb-time" id="pb-time">0:00 / 0:00</span>
-      <button class="pb-btn pb-ghost" id="pb-mute" aria-label="音量 / 静音"></button>
+      <!-- 音量钮 + 音量浮窗共用一个定位锚（.pb-volhost）：浮窗锚在钮的正上方，
+           不锚在 Bar 右缘 —— 见 style.css 的 .pb-volpop 那段 -->
+      <div class="pb-volhost">
+        <button class="pb-btn pb-ghost" id="pb-mute" aria-label="音量 / 静音"></button>
+        <!-- 音量浮窗：静音控制 + 滑杆 + 读数 -->
+        <div class="pb-volpop" id="pb-volpop" role="group" aria-label="音量">
+          <button class="pb-btn pb-ghost" id="pb-mute2" aria-label="静音"></button>
+          <input class="pb-vol" id="pb-vol" type="range" min="0" max="100" step="1" value="80" aria-label="音量" />
+          <span class="pb-volnum" id="pb-volnum">80%</span>
+        </div>
+      </div>
       <button class="pb-btn pb-ghost" id="pb-loop" aria-label="播放模式" aria-haspopup="menu" aria-expanded="false"></button>
       <button class="pb-q" id="pb-quality" title="音质（本会话生效，不保存；高档自动回退可播档）"></button>
       <button class="pb-btn pb-ghost" id="pb-love" aria-label="收藏">${icons.heart}</button>
       <button class="pb-btn pb-ghost" id="pb-gallery" aria-label="画廊模式"></button>
       <button class="pb-btn pb-ghost" id="pb-dl" aria-label="桌面歌词"></button>
       <button class="pb-btn pb-ghost" id="pb-queue" aria-label="播放队列">${icons.queue}</button>
-    </div>
-    <!-- 音量浮窗：静音控制 + 滑杆 + 读数 -->
-    <div class="pb-volpop" id="pb-volpop" role="group" aria-label="音量">
-      <button class="pb-btn pb-ghost" id="pb-mute2" aria-label="静音"></button>
-      <input class="pb-vol" id="pb-vol" type="range" min="0" max="100" step="1" value="80" aria-label="音量" />
-      <span class="pb-volnum" id="pb-volnum">80%</span>
     </div>
     <!-- 播放模式浮窗：循环三档 + 随机播放（每日一套顺序） -->
     <div class="pb-lpop" id="pb-lpop" role="menu" aria-label="播放模式"></div>
@@ -159,11 +164,41 @@ export function PlayerBar(): HTMLElement {
   };
 
   // 音量滑杆（拖动即时生效；拉到 0 静音态，调回自动取消静音）
+  // 「谁在改音量」只认指针真的按在滑杆上，**不认焦点**：range 一被点/拖就拿到焦点，而且
+  // 焦点会一直留着（移开鼠标、收起浮窗都不掉）。拿 document.activeElement 当「用户正在编辑」
+  // 的判据，等于此后所有外部改的音量（滚轮 / 全局热键 / MPRIS / 设置页）都再也回不到滑杆上 ——
+  // 条与读数冻在聚焦那一刻的值，声音明明在变，看着就是「音量条不跟滚轮走」。
+  // 编辑期间仍然以滑杆自己为准：拖中不被 notify 的 4Hz 回写打断（松手即回到播放器真值）。
+  let volEditing = false;
+  const endVolEdit = () => {
+    if (!volEditing) return;
+    volEditing = false;
+    // 松手立刻回到播放器真值：拖中若被滚轮/热键改过音量，这里补上那一截，不留 94 vs 98 的假读数
+    vol.value = String(Math.round((player.muted ? 0 : player.volume) * 100));
+    paintVol();
+  };
+  vol.addEventListener("pointerdown", () => { volEditing = true; });
+  window.addEventListener("pointerup", endVolEdit);
+  window.addEventListener("pointercancel", endVolEdit);
+  // 兜底：指针在窗外松开时 pointerup 未必收得到 —— range 拖拽自带隐式指针捕获，
+  // 释放时必发 lostpointercapture；焦点被抢走时 blur 同样收尾（漏掉一次就又是「冻住」）
+  vol.addEventListener("lostpointercapture", endVolEdit);
+  vol.addEventListener("blur", endVolEdit);
   vol.addEventListener("input", () => { paintVol(); player.setVolume(Number(vol.value) / 100); });
 
   // 音量浮窗：悬停静音按钮显示；移开短暂宽限；点击条外关闭
   let hideTimer = 0;
-  const showPop = () => { window.clearTimeout(hideTimer); el.classList.add("vol-open"); };
+  // 越界修正：锚点交给 CSS（浮窗压在音量钮正上方），但窄条时「钮左缘 + 整块浮窗」会顶出条的
+  // 右缘 —— 悬浮态条只有 --control-bar-width，半屏吸附/minWidth 760 下实测溢出 30~40px，
+  // 读数会被切在窗口边上。与 SongMenu 同一套路：显示前量一次，只往左退，且不退过条的左内缘。
+  const clampVolPop = () => {
+    pop.style.left = ""; // 先退回 CSS 锚点原位，量的才是「没退过」的盒子
+    const pr = pop.getBoundingClientRect(), br = el.getBoundingClientRect();
+    const over = pr.right - (br.right - 10); // 10 = 1px 描边 + 9px 与条右缘的呼吸位
+    const room = pr.left - (br.left + 10);   // 退到条的左内缘为止
+    if (over > 0.5) pop.style.left = `${-13 - Math.min(over, Math.max(0, room))}px`;
+  };
+  const showPop = () => { window.clearTimeout(hideTimer); clampVolPop(); el.classList.add("vol-open"); };
   const queueHide = () => { window.clearTimeout(hideTimer); hideTimer = window.setTimeout(() => el.classList.remove("vol-open"), 220); };
   for (const t of [mute, pop]) {
     t.addEventListener("pointerenter", showPop);
@@ -308,7 +343,7 @@ export function PlayerBar(): HTMLElement {
   // 音量浮窗绘制（滑杆填充 --v + 图标档位 + 读数）；图标 innerHTML 按档位守卫
   let lastVolIcon = "";
   function paintVol() {
-    const v = document.activeElement === vol ? Number(vol.value) / 100 : player.muted ? 0 : player.volume;
+    const v = volEditing ? Number(vol.value) / 100 : player.muted ? 0 : player.volume;
     vol.style.setProperty("--v", `${Math.round(v * 100)}%`);
     const num = `${Math.round(v * 100)}%`;
     if (volnum.textContent !== num) volnum.textContent = num;
@@ -386,7 +421,7 @@ export function PlayerBar(): HTMLElement {
       el.style.setProperty("--pf", String(frac));
       time.textContent = `${fmtDur(t)} / ${fmtDur(d)}`;
     }
-    if (document.activeElement !== vol) vol.value = String(Math.round((player.muted ? 0 : player.volume) * 100));
+    if (!volEditing) vol.value = String(Math.round((player.muted ? 0 : player.volume) * 100));
     paintVol();
     // 行高亮只需在换曲时重扫（视图重画处会显式调 markActive，见 views/songs）；
     // 音质浮窗同刻重建：列表只含新歌有源的档位（见 buildQPop）
