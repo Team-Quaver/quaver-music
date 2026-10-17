@@ -71,6 +71,70 @@ jobs:
           mv "$tmp" "$TEMPLATE"
           echo "已用 ${#tags[@]} 个 tag 重建版本下拉。"
 
+      # 提交前自检：Issue Form 的 YAML 一旦不合法（比如首行多了缩进），GitHub 只会在
+      # 建 Issue 时报「Body cannot be empty」，普通 CI 完全看不出来。这里直接把模板跑一遍
+      # 结构校验，不过就 fail，绝不把坏模板推上默认分支。
+      - name: Validate issue form
+        env:
+          TEMPLATE: .github/ISSUE_TEMPLATE/bug_report.yml
+        run: |
+          set -euo pipefail
+          # ubuntu runner 自带 PyYAML，这里只是兜底，别让缺包把整个刷新任务弄红。
+          python3 -c "import yaml" 2>/dev/null \
+            || python3 -m pip install --quiet --disable-pip-version-check pyyaml
+          python3 - "$TEMPLATE" <<'PY'
+          import re, sys, yaml
+          path = sys.argv[1]
+          raw = open(path, encoding="utf-8").read()
+          errors = []
+          if raw.startswith((" ", "\t", "\ufeff")):
+              errors.append("首行前有多余缩进/BOM，GitHub 会判定 body 为空")
+          if any(line.strip() == "---" for line in raw.splitlines()):
+              errors.append("存在 --- 文档分隔符，模板会被截断")
+          try:
+              doc = yaml.safe_load(raw)
+          except yaml.YAMLError as exc:
+              print("::error::issue form 模板校验失败")
+              for err in errors:
+                  print(" -", err)
+              print("YAML 解析错误:", exc)
+              sys.exit(1)
+          if not isinstance(doc, dict):
+              print("::error::issue form 模板校验失败")
+              print(" - 顶层不是一个 mapping")
+              sys.exit(1)
+          for key in ("name", "description", "body"):
+              if key not in doc:
+                  errors.append(f"缺少顶层键 {key}")
+          body = doc.get("body") or []
+          if not body:
+              errors.append("body 为空")
+          if not any(item.get("type") != "markdown" for item in body):
+              errors.append("body 至少要有一个非 markdown 输入项")
+          ids = [item["id"] for item in body if "id" in item]
+          if len(ids) != len(set(ids)):
+              errors.append("body 内 id 重复")
+          labels = [item["attributes"].get("label") for item in body
+                    if item.get("type") != "markdown"]
+          if len(labels) != len(set(labels)):
+              errors.append("body 内 label 重复")
+          for item in body:
+              if item["type"] == "dropdown":
+                  options = item["attributes"]["options"]
+                  if len(options) != len(set(options)):
+                      errors.append(f"下拉 {item.get('id')} 的 options 有重复")
+                  reserved = {"yes","no","true","false","on","off","none"}
+                  for opt in options:
+                      if str(opt).lower() in reserved:
+                          errors.append(f"下拉 {item.get('id')} 含保留字选项 {opt!r}")
+          if errors:
+              print("::error::issue form 模板校验失败")
+              for err in errors:
+                  print(" -", err)
+              sys.exit(1)
+          print(f"模板校验通过：{len(body)} 个字段。")
+          PY
+
       - name: Commit & push if changed
         run: |
           set -euo pipefail
