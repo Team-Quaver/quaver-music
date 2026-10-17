@@ -497,12 +497,12 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder elfutils
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           flatpak install --user --noninteractive flathub \
-            org.freedesktop.Platform//24.08 \
-            org.freedesktop.Sdk//24.08 \
-            org.electronjs.Electron2.BaseApp//24.08
+            org.freedesktop.Platform//26.08 \
+            org.freedesktop.Sdk//26.08 \
+            org.electronjs.Electron2.BaseApp//26.08
 
       - name: Build Flatpak bundle
         env:
@@ -516,7 +516,7 @@ jobs:
             flatpak-build packages/flatpak/red.0w0.quaver.yml
           flatpak build-bundle --arch="$FLATPAK_ARCH" flatpak-repo \
             "release/Quaver-${{ steps.version.outputs.version }}-${FLATPAK_ARCH}.flatpak" \
-            red.0w0.quaver
+            red._0w0.quaver
 
       - uses: actions/upload-artifact@v7
         with:

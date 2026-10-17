@@ -34,10 +34,11 @@ extraResources:
 linux:
   category: Audio
   desktop:
-    Name: Quaver Music
-    GenericName: Music Player
-    Comment: 现代，流畅，跨平台，极致体验的第三方音乐客户端
-    StartupWMClass: red.0w0.quaver
+    entry:
+      Name: Quaver Music
+      GenericName: Music Player
+      Comment: 现代，流畅，跨平台，极致体验的第三方音乐客户端
+      StartupWMClass: red.0w0.quaver
   executableName: red.0w0.quaver
   icon: build-res/icons
   synopsis: 现代，流畅，跨平台，极致体验的第三方音乐客户端
