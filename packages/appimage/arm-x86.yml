@@ -1,0 +1,5 @@
+# AppImage：x86_64 与 aarch64 共用同一份配置；架构由 CLI --x64/--arm64 决定。
+extends: file:../packages/electron-builder-base.yml
+linux:
+  target:
+    - AppImage

@@ -1,0 +1,10 @@
+Package: quaver-music
+Version: @DEB_VERSION@
+Section: sound
+Priority: optional
+Architecture: @DEB_ARCH@
+Depends: mpv
+Maintainer: Ne0W0r1d <ne0w0r1d@ne0w0r1d.top>
+Homepage: https://github.com/team-quaver/quaver-music
+Description: Quaver — 一款第三方 QQ 音乐客户端 (loong)
+ 音频引擎走发行版 mpv；Electron 使用 LoongArch64 ABI 2.0 社区构建。

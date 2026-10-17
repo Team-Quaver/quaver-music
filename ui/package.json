@@ -49,7 +49,7 @@
     "verify:sparkle": "node scripts/verify-sparkle-version.ts && node scripts/verify-sparkle.ts",
     "verify:static": "node scripts/verify-config.ts && node scripts/verify-prefs-map.ts && node scripts/verify-highlight-contrast.ts && node scripts/verify-song-menu.ts && node scripts/verify-list-tools.ts && node scripts/verify-queue-panel-anim.ts && node scripts/verify-queue-drag.ts && node scripts/verify-noselect.ts && node scripts/verify-user-vip.ts && node scripts/verify-sidebar.ts && node scripts/verify-playlist-menu.ts && node scripts/verify-systheme.ts && node scripts/verify-login.ts && node scripts/verify-keyring.ts && node scripts/verify-daily.ts && node scripts/verify-guess.ts && node scripts/verify-sparkle.ts && node scripts/verify-input-policy.ts && node scripts/verify-streaminfo.ts && node scripts/verify-hotkeys.ts && node scripts/verify-shuffle.ts && node scripts/verify-icon.ts && node scripts/verify-launch.ts && node scripts/verify-splash.ts && node scripts/verify-csp.ts && node scripts/verify-update.ts && node scripts/verify-songtiers.ts && node scripts/verify-mpv.ts && node scripts/verify-tray-title.ts && node scripts/verify-background.ts && node scripts/verify-menu-glass.ts && node scripts/verify-tint.ts && node scripts/verify-accent.ts && node scripts/verify-redflag.ts && node scripts/verify-kana.ts && node scripts/verify-local.ts && node scripts/verify-lyrics.ts && node scripts/verify-desktop-lyrics.ts",
     "mpris:build": "pnpm --dir ../vendor/Typhoeus/mpris install && pnpm --dir ../vendor/Typhoeus/mpris run build",
-    "dist": "pnpm run build && pnpm run mpris:build && electron-builder --linux AppImage",
+    "dist": "pnpm run build && pnpm run mpris:build && electron-builder --config ../packages/appimage/arm-x86.yml",
     "verify:np-gallery": "node scripts/verify-np-gallery.ts",
     "verify:lyric-delay": "node scripts/verify-lyric-delay.ts",
     "verify:sparkle-market": "node scripts/verify-sparkle-market.ts",
@@ -74,112 +74,6 @@
     "verify:redflag": "node scripts/verify-redflag.ts",
     "verify:local": "node scripts/verify-local.ts",
     "verify:volume-bar": "node scripts/verify-volume-bar.ts"
-  },
-  "build": {
-    "appId": "red.0w0.quaver",
-    "productName": "Quaver Music",
-    "directories": {
-      "output": "release"
-    },
-    "executableName": "quaver",
-    "artifactName": "Quaver-${version}-${arch}.${ext}",
-    "asar": true,
-    "files": [
-      "electron/**",
-      "dist/**",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "../dist-bin",
-        "to": "bin",
-        "filter": [
-          "quaver-server*"
-        ]
-      },
-      {
-        "from": "../vendor/Typhoeus/mpris/dist/mpris-daemon.cjs",
-        "to": "mpris/mpris-daemon.cjs"
-      },
-      {
-        "from": "build-res/icon.png",
-        "to": "build-res/icon.png"
-      },
-      {
-        "from": "build-res/icons",
-        "to": "build-res/icons"
-      },
-      {
-        "from": "build-res/tray",
-        "to": "build-res/tray"
-      },
-      {
-        "from": "build-res/audio",
-        "to": "audio",
-        "filter": [
-          "**/*",
-          "!**/*.AppImage",
-          "!**/.work/**"
-        ]
-      }
-    ],
-    "linux": {
-      "target": [
-        "AppImage"
-      ],
-      "category": "Audio",
-      "executableName": "red.0w0.quaver",
-      "icon": "build-res/icons",
-      "synopsis": "第三方 QQ 音乐客户端",
-      "maintainer": "ne0w0r1d <ne0w0r1d@users.noreply.github.com>"
-    },
-    "deb": {
-      "packageName": "quaver-music",
-      "packageCategory": "sound",
-      "depends": [
-        "mpv"
-      ],
-      "recommends": [],
-      "artifactName": "Quaver-${version}-${arch}.deb"
-    },
-    "rpm": {
-      "packageName": "quaver-music",
-      "depends": [
-        "mpv"
-      ],
-      "artifactName": "Quaver-${version}-${arch}.rpm",
-      "fpm": [
-        "--rpm-rpmbuild-define",
-        "_build_id_links none"
-      ]
-    },
-    "pacman": {
-      "packageName": "quaver-music",
-      "depends": [
-        "mpv"
-      ],
-      "compression": "zstd",
-      "artifactName": "Quaver-${version}-${arch}.pkg.tar.zst"
-    },
-    "win": {
-      "target": [
-        "nsis"
-      ],
-      "icon": "build-res/icon.png"
-    },
-    "nsis": {
-      "oneClick": true,
-      "runAfterFinish": true
-    },
-    "mac": {
-      "target": [
-        "dmg"
-      ],
-      "executableName": "Quaver Music",
-      "category": "public.app-category.music",
-      "icon": "build-res/icon.png",
-      "identity": null
-    }
   },
   "devDependencies": {
     "@applemusic-like-lyrics/core": "^0.6.0",

@@ -1,0 +1,9 @@
+# Windows：x64 与 arm64 共用；架构由 CLI --x64/--arm64 决定。
+extends: file:../packages/electron-builder-base.yml
+win:
+  target:
+    - nsis
+  icon: build-res/icon.png
+nsis:
+  oneClick: true
+  runAfterFinish: true

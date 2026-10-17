@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Quaver Music
+GenericName=Music Player
+Exec=quaver
+Icon=red.0w0.quaver
+Categories=AudioVideo;Audio;Player;
+Terminal=false
+Comment=现代，流畅，跨平台，极致体验的第三方音乐客户端
+StartupWMClass=red.0w0.quaver

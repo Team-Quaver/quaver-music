@@ -4,15 +4,16 @@
 // 背景：桌面环境按 app_id（red.0w0.quaver）反查 <ID>.desktop → Icon= → 图标主题。这条链上任何
 // 一环写岔（desktop 文件名与 app_id 不一致、Icon 撞上图标主题的通配名、打包漏配 icon），表现都是
 // 「某个桌面显示错图/兜底图」，而且每个桌面表现还不一样，从 UI 上无从排查。所以这里两头抓：
-//   • 源码/配置护栏：身份真相只允许在 package.json（desktopName / linux.executableName / appId /
-//     mac.executableName），几处必须逐字对齐；主进程不得再手工 setDesktopName；三平台 icon 配置、
-//     macOS 可执行名、托盘图素材与尺寸口径必须齐。
+//   • 源码/配置护栏：身份真相只允许在 package.json（desktopName）和 packages/electron-builder-base.yml
+//     （appId / linux.executableName / mac.executableName），几处必须逐字对齐；主进程不得再手工 setDesktopName；
+//     三平台 icon 配置、macOS 可执行名、托盘图素材与尺寸口径必须齐。
 //   • 功能测试：linux-desktop 自装逻辑用临时目录当 XDG root 真写真读（全新安装 / 幂等 / 收编坏
 //     文件 / 对集成工具的条目让位 / 开发态只清托管的开发条目）；托盘图的 PNG 产物与 SVG 设计源逐像素核对（主色 + 形状）。
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { inflateSync } from "node:zlib";
+import { load as loadYaml } from "js-yaml";
 import {
   DESKTOP_ID, desktopEntryContent, findSystemDesktopEntry, installLinuxDesktopIntegration, quoteExecPath,
   readDesktopEntryValue, readDesktopHidden, readDesktopIcon, removeDevManagedDesktopEntry, xdgDataDirs, xdgDataHome,
@@ -123,35 +124,49 @@ function opaqueStats(img) {
 
 const UI = join(import.meta.dirname, "..");
 
-// ——— 身份真相：package.json ———
-section("package.json 身份链");
+// ——— 身份真相：package.json + packages/electron-builder-base.yml ———
+section("打包配置身份链");
 const pkg = JSON.parse(readFileSync(join(UI, "package.json"), "utf8"));
-const appId = pkg.build?.appId;
+function mergeConfig(base, patch) {
+  for (const [key, value] of Object.entries(patch ?? {})) {
+    if (value && !Array.isArray(value) && typeof value === "object") {
+      base[key] = mergeConfig({ ...(base[key] ?? {}) }, value);
+    } else {
+      base[key] = value;
+    }
+  }
+  return base;
+}
+const loadBuilderConfig = (rel) => loadYaml(readFileSync(join(UI, "..", rel), "utf8"));
+// win/mac 的 icon/executableName 在各自目标档里；base 是公共身份与资源，合并后再校验。
+const build = [loadBuilderConfig("packages/windows/x86-arm.yml"), loadBuilderConfig("packages/macos/arm64.yml")]
+  .reduce(mergeConfig, loadBuilderConfig("packages/electron-builder-base.yml"));
+const appId = build?.appId;
 eq("appId", appId, "red.0w0.quaver");
 eq("desktopName = <appId>.desktop（Electron init 经 CHROME_DESKTOP 生成 app_id/WM_CLASS）",
   pkg.desktopName, `${appId}.desktop`);
 eq("name = appId", pkg.name, appId);
 eq("linux.executableName = appId（AppImage 内二进制名 = desktop 文件名 = Icon 名，三方只能同源）",
-  pkg.build?.linux?.executableName, appId);
-eq("linux.icon 指向多尺寸图标集", pkg.build?.linux?.icon, "build-res/icons");
+  build?.linux?.executableName, appId);
+eq("linux.icon 指向多尺寸图标集", build?.linux?.icon, "build-res/icons");
 check("win.icon 已配（electron-builder 以 png 自动转 ico，缺省就是 Electron 默认图标）",
-  pkg.build?.win?.icon === "build-res/icon.png");
-check("mac.icon 已配（同上自动转 icns）", pkg.build?.mac?.icon === "build-res/icon.png");
+  build?.win?.icon === "build-res/icon.png");
+check("mac.icon 已配（同上自动转 icns）", build?.mac?.icon === "build-res/icon.png");
 check("extraResources 打包 build-res/icons（运行时 hicolor 自装的素材来源）",
-  (pkg.build?.extraResources ?? []).some((r) => r.from === "build-res/icons" && r.to === "build-res/icons"));
+  (build?.extraResources ?? []).some((r) => r.from === "build-res/icons" && r.to === "build-res/icons"));
 check("extraResources 打包 build-res/tray（托盘图素材，主进程按 build-res 相对路径取）",
-  (pkg.build?.extraResources ?? []).some((r) => r.from === "build-res/tray" && r.to === "build-res/tray"));
+  (build?.extraResources ?? []).some((r) => r.from === "build-res/tray" && r.to === "build-res/tray"));
 check("extraResources 里不再有 tray.png（旧的那张 512² 直塞 Tray 就是 mac 上「图标巨大」的成因）",
-  !(pkg.build?.extraResources ?? []).some((r) => String(r.from).includes("tray.png")));
+  !(build?.extraResources ?? []).some((r) => String(r.from).includes("tray.png")));
 
 // ——— macOS 可执行名 ———
 section("macOS 可执行名 = Quaver Music");
 // app-builder-lib 的 AppInfo：productFilename = 平台配置的 executableName ?? 顶层 executableName ?? productName；
 // .app 目录名与 CFBundleExecutable 都取 productFilename。顶层留着 quaver（Windows 侧现状不动），
 // mac 必须单独覆盖 —— 否则装出来是 quaver.app / Contents/MacOS/quaver。
-eq("mac.executableName = Quaver Music", pkg.build?.mac?.executableName, "Quaver Music");
-eq("顶层 executableName 保持 quaver（Windows 不动）", pkg.build?.executableName, "quaver");
-eq("productName 仍是 Quaver Music（CFBundleName / 菜单栏名 / 提示语）", pkg.build?.productName, "Quaver Music");
+eq("mac.executableName = Quaver Music", build?.mac?.executableName, "Quaver Music");
+eq("顶层 executableName 保持 quaver（Windows 不动）", build?.executableName, "quaver");
+eq("productName 仍是 Quaver Music（CFBundleName / 菜单栏名 / 提示语）", build?.productName, "Quaver Music");
 
 // ——— 主进程源码护栏 ———
 section("main.ts 源码护栏");

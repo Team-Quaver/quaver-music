@@ -14,6 +14,7 @@
 # （Quaver-<version>-<arch>）与 --config.extraMetadata.version 全部用同一个输出，
 # 不再依赖「留空让 builder 自己取」——那是 Linux AppImage 时代的老口径。
 name: Resolve Quaver version
+description: 解析 tag / nightly / package.json 的客户端版本号
 inputs:
   nightly:
     description: 按每夜版解析（版本号带短 commit id）

@@ -1,0 +1,9 @@
+# deb：x86_64(amd64) 与 aarch64(arm64) 共用；只依赖发行版 mpv。
+extends: file:../packages/electron-builder-base.yml
+deb:
+  packageName: quaver-music
+  packageCategory: sound
+  depends:
+    - mpv
+  recommends: []
+  artifactName: Quaver-${version}-${arch}.deb

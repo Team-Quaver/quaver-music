@@ -1,0 +1,8 @@
+# pacman：x86_64 与 aarch64 共用；文件名统一到 x86_64/aarch64。
+extends: file:../packages/electron-builder-base.yml
+pacman:
+  packageName: quaver-music
+  depends:
+    - mpv
+  compression: zstd
+  artifactName: Quaver-${version}-${arch}.pkg.tar.zst

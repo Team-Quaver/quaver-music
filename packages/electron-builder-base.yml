@@ -1,0 +1,44 @@
+# Electron 公共打包配置。
+# 各发行版/平台配置用 extends: file:../packages/electron-builder-base.yml 继承；
+# 注意 extends 相对 electron-builder 的 projectDir（本仓库是 ui/）解析，不是相对本文件。
+appId: red.0w0.quaver
+productName: Quaver Music
+directories:
+  output: release
+executableName: quaver
+artifactName: Quaver-${version}-${arch}.${ext}
+asar: true
+files:
+  - electron/**
+  - dist/**
+  - package.json
+extraResources:
+  - from: ../dist-bin
+    to: bin
+    filter:
+      - quaver-server*
+  - from: ../vendor/Typhoeus/mpris/dist/mpris-daemon.cjs
+    to: mpris/mpris-daemon.cjs
+  - from: build-res/icon.png
+    to: build-res/icon.png
+  - from: build-res/icons
+    to: build-res/icons
+  - from: build-res/tray
+    to: build-res/tray
+  - from: build-res/audio
+    to: audio
+    filter:
+      - "**/*"
+      - "!**/*.AppImage"
+      - "!**/.work/**"
+linux:
+  category: Audio
+  desktop:
+    Name: Quaver Music
+    GenericName: Music Player
+    Comment: 现代，流畅，跨平台，极致体验的第三方音乐客户端
+    StartupWMClass: red.0w0.quaver
+  executableName: red.0w0.quaver
+  icon: build-res/icons
+  synopsis: 现代，流畅，跨平台，极致体验的第三方音乐客户端
+  maintainer: ne0w0r1d <ne0w0r1d@users.noreply.github.com>

@@ -1,0 +1,10 @@
+# RPM：x86_64 与 aarch64 共用；关 build-id 链接，避免和别的 Electron 包冲突。
+extends: file:../packages/electron-builder-base.yml
+rpm:
+  packageName: quaver-music
+  depends:
+    - mpv
+  artifactName: Quaver-${version}-${arch}.rpm
+  fpm:
+    - --rpm-rpmbuild-define
+    - _build_id_links none

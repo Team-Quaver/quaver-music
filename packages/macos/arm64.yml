@@ -1,0 +1,9 @@
+# macOS：仅 arm64；无签名证书时由 CI 设置 CSC_IDENTITY_AUTO_DISCOVERY=false。
+extends: file:../packages/electron-builder-base.yml
+mac:
+  target:
+    - dmg
+  executableName: Quaver Music
+  category: public.app-category.music
+  icon: build-res/icon.png
+  identity: null

@@ -4,14 +4,18 @@
 # 前端：ui (Electron + Vite) → 平台安装包（随包对应架构的 sidecar 与音频运行时 mpv）
 #
 # 目标平台：
-#   linux    x86_64 + aarch64 → AppImage（原生 runner 打包）
-#            同一 runner 另出 deb / rpm / pacman：不随包 mpv，依赖字段只有 mpv
-#            （音源走发行版，bins.ts 三级兜底自动落宿主 PATH）
+#   linux    x86_64 + aarch64 → AppImage / Flatpak（自包含），另出 deb / rpm / pacman：
+#            不随包 mpv，依赖字段只有 mpv（音源走发行版，bins.ts 三级兜底自动落宿主 PATH）
 #   windows  x64 + arm64      → NSIS（前端全在 x64 上交叉打包）
 #   macos    arm64 → dmg（x86 构建已裁撤）
-#   linux    loong64 → sidecar 二进制 + 客户端 deb（Electron 用 loongson/electron
-#             社区构建 v34.3.4（ABI 2.0）；音频引擎 mpv 不随包，走 Depends 交给发行版
-#             解析；electron-builder 不支持 loong64，手工 dpkg-deb 组装）
+#   linux    loong64 → sidecar 二进制 + 客户端 deb/rpm（Electron 用 loongson/electron
+#             社区构建，ABI 2.0；音频引擎 mpv 不随包，交给发行版解析；electron-builder
+#             不支持 loong64，deb 手工组装、RPM 用独立 spec）
+#
+# 打包配置：
+#   electron-builder 的目标/依赖等配置拆在 packages/，按「发行版 + 架构组」命名；
+#   ARM/x86 同一档共用一份配置，loong 目录用 packages/*-loong。Flatpak manifest 与
+#   LoongArch RPM spec 也分别在 packages/flatpak 和 packages/rpm-loong。
 #
 # 口径：
 #   - sidecar 纯 Go（唯一依赖 gorilla/websocket，零 cgo）→ CGO_ENABLED=0 交叉编译即可，
@@ -60,7 +64,7 @@ jobs:
   # 纯 Go（唯一依赖 gorilla/websocket，零 cgo）→ 一个 ubuntu runner 交叉编译全部目标。
   # artifact 名与二进制名沿用 PyInstaller 时代的约定（sidecar-linux-x86_64 / quaver-server /
   # quaver-server.exe），前端 job 因此零改动。loong64 = Go 官方支持矩阵内的交叉编译目标，
-  # 只出 sidecar 二进制；客户端包（Electron/mpv 上游不发 loong64）仍不随包。
+  # loong64 客户端包不随包 Electron/mpv，仍走发行版依赖。
   sidecar:
     name: sidecar (${{ matrix.arch_label }})
     runs-on: ubuntu-24.04
@@ -68,7 +72,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ── 前端消费的五档 ──
+          # ── 前端消费的六档 ──
           - arch_label: linux-x86_64
             goos: linux
             goarch: amd64
@@ -94,7 +98,7 @@ jobs:
             goarch: arm64
             artifact: sidecar-macos-arm64
             bin: quaver-server
-          # ── 龙芯：仅 sidecar 二进制 ──
+          # ── 龙芯：客户端包不随包 Electron/mpv ──
           - arch_label: linux-loong64
             goos: linux
             goarch: loong64
@@ -285,7 +289,8 @@ jobs:
         run: |
           ARGS="--linux AppImage --${{ matrix.electron_arch }} --publish never"
           ARGS="$ARGS --config.extraMetadata.version=${{ steps.version.outputs.version }}"
-          pnpm exec electron-builder $ARGS
+          pnpm exec electron-builder $ARGS \
+            --config ../packages/appimage/arm-x86.yml
 
       # 断言打进包里的运行时真能跑：跨架构/缺库不会报错、只会跑不起来（exec 126），
       # 且 AppImage 是只读挂载 —— 运行时没法 chmod 补救，必须在 CI 就验过。
@@ -301,7 +306,7 @@ jobs:
       # ── 发行版原生包：deb / rpm / pacman ──
       # 与上面 AppImage 的「自包含」口径相反：这三个包不随包 mpv 运行时，改走发行版依赖
       # 解析（deb Depends / rpm Requires / pacman depends 都只有 mpv；bins.ts 三级兜底自动
-      # 落宿主 PATH 的系统 mpv）——与 frontend-linux-loong64 那枚 deb 同一口径。
+      # 落宿主 PATH 的系统 mpv）——与 loong64 deb/rpm 同一口径。
       # electron-builder 的 fpm 后端要 rpmbuild（打 rpm）与 bsdtar（组装 pacman 的
       # .pkg.tar.zst），zstd 供 GNU tar --zstd 用；ubuntu runner 都没预装，先装齐。
       - name: Install fpm backends (rpmbuild / bsdtar / zstd)
@@ -321,8 +326,15 @@ jobs:
           QUAVER_VERSION: ${{ steps.version.outputs.version }}
         # 同 AppImage：不给这一步设 GH_TOKEN，避免 builder 自动推导 GitHub publish 配置。
         run: |
-          pnpm exec electron-builder --linux deb rpm pacman --${{ matrix.electron_arch }} --publish never \
-            --config.extraMetadata.version=${{ steps.version.outputs.version }}
+          pnpm exec electron-builder --linux deb --${{ matrix.electron_arch }} --publish never \
+            --config.extraMetadata.version=${{ steps.version.outputs.version }} \
+            --config ../packages/debian/arm-x86.yml
+          pnpm exec electron-builder --linux rpm --${{ matrix.electron_arch }} --publish never \
+            --config.extraMetadata.version=${{ steps.version.outputs.version }} \
+            --config ../packages/rpm/arm-x86.yml
+          pnpm exec electron-builder --linux pacman --${{ matrix.electron_arch }} --publish never \
+            --config.extraMetadata.version=${{ steps.version.outputs.version }} \
+            --config ../packages/pacman/arm-x86.yml
 
       # electron-builder 的 ${arch} 宏只给 deb/rpm 做了映射（deb→amd64、rpm→x86_64），
       # pacman 档原样吐 "x64" → 对齐 Arch 口径改名 x86_64。只改文件名，包内元数据不动。
@@ -393,25 +405,138 @@ jobs:
             ui/release/Quaver-*.pkg.tar.zst
           if-no-files-found: error
 
+  # Flatpak：x86_64 / aarch64 同一份 manifest。先在原生 runner 出未压缩 Electron 目录，
+  # flatpak-builder 只负责打包 /app、接 zypak、写 AppStream 元数据。Flatpak 沙箱不能直接
+  # 起宿主 PATH 的 mpv，所以这里沿用 AppImage 的自包含口径（pkgforge mpv 解包目录）。
+  frontend-linux-flatpak:
+    name: Flatpak (${{ matrix.flatpak_arch }})
+    needs: sidecar
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - flatpak_arch: x86_64
+            electron_arch: x64
+            runs_on: ubuntu-24.04
+          - flatpak_arch: aarch64
+            electron_arch: arm64
+            runs_on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: ui/package.json
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: |
+            ui/pnpm-lock.yaml
+            vendor/Typhoeus/mpris/pnpm-lock.yaml
+
+      - name: Init submodules
+        run: |
+          git submodule update --init --depth 1 vendor/Typhoeus
+          git submodule update --init --depth 1 vendor/Sparkle
+
+      - name: Fetch sidecar for this arch
+        uses: actions/download-artifact@v8
+        with:
+          name: sidecar-linux-${{ matrix.flatpak_arch }}
+          path: dist-bin
+
+      - name: Build MPRIS daemon bundle
+        working-directory: vendor/Typhoeus/mpris
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: Stage bundled mpv runtime
+        working-directory: ui
+        run: ./scripts/stage-mpv.sh "${{ matrix.flatpak_arch }}"
+
+      - name: Verify staged mpv runtime
+        working-directory: ui
+        run: node electron/audio/bins.ts --check build-res/audio
+
+      - name: Stage sidecar
+        working-directory: dist-bin
+        run: |
+          chmod +x quaver-server-${{ matrix.flatpak_arch }}
+          mv quaver-server-${{ matrix.flatpak_arch }} quaver-server
+
+      - name: pnpm install
+        working-directory: ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve version
+        id: version
+        uses: ./.github/actions/resolve-version
+        with:
+          nightly: ${{ github.event_name == 'schedule' || inputs.nightly == true }}
+
+      - name: Build dist (tsc + vite)
+        working-directory: ui
+        env:
+          QUAVER_VERSION: ${{ steps.version.outputs.version }}
+        run: pnpm run build
+
+      - name: Build unpacked Electron app
+        working-directory: ui
+        env:
+          QUAVER_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          pnpm exec electron-builder --linux dir --${{ matrix.electron_arch }} --publish never \
+            --config.extraMetadata.version=${{ steps.version.outputs.version }} \
+            --config ../packages/flatpak/electron-builder.yml
+
+      - name: Install Flatpak toolchain
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive flathub \
+            org.freedesktop.Platform//24.08 \
+            org.freedesktop.Sdk//24.08 \
+            org.electronjs.Electron2.BaseApp//24.08
+
+      - name: Build Flatpak bundle
+        env:
+          FLATPAK_ARCH: ${{ matrix.flatpak_arch }}
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/flatpak-state"
+          mkdir -p "$state" release
+          flatpak-builder --user --force-clean --state-dir "$state" \
+            --repo=flatpak-repo --arch="$FLATPAK_ARCH" \
+            flatpak-build packages/flatpak/red.0w0.quaver.yml
+          flatpak build-bundle --arch="$FLATPAK_ARCH" flatpak-repo \
+            "release/Quaver-${{ steps.version.outputs.version }}-${FLATPAK_ARCH}.flatpak" \
+            red.0w0.quaver
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: quaver-flatpak-${{ matrix.flatpak_arch }}
+          path: release/Quaver-*.flatpak
+          if-no-files-found: error
+
   # 龙芯客户端：Electron 官方 / electron-builder 两方都不支持 loong64 ——
-  #   Electron 用 loongson/electron 社区构建（v34.3.4，LoongArch64 ABI 2.0）；
-  #   音频引擎 mpv 不随包捆绑：作为发行版依赖（Depends: mpv）安装时解析
-  #   （Debian sid loong64 / AOSC / loongnix 三方同名；bins.ts 三级兜底自动落宿主
-  #   PATH 的系统 mpv），也不再需要「apt 拉 sid 闭包」这条吃 runner 钥匙环的链路。
-  #   electron-builder 无 loong64 目标 → 手工 dpkg-deb 打包：/opt/quaver（electron dist +
-  #   asar(app) + resources 等价物）+ /usr/bin/quaver 链接 + 桌面项，主进程无需改动。
-  #   运行环境需 ABI 2.0（new world：Debian sid / loongnix 25 / openKylin）。
-  #   Electron 主进程代码同时要兼容 34 与 44 两代 API（44 仅用于 x64/arm64/mac 官方包）。
+  #   Electron 用 loongson/electron 社区构建（版本钉在 packages/debian-loong/electron.env，
+  #   LoongArch64 ABI 2.0）；音频引擎 mpv 不随包捆绑：deb Depends / RPM Requires 只声明 mpv。
+  #   electron-builder 无 loong64 目标 → deb 手工 dpkg-deb、RPM 用 packages/rpm-loong/quaver.spec。
+  #   /opt/quaver（electron dist + app.asar + resources 等价物）+ /usr/bin/quaver + 桌面项。
+  #   运行环境需 ABI 2.0（new world：Debian sid / loongnix / openKylin 等）。
   frontend-linux-loong64:
-    name: loong64 deb
+    name: loong64 deb + rpm
     needs: sidecar
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
-      # 版本不在此处钉：读 ui/package.json 的 packageManager（pnpm@10.33.0），
-      # 与本地/锁文件的书写版本严格同源，避免「CI 用 latest 10.x」漂移。
-      # package_json_file 相对仓库根 —— 本仓库的 package.json 在 ui/ 子目录，根目录没有
       - uses: pnpm/action-setup@v6
         with:
           package_json_file: ui/package.json
@@ -463,18 +588,22 @@ jobs:
           QUAVER_VERSION: ${{ steps.version.outputs.version }}
         run: pnpm run build
 
-      # Electron loong64：loongson 社区构建（版本钉住；升级时连 sha256 一起换）
-      - name: Download loong64 Electron (loongson v34.3.4)
+      - name: Download loong64 Electron
+        working-directory: ui
         run: |
-          ELEC_VER=34.3.4
-          curl -fsSL --retry 3             "https://github.com/loongson/electron/releases/download/v${ELEC_VER}/electron-v${ELEC_VER}-linux-loong64.zip"             -o /tmp/electron-loong64.zip
-          echo "${ELEC_VER}" > /tmp/electron-version
+          set -euo pipefail
+          source ../packages/debian-loong/electron.env
+          curl -fsSL --retry 3 \
+            "https://github.com/loongson/electron/releases/download/v${ELECTRON_VERSION}/electron-v${ELECTRON_VERSION}-linux-loong64.zip" \
+            -o /tmp/electron-loong64.zip
+          printf '%s' "$ELECTRON_VERSION" > /tmp/electron-version
 
-      # electron-builder 不支持 loong64 → 手工 dpkg-deb 打包：
-      #   /opt/quaver（electron dist + resources/app.asar + resources/{bin,mpris,build-res}）
-      #   + /usr/bin/quaver 链接 + /usr/share/applications/quaver.desktop
-      # 无 resources/audio：mpv 走 Depends，bins.ts 三级兜底自动落宿主 PATH
-      - name: Assemble loong64 deb
+      - name: Install RPM build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends rpm zstd
+
+      - name: Assemble loong64 deb and RPM
         working-directory: ui
         env:
           QUAVER_VERSION: ${{ steps.version.outputs.version }}
@@ -482,93 +611,92 @@ jobs:
           set -euo pipefail
           STAGE=$(mktemp -d)
           PKG="$STAGE/pkg"
-          mkdir -p "$PKG/DEBIAN" "$PKG/opt" "$PKG/usr/bin" "$PKG/usr/share/applications"
 
-          # electron dist（可执行改名 quaver）
-          unzip -q /tmp/electron-loong64.zip -d "$PKG/opt/quaver"
-          mv "$PKG/opt/quaver/electron" "$PKG/opt/quaver/quaver"
-          file "$PKG/opt/quaver/quaver" | grep -qi LoongArch
-          # Debian 安装态直接给 setuid（tar 权限位 dpkg 安装时保留；quaver.sh 里另有退化兜底）
-          if [ -f "$PKG/opt/quaver/chrome-sandbox" ]; then
-            chmod 4755 "$PKG/opt/quaver/chrome-sandbox"
-          fi
-
+          # 统一 payload：Electron 34 主进程只能读 TS（Node type-stripping）；asar 内容
+          # 与 x64/arm64 的 electron-builder asar 相同口径。resources 由 tar 载入 deb/RPM。
           APP="$STAGE/app"
           mkdir -p "$APP"
           cp -r electron "$APP/electron"
           cp -r dist "$APP/dist"
           node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version='${QUAVER_VERSION}'; fs.writeFileSync('$APP/package.json', JSON.stringify(p,null,2))"
-          mkdir -p "$PKG/opt/quaver/resources"
-          pnpm dlx @electron/asar pack "$APP" "$PKG/opt/quaver/resources/app.asar"
+          pnpm dlx @electron/asar pack "$APP" "$STAGE/app.asar"
+          PAYLOAD="$STAGE/payload/resources"
+          mkdir -p "$PAYLOAD/bin" "$PAYLOAD/mpris" "$PAYLOAD/build-res"
+          mv "$STAGE/app.asar" "$PAYLOAD/app.asar"
+          cp ../dist-bin/quaver-server "$PAYLOAD/bin/"
+          file "$PAYLOAD/bin/quaver-server" | grep -qi LoongArch
+          cp ../vendor/Typhoeus/mpris/dist/mpris-daemon.cjs "$PAYLOAD/mpris/"
+          cp build-res/icon.png "$PAYLOAD/build-res/"
+          cp -r build-res/icons "$PAYLOAD/build-res/"
+          cp -r build-res/tray "$PAYLOAD/build-res/"
+          tar --zstd -cf "$STAGE/quaver-app.tar.zst" -C "$STAGE/payload" .
 
-          mkdir -p "$PKG/opt/quaver/resources/bin" "$PKG/opt/quaver/resources/mpris" "$PKG/opt/quaver/resources/build-res"
-          cp ../dist-bin/quaver-server "$PKG/opt/quaver/resources/bin/"
-          file "$PKG/opt/quaver/resources/bin/quaver-server" | grep -qi LoongArch
-          cp ../vendor/Typhoeus/mpris/dist/mpris-daemon.cjs "$PKG/opt/quaver/resources/mpris/"
-          cp build-res/icon.png "$PKG/opt/quaver/resources/build-res/"
-          cp -r build-res/tray "$PKG/opt/quaver/resources/build-res/"
-
-          # 启动 wrapper（quaver.sh）+ 命令行入口（/usr/bin/quaver）+ 桌面项
-          # heredoc 内容顶不了格（YAML 缩进会一并写进文件、shebang 失效）→ printf 逐行生成
-          printf '%s\n' \
-            '#!/usr/bin/env bash' \
-            'DIR="$(cd "$(dirname "$0")" && pwd)"' \
-            '[ -u "$DIR/chrome-sandbox" ] || export ELECTRON_DISABLE_SANDBOX=1' \
-            'exec "$DIR/quaver" "$@"' > "$PKG/opt/quaver/quaver.sh"
-          chmod 755 "$PKG/opt/quaver/quaver.sh"
+          # ── deb：Architecture 单值字段；AOSC 用 loongarch64、Debian 系用 loong64 ──
+          mkdir -p "$PKG/DEBIAN" "$PKG/opt/quaver" "$PKG/usr/bin" \
+            "$PKG/usr/share/applications" "$PKG/usr/share/icons/hicolor/512x512/apps"
+          unzip -q /tmp/electron-loong64.zip -d "$PKG/opt/quaver"
+          tar --zstd -xf "$STAGE/quaver-app.tar.zst" -C "$PKG/opt/quaver"
+          mv "$PKG/opt/quaver/electron" "$PKG/opt/quaver/quaver"
+          file "$PKG/opt/quaver/quaver" | grep -qi LoongArch
+          if [ -f "$PKG/opt/quaver/chrome-sandbox" ]; then
+            chmod 4755 "$PKG/opt/quaver/chrome-sandbox"
+          fi
+          install -m 755 ../packages/debian-loong/quaver.sh "$PKG/opt/quaver/quaver.sh"
           ln -s /opt/quaver/quaver.sh "$PKG/usr/bin/quaver"
-          printf '%s\n' \
-            '[Desktop Entry]' \
-            'Type=Application' \
-            'Name=Quaver' \
-            'GenericName=Music Player' \
-            'Exec=/usr/bin/quaver' \
-            'Icon=/opt/quaver/resources/build-res/icon.png' \
-            'Categories=AudioVideo;Audio;Player;' \
-            'Terminal=false' \
-            'StartupWMClass=quaver' > "$PKG/usr/share/applications/quaver.desktop"
+          install -m 644 ../packages/linux/red.0w0.quaver.desktop "$PKG/usr/share/applications/"
+          install -m 644 build-res/icons/512x512.png "$PKG/usr/share/icons/hicolor/512x512/apps/red.0w0.quaver.png"
 
-          # control：Depends 只钉 mpv —— 唯一在 Debian sid loong64 / AOSC / loongnix
-          # 三方同名的包；Electron 其余运行库（gtk3/nss 等）视为桌面环境既有依赖，
-          # 不硬声明（Debian 的 t64 包名会把 AOSC 挡在安装门外，缺库可诊断可补装）
-          # Debian 的 Version 只认 [A-Za-z0-9.+~-]；更要命的是 `-` 在 dpkg 眼里是
-          # 「上游版本-修订」的分隔符 —— 原样塞 1.4.5-beta.1 会被判成 upstream 1.4.5 +
-          # revision beta.1，排序上比 1.4.5 还「新」，apt 永远不会提示升到正式版。fpm 打
-          # x64/arm64 那两个 deb 时是把 `-` 映射成 `~`（1.4.5~beta.1 < 1.4.5），手工组装
-          # 这枚要照同一口径，否则装过 beta 的 loong64 用户回不到正式版。
+          # Debian 的 Version 只认 [A-Za-z0-9.+~-]；- 会变成 revision 分隔符，统一映射为 ~。
           DEB_VERSION=$(printf '%s' "$QUAVER_VERSION" | tr -- '-' '~')
-          {
-            printf 'Package: quaver-music\n'
-            printf 'Version: %s\n' "$DEB_VERSION"
-            printf 'Section: sound\n'
-            printf 'Priority: optional\n'
-            printf 'Architecture: loong64\n'
-            printf 'Depends: mpv\n'
-            printf 'Maintainer: Ne0W0r1d <ne0w0r1d@ne0w0r1d.top>\n'
-            printf 'Homepage: https://github.com/team-quaver/quaver-music\n'
-            printf 'Description: Quaver — 一款第三方 QQ 音乐客户端 (loong64)\n'
-          } > "$PKG/DEBIAN/control"
-
           mkdir -p release
-          # Architecture 是单值字段（没有 | alternative 语法，混写会变成不存在的架构名，
-          # 两端都拒装）；AOSC 的 dpkg 架构名走上游 triplet 风格 loongarch64，Debian 系
-          # 是 loong64 → 数据同一份、只差 control 一行，循环各打一枚
           for deb_arch in loong64 loongarch64; do
-            sed -i "s/^Architecture: .*/Architecture: ${deb_arch}/" "$PKG/DEBIAN/control"
+            sed -e "s/@DEB_VERSION@/${DEB_VERSION}/g" -e "s/@DEB_ARCH@/${deb_arch}/g" \
+              ../packages/debian-loong/control.in > "$PKG/DEBIAN/control"
             DEB="release/Quaver-${QUAVER_VERSION}-${deb_arch}.deb"
             dpkg-deb --root-owner-group --build "$PKG" "$DEB"
-            # 元数据自检：架构与依赖（Depends 里必须有 mpv）
-            dpkg-deb -f "$DEB" Architecture | grep -qx "$deb_arch"
-            dpkg-deb -f "$DEB" Version | grep -qx "$DEB_VERSION" \
-              || { echo "::error::deb Version 不是预期的 $DEB_VERSION"; exit 1; }
-            dpkg-deb -f "$DEB" Depends | grep -qE '(^|[ ,])mpv([ ,]|$)' \
-              || { echo "::error::Depends 里没有 mpv"; exit 1; }
+            [ "$(dpkg-deb -f "$DEB" Architecture)" = "$deb_arch" ]
+            [ "$(dpkg-deb -f "$DEB" Version)" = "$DEB_VERSION" ]
+            dpkg-deb -f "$DEB" Depends | grep -qE '(^|[ ,])mpv([ ,]|$)'
           done
+
+          # ── RPM：上游/发行版架构名是 loongarch64；spec 从 packages/rpm-loong 读取 ──
+          RPM_VERSION=$(printf '%s' "$QUAVER_VERSION" | tr -- '-' '~')
+          RPM_TOP="$STAGE/rpm"
+          mkdir -p "$RPM_TOP/SOURCES" "$RPM_TOP/build"
+          cp /tmp/electron-loong64.zip "$RPM_TOP/SOURCES/electron-loong64.zip"
+          cp "$STAGE/quaver-app.tar.zst" "$RPM_TOP/SOURCES/"
+          cp ../packages/debian-loong/quaver.sh "$RPM_TOP/SOURCES/"
+          cp ../packages/linux/red.0w0.quaver.desktop "$RPM_TOP/SOURCES/quaver.desktop"
+          cp build-res/icons/512x512.png "$RPM_TOP/SOURCES/red.0w0.quaver.png"
+          rpmbuild -bb \
+            --define "_topdir $RPM_TOP" \
+            --define "_sourcedir $RPM_TOP/SOURCES" \
+            --define "_specdir $RPM_TOP/SPECS" \
+            --define "_builddir $RPM_TOP/BUILD" \
+            --define "_rpmdir $(pwd)/release" \
+            --define "_srcrpmdir $(pwd)/release" \
+            --define "_buildrootdir $RPM_TOP/build" \
+            --define "_quaver_version ${RPM_VERSION}" \
+            --target loongarch64 ../packages/rpm-loong/quaver.spec
+          rpm_file=$(find release -type f -name 'quaver-music-*.loongarch64.rpm' | head -n1)
+          [ -n "$rpm_file" ]
+          mv "$rpm_file" "release/Quaver-${RPM_VERSION}-loongarch64.rpm"
+
+          rpm="release/Quaver-${RPM_VERSION}-loongarch64.rpm"
+          [ "$(rpm -qp --queryformat '%{ARCH}' "$rpm")" = 'loongarch64' ]
+          req=$(rpm -qp --requires "$rpm" | grep -vE '^(rpmlib\(|/bin/sh$)' | sort | paste -sd, -)
+          [ "$req" = 'mpv' ]
 
       - uses: actions/upload-artifact@v7
         with:
           name: quaver-loong64-deb
           path: ui/release/Quaver-*-loong*.deb
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: quaver-loong64-rpm
+          path: ui/release/Quaver-*-loongarch64.rpm
           if-no-files-found: error
 
   # Windows：前端全在 x64 runner 上交叉打包（electron-builder 直接支持 arm64 目标）。
@@ -659,7 +787,8 @@ jobs:
           QUAVER_VERSION: ${{ steps.version.outputs.version }}
         run: |
           pnpm exec electron-builder --win nsis --${{ matrix.arch_label }} --publish never \
-            --config.extraMetadata.version=${{ steps.version.outputs.version }}
+            --config.extraMetadata.version=${{ steps.version.outputs.version }} \
+            --config ../packages/windows/x86-arm.yml
 
       - uses: actions/upload-artifact@v7
         with:
@@ -748,7 +877,8 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"   # 无证书，跳过签名（identity: null 兜底）
         run: |
           pnpm exec electron-builder --mac dmg --arm64 --publish never \
-            --config.extraMetadata.version=${{ steps.version.outputs.version }}
+            --config.extraMetadata.version=${{ steps.version.outputs.version }} \
+            --config ../packages/macos/arm64.yml
 
       # 挂载 dmg 验随包运行时与 sidecar 确实在位（arm 原生跑）
       - name: Verify bundled runtime inside dmg
@@ -773,7 +903,7 @@ jobs:
   # ───────────────────────────── Release ─────────────────────────────
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [frontend-linux, frontend-windows, frontend-linux-loong64, frontend-macos]
+    needs: [frontend-linux, frontend-linux-flatpak, frontend-windows, frontend-linux-loong64, frontend-macos]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -813,7 +943,7 @@ jobs:
   # 产物名里带短 commit id，所以下载下来就知道是哪个 commit 构建的。
   nightly:
     if: github.event_name == 'schedule' || inputs.nightly == true
-    needs: [frontend-linux, frontend-windows, frontend-linux-loong64, frontend-macos]
+    needs: [frontend-linux, frontend-linux-flatpak, frontend-windows, frontend-linux-loong64, frontend-macos]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -835,9 +965,9 @@ jobs:
           {
             echo "每夜版自动构建于 $(date -u '+%Y-%m-%d %H:%M UTC')，对应 commit \`$GITHUB_SHA\`。"
             echo
-            echo "包名里的 \`$sha\` 即 commit id。平台覆盖：Linux AppImage（x86_64/aarch64，自包含）、"
+            echo "包名里的 \`$sha\` 即 commit id。平台覆盖：Linux AppImage/Flatpak（x86_64/aarch64，自包含）、"
             echo "Linux deb/rpm/pacman（x86_64/aarch64，依赖只有 mpv，走系统音源）、"
-            echo "Windows NSIS（x64/arm64）、macOS dmg（arm64）、loong64/loongarch64 deb（mpv 走系统依赖）。"
+            echo "Windows NSIS（x64/arm64）、macOS dmg（arm64）、loong64/loongarch64 deb 与 loongarch64 rpm（mpv 走系统依赖）。"
             echo
             echo "**非稳定版本**，仅用于验证最新改动。"
           } > "$notes"

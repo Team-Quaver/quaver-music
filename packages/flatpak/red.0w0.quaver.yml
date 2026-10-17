@@ -1,0 +1,76 @@
+# Flatpak：x86_64 与 aarch64 共用一份 manifest。
+# CI 先用 packages/flatpak/electron-builder.yml 出 linux-{x64,arm64}-unpacked（版本号已在
+# --config.extraMetadata.version 注入），这里只把产物搬进 /app 并接上 Flatpak 的 zypak。
+# 音频源随包（pkgforge mpv 解包目录），避免 Flatpak 沙箱直接偷看宿主 /usr/bin/mpv。
+app-id: red.0w0.quaver
+runtime: org.freedesktop.Platform
+runtime-version: "26.08"
+sdk: org.freedesktop.Sdk
+base: org.electronjs.Electron2.BaseApp
+base-version: "26.08"
+command: quaver
+separate-locales: false
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --socket=pulseaudio
+  - --share=network
+  - --filesystem=xdg-music
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.freedesktop.secrets
+  - --own-name=org.mpris.MediaPlayer2.quaver
+modules:
+  - name: quaver
+    buildsystem: simple
+    build-commands:
+      # source path 是仓库根；node_modules 不带进沙箱，ui/release 是 CI 预打包好的目录产物。
+      - |
+        case "${FLATPAK_ARCH}" in
+          x86_64) APP_DIR="quaver/ui/release/linux-x64-unpacked" ;;
+          aarch64) APP_DIR="quaver/ui/release/linux-arm64-unpacked" ;;
+          *) echo "unsupported Flatpak arch: ${FLATPAK_ARCH}" >&2; exit 2 ;;
+        esac
+        test -x "${APP_DIR}/red.0w0.quaver"
+        mkdir -p /app /app/share/applications /app/share/metainfo
+        cp -a "${APP_DIR}" /app/quaver
+      - install -Dm644 quaver/ui/build-res/icons/512x512.png /app/share/icons/hicolor/512x512/apps/red.0w0.quaver.png
+      # Flatpak 只在 /app/bin 找 manifest command；应用本体留在 /app/quaver。
+      - |
+        mkdir -p /app/bin
+        cat > /app/bin/quaver <<'WRAPPER'
+        #!/bin/bash
+        exec zypak-wrapper.sh /app/quaver/red.0w0.quaver "$@"
+        WRAPPER
+        chmod 755 /app/bin/quaver
+      - install -Dm644 quaver/packages/linux/red.0w0.quaver.desktop /app/share/applications/red.0w0.quaver.desktop
+      - |
+        cat > /app/share/metainfo/red.0w0.quaver.metainfo.xml <<'XML'
+        <?xml version="1.0" encoding="UTF-8"?>
+        <component type="desktop-application">
+          <id>red.0w0.quaver</id>
+          <name>Quaver Music</name>
+          <summary>第三方 QQ 音乐客户端</summary>
+          <metadata_license>CC0-1.0</metadata_license>
+          <project_license>AGPL-3.0-only</project_license>
+          <developer>
+            <name translate="no">ne0w0r1d</name>
+          </developer>
+          <url type="homepage">https://github.com/team-quaver/quaver-music</url>
+          <launchable type="desktop-id">red.0w0.quaver.desktop</launchable>
+          <content_rating type="oars-1.1"/>
+          <description>
+            <p>Quaver 是一款现代、流畅、跨平台的第三方 QQ 音乐客户端，支持本地播放列表、歌词、桌面歌词与系统媒体控制。</p>
+          </description>
+          <releases/>
+        </component>
+        XML
+    sources:
+      - type: dir
+        path: ../..
+        dest: quaver
+        skip:
+          - .git
+          - ui/node_modules
+          - vendor/Typhoeus/mpris/node_modules
+          # 两个 vendor submodule 必须在 flatpak-builder 之前 init；dir source 不克隆 submodule。
