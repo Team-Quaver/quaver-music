@@ -46,8 +46,8 @@ contextBridge.exposeInMainWorld("quaverMpris", {
 // 主窗侧（src/lib/desktop-lyrics.ts）：推曲目/时钟快照（sendTrack/sendSync）、读状态/下控制（control/activeSync）、
 //   收激活广播与控制命令（onActive/onCmd）。
 // 覆盖层侧（src/desktop-lyrics.ts）：收数据（onTrack/onSync）、回控制命令（sendCmd）、
-//   窗口级动作（windowOp：拖拽挪窗/边缘缩放/关窗/自助关穿透）。
-// 中转与穿透落地都在主进程 electron/desktop-lyrics.ts；浏览器 dev 没有本桥 → 两侧功能整体缺席。
+//   窗口级动作（windowOp：边缘缩放/关窗/固定并鼠标透穿）。挪窗走 CSD 拖拽区，不经桥。
+// 中转与原生锁定都在主进程 electron/desktop-lyrics.ts；浏览器 dev 没有本桥 → 两侧功能整体缺席。
 contextBridge.exposeInMainWorld("quaverDesktopLyrics", {
   // —— 主窗侧 ——
   sendTrack: (payload: unknown) => ipcRenderer.send("quaver:dl-track", payload),

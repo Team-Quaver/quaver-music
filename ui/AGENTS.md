@@ -223,11 +223,13 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
 一个**独立的 Electron 窗**（`electron/desktop-lyrics.ts` + 页 `desktop-lyrics.html` / `src/desktop-lyrics.ts`），
 与主窗单向上镜像数据（主窗 player 是唯一事实源，见 `src/lib/desktop-lyrics.ts`）。几条别踩的：
 
-- **窗体是纯 CSD，没有「点击穿透」这一档**。拖拽区由页面自己划（`#dl-root{-webkit-app-region:drag}`
-  + 控制条/进度条/缩放手把 `no-drag`），挪窗交给窗口管理器 —— Wayland 下 `setPosition()` 会被
-  合成器无视，拖拽区是唯一真能挪窗的路（旧版 move-by IPC 已删）。`no-drag` 的豁免**只在同一子树内**
-  成立（主窗顶带踩过：兄弟子树里的 no-drag 挡不住铺过来的 drag 矩形）——本窗三个控件都是
-  `#dl-root` 的直接子元素才挖得动洞。
+- **未锁定时是纯 CSD；macOS / Windows / X11 有「固定 + 鼠标透穿」档**。拖拽区由页面自己划
+  （`#dl-root{-webkit-app-region:drag}` + 控制条/进度条/缩放手把 `no-drag`），挪窗交给窗口管理器 ——
+  Wayland 下 `setPosition()` 会被合成器无视，拖拽区是唯一真能挪窗的路（旧版 move-by IPC 已删）。
+  锁定时主进程走 `setIgnoreMouseEvents(true)` + `setMovable(false)`，页面同步加 `.dl-locked` 收起控件；
+  解除入口只留托盘与设置页（锁住的窗收不到点击）。Wayland 不开放该档，平台闸门在
+  `desktop-lyrics-core.ts:supportsDlLock`。`no-drag` 的豁免**只在同一子树内**成立（主窗顶带踩过：
+  兄弟子树里的 no-drag 挡不住铺过来的 drag 矩形）——本窗三个控件都是 `#dl-root` 的直接子元素才挖得动洞。
 - **两层不透明度，别混成一个**：`Opacity` = **歌词层**（挂在**内容**两处：`#dl-clip` 与 `#dl-empty`
   的 `opacity: var(--dl-opacity)`）；`Backdrop` = **窗体不透明度**（`#dl-board`，`inset:0` **铺满客户端表面**、
   画在歌词下面，默认 0 = 整扇窗全透明、只有字）。背板刻意是 `#dl-root` 的**兄弟**、变量挂在 `<html>` 上 ——
@@ -287,10 +289,10 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
   paint containment，否则字被行盒裁掉）并写**该行自己**的 `translate` —— 主行滚的时候翻译/音译不动，
   它们自己太长才自己滚。滚法是**来回滚（三角波）**：停顿→走到末尾→停顿→退回开头，两头都连续
   （回卷/一次性停死都会被当成故障）。相位按行元素记（`marqueeStart`），4Hz 重测不重锚。
-- 位置/大小/开关写 `[DesktopLyrics]`（主进程写 X/Y/W/H 记忆坐标；渲染层只碰开关/字号/透明度）。
+- 位置/大小/开关/锁定写 `[DesktopLyrics]`（主进程写 X/Y/W/H 记忆坐标；渲染层碰开关/锁定/字号/透明度）。
 
 验证：`node scripts/verify-desktop-lyrics.ts`（纯逻辑 + 几何真单测 + 尺寸贴合/尺寸提示（浮窗轴，高度 min==max）/
-悬停地板 + 整链「无穿透档」「无最大化档」红线 + 源码接线；已进 `verify:static`）。
+悬停地板 + 固定/鼠标透穿的平台闸门与原生接线 + 「无最大化档」红线 + 源码接线；已进 `verify:static`）。
 
 ## 本地音乐 / NAS（扫描 · 播放 · 刮削 · QRC 逐字）
 

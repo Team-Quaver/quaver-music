@@ -10,10 +10,11 @@
 //   • 悬停浮现的控制条：播放控制（上一曲/播放暂停/下一曲 + 进度条）与歌词延迟（−/+ 一档
 //     0.1s、点数值归零）。字体跟随本体「歌词字体」设置（Style.DefaultLyricsFonts）。
 //
-// **没有「点击穿透」这一档**：窗体就是 CSD —— 拖拽区由页面自己划
-// （-webkit-app-region: drag，见 src/desktop-lyrics.css），整层可拖、可悬停出控制条。
-// 不做「固定穿透」的理由：输入穿透在 Linux/Wayland 没有通用协议出口（合成器说了算），
-// 一个在部分平台静默失效的开关比没有更糟；用户要「不挡桌面」时把窗口拖到空闲处即可。
+// **固定/鼠标透穿**：macOS、Windows 与 Linux X11 会话开放这一档。锁定后窗口钉在原位并
+// setIgnoreMouseEvents(true)，鼠标事件落到下层窗口；解除入口在托盘菜单与设置页（锁住后的
+// 歌词层本身已经收不到点击）。Wayland 不开放该档，避免把「合成器说了算」的静默失效包装成开关。
+// 未锁定时窗体仍是纯 CSD：拖拽区由页面自己划（-webkit-app-region: drag，见
+// src/desktop-lyrics.css），整层可拖、可悬停出控制条。
 //
 // **没有「最大化/全屏」这一档**：歌词是一张贴纸，铺满整屏既读不了也拖不回来。
 // maximizable/fullscreenable=false 只是「不给按钮」，拦不住窗口管理器的手势（Windows 顶边
@@ -125,6 +126,8 @@ export function normalizeMode(v: string | undefined): DlMode {
 /** 从配置表读桌面歌词设置（键名与 electron/config.ts 的 [DesktopLyrics] 段一一对应）。 */
 export interface DlSettings {
   enabled: boolean;
+  /** 固定并鼠标透穿；仅在 supportsDlLock() 为真的平台生效。 */
+  locked: boolean;
   scale: number;
   opacity: number;
   mode: DlMode;
@@ -132,6 +135,26 @@ export interface DlSettings {
    *  初始窗高要按它留位（主进程拿不到渲染层的 prefs，只能同键同判据自己读）。 */
   aux: boolean;
   bounds: Rect | null;
+}
+
+/**
+ * 桌面歌词「固定/鼠标透穿」的平台闸门。
+ *
+ * 只认 macOS、Windows 与 Linux 的 X11 会话。Wayland 下交给合成器的输入区域与旧版行为差异
+ * 太大，不做成会静默失效的开关。Linux 上 XDG_SESSION_TYPE 缺失时再用 WAYLAND_DISPLAY /
+ * DISPLAY 兜底，兼容精简会话环境。
+ */
+export function supportsDlLock(
+  platform: string = process.platform,
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  if (platform === "darwin" || platform === "win32") return true;
+  if (platform !== "linux") return false;
+  const session = String(env.XDG_SESSION_TYPE ?? "").trim().toLowerCase();
+  if (session === "wayland") return false;
+  if (session === "x11") return true;
+  if (String(env.WAYLAND_DISPLAY ?? "").trim()) return false;
+  return !!String(env.DISPLAY ?? "").trim();
 }
 
 /**
@@ -163,6 +186,7 @@ export function parseSettings(values: Record<string, string>): DlSettings {
     : null;
   return {
     enabled: confBool(values["DesktopLyrics.Enabled"], false),
+    locked: confBool(values["DesktopLyrics.Locked"], false),
     scale: normalizeScale(values["DesktopLyrics.Scale"]),
     opacity: normalizeOpacity(values["DesktopLyrics.Opacity"]),
     mode: normalizeMode(values["DesktopLyrics.Mode"]),

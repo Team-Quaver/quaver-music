@@ -422,6 +422,15 @@ export function setDesktopLyrics(v: boolean) {
   cfgSet({ "DesktopLyrics.Enabled": v ? "True" : "False" });
 }
 
+/** 固定并鼠标透穿（macOS / Windows / X11）。真正落在原生窗口上的动作在主进程；
+ *  这里只写偏好，主进程 config 监听会调 syncFromConf() 立即应用。 */
+export function getDesktopLyricsLocked(): boolean {
+  return /^(true|1|yes)$/i.test(cfg("DesktopLyrics.Locked", "False").trim());
+}
+export function setDesktopLyricsLocked(v: boolean) {
+  cfgSet({ "DesktopLyrics.Locked": v ? "True" : "False" });
+}
+
 export const DL_OPACITY_MIN = 0.1;
 export const DL_OPACITY_MAX = 1;
 

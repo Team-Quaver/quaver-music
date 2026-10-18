@@ -423,16 +423,23 @@ function trayCmd(cmd, extra = {}) {
   if (win && !win.isDestroyed()) win.webContents.send("quaver:mpris-cmd", { cmd, ...extra });
 }
 
-/** 托盘「桌面歌词」子菜单：只留显示开关（窗体是纯 CSD，拖拽区在页面上；没有穿透档）。
+/** 托盘「桌面歌词」子菜单：显示开关 + 固定/鼠标透穿（macOS / Windows / X11）。
  *  状态每次现读控制器（控制器在状态迁移里会清签名重建菜单，勾选态恒新鲜）。 */
 function buildDesktopLyricsMenu(): MenuItemConstructorOptions[] {
-  const st = desktopLyrics?.state?.() ?? { open: false, enabled: false, scale: 1 };
+  const st = desktopLyrics?.state?.() ?? { open: false, enabled: false, scale: 1, locked: false, canLock: false };
   return [
     {
       label: "显示桌面歌词",
       type: "checkbox",
       checked: !!st.open,
       click: () => desktopLyrics?.setEnabled(!st.open),
+    },
+    {
+      label: st.canLock ? "固定（鼠标透穿）" : "固定（鼠标透穿，仅 macOS / Windows / X11）",
+      type: "checkbox",
+      checked: !!st.locked,
+      enabled: !!st.canLock,
+      click: () => desktopLyrics?.setLocked(!st.locked),
     },
   ];
 }
@@ -463,7 +470,7 @@ function buildTrayMenu() {
       ],
     },
     { type: "separator" },
-    // 桌面歌词：只有显示开关 —— 窗体是纯 CSD（拖拽区在页面上），没有穿透档要管。
+    // 桌面歌词：显示开关 + 平台支持的固定/鼠标透穿档。
     {
       label: "桌面歌词",
       submenu: buildDesktopLyricsMenu(),

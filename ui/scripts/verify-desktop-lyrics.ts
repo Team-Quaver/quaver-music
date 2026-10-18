@@ -8,8 +8,8 @@
 //     钉的是值的唯一性，拖把手改高度 = 把这对提示一起重钉）。
 //   • 双写红线：[DesktopLyrics] 的 schema 默认值 ⇄ src/lib/config.ts FALLBACK 逐键一致。
 //   • 覆盖层几何（src/lib/desktop-lyrics-layout.ts 纯函数）：块心对齐、条带居中、超长行滚动区间。
-//   • 「没有点击穿透这一档」红线：整条链（core/主进程/preload/桥/页/CSS/设置页/托盘）都不许
-//     再出现 ClickThrough / setIgnoreMouseEvents / click-through；窗体改成纯 CSD（拖拽区）。
+//   • 固定/鼠标透穿：平台闸门（macOS / Windows / X11，Wayland 关闭）与原生落地
+//     （setIgnoreMouseEvents + 托盘/设置页解除入口 + 歌词页锁定态）。
 //   • 接线护栏（源码正则）：主进程开窗选项（透明/置顶/不抢焦点/movable/**min==max 的尺寸提示**）、
 //     CSD 拖拽区与 no-drag 例外、歌词层/窗体两层不透明度与悬停地板、退出连带关窗不写 Enabled、
 //     桥的 active 门与曲目指纹去抖、DL 页零 player 依赖、时钟补偿与 NowPlaying 同值、vite 入口与 CSP。
@@ -21,6 +21,7 @@ import {
   boundsToPatch, clampSize, confBool, defaultBounds, defaultHeightFor, defaultSizeFor,
   DL_DEFAULT_SIZE, DL_SIZE_MAX, DL_SIZE_MIN, isLegacyDefaultSize, isSaneSavedSize,
   normalizeOpacity, normalizeScale, parseSettings, pickBounds, pinnedHintsFor, sizeHintsFor,
+  supportsDlLock,
 } from "../electron/desktop-lyrics-core.ts";
 import { alignFor, bandFor, scrollRange, BAND_MIN_PX } from "../src/lib/desktop-lyrics-layout.ts";
 import { viewsSource } from "./views-source.ts";
@@ -38,33 +39,31 @@ function check(name: string, cond: boolean, detail = "") {
 const eq = (name: string, got: unknown, want: unknown) =>
   check(name, JSON.stringify(got) === JSON.stringify(want), `got=${JSON.stringify(got)} want=${JSON.stringify(want)}`);
 
-// ——— 1. 形态红线：没有「点击穿透」这一档 ———
-section("纯 CSD：整条链都不再有穿透档");
+// ——— 1. 固定/鼠标透穿：平台闸门 + 原生落地 ———
+section("固定/鼠标透穿");
 {
-  // 穿透曾在 Wayland 静默失效（合成器说了算）→ 整档删掉，窗体就是「能拖、能悬停」的 CSD 窗。
-  const chain: Array<[string, string]> = [
-    ["electron/desktop-lyrics-core.ts", src("electron/desktop-lyrics-core.ts")],
-    ["electron/desktop-lyrics.ts", src("electron/desktop-lyrics.ts")],
-    ["electron/main.ts", src("electron/main.ts")],
-    ["electron/preload.cts", src("electron/preload.cts")],
-    ["src/lib/desktop-lyrics.ts", src("src/lib/desktop-lyrics.ts")],
-    ["src/lib/prefs.ts", src("src/lib/prefs.ts")],
-    ["src/desktop-lyrics.ts", src("src/desktop-lyrics.ts")],
-    ["desktop-lyrics.html", src("desktop-lyrics.html")],
-    ["src/views/*.ts", viewsSource()],
-  ];
-  for (const [name, text] of chain) {
-    check(`${name}：无 ClickThrough/clickThrough`, !/ClickThrough|clickThrough/.test(text));
-  }
-  check("主进程不再拧原生穿透属性（setIgnoreMouseEvents / setMovable(false) 都没了）",
-    !/setIgnoreMouseEvents/.test(src("electron/desktop-lyrics.ts")) && !/setMovable/.test(src("electron/desktop-lyrics.ts")));
-  check("core 不再有 Wayland 判据 / 穿透平台矩阵",
-    !/isWaylandSession|canClickThrough/.test(src("electron/desktop-lyrics-core.ts")));
-  check("core 的设置形状 = 开关/字号/透明度/坐标",
-    /enabled: boolean;[\s\S]*?scale: number;[\s\S]*?opacity: number;[\s\S]*?bounds: Rect \| null;/.test(src("electron/desktop-lyrics-core.ts")));
-  check("没有 dl-meta 通道（穿透元信息随档位一起删）",
-    !/quaver:dl-meta|onMeta|sendMeta/.test(src("electron/preload.cts")) && !/quaver:dl-meta|sendMeta/.test(src("electron/desktop-lyrics.ts")));
-  check("CSS 里也没有 click-through 残留", !/click-through/.test(src("src/desktop-lyrics.css")));
+  eq("macOS 开放", supportsDlLock("darwin", {}), true);
+  eq("Windows 开放", supportsDlLock("win32", {}), true);
+  eq("Linux X11 开放", supportsDlLock("linux", { XDG_SESSION_TYPE: "x11", DISPLAY: ":0" }), true);
+  eq("Linux XDG 缺失时按 DISPLAY 兜底", supportsDlLock("linux", { DISPLAY: ":0" }), true);
+  eq("Wayland 关闭", supportsDlLock("linux", { XDG_SESSION_TYPE: "wayland", WAYLAND_DISPLAY: "wayland-0" }), false);
+  eq("Linux 无图形会话关闭", supportsDlLock("linux", {}), false);
+  eq("其它 Unix 关闭", supportsDlLock("freebsd", { DISPLAY: ":0" }), false);
+  const dl = src("electron/desktop-lyrics.ts");
+  check("主进程按锁档调用 setIgnoreMouseEvents（锁定 true / 解锁 false 同一入口）",
+    /win\.setIgnoreMouseEvents\(locked, locked \? \{ forward: true \} : undefined\)/.test(dl));
+  check("锁定同时取消可移动位（Linux no-op，但 X11 的输入穿透已切断拖拽）", /win\.setMovable\(!locked\)/.test(dl));
+  check("构造参数在锁定启动时先不可移动", /const locked = this\.lockedNow\(\);/.test(dl) && /movable: !locked/.test(dl));
+  check("锁定应用在 show 前与 did-finish-load 各落一次（持久锁定不闪挡桌面）",
+    /this\.applyInteractionMode\(win\);\s*win\.on\("ready-to-show"/.test(dl)
+    && /this\.pageReady = true;\s*this\.applyInteractionMode\(win\);/.test(dl));
+  check("窗口操作通道可锁定，但解除仍必须从托盘/设置页进来",
+    /case "lock":\s*this\.setLocked\(!!msg\?\.on\);/.test(dl) && /windowOp\(\{ op: "lock", on: true \}\)/.test(src("src/desktop-lyrics.ts")));
+  check("core 的设置形状含锁定档 + 样式 + 坐标",
+    /enabled: boolean;[\s\S]*?locked: boolean;[\s\S]*?scale: number;[\s\S]*?opacity: number;[\s\S]*?bounds: Rect \| null;/.test(src("electron/desktop-lyrics-core.ts")));
+  check("歌词页 CSS 锁定后停掉拖拽区与全部交互控件",
+    /#dl-root\.dl-locked\s*\{[\s\S]*?no-drag/.test(src("src/desktop-lyrics.css"))
+    && /#dl-root\.dl-locked #dl-tools,[\s\S]*?#dl-root\.dl-locked #dl-resize\s*\{[\s\S]*?display: none/.test(src("src/desktop-lyrics.css")));
 }
 
 // ——— 1.5 没有「最大化/全屏」这一档（覆盖层是一条横带，不是普通窗口） ———
@@ -93,8 +92,8 @@ section("不支持最大化/全屏");
 
 // ——— 2. 配置解析与兜底 ———
 section("parseSettings / normalizeScale / normalizeOpacity / confBool");
-eq("缺省：关 + 字号1 + 透明度1 + 单行 + 辅助行开 + 无坐标", parseSettings({}),
-  { enabled: false, scale: 1, opacity: 1, mode: "single", aux: true, bounds: null });
+eq("缺省：关 + 未锁定 + 字号1 + 透明度1 + 单行 + 辅助行开 + 无坐标", parseSettings({}),
+  { enabled: false, locked: false, scale: 1, opacity: 1, mode: "single", aux: true, bounds: null });
 eq("辅助行=off 时初始窗高少留一行（覆盖层真的不渲染那一路）",
   parseSettings({ "Style.LyricAux": "off" }).aux, false);
 eq("辅助行=roman 也算开", parseSettings({ "Style.LyricAux": "roman" }).aux, true);
@@ -192,7 +191,7 @@ check("越界记忆尺寸不算数（只可能来自合成器把窗拉爆后的�
 // ——— 3. 双写红线：schema 默认 ⇄ 渲染层 FALLBACK ———
 section("[DesktopLyrics] 默认值双写一致");
 const fallbackSrc = src("src/lib/config.ts");
-for (const key of ["Enabled", "Opacity", "Backdrop", "Scale", "Mode", "SingleCenter", "ColorMode", "Color", "X", "Y", "W", "H"]) {
+for (const key of ["Enabled", "Locked", "Opacity", "Backdrop", "Scale", "Mode", "SingleCenter", "ColorMode", "Color", "X", "Y", "W", "H"]) {
   const want = defaults()[`DesktopLyrics.${key}`];
   const re = new RegExp(`"DesktopLyrics\\.${key}":\\s*"${String(want).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`);
   check(`FALLBACK 含 DesktopLyrics.${key}=${JSON.stringify(want)}`, re.test(fallbackSrc));
@@ -208,8 +207,10 @@ check("构造先于 whenReady 的 createWindow 调用（IPC 在页面加载前�
 check("createWindow 尾部 boot（磁盘开着则拉起床）", /desktopLyrics\?\.boot\(\)/.test(main) && /appUrl = url;/.test(main));
 check("config set 落 DesktopLyrics.* → syncFromConf（单一写路，设置页不必再 control）", /written\.some\(\(k\) => k\.startsWith\("DesktopLyrics\."\)\)\) desktopLyrics\?\.syncFromConf\(\)/.test(main));
 check("config set 广播 quaver:config-changed（跨窗同步字体/字号/档位）", /broadcastConfigChanged\(written, msg\?\.patch \?\? \{\}\)/.test(main));
-check("托盘子菜单只留显示开关（窗体是纯 CSD，没有穿透档）",
-  /显示桌面歌词/.test(main) && /buildDesktopLyricsMenu/.test(main) && !/点击穿透/.test(main));
+check("托盘子菜单含显示开关 + 固定/鼠标透穿（能力按平台 gate）",
+  /显示桌面歌词/.test(main) && /buildDesktopLyricsMenu/.test(main)
+  && /固定（鼠标透穿）/.test(main) && /setLocked\(!st\.locked\)/.test(main)
+  && /enabled: !!st\.canLock/.test(main));
 
 section("electron/desktop-lyrics.ts 窗口形态");
 const dl = src("electron/desktop-lyrics.ts");
@@ -217,8 +218,8 @@ check("无边框 + 全透明 + 无投影 + 不进任务栏", /frame: false/.test
 check("置顶用 screen-saver 层 + 全工作区可见", /setAlwaysOnTop\(true, "screen-saver"\)/.test(dl) && /setVisibleOnAllWorkspaces/.test(dl));
 check("ready-to-show 后 showInactive（不抢焦点）", /ready-to-show.*showInactive/s.test(dl));
 check("preload 与主窗同桥", /preload: join\(__dirname, "preload\.cts"\)/.test(dl));
-check("窗口可移动（CSD 拖拽区生效的前提：movable: true；Wayland 下这是唯一真能挪窗的路）",
-  /movable: true/.test(dl) && !/setMovable/.test(dl));
+check("未锁定时窗口可移动（movable: !locked；解锁时由原生入口恢复）",
+  /movable: !locked/.test(dl) && /win\.setMovable\(!locked\)/.test(dl));
 check("加载同源 desktop-lyrics.html", /new URL\("desktop-lyrics\.html", base\)/.test(dl));
 check("初始尺寸来自「字号 × 行数」的贴合值（不再写死 720/150 那条大空带）",
   /const hint = defaultSizeFor\(this\.settings\);/.test(dl)
@@ -333,6 +334,9 @@ check("字号走专属 [DesktopLyrics] Scale", /getDesktopLyricsScale\(\)/.test(
 check("缩放把手走窗口操作通道（挪窗交给 CSD 拖拽区，不走 IPC）",
   /windowOp\(\{ op: "resize-by", dx, dy \}\)/.test(page) && /windowOp\(\{ op: "close" \}\)/.test(page)
   && !/"move-by"/.test(page) && !/setPosition\(/.test(page));
+check("覆盖层锁定按钮只在平台支持时出现；点击只发「锁上」，解锁走托盘/设置页",
+  /id="dl-lock"/.test(src("desktop-lyrics.html")) && /lockBtn\.onclick = \(\) => windowOp\(\{ op: "lock", on: true \}\)/.test(page)
+  && /lockBtn\.hidden = !canLock/.test(page) && /root\.classList\.toggle\("dl-locked", locked\)/.test(page));
 check("行点击不跳转（产品决定：覆盖层只读，seek 只走进度条）", /seek: \(_ms: number\) => \{\}/.test(page) && !/suppressSeekUntil/.test(page));
 check("进度条点击 seek 保留（播放控制器的一部分）", /progress\.onclick[\s\S]*sendCmd\(\{ cmd: "seek", ms: ratio \* dur \* 1000 \}\)/.test(page));
 check("行级兜底整形为整行单音节（对齐内置引擎对 LRC 的约定）", /function linesToKaraoke/.test(page) && /words: \[\{ word: l\.text/.test(page));
@@ -515,6 +519,10 @@ check("歌词面板出现桌面歌词组（启用/字号/歌词不透明度/窗�
   && /id="dl-enable-cards"/.test(views) && /id="dl-scale"/.test(views)
   && /id="dl-opacity"/.test(views) && /id="dl-backdrop"/.test(views)
   && /歌词不透明度/.test(views) && /窗体不透明度/.test(views));
+check("固定/鼠标透穿开关存在，且按主进程的平台能力显隐",
+  /id="dl-lock-cards"/.test(views) && /固定（鼠标透穿）/.test(views)
+  && /dlLockRow\.hidden = !desktopLyricsStateSync\(\)\?\.canLock/.test(views)
+  && /setDesktopLyricsLocked\(v === "on"\)/.test(views));
 check("歌词面板含行数（单/双）与颜色四档 + 自定义色行", /id="dl-mode-cards"/.test(views) && /data-opt="single"/.test(views) && /data-opt="dual"/.test(views)
   && /id="dl-color-cards"/.test(views) && /data-opt="cover"/.test(views) && /data-opt="system"/.test(views) && /id="dl-color-row" hidden/.test(views));
 check("自定义色行只在 custom 档显形；HEX 输入回显「当前生效值」", /dlColorRow\.hidden = getDesktopLyricsColorMode\(\) !== "custom"/.test(views) && /dlColorHex\.onchange[\s\S]*?paintDlColorRow\(\);/.test(views));
@@ -522,7 +530,7 @@ check("单行居中开关存在，且仅在行数=单行时显示", /id="dl-cent
   && /dlCenterRow\.hidden = getDesktopLyricsMode\(\) !== "single"/.test(views));
 check("prefs 门面对象齐全（Mode/ColorMode/Color getter+setter）",
   /getDesktopLyricsMode, setDesktopLyricsMode/.test(src("src/lib/prefs.ts")) || (/export function getDesktopLyricsMode\(\)/.test(src("src/lib/prefs.ts")) && /export function setDesktopLyricsColor\(v: string\)/.test(src("src/lib/prefs.ts"))));
-check("开关只写配置（生效走主进程 syncFromConf 单路）", /setDesktopLyrics\(v === "on"\)/.test(views) && !/ClickThrough/.test(views));
+check("开关只写配置（生效走主进程 syncFromConf 单路）", /setDesktopLyrics\(v === "on"\)/.test(views) && /setDesktopLyricsLocked\(v === "on"\)/.test(views));
 check("字号滑条 50..200%", /min="50" max="200"/.test(views) && /setDesktopLyricsScale\(Number\(dlScale\.value\) \/ 100\)/.test(views));
 check("歌词不透明度滑条 10..100%（调的是字）",
   /id="dl-opacity" type="range" min="10" max="100" step="5"/.test(views)
@@ -531,7 +539,8 @@ check("歌词不透明度滑条 10..100%（调的是字）",
 check("设置页交代悬停地板（停在歌词层上字至少 30%）、高度可拖、申请浮窗、不支持最大化",
   /悬停地板/.test(views) && /字至少\s*回到\s*30%/.test(views) && /设得比 30% 高就完全按你的设置来/.test(views)
   && /高度默认按字号与行数贴合内容，拖把手也能自己改/.test(views) && /申请浮窗/.test(views)
-  && /拖右下角把手\*\*缩放/.test(views) && /不支持最大化/.test(views));
+  && /拖右下角把手\*\*缩放/.test(views) && /不支持最大化/.test(views)
+  && /只在 macOS \/ Windows \/ X11 会话开放/.test(views));
 check("窗体不透明度滑条 0..100%（调背板，默认 0 = 只有字）——与歌词那条分开、命名不混",
   /id="dl-backdrop" type="range" min="0" max="100" step="5"/.test(views)
   && /窗体不透明度/.test(views)

@@ -23,8 +23,9 @@
 // 中心钉在视口中心；超长行一行到底、那一行自己横向滚（翻译/音译各判各的）。内核公式在
 // ./lib/desktop-lyrics-layout.ts，DOM 量测在下面的「排版内核」一节。
 //
-// 窗体形态：**纯 CSD** —— 整层是拖拽区（-webkit-app-region: drag，见 desktop-lyrics.css），
-// 拖哪都能挪窗；控制条/进度条/缩放手把是 no-drag，各自收点击。没有「点击穿透」这一档。
+// 窗体形态：未锁定时是纯 CSD —— 整层是拖拽区（-webkit-app-region: drag，见 desktop-lyrics.css），
+// 拖哪都能挪窗；控制条/进度条/缩放手把是 no-drag，各自收点击。macOS / Windows / X11 支持
+// 固定/鼠标透穿：锁定后原生窗不再接收任何鼠标事件，控制条与缩放手把同步隐藏。
 // 交互分层：
 //   • 拖动任意歌词区 = 挪窗（CSD 拖拽区，由窗口管理器做交互移动）；
 //   • 右下角把手 = 缩放（无对应的 CSS 能力，走指针位移 → 主进程；高度那条钉死的轴要连提示一起改）；
@@ -35,7 +36,7 @@ import { cfg, loadConfig } from "./lib/config";
 import { fontCssOf, getDesktopLyricsBackdrop, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsHoverOpacity, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getLyricAux } from "./lib/prefs";
 import { fmtLyricDelay, LYRIC_DELAY_MAX_MS, LYRIC_DELAY_STEP_MS } from "./lib/lyric-delay";
 import { alignFor, bandFor, scrollRange } from "./lib/desktop-lyrics-layout";
-import { CLOCK_COMP_MS, type DlCmd, type DlLine, type DlSyncPayload, type DlTrackPayload } from "./lib/desktop-lyrics-protocol";
+import { CLOCK_COMP_MS, type DlCmd, type DlLine, type DlStateSnapshot, type DlSyncPayload, type DlTrackPayload } from "./lib/desktop-lyrics-protocol";
 import { LayoutAlignAnchor, LayoutReason } from "@applemusic-like-lyrics/core";
 import { amllPlayerByHost, builtinKaraokeProvider } from "./lyrics/amll";
 import type { SparkleKaraokeLine } from "@quaver/sparkle";
@@ -55,6 +56,7 @@ const fontInc = document.getElementById("dl-font-inc") as HTMLButtonElement;
 const delayDec = document.getElementById("dl-delay-dec") as HTMLButtonElement;
 const delayVal = document.getElementById("dl-delay-val") as HTMLButtonElement;
 const delayInc = document.getElementById("dl-delay-inc") as HTMLButtonElement;
+const lockBtn = document.getElementById("dl-lock") as HTMLButtonElement;
 const closeBtn = document.getElementById("dl-close") as HTMLButtonElement;
 const progress = document.getElementById("dl-progress") as HTMLDivElement;
 const progressFill = document.getElementById("dl-progress-fill") as HTMLElement;
@@ -69,6 +71,7 @@ const ICON = {
   close: '<svg class="line" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   minus: '<svg class="line" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg>',
   plus: '<svg class="line" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+  lock: '<svg class="line" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>',
 };
 prevBtn.innerHTML = ICON.prev;
 nextBtn.innerHTML = ICON.next;
@@ -76,6 +79,7 @@ playBtn.innerHTML = ICON.play;
 closeBtn.innerHTML = ICON.close;
 delayDec.innerHTML = ICON.minus;
 delayInc.innerHTML = ICON.plus;
+lockBtn.innerHTML = ICON.lock;
 
 // Crotchet 调试模式（QUAVER_CROTCHET=1）：未捕获异常/拒绝也进主日志流水线（preload console 桥在，
 // console.error 本身已可达；这里补上 window.onerror 与 unhandledrejection 两条漏网鱼）
@@ -138,6 +142,21 @@ function sendCmd(cmd: DlCmd): void {
 }
 function windowOp(msg: Record<string, unknown>): void {
   bridge?.windowOp(msg);
+}
+
+/** 锁定态由主进程给真相：页面只负责隐藏交互控件与拖拽区，原生输入穿透不在 DOM 层模拟。 */
+function syncInteractionMode(): void {
+  let state: DlStateSnapshot | null = null;
+  try {
+    state = bridge?.activeSync?.() ?? null;
+  } catch {
+    state = null;
+  }
+  const canLock = !!state?.canLock;
+  const locked = canLock && !!state?.locked;
+  lockBtn.hidden = !canLock;
+  root.classList.toggle("dl-locked", locked);
+  root.classList.toggle("dl-lockable", canLock);
 }
 
 // —— 渲染生命周期 ——
@@ -567,7 +586,7 @@ if (bridge) {
   // 监听按注册顺序执行：本模块 import 时先注册 lib/config 的合并器）
   const cfgBridge = (window as any).quaverConfig;
   cfgBridge?.onChanged?.(() => {
-    void Promise.resolve(loadConfig()).then(applyStyle);
+    void Promise.resolve(loadConfig()).then(() => { applyStyle(); syncInteractionMode(); });
     syncTools();
   });
 } else {
@@ -585,6 +604,7 @@ nextBtn.onclick = () => sendCmd({ cmd: "next" });
 delayDec.onclick = () => sendCmd({ cmd: "delay", op: "step", dir: -1 });
 delayInc.onclick = () => sendCmd({ cmd: "delay", op: "step", dir: 1 });
 delayVal.onclick = () => sendCmd({ cmd: "delay", op: "zero" });
+lockBtn.onclick = () => windowOp({ op: "lock", on: true });
 closeBtn.onclick = () => windowOp({ op: "close" });
 progress.onclick = (e) => {
   const dur = sync?.durationSec ?? 0;
@@ -637,6 +657,7 @@ grip.addEventListener("pointerdown", (e) => {
 
 
 applyStyle();
+syncInteractionMode();
 paintEmpty();
 syncTools();
 

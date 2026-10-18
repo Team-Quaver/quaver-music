@@ -12,8 +12,9 @@
 // （窗口本身是原生对象，开/关/缩放只有主进程能做）；顺带让「主窗没开/重建间隙」的语义
 // 退化成「消息自然丢弃」，与热键/托盘同一套容错。
 //
-// 窗体形态：**纯 CSD** —— 无边框 + 页面自己划拖拽区（-webkit-app-region: drag）。
-// 没有「点击穿透」这一档：需要它不挡桌面时把窗口拖到空闲处；理由见 desktop-lyrics-core.ts 头。
+// 窗体形态：未锁定时是纯 CSD —— 无边框 + 页面自己划拖拽区（-webkit-app-region: drag）。
+// macOS / Windows / X11 另有「固定并鼠标透穿」档：锁定后窗口钉住、setIgnoreMouseEvents(true)，
+// 点击全部落给下层；解除入口在托盘与设置页。Wayland 不开放该档，理由见 desktop-lyrics-core.ts 头。
 // 也没有「最大化/全屏」这一档：歌词是贴桌面的横带，铺满整屏读不了也拖不回来 —— 构造参数只是
 // 「不给按钮」，拦不住窗口管理器的手势，所以另有一道「被最大化就立刻退回」的反应式守卫。
 // 初始尺寸由「字号倍率 × 行数档位」贴合内容算出（defaultSizeFor，记忆里有能用的尺寸就用记忆的），
@@ -28,7 +29,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readValues, writeValues } from "./config.ts";
 import {
-  boundsToPatch, clampSize, defaultSizeFor, parseSettings, pickBounds, pinnedHintsFor, sizeHintsFor,
+  boundsToPatch, clampSize, defaultSizeFor, parseSettings, pickBounds, pinnedHintsFor, sizeHintsFor, supportsDlLock,
   type DlSettings, type Rect,
 } from "./desktop-lyrics-core.ts";
 
@@ -66,6 +67,8 @@ export class DesktopLyricsController {
    *  宽度在拖动那几帧也被我们钉着 —— 两条都以这里为准。0 = 还没开窗/未知。 */
   pinnedWidth: number;
   pinnedHeight: number;
+  /** 当前会话是否开放固定/鼠标透穿档（macOS / Windows / X11）。 */
+  canLock: boolean;
 
   constructor(deps: DlDeps) {
     this.deps = deps;
@@ -77,6 +80,7 @@ export class DesktopLyricsController {
     this.persistTimer = null;
     this.pinnedWidth = 0;
     this.pinnedHeight = 0;
+    this.canLock = supportsDlLock();
     this.registerIpc();
   }
 
@@ -170,12 +174,19 @@ export class DesktopLyricsController {
 
   // ——— 对外状态 ———
 
-  state(): { open: boolean; enabled: boolean; scale: number } {
+  state(): { open: boolean; enabled: boolean; scale: number; locked: boolean; canLock: boolean } {
     return {
       open: !!this.win && !this.win.isDestroyed(),
       enabled: this.settings.enabled,
       scale: this.settings.scale,
+      locked: this.lockedNow(),
+      canLock: this.canLock,
     };
+  }
+
+  /** 磁盘上的偏好只有在当前平台开放该档时才真正生效。Wayland 换到 X11 后偏好仍然保留。 */
+  private lockedNow(): boolean {
+    return this.canLock && this.settings.locked;
   }
 
   // ——— 开关 ———
@@ -189,16 +200,18 @@ export class DesktopLyricsController {
   /** 外部改了 [DesktopLyrics] 配置（设置页 cfgSet 走 quaver:config set）后按磁盘现值对齐：
    *  开→没开则开，关→开着则关（幂等，无回流循环 —— 本方法不写盘，写盘恒在 setEnabled
    *  或渲染层 config 通道里各只发生一次）。字号/行数/颜色/透明度由覆盖层自己读配置、
-   *  听 quaver:config-changed 广播即时跟随；只有**窗体**不透明度要原生那一刀（win/mac）。 */
+   *  听 quaver:config-changed 广播即时跟随；锁定档要在这里落到原生窗口。 */
   syncFromConf(): void {
     const next = parseSettings(this.readConf());
     const open = !!this.win && !this.win.isDestroyed();
     // 字号/行数/辅助行变了 = 内容容量变了：窗还开着就把高度重新贴合（见 refitHeight）
     const capacityChanged = this.settings.scale !== next.scale
       || this.settings.mode !== next.mode || this.settings.aux !== next.aux;
+    const lockChanged = this.lockedNow() !== (this.canLock && next.locked);
     this.settings = next;
     if (next.enabled && !open) this.open();
     else if (!next.enabled && open) this.closeWindow();
+    else if (lockChanged) this.applyInteractionMode();
     else if (capacityChanged) this.refitHeight();
     this.broadcastActive();
     this.deps.refreshTrayMenu();
@@ -209,6 +222,20 @@ export class DesktopLyricsController {
     this.persistConf({ "DesktopLyrics.Enabled": on ? "True" : "False" });
     if (on) this.open();
     else this.closeWindow();
+    this.broadcastActive();
+    this.deps.refreshTrayMenu();
+  }
+
+  /** 设置页/托盘入口：锁定会同时钉住位置并让鼠标穿透；解锁恢复 CSD 拖动与控制条。 */
+  setLocked(on: boolean): void {
+    if (!this.canLock) {
+      this.deps.log("[quaver] desktop-lyrics: 当前会话不支持固定/鼠标透穿，忽略锁定请求");
+      return;
+    }
+    if (this.settings.locked === on) return;
+    this.settings = { ...this.settings, locked: on };
+    this.persistConf({ "DesktopLyrics.Locked": on ? "True" : "False" });
+    this.applyInteractionMode();
     this.broadcastActive();
     this.deps.refreshTrayMenu();
   }
@@ -233,6 +260,7 @@ export class DesktopLyricsController {
     // 初始尺寸跟着「字号 × 行数」贴内容；记忆里若是用户拖过且合理的尺寸，照旧恢复
     const hint = defaultSizeFor(this.settings);
     const bounds = pickBounds(this.settings.bounds, displays, hint);
+    const locked = this.lockedNow();
     // 「申请浮窗」：min/max 尺寸提示必须在**构造参数**里给 —— 窗口映射那一刻合成器就按它判浮窗
     // （高度 min == max = 有一条不可变的轴），之后 show 再补就晚了那一帧。机制见 sizeHintsFor。
     const hints = sizeHintsFor(bounds?.height ?? hint.height);
@@ -253,7 +281,7 @@ export class DesktopLyricsController {
       resizable: true,
       // CSD 的拖拽区（-webkit-app-region: drag，见 src/desktop-lyrics.css）要靠「窗口可移动」；
       // 关掉就只剩缩放能用了。Wayland 下这是唯一真能挪窗的路（setPosition 被合成器无视）。
-      movable: true,
+      movable: !locked,
       minimizable: false,
       maximizable: false,
       fullscreenable: false,
@@ -270,6 +298,9 @@ export class DesktopLyricsController {
     // Wayland 无通用「置顶」协议——尽力而为，这也是桌面类应用在所有 Wayland 桌上的共同现状）
     win.setAlwaysOnTop(true, "screen-saver");
     try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch { /* 平台不支持则跳过 */ }
+    // 构造参数只能钉住 movable；输入穿透必须在映射前后都落到原生窗上。锁定是持久偏好，
+    // 启动时也要先于 show 生效，否则首帧会短暂挡住桌面。
+    this.applyInteractionMode(win);
     win.on("ready-to-show", () => win.showInactive()); // 不抢焦点：桌面歌词只是「贴」在屏幕上
     win.webContents.on("did-finish-load", () => {
       // Electron 44 把本事件收进「参数对象」形态且不带 sender —— 守卫改比 this.win 更直接：
@@ -277,6 +308,7 @@ export class DesktopLyricsController {
       if (this.win !== win || win.isDestroyed()) return;
       // 晚到的窗补发最新缓存：曲目歌词，最后时钟
       this.pageReady = true;
+      this.applyInteractionMode(win);
       if (this.latestTrack) this.toDl("quaver:dl-track", this.latestTrack);
       if (this.latestSync) this.toDl("quaver:dl-sync", this.latestSync);
     });
@@ -343,6 +375,23 @@ export class DesktopLyricsController {
     this.win = null;
     this.pageReady = false;
     if (win && !win.isDestroyed()) win.close();
+  }
+
+  /** 把锁定档落到当前窗口：输入穿透 +「可移动位」。Linux 的 setMovable 是 no-op，
+   *  但锁定时 setIgnoreMouseEvents 已经把拖动/缩放/控制条全部切断，位置自然钉住。 */
+  private applyInteractionMode(target: BrowserWindow | null = this.win): void {
+    const win = target;
+    if (!win || win.isDestroyed()) return;
+    const locked = this.lockedNow();
+    try {
+      // forward 只在 macOS / Windows 有意义（Linux 会忽略）；锁定状态不需要 hover 提示，
+      // 但保留鼠标移动转发可让页面在解锁前维持可预期的 DOM 状态。
+      win.setIgnoreMouseEvents(locked, locked ? { forward: true } : undefined);
+      win.setMovable(!locked);
+      if (locked) win.blur();
+    } catch (e) {
+      this.deps.log("[quaver] desktop-lyrics: 应用固定/鼠标透穿失败:", String(e));
+    }
   }
 
   // ——— DL 窗的窗口级动作 ———
@@ -430,6 +479,9 @@ export class DesktopLyricsController {
         break;
       case "close":
         this.setEnabled(false);
+        break;
+      case "lock":
+        this.setLocked(!!msg?.on);
         break;
       default:
         break;

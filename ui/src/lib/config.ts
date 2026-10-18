@@ -62,6 +62,7 @@ const FALLBACK: ConfigSnapshot = {
   // X/Y/W/H 由主进程回写，渲染层只读不写；列在这里是为了与 SCHEMA 一一对应，
   // 别让浏览器 dev 与桌面端的取值表分叉。
   "DesktopLyrics.Enabled": "False",
+  "DesktopLyrics.Locked": "False",
   "DesktopLyrics.Opacity": "1",
   "DesktopLyrics.Backdrop": "0",
   "DesktopLyrics.Scale": "1",

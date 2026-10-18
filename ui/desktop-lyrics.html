@@ -5,7 +5,8 @@
     <title>Quaver 桌面歌词</title>
     <!-- 独立窗口页（非 SPA 路由）：主进程 desktop-lyrics.ts 建窗加载本页。
          CSP 的 script-src 只有 'self' blob:（见 electron/csp.ts），入口必须是外链模块。
-         窗体是纯 CSD：页面自己划拖拽区（-webkit-app-region: drag），没有穿透档。
+         未锁定时是纯 CSD：页面自己划拖拽区（-webkit-app-region: drag）。macOS / Windows / X11
+         可用固定/鼠标透穿档；锁定后输入全部落到下层，解除走托盘或设置页。
          窗体尺寸提示（min == max 的高度轴 = 「申请浮窗」）在主进程构造参数里，与页面无关：
          见 electron/desktop-lyrics-core.ts:sizeHintsFor。 -->
     <script type="module" src="/src/desktop-lyrics.ts"></script>
@@ -32,6 +33,7 @@
         <button id="dl-delay-val" type="button" title="点击归零">0.0s</button>
         <button id="dl-delay-inc" type="button" title="歌词延后 0.1s" aria-label="歌词延后">+</button>
         <span class="dl-sep"></span>
+        <button id="dl-lock" type="button" title="固定并鼠标透穿（从托盘解除）" aria-label="固定并鼠标透穿" hidden></button>
         <button id="dl-close" type="button" title="关闭桌面歌词" aria-label="关闭桌面歌词"></button>
       </div>
       <div id="dl-progress"><i id="dl-progress-fill"></i></div>

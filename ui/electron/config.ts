@@ -522,13 +522,23 @@ export const SCHEMA: SectionSpec[] = [
   },
   {
     // 桌面歌词（透明置顶覆盖层）：见 electron/desktop-lyrics-core.ts 文件头的形态口径。
-    // X/Y/W/H 是**主进程写**的记忆坐标（窗口拖动后回写，dp 取整）；渲染层只碰开关/字号/透明度。
+    // X/Y/W/H 是**主进程写**的记忆坐标（窗口拖动后回写，dp 取整）；渲染层碰开关/锁定/字号/透明度。
     section: "DesktopLyrics",
     keys: [
       {
         key: "Enabled",
         def: "False",
         doc: ["桌面歌词总开关：True=启动即开覆盖层｜False（默认）=关闭。也可由托盘菜单/设置页「桌面歌词」即时切换"],
+        valid: isBoolValue,
+      },
+      {
+        key: "Locked",
+        def: "False",
+        doc: [
+          "固定并鼠标透穿：True=覆盖层钉在原位、鼠标事件落到下层窗口；False（默认）=可拖拽、可悬停操作。",
+          "仅 macOS、Windows 与 Linux X11 会话开放；Wayland 下该档不生效。",
+          "锁定后歌词层收不到点击，解除入口在托盘菜单「桌面歌词 → 固定（鼠标透穿）」或设置页同一开关。",
+        ],
         valid: isBoolValue,
       },
       {

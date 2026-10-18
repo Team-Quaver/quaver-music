@@ -10,10 +10,11 @@ import { resetCjkConverter } from "../lib/cjk-convert";
 import { cmyk2rgb, hsl2rgb, parseHex, rgb2cmyk, rgb2hsl, toHex } from "../lib/color";
 import type { RGB } from "../lib/color";
 import { configInfo, resetConfig, revealConfig } from "../lib/config";
+import { desktopLyricsStateSync } from "../lib/desktop-lyrics";
 import { syncInhibit } from "../lib/inhibit";
 import { applyMenuGlass } from "../lib/menu-glass";
 import { BG_BLUR_MAX, BG_BLUR_MIN, FONT_CUSTOM, FONT_LABELS, FONT_PRESETS, TINT_DEFAULT_COLOR, fontKeyOf, getAutoCheck, getBackgroundBlur, getBackgroundImage, getBackgroundMode, getChineseConvert, getCloseAction, getControlBarMode, getDecode,
-  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMenuBlur, getOnlineTtml, getPrevBehavior, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundBlur, setBackgroundImage, setBackgroundMode, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricFontPreset, setMenuBlur, setOnlineTtml, setPrevBehavior, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel } from "../lib/prefs";
+  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsLocked, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMenuBlur, getOnlineTtml, getPrevBehavior, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundBlur, setBackgroundImage, setBackgroundMode, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsLocked, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricFontPreset, setMenuBlur, setOnlineTtml, setPrevBehavior, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel } from "../lib/prefs";
 import type { BackgroundMode, ChineseConvert, CloseAction, ControlBarMode, DecorMode, DlColorMode, DlMode, FadePreset, FallbackSort, PrevBehavior, ThemeMode, TintMode, UpdateChannel } from "../lib/prefs";
 import { applyTint } from "../lib/tint";
 import { TTML_DB_DEFAULT_URL, isTtmlDatabaseUrl } from "../lib/ttml";
@@ -313,6 +314,12 @@ export default async function settingsView(root: HTMLElement) {
             <button class="opt-card" data-opt="off" type="button">关闭</button>
           </div>
         </div>
+        <div class="set-row" id="dl-lock-row"><span class="set-row__label">固定（鼠标透穿）</span>
+          <div class="opt-cards" id="dl-lock-cards">
+            <button class="opt-card" data-opt="on" type="button">开启</button>
+            <button class="opt-card" data-opt="off" type="button">关闭</button>
+          </div>
+        </div>
         <div class="set-row"><span class="set-row__label">字号</span>
           <div class="set-row__ctrl">
             <input class="set-blur" id="dl-scale" type="range" min="50" max="200" step="5" aria-label="桌面歌词字号" />
@@ -364,7 +371,9 @@ export default async function settingsView(root: HTMLElement) {
           花壁纸上想读清就把这块底往上调一点。歌词不透明度有条**悬停地板**：鼠标停在歌词层上（也就是可拖动的那个状态）时字至少
           回到 30%，方便你找到这扇窗；设得比 30% 高就完全按你的设置来，这里不另开开关。浮现出来的控制条不跟着淡——它只在你要按的时候出现。</p>
         <p class="muted set-hint">悬停歌词层浮现控制条：播放/上一曲/下一曲、字号 A−/A+、歌词延迟 −/＋（一档 0.1s，点读数归零）与关窗；
-          歌词层是纯 CSD 窗口 —— **拖任意歌词区域**挪位置、**拖右下角把手**缩放，位置尺寸会记住（没有点击穿透档：不想挡桌面就把它拖到空闲处）。
+          未锁定时歌词层是纯 CSD 窗口 —— **拖任意歌词区域**挪位置、**拖右下角把手**缩放，位置尺寸会记住。
+          「固定（鼠标透穿）」只在 macOS / Windows / X11 会话开放：锁定后位置不动、鼠标点击全部落到下层窗口；
+          解除入口是托盘的「桌面歌词 → 固定（鼠标透穿）」或本页这个开关。
           高度默认按字号与行数贴合内容，拖把手也能自己改（要更高的字就调字号、要两行就换行数档位，那两条路更省事）。
           高度那条尺寸提示同时是本窗**申请浮窗**的依据：平铺式窗口管理器（Hyprland 这类）会因此把它放成浮窗，而不是塞进布局格子。
           **不支持最大化/全屏** —— 被窗口管理器贴到屏幕边缘或按出平铺手势时会当场还原回横带。</p>
@@ -1099,6 +1108,21 @@ export default async function settingsView(root: HTMLElement) {
     () => (getDesktopLyrics() ? "on" : "off"),
     (v) => setDesktopLyrics(v === "on"),
   );
+  // 固定/鼠标透穿：平台能力从主进程现读（macOS / Windows / X11 才有）。Wayland 隐藏整行，
+  // 不在 UI 里给一个按下去也不会生效的开关。锁定后的解除入口同时留在托盘。
+  const dlLockRow = wrap.querySelector<HTMLElement>("#dl-lock-row")!;
+  dlLockRow.hidden = !desktopLyricsStateSync()?.canLock;
+  const dlLockCards = wrap.querySelector<HTMLElement>("#dl-lock-cards")!;
+  const syncDlLock = () => syncSel(dlLockCards, "opt", getDesktopLyricsLocked() ? "on" : "off");
+  bindOptCards<"on" | "off">(
+    dlLockCards,
+    () => (getDesktopLyricsLocked() ? "on" : "off"),
+    (v) => setDesktopLyricsLocked(v === "on"),
+  );
+  // 托盘改了锁定态 → 主进程广播配置增量；设置页跟着回填，别留一个过期勾选。
+  (window as any).quaverConfig?.onChanged?.((p: { all?: boolean; values?: Record<string, string> } | null) => {
+    if (p?.all || Object.prototype.hasOwnProperty.call(p?.values ?? {}, "DesktopLyrics.Locked")) syncDlLock();
+  });
   // 行数：single=只当前句（裁切条带一条），dual=多带下一句 —— 纯偏好，覆盖层经广播现读现换
   bindOptCards<DlMode>(
     wrap.querySelector<HTMLElement>("#dl-mode-cards")!,

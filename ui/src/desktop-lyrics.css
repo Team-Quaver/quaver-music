@@ -1,6 +1,7 @@
 /* Quaver — 桌面歌词覆盖层样式（desktop-lyrics.html 专属，别混进 SPA 的 style.css）
  *
- * 窗体本身由主进程建成「无边框 + 全透明 + 置顶」（**纯 CSD**：无原生标题栏、无穿透档），
+ * 窗体本身由主进程建成「无边框 + 全透明 + 置顶」；未锁定时是纯 CSD，macOS / Windows / X11
+ * 另可切到「固定 + 鼠标透穿」档（原生 setIgnoreMouseEvents，锁定后整层不再吃输入），
  * 页面只画三层：歌词舞台（AMLL）、悬停控制条、底部进度线 + 右下角缩放手把（高度由主进程用
  * min == max 的尺寸提示表达 —— 那对提示同时就是「申请浮窗」，拖高度就是重钉这对提示，见
  * electron/desktop-lyrics-core.ts:sizeHintsFor）。
@@ -44,6 +45,17 @@ body {
      这里**不挂** opacity：透明度只管内容（#dl-clip / #dl-empty），控件管自己 —— 见下面两段。
      窗体的可见面（背板）也不在这里，在 #dl-board（见上）。 */
   -webkit-app-region: drag;
+}
+
+/* 固定/鼠标透穿档：原生窗已经 ignore mouse events，页面这层把拖拽区和所有交互控件一起停掉，
+ * 让锁定前后视觉语义一致。解锁只能从托盘或设置页回来。 */
+#dl-root.dl-locked {
+  -webkit-app-region: no-drag;
+}
+#dl-root.dl-locked #dl-tools,
+#dl-root.dl-locked #dl-progress,
+#dl-root.dl-locked #dl-resize {
+  display: none;
 }
 
 /* —— 歌词层不透明度 + 悬停地板 ——
@@ -212,6 +224,7 @@ body {
   color: #fff;
   cursor: pointer;
 }
+#dl-tools button[hidden] { display: none; }
 #dl-tools button:hover { background: rgb(255 255 255 / 18%); }
 #dl-tools button:disabled { opacity: 0.35; cursor: default; }
 #dl-tools button svg { width: 15px; height: 15px; }

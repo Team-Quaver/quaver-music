@@ -50,6 +50,10 @@ export interface DlSyncPayload {
 export interface DlStateSnapshot {
   open: boolean;
   enabled: boolean;
+  /** 当前是否已经固定并让鼠标透穿 */
+  locked: boolean;
+  /** 当前会话是否开放该档（macOS / Windows / X11）；Wayland 为 false */
+  canLock: boolean;
 }
 
 /** 覆盖层回传的控制命令（主进程只转发，执行在本模块）。 */
@@ -76,7 +80,7 @@ declare global {
       onTrack(cb: (p: unknown) => void): void;
       onSync(cb: (p: unknown) => void): void;
       sendCmd(msg: unknown): void;
-      /** 窗口级动作：只剩「边缘缩放」与「关窗」—— 挪窗走 CSD 拖拽区，不经桥 */
+      /** 窗口级动作：边缘缩放、关窗、锁定 —— 挪窗走 CSD 拖拽区，不经桥 */
       windowOp(msg: unknown): void;
     };
   }

@@ -127,6 +127,10 @@ P.setPrevBehavior("previous"); eq("previous → PrevReplay=False", conf()["Playi
 P.setPrevBehavior("replay");   eq("replay → True", conf()["Playing.PrevReplay"], "True");
 P.setInhibitSleep(false); eq("睡眠禁止关 → InhibitSleep=False", conf()["Playing.InhibitSleep"], "False");
 P.setInhibitSleep(true);  eq("睡眠禁止开 → True", conf()["Playing.InhibitSleep"], "True");
+P.setDesktopLyricsLocked(true);  eq("桌面歌词固定 → Locked=True", conf()["DesktopLyrics.Locked"], "True");
+eq("桌面歌词固定读回", P.getDesktopLyricsLocked(), true);
+P.setDesktopLyricsLocked(false); eq("桌面歌词解除固定 → Locked=False", conf()["DesktopLyrics.Locked"], "False");
+eq("桌面歌词解除固定读回", P.getDesktopLyricsLocked(), false);
 P.setAutoCheck(false);        eq("自动检查关 → Update.AutoCheck=False", conf()["Update.AutoCheck"], "False");
 P.setAutoCheck(true);         eq("自动检查开 → True", conf()["Update.AutoCheck"], "True");
 P.setUpdateChannel("nightly"); eq("渠道 nightly → Update.Channel", conf()["Update.Channel"], "nightly");

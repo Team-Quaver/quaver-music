@@ -1721,6 +1721,7 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 
 /* 「标签 + 控件」行：label 定宽，控件占满余宽，窄窗自动换行 */
 .set-row { display: flex; align-items: center; gap: 12px; padding: 4px 0; flex-wrap: wrap; }
+.set-row[hidden] { display: none; }
 .set-row__label { flex: 0 0 84px; font-size: 13px; color: var(--ink); }
 .set-row__ctrl { flex: 1; min-width: 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .set-row__ctrl select, .set-row__ctrl input {
