@@ -5,15 +5,17 @@
 // 两种意图共用本弹窗，措辞由 info.switching / info.decision.relation 决定：
 //   同渠道升级 = 「发现新版本」+「立即更新」；换渠道 = 「切换到 …」+「立即切换」，
 //   回退还要多一句版本号会变小的提示（配置/凭证/缓存不受影响）。
-// 阶段机：confirm → downloading → ready（重启 / 退出安装 / 已下载待打开 / 已打开安装包）。三种安装口径：
-//   AppImage = 原位替换文件后提示重启；Windows = 退出并静默安装；deb/rpm = 下载到「下载」目录后**不自动**
-//   打开，弹窗里给「打开安装包」（xdg-open）与「打开所在目录」两个选择；dmg = 交给系统挂载。
+// 阶段机：confirm → downloading → ready（重启 / 退出安装 / 已下载待打开 / 已打开安装包）。安装口径：
+//   AppImage = 原位替换文件后提示重启；Windows = 退出并静默安装；deb/rpm/flatpak = 下载到「下载」目录
+//   后**不自动**打开，弹窗里给「打开安装包」（xdg-open）与「打开所在目录」两个选择；dmg = 交给系统挂载。
+//   下载由主进程做 sha256 完整性校验，本地已有校验通过的包不会重复下载（文案改为指出现成文件）。
+//   商店托管（APM/星火、如意玲珑容器）：不提供应用内下载 —— picked 为空，弹窗只提醒「等待商店推送新版」。
 //
 // 关闭语义：Esc / 点遮罩 = 「以后再说」，下载中先取消下载（AppImage 临时文件由主进程清理）。
 import { toast } from "./SongMenu";
 import { channelLabel, describeBuild, renderNotes } from "../lib/update-core";
 import {
-  type UpdateInfo, type DownloadHandle, downloadUpdate, finalizeInstall,
+  type UpdateInfo, type DownloadHandle, STORE_NAMES, downloadUpdate, finalizeInstall,
   quitAndInstallWindows, relaunchApp, openReleases, openPath,
 } from "../lib/updater";
 import { setLastNotified } from "../lib/prefs";
@@ -34,6 +36,12 @@ export function showUpdateDialog(info: UpdateInfo): void {
   const kind = info.picked?.kind ?? null;
   const asset = info.picked?.asset ?? null;
   const selfInstallable = !!info.picked && (kind !== "appimage" || info.canReplaceAppimage);
+  // 商店托管：这份应用由商店分发（picked 恒空），弹窗降级为「等商店推送」的纯提醒
+  const store = info.store;
+  const storeName = store ? STORE_NAMES[store] : "";
+  const storeNote = store
+    ? `本应用通过${esc(storeName)}${store === "spark" ? "（APM 琥珀容器）" : "（玲珑容器）"}安装，更新走商店审核链路，应用内下载/安装不适用于这种运行方式。请等待${esc(storeName)}推送 ${esc(info.decision.targetLabel)}。`
+    : "";
 
   // Nightly 是滚动构建，没有「版本号」可言：标题认渠道，构建时间放 meta 行（stable/beta 同位置是发布时间）
   const dateText = info.release.publishedAt ? new Date(info.release.publishedAt).toLocaleString() : "";
@@ -68,7 +76,8 @@ export function showUpdateDialog(info: UpdateInfo): void {
         <h3>${titleHtml} <span class="upd-badge ${info.channel}">${channelName}</span></h3>
         <span class="muted upd-meta">${metaText}</span>
       </div>
-      ${!info.picked ? `<p class="muted upd-warn">未找到适用于当前平台与架构的安装包，请到发布页手动下载。</p>` : ""}
+      ${store ? `<p class="upd-warn">${storeNote}</p>`
+        : !info.picked ? `<p class="muted upd-warn">未找到适用于当前平台与架构的安装包，请到发布页手动下载。</p>` : ""}
       ${info.picked && kind === "appimage" && !info.canReplaceAppimage
         ? `<p class="muted upd-warn">当前不是 AppImage 运行方式，无法应用内替换更新，请到发布页下载。</p>` : ""}
       ${switchNote ? `<p class="upd-warn upd-switch${dangerNote ? " is-risk" : ""}">${switchNote}</p>` : ""}
@@ -124,7 +133,10 @@ export function showUpdateDialog(info: UpdateInfo): void {
     mainBtn.onclick = () => { onclick(); };
   };
 
-  if (!selfInstallable) {
+  if (store) {
+    // 只提醒不下载：「知道了」与「以后再说」同样离场，「跳过此版本」仍会记住 key 不再打扰
+    setMain("知道了", true, close);
+  } else if (!selfInstallable) {
     setMain("打开发布页", true, () => { void openReleases(info.channel).catch(() => {}); close(); });
   } else {
     setMain(mainLabel, true, startInstall);
@@ -145,9 +157,9 @@ export function showUpdateDialog(info: UpdateInfo): void {
     });
     setMain("取消", false, () => { handle?.cancel(); });
     try {
-      const { path } = await handle.promise;
+      const { path, deduped } = await handle.promise;
       handle = null;
-      const step = await finalizeInstall(info, path);
+      const step = await finalizeInstall(info, path, deduped);
       bar.hidden = true;
       if (step.type === "appimage-replaced") {
         notes.hidden = true;
@@ -163,11 +175,15 @@ export function showUpdateDialog(info: UpdateInfo): void {
           close();
         });
       } else if (step.type === "installer-downloaded") {
-        // deb/rpm：只落盘到「下载」目录 —— 不自动拉起安装器。用户点「打开安装包」才交系统（xdg-open），
-        // 旁边的「打开所在目录」则在文件管理器里定位它。
+        // deb/rpm/flatpak：只落盘到「下载」目录 —— 不自动拉起安装器。用户点「打开安装包」才交系统（xdg-open），
+        // 旁边的「打开所在目录」则在文件管理器里定位它。sha256 校验通过的现成文件不重复下载，直接指出来。
         const dir = step.path.replace(/[\\/][^\\/]*$/, "");
         notes.hidden = false;
-        notes.innerHTML = `<p class="muted">安装包已下载到 <code>${esc(dir)}</code>。点「打开安装包」交给系统安装器，或先打开所在目录。</p>`;
+        notes.innerHTML = `<p class="muted">${step.deduped
+          ? `「下载」目录里已有 sha256 校验通过的安装包 <code>${esc(step.path)}</code>，未重复下载。`
+          : `安装包已下载到 <code>${esc(dir)}</code>（sha256 校验通过）。`
+        }点「打开安装包」交给系统安装器，或先打开所在目录。${kind === "flatpak"
+          ? `<br/>若「打开安装包」没有可用程序，在终端执行 <code>flatpak install -y &quot;${esc(step.path)}&quot;</code> 完成更新。` : ""}</p>`;
         skipBtn.hidden = true;
         laterBtn.hidden = false;
         laterBtn.textContent = "稍后";

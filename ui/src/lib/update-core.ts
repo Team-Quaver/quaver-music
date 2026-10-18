@@ -141,6 +141,8 @@ export interface ReleaseAsset {
   name: string;
   size: number;
   url: string;
+  /** GitHub API assets[].digest（"sha256:<hex>"）去掉前缀的小写十六进制；上游没给 digest 时为空串（跳过校验）。 */
+  sha256: string;
 }
 
 export interface ReleaseInfo {
@@ -162,7 +164,12 @@ export function normalizeRelease(raw: any): ReleaseInfo {
     body: String(raw?.body ?? ""),
     assets: (Array.isArray(raw?.assets) ? raw.assets : [])
       .filter((a: any) => a?.browser_download_url)
-      .map((a: any) => ({ name: String(a.name ?? ""), size: Number(a.size) || 0, url: String(a.browser_download_url) })),
+      .map((a: any) => ({
+        name: String(a.name ?? ""),
+        size: Number(a.size) || 0,
+        url: String(a.browser_download_url),
+        sha256: /^sha256:[0-9a-f]{64}$/i.test(String(a.digest ?? "")) ? String(a.digest).slice(7).toLowerCase() : "",
+      })),
   };
 }
 
@@ -298,7 +305,7 @@ export function decideUpdate(
 
 // ——— 安装包匹配（平台 × 架构） ———
 
-export type AssetKind = "appimage" | "exe" | "dmg" | "deb" | "rpm";
+export type AssetKind = "appimage" | "exe" | "dmg" | "deb" | "rpm" | "flatpak";
 
 /** 各运行架构对应的产物名写法（CI：AppImage=x86_64/aarch64，NSIS=x64/arm64，dmg=arm64）。 */
 const ARCH_WORDS: Record<string, RegExp> = {
@@ -311,10 +318,12 @@ const ARCH_WORDS: Record<string, RegExp> = {
  * 从 release assets 里挑出当前平台/架构的安装包。
  *
  * Linux 有两种更新口径，靠 prefer 区分（主进程按当前运行方式给：$APPIMAGE 在位 → AppImage；
- * 发行版包装出来的进程 → deb / rpm）：
+ * 发行版包 / Flatpak 装出来的进程 → deb / rpm / flatpak）：
  *   - prefer 缺省（AppImage 运行态、Windows/mac）：AppImage 优先、deb 兜底（旧行为）。
- *   - prefer 显式（如 "deb" / "rpm"）：只认这一档 —— 运行在 deb/rpm 安装里的进程换不了 AppImage
- *     本体，挑了也没法应用内替换，只会把用户引到死路；缺档就返回 null 让调用方走「打开发布页」。
+ *   - prefer 显式（如 "deb" / "rpm" / "flatpak"）：只认这一档 —— 运行在 deb/rpm/flatpak 安装里的
+ *     进程换不了 AppImage 本体，挑了也没法应用内替换，只会把用户引到死路；缺档就返回 null
+ *     让调用方走「打开发布页」。flatpak 档认 CI 出的离线 bundle（Quaver-<ver>-<arch>.flatpak）。
+ * 商店托管的安装方式（APM/星火、玲珑）不走本函数 —— 渲染层直接不挑包，弹窗改为「等商店推送」。
  * 找不到（如 x86 mac —— 构建已裁撤）返回 null，调用方应引导去发布页。
  */
 export function pickAsset(
@@ -328,6 +337,7 @@ export function pickAsset(
     { ext: ".dmg", kind: "dmg", platform: "darwin" },
     { ext: ".deb", kind: "deb", platform: "linux" },
     { ext: ".rpm", kind: "rpm", platform: "linux" },
+    { ext: ".flatpak", kind: "flatpak", platform: "linux" },
   ];
   const pool = kinds.filter((k) => k.platform === platform && (!prefer || k.kind === prefer));
   for (const k of pool) {

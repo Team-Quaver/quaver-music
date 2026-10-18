@@ -25,13 +25,24 @@ const bridge = () => (window as any).quaverUpdate;
 
 // ——— 平台档案 ———
 
+/** 商店托管的安装方式：更新由商店审核链路推送，应用内不下载不安装（弹窗只提醒等待）。 */
+export type StoreManaged = "spark" | "linglong" | null;
+
+/** 商店名（提醒文案用）。spark=APM 琥珀容器（星火分发），linglong=如意玲珑容器。 */
+export const STORE_NAMES: Record<Exclude<StoreManaged, null>, string> = {
+  spark: "星火应用商店",
+  linglong: "如意玲珑商店",
+};
+
 export interface PlatformInfo {
   platform: string;
   arch: string;
-  /** $APPIMAGE 在位 = AppImage 运行态（应用内原位替换更新）；否则是发行版包安装（deb/rpm 下载后交系统打开） */
+  /** $APPIMAGE 在位 = AppImage 运行态（应用内原位替换更新）；否则是发行版包安装（deb/rpm/flatpak 下载后交系统打开） */
   appimage: string | null;
-  /** Linux 发行版原生包偏好（deb / rpm）；非 Linux 或认不出的发行版为 null */
-  pkg: "deb" | "rpm" | null;
+  /** Linux 原生包偏好（deb / rpm / flatpak，flatpak 沙箱认 /.flatpak-info）；非 Linux、认不出或商店托管时为 null */
+  pkg: "deb" | "rpm" | "flatpak" | null;
+  /** 商店托管（spark=星火/APM，linglong=如意玲珑）：不挑包、不下载，弹窗改为「等待商店推送」 */
+  store: StoreManaged;
   packaged: boolean;
   version: string;
 }
@@ -66,6 +77,8 @@ export interface UpdateInfo {
   skipped: boolean;
   /** 当前是 AppImage 运行方式（AppImage 产物可原位替换的前提） */
   canReplaceAppimage: boolean;
+  /** 商店托管安装（spark/linglong）：picked 恒为 null，弹窗只提醒「等商店更新」 */
+  store: StoreManaged;
   /** 打包态（dev / 浏览器为 false）—— 换渠道提醒只在真装出来的构建上自动弹 */
   packaged: boolean;
 }
@@ -138,13 +151,15 @@ export async function checkUpdate(channel: UpdateChannel = getUpdateChannel()): 
         current,
         decision,
         release,
+        // 商店托管（APM/玲珑）→ 不挑包：下载 deb/AppImage 换不了容器里的这份安装，弹窗走「等商店」提醒。
         // Linux 挑包口径按当前运行方式定：AppImage 运行 → AppImage（原位替换）；
-        // 发行版包安装 → 对应的 deb/rpm（下载后交系统打开）。其余平台/认不出的发行版沿用默认。
-        picked: decision.available
+        // 发行版包 / Flatpak 安装 → 对应的 deb/rpm/flatpak（下载后交系统打开）。其余平台/认不出的发行版沿用默认。
+        picked: decision.available && !pf?.store
           ? pickAsset(platform, arch, release.assets, platform === "linux" && !pf?.appimage ? pf?.pkg ?? null : null)
           : null,
         skipped: decision.key === getLastNotified(),
         canReplaceAppimage: !!pf?.appimage,
+        store: pf?.store ?? null,
         packaged: !!pf?.packaged,
       },
     };
@@ -163,14 +178,16 @@ if (typeof window !== "undefined") {
 
 export interface DownloadHandle {
   id: string;
-  promise: Promise<{ path: string }>;
+  promise: Promise<{ path: string; deduped?: boolean; alreadyReplaced?: boolean }>;
   cancel: () => void;
 }
 
 /**
  * 下载更新包。落盘位置三选一：AppImage 原位替换 → $APPIMAGE 同目录（rename 原子替换不可跨文件系统）；
- * deb/rpm → 用户「下载」目录（下载完只落盘，等用户在弹窗里点「打开安装包」才交系统安装器）；
+ * deb/rpm/flatpak → 用户「下载」目录（下载完只落盘，等用户在弹窗里点「打开安装包」才交系统安装器）；
  * 其余（exe/dmg）→ 系统临时目录。resolve 的是落盘路径（不是「安装完成」）。
+ * 主进程按 asset.sha256（GitHub digest）校验完整性；已有校验通过的本地包时不重复下载
+ * （deduped=true；AppImage 本体已是目标构建时 alreadyReplaced=true，收尾直接进「重启」）。
  */
 export function downloadUpdate(info: UpdateInfo, onProgress: (received: number, total: number) => void): DownloadHandle {
   const id = `upd-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
@@ -181,11 +198,14 @@ export function downloadUpdate(info: UpdateInfo, onProgress: (received: number, 
       const pf = await getPlatformInfo();
       const kind = info.picked!.kind;
       const mode = kind === "appimage" && pf?.appimage ? "replace-appimage"
-        : kind === "deb" || kind === "rpm" ? "downloads"
+        : kind === "deb" || kind === "rpm" || kind === "flatpak" ? "downloads"
         : "installer";
-      const r = await bridge().invoke({ op: "download", id, url: info.picked!.asset.url, mode });
+      const r = await bridge().invoke({
+        op: "download", id, url: info.picked!.asset.url, mode,
+        sha256: info.picked!.asset.sha256 || undefined,
+      });
       if (!r?.ok) throw new Error(r?.error ?? "下载失败");
-      return { path: String(r.path) };
+      return { path: String(r.path), deduped: !!r.deduped, alreadyReplaced: !!r.alreadyReplaced };
     } finally {
       progressCbs.delete(id);
     }
@@ -200,13 +220,13 @@ export function downloadUpdate(info: UpdateInfo, onProgress: (received: number, 
 export type InstallStep =
   | { type: "appimage-replaced" }
   | { type: "installer-ready"; path: string }
-  /** deb/rpm：已下载到「下载」目录，交回弹窗由用户点「打开安装包」再拉起安装器 */
-  | { type: "installer-downloaded"; path: string }
+  /** deb/rpm/flatpak：已下载到「下载」目录，交回弹窗由用户点「打开安装包」再拉起安装器 */
+  | { type: "installer-downloaded"; path: string; deduped?: boolean }
   | { type: "installer-opened" };
 
-/** 下载完成后的收尾：AppImage 原位替换；exe 等用户点「退出并安装」；deb/rpm 落盘待用户确认；
- *  dmg 交给系统挂载。绝不自动拉起安装器 —— deb/rpm 的「打开安装包 / 打开所在目录」由弹窗驱动。 */
-export async function finalizeInstall(info: UpdateInfo, path: string): Promise<InstallStep> {
+/** 下载完成后的收尾：AppImage 原位替换；exe 等用户点「退出并安装」；deb/rpm/flatpak 落盘待用户确认；
+ *  dmg 交给系统挂载。绝不自动拉起安装器 —— 安装包类更新的「打开安装包 / 打开所在目录」由弹窗驱动。 */
+export async function finalizeInstall(info: UpdateInfo, path: string, deduped = false): Promise<InstallStep> {
   const kind = info.picked!.kind;
   if (kind === "appimage") {
     const r = await bridge().invoke({ op: "apply-appimage", path });
@@ -214,7 +234,7 @@ export async function finalizeInstall(info: UpdateInfo, path: string): Promise<I
     return { type: "appimage-replaced" };
   }
   if (kind === "exe") return { type: "installer-ready", path };
-  if (kind === "deb" || kind === "rpm") return { type: "installer-downloaded", path };
+  if (kind === "deb" || kind === "rpm" || kind === "flatpak") return { type: "installer-downloaded", path, deduped };
   const r = await bridge().invoke({ op: "open-path", path });
   if (!r?.ok) throw new Error(r?.error ?? "无法打开安装包");
   return { type: "installer-opened" };

@@ -184,6 +184,28 @@ section("安装包匹配");
   eq("rpm 安装（prefer=rpm）→ 挑 rpm", C.pickAsset("linux", "x64", distro, "rpm")?.asset.name, "Quaver-1.2.3-x86_64.rpm");
   check("prefer=rpm 但无 rpm → null（不回退 AppImage，避免拿到换不了的包）", C.pickAsset("linux", "x64", A([["Quaver-1.2.3-x86_64.AppImage", 1], ["Quaver-1.2.3-amd64.deb", 1]]), "rpm") === null);
   check("prefer=deb 但无 deb → null", C.pickAsset("linux", "x64", A([["Quaver-1.2.3-x86_64.AppImage", 1], ["Quaver-1.2.3-x86_64.rpm", 1]]), "deb") === null);
+
+  // Flatpak 与 deb/rpm 同口径：/.flatpak-info 在位 → prefer=flatpak 挑离线 bundle（CI 产物名 Quaver-<ver>-<arch>.flatpak）
+  const fp = A([
+    ["Quaver-1.2.3-x86_64.AppImage", 1],
+    ["Quaver-1.2.3-amd64.deb", 1],
+    ["Quaver-1.2.3-x86_64.flatpak", 1],
+    ["Quaver-1.2.3-aarch64.flatpak", 1],
+  ]);
+  eq("flatpak 安装（prefer=flatpak）→ 挑 x86_64 bundle", C.pickAsset("linux", "x64", fp, "flatpak")?.asset.name, "Quaver-1.2.3-x86_64.flatpak");
+  eq("flatpak arm64 → aarch64 bundle", C.pickAsset("linux", "arm64", fp, "flatpak")?.asset.name, "Quaver-1.2.3-aarch64.flatpak");
+  check("prefer=flatpak 但无 flatpak → null（不回退 deb/AppImage）", C.pickAsset("linux", "x64", A([["Quaver-1.2.3-x86_64.AppImage", 1], ["Quaver-1.2.3-amd64.deb", 1]]), "flatpak") === null);
+  eq("无 prefer 时 flatpak 不抢 AppImage 的优先位", C.pickAsset("linux", "x64", fp)?.kind, "appimage");
+
+  // sha256 = GitHub API assets[].digest（"sha256:<hex>"）；缺省/畸形 → 空串（跳过校验）
+  const withDigest = C.normalizeRelease({ tag_name: "v1.2.3", assets: [
+    { name: "Quaver-1.2.3-x86_64.AppImage", size: 1, browser_download_url: "https://x/a", digest: "sha256:DEADBEEFdeadbeef00112233445566778899aabbccddeeff0011223344556677" },
+    { name: "Quaver-1.2.3-amd64.deb", size: 1, browser_download_url: "https://x/d" },
+    { name: "Quaver-1.2.3-x86_64.rpm", size: 1, browser_download_url: "https://x/r", digest: "sha512:not-this-algo" },
+  ] }).assets;
+  eq("digest 去前缀、小写落进 sha256", withDigest[0].sha256, "deadbeefdeadbeef00112233445566778899aabbccddeeff0011223344556677");
+  eq("无 digest → 空串", withDigest[1].sha256, "");
+  eq("非 sha256 digest → 空串", withDigest[2].sha256, "");
 }
 
 // ——— release notes 迷你渲染（第三方内容，注入面必须为零）———
@@ -345,21 +367,24 @@ section("安装收尾接线");
   // AppImage 自动更新只做原位替换：不再把更新交给 Gear Lever / AppManager
   check("AppImage: 已移除 Gear Lever / AppManager 联动",
     !has(up, "gearlever") && !has(up, "app-manager") && !has(up, "appimage-managers") && !has(up, "run-manager-update"));
-  // deb/rpm 更新 = 下载后交系统默认应用打开（Linux 走 xdg-open），由用户点「打开安装包」触发
-  check("Linux deb/rpm: open-path 走 xdg-open",
+  // deb/rpm/flatpak 更新 = 下载后交系统默认应用打开（Linux 走 xdg-open），由用户点「打开安装包」触发
+  check("Linux deb/rpm/flatpak: open-path 走 xdg-open",
     re(up, /spawn\("xdg-open", \[path\]/));
-  // Linux 按运行方式挑包：渲染层把 pkg（deb/rpm）作为 prefer 传给 pickAsset
-  check("updater: Linux 发行版包安装按 pkg 挑 deb/rpm",
+  // Flatpak 与 deb/rpm 同口径：主进程认 /.flatpak-info（先于 os-release，沙箱里的 os-release 是 runtime 的）
+  check("update.ts: Flatpak 运行态识别（/.flatpak-info → pkg=flatpak）",
+    re(up, /pathExists\("\/\.flatpak-info"\)/) && has(up, 'return "flatpak"'));
+  // Linux 按运行方式挑包：渲染层把 pkg（deb/rpm/flatpak）作为 prefer 传给 pickAsset
+  check("updater: Linux 发行版包安装按 pkg 挑 deb/rpm/flatpak",
     re(updater, /pickAsset\(platform, arch, release\.assets, platform === "linux" && !pf\?\.appimage \? pf\?\.pkg \?\? null : null\)/));
 
   const dialog = noComments(readSrc("src/components/UpdateDialog.ts"));
-  // deb/rpm 落「下载」目录，绝不自动拉起安装器：主进程给 downloads 落盘模式，finalize 只回报「已下载」
-  check("deb/rpm: 下载落用户「下载」目录（mode=downloads → app.getPath('downloads')）",
+  // deb/rpm/flatpak 落「下载」目录，绝不自动拉起安装器：主进程给 downloads 落盘模式，finalize 只回报「已下载」
+  check("deb/rpm/flatpak: 下载落用户「下载」目录（mode=downloads → app.getPath('downloads')）",
     has(up, 'uniqueDest(app.getPath("downloads"), assetBasename(url))'));
-  check("deb/rpm: 下载后不自动打开，交回弹窗（installer-downloaded，不调 open-path）",
-    has(updater, 'if (kind === "deb" || kind === "rpm") return { type: "installer-downloaded", path };'));
-  check("deb/rpm: updater 下载模式按包型切 downloads",
-    re(updater, /kind === "deb" \|\| kind === "rpm" \? "downloads"/));
+  check("deb/rpm/flatpak: 下载后不自动打开，交回弹窗（installer-downloaded，不调 open-path）",
+    has(updater, 'if (kind === "deb" || kind === "rpm" || kind === "flatpak") return { type: "installer-downloaded", path, deduped };'));
+  check("deb/rpm/flatpak: updater 下载模式按包型切 downloads",
+    re(updater, /kind === "deb" \|\| kind === "rpm" \|\| kind === "flatpak" \? "downloads"/));
   // 弹窗：确认按钮「打开安装包」+ 旁边「打开所在目录」
   check("弹窗: 已下载态给「打开安装包」主按钮（走 openPath）",
     has(dialog, 'setMain("打开安装包", true') && has(dialog, "openPath(step.path)"));
@@ -367,6 +392,39 @@ section("安装收尾接线");
     has(dialog, "打开所在目录") && has(dialog, "openPath(dir)"));
   check("弹窗: downloads 态按钮从隐藏态显式打开（不是默认展示）",
     re(dialog, /data-act="open-dir"[^>]*hidden/) && has(dialog, "openDirBtn.hidden = false"));
+}
+
+// ——— 接线（源码级）：sha256 完整性校验 / 去重 / 商店托管（星火·如意玲珑）———
+section("完整性校验与商店托管接线");
+{
+  const up = noComments(readSrc("electron/update.ts"));
+  const updater = noComments(readSrc("src/lib/updater.ts"));
+  const dialog = noComments(readSrc("src/components/UpdateDialog.ts"));
+
+  // 下载完整性：主进程流式算 sha256，与渲染层传来的 GitHub digest 比对，对不上删档报错
+  check("update.ts: 落盘后 sha256 校验，失败删档报错",
+    re(up, /createHash\("sha256"\)/) && has(up, "sha256 校验失败") && re(up, /sha256\) \{/));
+  check("updater: 下载 op 带上 asset.sha256",
+    re(updater, /sha256: info\.picked!\.asset\.sha256 \|\| undefined/));
+  // 避免重复下载：本地已存在校验通过的包（下载目录同名文件 / AppImage 本体 / 残留临时文件）直接复用
+  check("update.ts: 下载前复用已校验文件（reuseIfValid → deduped）",
+    has(up, "reuseIfValid") && has(up, "deduped: true"));
+  check("弹窗: 复用态文案「未重复下载」", has(dialog, "未重复下载"));
+
+  // 商店托管：APM（ACE 容器 IS_ACE_ENV=1 / /amber-ce-tools）与玲珑（hostname + container-init + packages.list）
+  check("update.ts: APM/ACE 容器识别（IS_ACE_ENV 或 /amber-ce-tools → spark）",
+    has(up, 'process.env.IS_ACE_ENV === "1"') && has(up, '"/amber-ce-tools"') && has(up, 'return "spark"'));
+  check("update.ts: 玲珑容器三条件（hostname=linglong + /run/linglong/container-init + /packages.list → linglong）",
+    has(up, 'hostname() === "linglong"') && has(up, '"/run/linglong/container-init"') && has(up, '"/packages.list"') && has(up, 'return "linglong"'));
+  check("update.ts: 托管态 platform 返回 store 且清空 pkg（不误判成 deb）",
+    re(up, /pkg: store \? null : await linuxPkgKind\(\)/) && has(up, "store,"));
+  // 托管 → 不挑包不下载，弹窗只提醒等待商店推送
+  check("updater: 托管态不挑包（decision.available && !pf?.store）",
+    has(updater, "picked: decision.available && !pf?.store"));
+  check("updater: 商店名映射（星火/如意玲珑）",
+    has(updater, 'spark: "星火应用商店"') && has(updater, 'linglong: "如意玲珑商店"'));
+  check("弹窗: 托管态给等待商店的警示文案与「知道了」按钮",
+    has(dialog, "请等待") && has(dialog, 'setMain("知道了", true, close)') && has(dialog, "storeNote"));
 }
 
 console.log(failed ? `\n${failed} 项断言失败` : "\n全部通过");

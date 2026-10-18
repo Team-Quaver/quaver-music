@@ -346,6 +346,10 @@ body.side-collapsed .pl-group:first-child { margin-top: 0; border-top: 0; }
 body.side-collapsed .pl-group > * { display: none; }
 /* 空态文案（未登录 / 暂无歌单）在 48px 里排不下：整行隐去，不给半截字 */
 body.side-collapsed .pl-empty { padding: 10px 0; font-size: 0; text-align: center; overflow: hidden; }
+/* 缩态歌单封面与上方头像/导航图标共用同一条中轴：.playlists 右缘的滚动槽是实占空间，
+   只吃掉右侧 6px → 居中的 .pl 整列左偏 3px（与 .nav a / .user 的中轴错开）。
+   槽位改成左右对称后，有无滚动（槽宽 0 或 6px）都落在侧栏正中。 */
+body.side-collapsed .playlists { scrollbar-gutter: stable both-edges; }
 /* 缩态滚动条一并收细：10px 的槽在 64px 宽的栏里太占地方 */
 body.side-collapsed .playlists::-webkit-scrollbar { width: 6px; }
 body.side-collapsed .playlists::-webkit-scrollbar-thumb { border-width: 2px; }

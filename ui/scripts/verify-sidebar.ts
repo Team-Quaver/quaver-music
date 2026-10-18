@@ -127,6 +127,8 @@ ok("缩态保留 .sep（导航与歌单区的分界不能跟着一起丢）",
   /body\.side-collapsed \.sep \{([^}]*)\}/.test(css) && /margin: 4px 12px/.test(ruleBody(/body\.side-collapsed \.sep \{([^}]*)\}/)));
 ok("空态文案整体隐去（「登录后可见歌单」在 48px 里排不下，不给半截字）",
   /font-size: 0/.test(colEmpty) && /overflow: hidden/.test(colEmpty));
+ok("缩态歌单列与头像/导航图标共用中轴：滚动槽左右对称（右侧独槽会让居中的行整列左偏 3px）",
+  /body\.side-collapsed \.playlists \{[^}]*scrollbar-gutter:\s*stable both-edges/.test(css));
 
 // 过渡：宽度类走同一条曲线；.nav a / .pl 的 gap/padding 必须并进它们自己的声明
 const mergeBlock = css.match(/\.sidebar, \.user, \.user-meta[\s\S]*?\{([^}]*)\}/)?.[1].replace(/\s+/g, " ") ?? "";

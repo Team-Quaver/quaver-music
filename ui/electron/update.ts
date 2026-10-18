@@ -4,17 +4,23 @@
 //   1. fetch-release：GitHub Releases 代理（stable=latest release；beta=列表中 tag 含 beta 的 prerelease；
 //      nightly=滚动 tag「nightly」），
 //      归一化后交给渲染层解析 —— 主进程不认版本号，避免两边逻辑漂移；
-//   2. download：流式下载安装包 + 进度推送。AppImage 替换更新必须与本体同目录同文件系统
-//      （rename 原子替换跨不了挂载点），落盘位置由 mode 决定；
+//   2. download：流式下载安装包 + 进度推送 + **sha256 完整性校验**（期望值来自 GitHub API
+//      assets[].digest，渲染层随 op 传入；对不上 = 损坏/上游重打包，删档报错不交付）。
+//      AppImage 替换更新必须与本体同目录同文件系统（rename 原子替换跨不了挂载点），落盘位置由 mode 决定。
+//      **避免重复下载**：落盘前先看现成文件（「下载」目录同名包 / AppImage 本体 / 残留临时文件）
+//      的 sha256 是否已等于目标，是则直接复用（deduped=true），一个字节都不走网络；
 //   3. 安装收尾：AppImage 原位替换（**文件名保持旧文件原名** —— 桌面项 / 快捷方式的 Exec
 //      都指向旧路径，改名即断链）、Windows NSIS 静默安装（装完自动拉起新版）、
-//      deb/rpm/mac dmg 交给系统默认应用打开（Linux 走 xdg-open）；
-//   4. 平台档案：报告运行方式（$APPIMAGE 在位 = AppImage，否则是发行版包）与架构，渲染层据此挑安装包。
+//      deb/rpm/flatpak 包/mac dmg 交给系统默认应用打开（Linux 走 xdg-open）；
+//   4. 平台档案：报告运行方式（$APPIMAGE 在位 = AppImage；/.flatpak-info = Flatpak；否则发行版包）
+//      与架构，以及是否商店托管（store=spark/linglong —— APM 琥珀 / 如意玲珑容器里更新由商店
+//      推送，渲染层据此不挑包、不下载），渲染层据此挑安装包。
 import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { spawn } from "node:child_process";
-import { createWriteStream } from "node:fs";
-import { access, chmod, mkdir, readFile, rename, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
+import { createReadStream, createWriteStream } from "node:fs";
+import { access, chmod, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
+import { hostname, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -33,12 +39,42 @@ const downloads = new Map();
 
 // ——— 小工具 ———
 
-/** Linux 发行版的原生包类型：读 /etc/os-release 的 ID / ID_LIKE 判 deb / rpm。
+/** 路径存在性（不区分文件/目录），读不了 = 不存在。 */
+async function pathExists(p: string): Promise<boolean> {
+  try { await access(p); return true; } catch { return false; }
+}
+
+/** 流式算文件 sha256（安装包上百 MB，不能整读进内存）；读不了返回空串。 */
+async function sha256File(path: string): Promise<string> {
+  try {
+    const hash = createHash("sha256");
+    await pipeline(createReadStream(path), hash);
+    return hash.digest("hex");
+  } catch { return ""; }
+}
+
+/** 去重预检：现有文件（大小一致 + sha256 相等）已是目标包 → 返回字节数，调用方跳过下载；
+ *  期望值为空（上游没给 digest）或文件缺失/不符 → null，正常走下载。 */
+async function reuseIfValid(path: string, want: string): Promise<number | null> {
+  if (!want) return null;
+  try {
+    const st = await stat(path);
+    if (!st.isFile() || st.size === 0) return null;
+    const got = await sha256File(path);
+    return got === want ? st.size : null;
+  } catch { return null; }
+}
+
+/** Linux 原生安装方式：Flatpak 沙箱优先，其余读 /etc/os-release 的 ID / ID_LIKE 判 deb / rpm。
  *  认不出来（如 Arch/未知发行版）返回 null —— 渲染层退回旧口径（AppImage 兜底），不硬猜。 */
 const DEB_LIKE = new Set(["debian", "ubuntu", "linuxmint", "lmde", "pop", "elementary", "kali", "raspbian", "devuan", "deepin", "uos", "kylin", "neon", "zorin", "mx", "parrot"]);
 const RPM_LIKE = new Set(["fedora", "rhel", "centos", "rocky", "almalinux", "ol", "oracle", "amzn", "opensuse", "opensuse-leap", "opensuse-tumbleweed", "sles", "suse", "mageia", "nobara", "bazzite"]);
 async function linuxPkgKind(): Promise<string | null> {
   if (process.platform !== "linux") return null;
+  // Flatpak 沙箱：根目录 /.flatpak-info 在位 = Flatpak 安装。必须先于 os-release —— 沙箱里
+  // /etc/os-release 是 runtime 的（freedesktop 基座是 Fedora 系），拿宿主发行版口径判 deb/rpm 是错的。
+  // Flatpak 走与 deb/rpm 相同的方式：挑 .flatpak 离线 bundle → 落「下载」目录 → 交回用户处置。
+  if (await pathExists("/.flatpak-info")) return "flatpak";
   let text = "";
   try { text = await readFile("/etc/os-release", "utf8"); } catch { return null; }
   const toks = new Set<string>();
@@ -52,7 +88,23 @@ async function linuxPkgKind(): Promise<string | null> {
   return null;
 }
 
-/** Linux：交给系统默认应用打开（xdg-open）—— deb/rpm 走这里，用户在自己的包管理器里确认安装。 */
+/** 商店托管安装（更新走商店审核链路，应用内下载/安装不适用）：
+ *   - "spark"：Amber PM（APM）—— 应用跑在 AmberCE（ace-env）Debian 容器里，启动脚本经 bwrap
+ *     `--setenv IS_ACE_ENV 1` 注入标记，容器根目录有 /amber-ce-tools 工具集（容器内 hostname
+ *     沿用宿主——`--hostname Amber-PM` 在上游被注释，不可作为依据）。os-release 会判成 deb，
+ *     但这个 deb 是 APM 转换包，装了也装不进宿主 —— 更新由**星火应用商店**推送，只提醒等待。
+ *   - "linglong"：如意玲珑容器 —— 主机名为 linglong，且 /run/linglong/container-init 与
+ *     根目录 packages.list 同时在位（三条件缺一不判）。更新由**如意玲珑商店**推送，同理只提醒。 */
+async function storeManaged(): Promise<string | null> {
+  if (process.platform !== "linux") return null;
+  if (process.env.IS_ACE_ENV === "1" || await pathExists("/amber-ce-tools")) return "spark";
+  if (hostname() === "linglong"
+    && await pathExists("/run/linglong/container-init")
+    && await pathExists("/packages.list")) return "linglong";
+  return null;
+}
+
+/** Linux：交给系统默认应用打开（xdg-open）—— deb/rpm/flatpak 走这里，用户在自己的包管理器里确认安装。 */
 function xdgOpen(path: string) {
   return new Promise((resolve) => {
     let done = false;
@@ -90,8 +142,9 @@ async function uniqueDest(dir: string, name: string) {
   return join(dir, `${stem}-${Date.now()}${ext}`);
 }
 
-/** 流式下载：进度按整百分比推送（事件风暴会让渲染层卡顿）。 */
-async function downloadTo(id, url, dest, log) {
+/** 流式下载：进度按整百分比推送（事件风暴会让渲染层卡顿）。
+ *  sha256 非空时落盘后校验：对不上（下载损坏 / 上游重打包）删掉文件并报失败，绝不交付坏包。 */
+async function downloadTo(id, url, dest, log, sha256 = "") {
   const ctl = new AbortController();
   downloads.set(id, ctl);
   const ws = createWriteStream(dest, { mode: 0o755 });
@@ -117,6 +170,14 @@ async function downloadTo(id, url, dest, log) {
       ws,
     );
     log(`[quaver] update: downloaded ${dest} (${received} bytes)`);
+    if (sha256) {
+      const got = await sha256File(dest);
+      if (got !== sha256) {
+        await rmQuiet(dest);
+        return { ok: false, error: `sha256 校验失败（期望 ${sha256.slice(0, 12)}…，实际 ${got ? `${got.slice(0, 12)}…` : "读取失败"}）—— 下载损坏或上游重打包，已删除` };
+      }
+      log(`[quaver] update: sha256 verified ${dest}`);
+    }
     return { ok: true, path: dest, size: received };
   } catch (e) {
     await rmQuiet(dest);
@@ -138,15 +199,19 @@ export function setupUpdaterIPC({ log }) {
     const op = msg?.op;
     try {
       // 平台档案：渲染层据此选安装包（arch）与安装方式。
-      // appimage = $APPIMAGE 在位（应用内原位替换）；pkg = 发行版原生包偏好（deb / rpm），
-      // 两者都缺省时渲染层退回 AppImage 优先的旧口径。pkg 探测只在 Linux 跑（读 /etc/os-release）。
+      // appimage = $APPIMAGE 在位（应用内原位替换）；pkg = 发行版原生包偏好（deb / rpm / flatpak），
+      // 两者都缺省时渲染层退回 AppImage 优先的旧口径。pkg 探测只在 Linux 跑（/.flatpak-info + /etc/os-release）。
+      // store = 商店托管（spark=APM 琥珀/星火、linglong=如意玲珑）：这类容器里 os-release 会误判成 deb，
+      // 但包由商店链路分发 —— 置空 pkg 并带上 store，渲染层不挑包、弹窗改为「等待商店更新」。
       if (op === "platform") {
+        const store = await storeManaged();
         return {
           ok: true,
           platform: process.platform,
           arch: process.arch,
           appimage: process.env.APPIMAGE ?? null,
-          pkg: await linuxPkgKind(),
+          pkg: store ? null : await linuxPkgKind(),
+          store,
           packaged: app.isPackaged,
           version: app.getVersion(),
         };
@@ -175,26 +240,61 @@ export function setupUpdaterIPC({ log }) {
         return { ok: true, release: data };
       }
 
-      // 下载。mode=replace-appimage：落 $APPIMAGE 同目录的隐藏临时文件（rename 才能原子替换）；
-      // mode=downloads：落用户「下载」目录（deb/rpm —— 只落盘，安装交给弹窗里的确认按钮）；
+      // 下载。msg.sha256（可省）= 目标包摘要，落盘后必校验；已存在的同名文件校验通过则直接复用（去重）。
+      // mode=replace-appimage：落 $APPIMAGE 同目录的隐藏临时文件（rename 才能原子替换）；
+      //   AppImage 本体已是目标摘要（上次替换后没重启）→ 免下载，直接进「重启」那步。
+      // mode=downloads：落用户「下载」目录（deb/rpm/flatpak —— 只落盘，安装交给弹窗里的确认按钮）；
+      //   有摘要时固定文件名（`名字.part` 下载 → 校验 → rename 覆盖旧档），同名有效包直接复用；
+      //   没摘要（上游未带 digest）退回「不撞名」落盘，无从校验也无从去重。
       // mode=installer：落系统临时目录（exe 直接跑 / dmg 交给系统挂载）
       if (op === "download") {
         const url = String(msg?.url ?? "");
         if (!/^https:\/\//.test(url)) return { ok: false, error: "下载地址必须是 https" };
         const id = String(msg?.id ?? "");
         if (!id || downloads.has(id)) return { ok: false, error: "下载任务标识不合法或已在进行中" };
+        const sha = String(msg?.sha256 ?? "").trim().toLowerCase();
+        if (sha && !/^[0-9a-f]{64}$/.test(sha)) return { ok: false, error: "sha256 期望值格式不合法" };
         let dest;
+        let promote = "";   // downloads 模式：.part 校验通过后 rename 成的正式文件名
         if (msg?.mode === "replace-appimage") {
           const appimage = process.env.APPIMAGE;
           if (!appimage) return { ok: false, error: "当前不是 AppImage 运行方式，无法原位替换" };
+          const replaced = await reuseIfValid(appimage, sha);
+          if (replaced !== null) {
+            log(`[quaver] update: AppImage already current (${appimage}) — skip download`);
+            return { ok: true, path: appimage, size: replaced, deduped: true, alreadyReplaced: true };
+          }
           dest = join(dirname(appimage), `.${basename(appimage)}.update-${process.pid}`);
+          const cached = await reuseIfValid(dest, sha);
+          if (cached !== null) {
+            log(`[quaver] update: reuse verified temp ${dest}`);
+            return { ok: true, path: dest, size: cached, deduped: true };
+          }
         } else if (msg?.mode === "downloads") {
-          dest = await uniqueDest(app.getPath("downloads"), assetBasename(url));
+          const name = assetBasename(url);
+          if (sha) {
+            const finalPath = join(app.getPath("downloads"), name);
+            const hit = await reuseIfValid(finalPath, sha);
+            if (hit !== null) {
+              log(`[quaver] update: reuse verified ${finalPath}`);
+              return { ok: true, path: finalPath, size: hit, deduped: true };
+            }
+            await mkdir(dirname(finalPath), { recursive: true }).catch(() => { /* 交给写入阶段报错 */ });
+            dest = `${finalPath}.part`;
+            promote = finalPath;
+          } else {
+            dest = await uniqueDest(app.getPath("downloads"), assetBasename(url));
+          }
         } else {
           dest = join(tmpdir(), `quaver-update-${id}-${assetBasename(url)}`);
         }
         log(`[quaver] update: download → ${dest}`);
-        return await downloadTo(id, url, dest, log);
+        const r = await downloadTo(id, url, dest, log, sha);
+        if (r.ok && promote) {
+          // .part → 正式名（覆盖旧的损坏/过期档）；rename 失败就原地交付 .part，别让成功下载变报错
+          try { await rename(dest, promote); r.path = promote; } catch { log("[quaver] update: promote .part failed, keep temp"); }
+        }
+        return r;
       }
 
       if (op === "cancel-download") {
@@ -211,7 +311,7 @@ export function setupUpdaterIPC({ log }) {
         const path = String(msg?.path ?? "");
         if (!path.startsWith(dirname(appimage))) return { ok: false, error: "临时文件不在 AppImage 同目录，拒绝替换" };
         await chmod(path, 0o755);
-        await rename(path, appimage);
+        if (path !== appimage) await rename(path, appimage);
         log(`[quaver] update: AppImage replaced in place: ${appimage}`);
         return { ok: true };
       }
