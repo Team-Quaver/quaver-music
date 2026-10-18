@@ -134,7 +134,10 @@ ok("player：步进原语恒回绕（顺序播放档已移除，next() 不自己
 // 多步前进必须走 walk（每步从上一步的落点继续）。曾经的写法是循环调 stepInOrder ——
 // 它永远从 this.index 出发，循环 N 次只走一步：songAtOffset(±2) === ±1，封面流左右
 // 各出现一对重复封面，jumpToOffset(±2) 也只跳一首。
-ok("player：songAtOffset/jumpToOffset 走 walk（别再循环调「从当前走一步」）", /const i = walk\(this\.orderOf\(\), this\.index, Math\.abs\(offset\), dir, false\);/.test(player) && /const i = walk\(this\.orderOf\(\), this\.index, Math\.abs\(offset\), dir, true\);/.test(player) && !/this\.stepInOrder\(dir,/.test(player));
+// 归处（2026-10-18）：songAtOffset 也走 wrap —— 与 jumpToOffset/stepInOrder 同一条
+// 回绕语义，歌单第一首的左侧两格才有封面，且点侧卡的「旧邻居表方向判定」不会因
+// 「取邻曲说没有、跳过去却回绕」而失配。
+ok("player：songAtOffset/jumpToOffset 走 walk 且都回绕（别再循环调「从当前走一步」）", /const i = walk\(this\.orderOf\(\), this\.index, Math\.abs\(offset\), dir, true\);/.test(player) && (player.match(/const i = walk\(this\.orderOf\(\), this\.index, Math\.abs\(offset\), dir, true\);/g) ?? []).length === 2 && !/this\.stepInOrder\(dir,/.test(player));
 ok("player：onEnded 不再自己判末曲（交给 stepInOrder）", /private onEnded\(\)[\s\S]{0,160}this\.next\(true\);/.test(player) && !/onEnded[\s\S]{0,200}queue\.length - 1/.test(player));
 ok("player：坏流回退沿当日顺序走（不打乱当天听感）", /skipSong[\s\S]{0,600}const i = this\.stepInOrder\(1\);/.test(player));
 ok("player：菜单需要直接落档的 setter", /setMode\(m: Mode\)/.test(player));

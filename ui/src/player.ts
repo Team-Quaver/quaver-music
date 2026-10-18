@@ -995,7 +995,13 @@ class Player {
    *
    * 给「封面流」这类需要一整列邻曲的视图用：只有 prev/next 各一首时，
    * 切歌动画做不出「中间转出去 → 右边顶上 → 新的从右边转进来」的三段式
-   * （第三张没有数据源，DOM 只能停在两张）。越界返回 undefined。
+   * （第三张没有数据源，DOM 只能停在两张）。
+   *
+   * **回绕**（wrap=true）：与 stepInOrder / jumpToOffset 同一条语义 —— 队首的「上一首」
+   * 就是队尾那首（顺序播放档已移除，播放推进一律回绕）。所以歌单**第一首**的左侧两格
+   * 也有封面，点下去跳的正是那一首。这条必须与 jumpToOffset 口径一致：否则「取邻曲」
+   * 说没有、而「跳过去」却回绕，封面流拿旧邻居表做的方向判定会当场失配（点了不滚格）。
+   * 只有队列为空才返回 undefined。
    */
   songAtOffset(offset: number): Song | undefined {
     if (!this.queue.length) return undefined;
@@ -1005,8 +1011,8 @@ class Player {
     // walk 逐首前进、每步从上一步的落点继续。**别改成循环调 stepInOrder** ——
     // 它每次都从 this.index 出发，循环 N 次也只走一步，±2 会取回 ±1 那首
     // （封面流两侧各出现一对重复封面的根因，见 lib/shuffle.ts:walk 的注释）。
-    const i = walk(this.orderOf(), this.index, Math.abs(offset), dir, false);
-    return i < 0 ? undefined : this.queue[i]; // 越界（offset 超出序列长度）→ 该槽位没有曲子
+    const i = walk(this.orderOf(), this.index, Math.abs(offset), dir, true); // wrap：取邻曲与跳转同一条回绕语义
+    return i < 0 ? undefined : this.queue[i]; // 只可能是空队列；下标越界由 walk 夹紧后不会发生
   }
 
   /** 跳到播放顺序上偏移 offset 首（0 = 当前即原地重播）。给封面流「点第几张跳第几首」用。 */
