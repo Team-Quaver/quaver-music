@@ -1,6 +1,6 @@
 // Quaver — 路由视图：home（由 src/views/index.ts 按需动态 import，不在首屏解析）
 import "./home.css";
-import { api, upPic } from "../lib/api";
+import { api, coverUrl, songTitle, upPic } from "../lib/api";
 import { icons } from "../lib/icons";
 import { renderSongRows } from "../lib/songs";
 import { periodCaption } from "../lib/toplist-periods";
@@ -27,23 +27,129 @@ export default async function homeView(root: HTMLElement) {
 
   const quickStart = h("section", "home-panel");
   const quickHead = h("div", "sec-head home-quick-head", `<h2>快速开始</h2>`);
+  const quickWrap = h("div", "home-quick-wrap");
   const quick = h("div", "home-quick");
-  const addQuickAction = (label: string, icon: string, run: () => void) => {
-    const btn = h("button", "home-quick__item",
-      `<span class="home-quick__icon" aria-hidden="true">${icon}</span><span class="home-quick__label">${label}</span>`) as HTMLButtonElement;
-    btn.type = "button";
-    btn.onclick = run;
-    quick.append(btn);
+
+  // 宽屏时左边是真正的电台播放器，状态直接读全局 player：从这里起播、在 #/guess 切歌，
+  // 两边看到的是同一首、同一个播放/收藏态；窄屏则由 CSS 收成紧凑长条。
+  const radioCard = h("section", "home-radio");
+  radioCard.innerHTML = `
+    <div class="home-radio__art" aria-hidden="true"><span class="home-radio__disc">∞</span></div>
+    <div class="home-radio__shade" aria-hidden="true"></div>
+    <button class="home-radio__open" type="button" aria-label="打开猜你喜欢无限电台"></button>
+    <span class="home-radio__brand"><span class="home-radio__brand-mark" aria-hidden="true">∞</span><span class="home-radio__brand-text">无限电台</span></span>
+    <div class="home-radio__controls" role="group" aria-label="无限电台播放控制">
+      <button class="home-radio__control home-radio__play" type="button" aria-label="播放" disabled>${icons.play}</button>
+      <button class="home-radio__control home-radio__next" type="button" aria-label="下一首" disabled>${icons.next}</button>
+      <button class="home-radio__control home-radio__love" type="button" aria-label="收藏" aria-pressed="false" disabled>${icons.heart}</button>
+    </div>
+    <div class="home-radio__info">
+      <strong class="home-radio__title">猜你喜欢</strong>
+      <span class="home-radio__sub">无限电台 · 按你的口味持续播放</span>
+    </div>`;
+  const radioArt = radioCard.querySelector<HTMLElement>(".home-radio__art")!;
+  const radioBrand = radioCard.querySelector<HTMLElement>(".home-radio__brand-text")!;
+  const radioTitle = radioCard.querySelector<HTMLElement>(".home-radio__title")!;
+  const radioSub = radioCard.querySelector<HTMLElement>(".home-radio__sub")!;
+  const radioOpen = radioCard.querySelector<HTMLButtonElement>(".home-radio__open")!;
+  const radioPlay = radioCard.querySelector<HTMLButtonElement>(".home-radio__play")!;
+  const radioNext = radioCard.querySelector<HTMLButtonElement>(".home-radio__next")!;
+  const radioLove = radioCard.querySelector<HTMLButtonElement>(".home-radio__love")!;
+  let radioArtKey = "";
+
+  const paintRadio = () => {
+    const active = player.radioActive;
+    const song = active ? player.current : undefined;
+    const busy = player.radioLoading;
+    const loved = !!song && player.loved.has(song.mid);
+    const canLove = !!song && !song.local;
+
+    radioCard.classList.toggle("is-live", active);
+    radioCard.classList.toggle("is-loading", busy);
+
+    radioBrand.textContent = busy ? "正在取歌" : active ? "无限电台 · 播放中" : "无限电台";
+    radioTitle.textContent = busy && !song
+      ? "正在为你取歌…"
+      : song
+        ? songTitle(song)
+        : "猜你喜欢";
+    radioSub.textContent = song
+      ? (song.singer ?? []).map((x) => x.name).filter(Boolean).join(" / ") || "无限电台"
+      : player.radioError || "无限电台 · 按你的口味持续播放";
+
+    radioPlay.disabled = busy && !song;
+    radioPlay.innerHTML = busy && !song ? icons.spinner : song && player.playing ? icons.pause : icons.play;
+    radioPlay.title = busy && !song
+      ? "正在取歌"
+      : !active
+        ? "开始无限电台"
+        : player.playing
+          ? "暂停"
+          : "播放";
+    radioPlay.setAttribute("aria-label", radioPlay.title);
+
+    radioNext.disabled = !active || !song;
+    radioNext.title = "下一首";
+    radioNext.setAttribute("aria-label", radioNext.title);
+
+    radioLove.disabled = !canLove;
+    radioLove.innerHTML = loved ? icons.heartFill : icons.heart;
+    radioLove.classList.toggle("on", loved);
+    radioLove.setAttribute("aria-pressed", String(loved));
+    radioLove.title = song?.local ? "本地歌曲不支持在线收藏" : loved ? "取消收藏" : "收藏";
+    radioLove.setAttribute("aria-label", radioLove.title);
+
+    const art = song ? coverUrl(song, 300) : "";
+    const artKey = art || "__disc";
+    if (artKey !== radioArtKey) {
+      radioArtKey = artKey;
+      if (!art) {
+        radioArt.replaceChildren(h("span", "home-radio__disc", "∞"));
+      } else {
+        const img = new Image();
+        img.alt = "";
+        img.loading = "lazy";
+        img.decoding = "async";
+        img.onerror = () => {
+          if (radioArtKey === artKey) radioArt.replaceChildren(h("span", "home-radio__disc", "∞"));
+        };
+        img.src = art;
+        radioArt.replaceChildren(img);
+      }
+    }
   };
-  addQuickAction("猜你喜欢 - 无限电台", icons.radio, () => {
+
+  const startRadio = () => {
     if (player.radioLoading) return;
     void player.startRadio().catch((e) => {
       if (root.isConnected) toast(errText(e) || "猜你喜欢暂时不可用", "err");
     });
-  });
-  addQuickAction("每日三十首", icons.calendar, () => { location.hash = "#/daily"; });
+  };
+
+  radioOpen.onclick = () => { location.hash = "#/guess"; };
+  radioPlay.onclick = () => {
+    if (!player.radioActive || !player.current) startRadio();
+    else player.toggle();
+  };
+  radioNext.onclick = () => player.next();
+  radioLove.onclick = () => void player.toggleLove(player.current);
+
+  const quickLinks = h("div", "home-quick__links");
+  const addQuickAction = (label: string, icon: string, run: () => void) => {
+    const btn = h("button", "home-quick__item",
+      `<span class="home-quick__icon" aria-hidden="true">${icon}</span><span class="home-quick__label">${label}</span>`) as HTMLButtonElement;
+    btn.type = "button";
+    btn.setAttribute("aria-label", label);
+    btn.onclick = run;
+    quickLinks.append(btn);
+  };
+  addQuickAction("每日 30 首", icons.calendar, () => { location.hash = "#/daily"; });
   addQuickAction("我喜欢", icons.heart, () => { location.hash = "#/liked"; });
-  quickStart.append(quickHead, quick);
+  quick.append(radioCard, quickLinks);
+  quickWrap.append(quick);
+  quickStart.append(quickHead, quickWrap);
+  const offQuick = player.on(paintRadio);
+  paintRadio();
 
   const newest = h("section", "home-panel");
   const newHead = h("div", "sec-head sec-head--split");
@@ -251,5 +357,5 @@ export default async function homeView(root: HTMLElement) {
   };
 
   await Promise.all([loadPlaylists(), loadNewSongs(), loadAISonglists(1), loadToplists()]);
-  return offHead; // 吸顶跟踪退订交给 renderRoute
+  return () => { offQuick(); offHead(); }; // 播放器与吸顶跟踪都在路由离开时退订
 }

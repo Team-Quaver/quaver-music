@@ -1703,19 +1703,27 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 .home-pagehead p { margin: 0 0 16px; font-size: 12.5px; }
 .home-pagehead.sticky-head p { margin-bottom: 0; }
 
-/* 领区双栏：内容区够宽时并排，不够则自动堆成一列 */
+/* 领区双栏：内容区够宽时并排，不够则自动堆成一列。
+   520px 的下限不是拍脑袋：方形电台卡要 ~320px，右侧两条长条还要留 ~190px。
+   低于这个宽度继续硬塞双栏，就会出现一侧被另一侧的高度拖出大片空白。 */
 .home-lead {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr));
   gap: 32px; margin-bottom: 28px;
 }
 .home-panel { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
-/* 快速开始：三枚纵向长条按钮，随右侧新歌速递的行高一起撑满领区。
-   图标与描边都吃 --cvg-accent，跟随封面染色 / 主题与浅深色切换。 */
+/* 快速开始：快速区自己当容器。宽度够时切成「左方电台播放器 + 右两枚长条」，
+   不够时仍是一列三枚紧凑长条；断点跟面板实际宽度走，不跟窗口宽度猜。 */
 .home-lead .sec-head { min-height: 40px; align-items: center; }
+.home-quick-wrap {
+  flex: 1; min-width: 0; min-height: 0;
+  container-name: home-quick;
+  container-type: inline-size;
+}
 .home-quick {
-  flex: 1; min-height: 0; display: grid; grid-template-rows: repeat(3, minmax(62px, 1fr));
+  display: grid; grid-template-rows: repeat(3, minmax(62px, 1fr));
   gap: 10px; padding-bottom: 8px;
 }
+.home-quick__links { display: contents; }
 .home-quick__item {
   position: relative; overflow: hidden;
   width: 100%; min-width: 0; min-height: 62px; padding: 14px 20px;
@@ -1733,7 +1741,7 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 }
 .home-quick__item:active { transform: scale(.997); }
 .home-quick__item:focus-visible { outline: 2px solid color-mix(in srgb, var(--cvg-accent, var(--acc)) 62%, transparent); outline-offset: 2px; }
-/* 图标是压在左下角的大号水印：超出圆角的部分由按钮自身裁掉，只留下淡淡的轮廓。 */
+/* 图标是压在左下角的大号水印：保留足够轮廓，让日历/红心仍然一眼能认出来。 */
 .home-quick__icon {
   position: absolute; left: -10px; bottom: -24px;
   width: 88px; height: 88px; pointer-events: none;
@@ -1748,6 +1756,128 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
   font-size: 14.5px; font-weight: 500; letter-spacing: .01em;
   text-align: right; text-overflow: ellipsis; white-space: nowrap;
   transition: color .14s ease;
+}
+
+/* 窄版电台：与右边两条同高，只保留封面缩略、曲名和播放键。 */
+.home-radio {
+  position: relative; overflow: hidden; isolation: isolate;
+  min-width: 0; min-height: 62px; padding: 11px 16px;
+  display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 13px;
+  border: 1px solid color-mix(in srgb, var(--line) 52%, transparent);
+  border-radius: 12px; background: color-mix(in srgb, var(--cvg-accent, var(--acc)) 2%, var(--card));
+  color: var(--ink2);
+  transition: border-color .14s ease, background .14s ease, box-shadow .14s ease;
+}
+.home-radio:hover {
+  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 25%, transparent);
+  background: color-mix(in srgb, var(--cvg-glow, var(--acc)) 5%, var(--card));
+}
+.home-radio__art {
+  position: relative; width: 38px; height: 38px; overflow: hidden; border-radius: 10px;
+  display: grid; place-items: center; background: color-mix(in srgb, var(--cvg-accent, var(--acc)) 16%, var(--card));
+  grid-column: 1; grid-row: 1;
+}
+.home-radio__art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.home-radio__disc { color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 78%, var(--ink2)); font-size: 18px; line-height: 1; }
+.home-radio__shade, .home-radio__brand { display: none; }
+.home-radio__open {
+  position: absolute; inset: 0; z-index: 2; width: 100%; padding: 0; border: 0; border-radius: inherit;
+  background: transparent; cursor: pointer;
+}
+.home-radio__open:focus-visible { outline: 2px solid color-mix(in srgb, var(--cvg-accent, var(--acc)) 62%, transparent); outline-offset: -3px; }
+.home-radio__info {
+  position: static; z-index: 3; min-width: 0; display: flex; flex-direction: column; gap: 3px;
+  grid-column: 2; grid-row: 1; color: inherit; pointer-events: none;
+}
+.home-radio__title {
+  min-width: 0; overflow: hidden; color: var(--ink2); font-size: 14.5px; font-weight: 600;
+  letter-spacing: .01em; text-overflow: ellipsis; white-space: nowrap;
+}
+.home-radio__sub {
+  min-width: 0; overflow: hidden; color: var(--idx); font-size: 11.5px; line-height: 1.25;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.home-radio__controls {
+  position: static; z-index: 4; grid-column: 3; grid-row: 1;
+  display: flex; align-items: center; gap: 4px; pointer-events: none;
+}
+.home-radio__control {
+  display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0;
+  border: 0; border-radius: 999px; background: transparent; color: var(--ink2); cursor: pointer;
+  pointer-events: auto; transition: color .14s ease, background .14s ease, transform .1s ease;
+}
+.home-radio__control:hover:not(:disabled) { background: color-mix(in srgb, var(--cvg-accent, var(--acc)) 10%, transparent); color: var(--cvg-accent, var(--acc)); }
+.home-radio__control:active:not(:disabled) { transform: scale(.94); }
+.home-radio__control:disabled { opacity: .42; cursor: default; }
+.home-radio__control:focus-visible { outline: 2px solid color-mix(in srgb, var(--cvg-accent, var(--acc)) 62%, transparent); outline-offset: 1px; }
+.home-radio__play { background: color-mix(in srgb, var(--cvg-accent, var(--acc)) 10%, transparent); color: var(--cvg-accent, var(--acc)); }
+.home-radio__next, .home-radio__love { display: none; }
+.home-radio__love.on { color: #e8465a; }
+
+/* 宽版：左边正方形封面播放器，右边两条按剩余宽度铺满。
+   方形卡按容器宽度在 300–340px 间收敛，不再无限跟着左列放大：
+   新歌速递固定 6 行约 350px 高，方形卡超过这个数就会在右侧留下空段，
+   低于它则反过来在左侧留下空段。两者保持在同一条高度线上，宽窄都不空。 */
+@container home-quick (min-width: 520px) {
+  .home-quick {
+    grid-template-columns: clamp(300px, 62cqw, 340px) minmax(0, 1fr);
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    padding-bottom: 0;
+  }
+  .home-quick__links {
+    display: grid; grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 10px;
+    grid-column: 2; grid-row: 1 / span 2; min-width: 0;
+  }
+  .home-radio {
+    grid-column: 1; grid-row: 1 / span 2; align-self: start;
+    display: block; width: 100%; min-height: 0; padding: 0; aspect-ratio: 1;
+    border-color: #ffffff1c; border-radius: 14px; background: #17191f; color: #fff;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, .14);
+  }
+  .home-radio:hover { border-color: #ffffff34; background: #17191f; }
+  .home-radio__art {
+    position: absolute; inset: 0; width: auto; height: auto; border-radius: 0;
+    background:
+      radial-gradient(circle at 28% 20%, color-mix(in srgb, var(--cvg-accent, var(--acc)) 38%, transparent), transparent 48%),
+      linear-gradient(145deg, #252933, #111318 68%);
+  }
+  .home-radio__disc { color: #ffffff42; font-size: 58px; }
+  .home-radio__shade {
+    display: block; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    background:
+      linear-gradient(180deg, rgba(4, 6, 10, .3), transparent 34%),
+      linear-gradient(0deg, rgba(4, 6, 10, .9), rgba(4, 6, 10, .02) 62%);
+  }
+  .home-radio__brand {
+    position: absolute; top: 12px; left: 12px; z-index: 3;
+    display: inline-flex; align-items: center; gap: 6px; max-width: calc(100% - 24px);
+    padding: 5px 9px; border: 1px solid #ffffff18; border-radius: 999px;
+    background: rgba(8, 10, 14, .42); color: #fff; font-size: 10.5px; font-weight: 650; letter-spacing: .04em;
+    backdrop-filter: blur(8px); pointer-events: none;
+  }
+  .home-radio__brand-mark { font-size: 14px; line-height: 1; }
+  .home-radio__brand-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .home-radio__controls {
+    position: absolute; top: 50%; left: 50%; z-index: 4; transform: translate(-50%, -50%); gap: 8px;
+  }
+  .home-radio__control {
+    width: 34px; height: 34px; border: 1px solid #ffffff1c;
+    background: rgba(8, 10, 14, .48); color: #fff; backdrop-filter: blur(9px);
+  }
+  .home-radio__control:hover:not(:disabled) { border-color: #ffffff42; background: rgba(8, 10, 14, .68); color: #fff; }
+  .home-radio__play { width: 46px; height: 46px; border-color: #ffffff2a; background: #fff; color: #17191f; }
+  .home-radio__play:hover:not(:disabled) { border-color: #fff; background: #fff; color: #17191f; }
+  .home-radio__next, .home-radio__love { display: inline-flex; }
+  .home-radio__love.on { color: #ff6b7d; }
+  .home-radio__info {
+    position: absolute; right: 14px; bottom: 13px; left: 14px; z-index: 3;
+    color: #fff; gap: 3px;
+  }
+  .home-radio__title {
+    color: #fff; font-size: 15px; font-weight: 750;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, .34);
+  }
+  .home-radio__sub { color: #ffffffb8; text-shadow: 0 1px 6px rgba(0, 0, 0, .4); }
 }
 /* 次级按钮：同 gust-btn 结构，视觉更轻（透明底 + 发丝线） */
 .ghost-btn--quiet { background: transparent; color: var(--ink2); }
