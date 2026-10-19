@@ -90,7 +90,7 @@ function syncPayload(): DlSyncPayload {
     playing: player.playing,
     delayMs: getLyricDelayMs(c),
     durationSec: Math.round((c?.interval ?? player.duration) || 0),
-    canPrev: player.queue.length > 0,
+    canPrev: player.canPrev,
     canNext: player.queue.length > 0,
   };
 }

@@ -48,8 +48,8 @@ function snapshot(seeked = false) {
     status,
     posUs: Math.floor((player.time || 0) * 1e6),
     volume: player.muted ? 0 : player.volume,
-    loop: player.mode === "one" ? "Track" : "Playlist",
-    shuffle: player.shuffle, // 每日一套顺序（种子=本地日期，见 lib/shuffle.ts）：上报真实能力
+    loop: player.radioActive ? "None" : player.mode === "one" ? "Track" : "Playlist",
+    shuffle: !player.radioActive && player.shuffle, // 电台按固定轮次前进，对外不提供随机能力
     seeked,
     track: c
       ? {
@@ -73,7 +73,7 @@ function snapshot(seeked = false) {
     })),
     can: {
       next: player.queue.length > 0,
-      prev: player.queue.length > 0,
+      prev: player.canPrev,
       play: !!player.current,
       pause: !!player.current,
       seek: !!player.current,
@@ -90,6 +90,7 @@ function fingerprint(): string {
     player.playing ? "1" : "0",
     player.mode,
     player.shuffle ? "s" : "n",
+    player.radioActive ? "r" : "l",
     player.muted ? "m" : "u",
     Math.round(player.volume * 50), // 音量分 2% 粒度，避免拖滑块刷爆 IPC
     player.queue.length,

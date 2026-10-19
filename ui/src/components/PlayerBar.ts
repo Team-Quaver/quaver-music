@@ -60,7 +60,8 @@ export function PlayerBar(): HTMLElement {
   const $ = <T extends HTMLElement>(id: string) => el.querySelector<T>("#" + id)!;
   const cover = $("pb-cover"), title = $("pb-title"), sub = $("pb-sub");
   const time = $("pb-time"), fill = $("pb-fill");
-  const play = $("pb-play"), loop = $("pb-loop"), love = $("pb-love");
+  const play = $("pb-play"), prev = $<HTMLButtonElement>("pb-prev"), loop = $<HTMLButtonElement>("pb-loop"), love = $("pb-love");
+  const queueBtn = $<HTMLButtonElement>("pb-queue");
   const gallery = $("pb-gallery");
   const mute = $("pb-mute"), mute2 = $("pb-mute2");
   const pop = $("pb-volpop");
@@ -74,14 +75,18 @@ export function PlayerBar(): HTMLElement {
   };
   cover.onclick = toggleExpand;
 
-  $("pb-prev").onclick = () => player.prev();
+  prev.onclick = () => player.prev();
   // replay 档：单击重放当前曲（click 已处理），双击跳到队列里的上一首 —— 双击的头一击已 seek(0)，跳走前听不出痕迹；
   // previous 档单击本就是跳转、连点逐首回退（与连点下一首同语义），dblclick 再跳会多退一首，故只在 replay 档接管。
-  $("pb-prev").addEventListener("dblclick", () => { if (getPrevBehavior() === "replay") player.prev(true); });
+  prev.addEventListener("dblclick", () => { if (getPrevBehavior() === "replay") player.prev(true); });
   play.onclick = () => player.toggle();
   $("pb-next").onclick = () => player.next(false);
   love.onclick = () => player.toggleLove(player.current);
-  $("pb-queue").onclick = () => { player.queueOpen = !player.queueOpen; player.notifyPublic(); };
+  queueBtn.onclick = () => {
+    if (player.radioActive) return;
+    player.queueOpen = !player.queueOpen;
+    player.notifyPublic();
+  };
   // —— 桌面歌词开关 ——
   // 写路走偏好（quaver.conf 的 DesktopLyrics.Enabled）：主进程 config 落盘口看到该段键变更
   // 即 syncFromConf() 开/关覆盖层，与设置页同一扇门；按钮亮灭只认主进程回推的**窗口真相**
@@ -364,6 +369,8 @@ export function PlayerBar(): HTMLElement {
   // 订阅状态。notify 是 ~4Hz 的位置广播：所有 DOM 写入先比对签名再落，
   // 否则每帧重建 <img>/SVG 会反复触发图片重解码与 GC，把 V8 堆顶在高位。
   let lastTitle = "", lastSub = "", lastCover = "", lastPlaySig = "", lastLoop = "", lastLove = "", lastErr = "";
+  let lastCanPrev: boolean | null = null;
+  let lastRadioUi: boolean | null = null;
   let lastMarkKey: string | undefined;
   player.on(() => {
     const s = player.current;
@@ -393,18 +400,34 @@ export function PlayerBar(): HTMLElement {
       play.setAttribute("title", player.loading ? "加载中，点击取消" : player.error ? "加载失败，点击重试" : "播放/暂停");
     }
     paintQ();
+    const canPrev = player.canPrev;
+    if (canPrev !== lastCanPrev) {
+      lastCanPrev = canPrev;
+      prev.disabled = !canPrev;
+      prev.title = canPrev ? "上一首" : "无限电台只向前播放";
+      prev.setAttribute("aria-label", prev.title);
+    }
+    if (player.radioActive !== lastRadioUi) {
+      lastRadioUi = player.radioActive;
+      queueBtn.hidden = player.radioActive;
+      queueBtn.disabled = player.radioActive;
+      queueBtn.title = player.radioActive ? "无限电台不支持播放列表" : "播放队列";
+      queueBtn.setAttribute("aria-label", queueBtn.title);
+      if (player.radioActive) closeLPop();
+    }
     // 播放模式按钮：随机开 → 随机图标；关 → 当前循环档图标。
-    // 签名含 shuffle：只切随机不改循环时也得重画（图标换了）。
-    const loopSig = `${player.mode}|${player.shuffle}`;
+    // 签名含 shuffle / 电台态：只切随机或进出电台时也得重画（图标与禁用态换了）。
+    const loopSig = `${player.mode}|${player.shuffle}|${player.radioActive ? "radio" : "normal"}`;
     if (loopSig !== lastLoop) {
       lastLoop = loopSig;
       const loopName = player.mode === "all" ? "列表循环" : "单曲循环";
       loop.innerHTML = player.shuffle ? icons.shuffle : player.mode === "all" ? icons.loopAll : icons.loopOne;
+      loop.disabled = player.radioActive;
       // 「列表循环」与「单曲循环」的图形只差一个 9px 的「1」，光看图标分不出来 —— 把模式名挂到
       // title / aria-label 上，悬停与读屏都能确认当前处于哪一档（点按钮开菜单，三档里选一）。
       const shufNote = player.shuffle ? "随机播放 开（每日一套顺序）" : "随机播放 关";
-      loop.title = `${loopName} · ${shufNote}（点击打开菜单）`;
-      loop.setAttribute("aria-label", `播放模式：${loopName}，${shufNote}`);
+      loop.title = player.radioActive ? "无限电台不支持循环/随机设置" : `${loopName} · ${shufNote}（点击打开菜单）`;
+      loop.setAttribute("aria-label", loop.title);
       if (el.classList.contains("lp-open")) syncLPop();
     }
     const loveSig = (s?.mid ?? "") + (s && player.loved.has(s.mid) ? "1" : "0");

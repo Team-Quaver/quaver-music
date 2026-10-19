@@ -263,6 +263,20 @@ export function bootShell() {
   frame.append(PlayerBar());
   document.body.append(NowPlaying(), QueuePanel());
 
+  // 猜你喜欢是播放器入口而不是普通列表页：已经在 #/guess 时再点一次不会触发 hashchange，
+  // 这里把“点击”本身补成“展开/重开电台”，否则收起正在播放页后点侧栏会像没反应。
+  frame.querySelector<HTMLAnchorElement>('.nav a[data-route="/guess"]')?.addEventListener("click", (e) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (currentRoute().path !== "/guess") return; // 其它页交给 hashchange → guessView.startRadio()
+    e.preventDefault();
+    if (player.radioActive) {
+      player.expanded = true;
+      player.notifyPublic();
+    } else {
+      void player.startRadio().catch(() => { /* 错误态已写进 player.radioError，页面会显示 */ });
+    }
+  });
+
   window.addEventListener("hashchange", renderRoute);
   // —— 路由模块预取：只由交互意图触发 ——
   // 指针落到导航项/卡片链接上就把那一块拉起来（产物在本地磁盘/asar，代价是一次解析），

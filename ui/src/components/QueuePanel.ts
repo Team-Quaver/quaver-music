@@ -109,7 +109,8 @@ export function QueuePanel(): HTMLElement {
   }
 
   function applyOpen() {
-    const open = player.queueOpen;
+    // 无限电台没有可管理的播放列表：即使外部把 queueOpen 置真也不让面板出现。
+    const open = player.queueOpen && !player.radioActive;
     el.classList.toggle("open", open);
     // 关闭态不只是「看不见」：连同 tab 焦点/读屏/「聚焦即滚进视野」一起摘掉。
     // 面板必须常驻 DOM（不能用 display:none，否则没有过渡），不 inert 的话键盘 Tab 能进到里面，
@@ -163,7 +164,7 @@ export function QueuePanel(): HTMLElement {
     // 是持续白烧 GC；syncMount 也收进守卫：它读 clientWidth 会强制布局，无需每帧跑
     // （宽度变化由 ResizeObserver 独立覆盖，expanded/queueOpen 在签名里）。
     const s = player.queueVersion + "#" + player.index + "#" + player.playing + "#"
-      + player.loading + "#" + player.expanded + "#" + player.queueOpen;
+      + player.loading + "#" + player.expanded + "#" + player.queueOpen + "#" + player.radioActive;
     if (s === sig) return; // 内容没变不重建
     sig = s;
     syncMount();

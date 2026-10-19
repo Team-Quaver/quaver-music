@@ -83,6 +83,15 @@ class Player {
   /** 队列内容版本号：任何队列变更 +1（QueuePanel 据此做 4Hz 去重，
    *  免得每次位置广播都把整条队列拼成大字符串比对） */
   queueVersion = 0;
+  /** 猜你喜欢无限电台：运行时态，不随会话存档恢复。
+   *  radioEnd = 当前这一轮最后一首在 queue 里的下标；播到它时补下一轮并裁掉当前曲之前的历史。 */
+  private radioOn = false;
+  private radioEnd = -1;
+  private _radioLoading = false;
+  private radioWaitingNext = false;
+  private radioSeq = 0;
+  private radioRetryTimer: number | null = null;
+  radioError = "";
   mode: Mode = "all";
   /** 随机播放（每日一套顺序，种子 = 本地日期，见 lib/shuffle.ts）。
    *  会话存档字段：与 mode 同一个生命周期 —— 退出前开着，重进还是开着。 */
@@ -434,6 +443,11 @@ class Player {
   get current(): Song | undefined { return this.queue[this.index]; }
   get playing() { return !this.transport.paused; }
   get paused() { return this.transport.paused; }
+  /** 无限电台是否生效（播放条据此屏蔽上一曲、QueuePanel 可据此显示电台态） */
+  get radioActive() { return this.radioOn; }
+  get radioLoading() { return this._radioLoading; }
+  /** 上一曲是否可用：电台只向前走，必须把按钮/媒体键的入口一并关掉，不能只藏 UI */
+  get canPrev() { return this.queue.length > 0 && !this.radioOn; }
   get time() { return this.transport.position; }
   get duration() { return this.transport.duration || this.current?.interval || 0; }
   /** 供 MPRIS/外部控制的暂停（与 toggle 分离：不带重试/取消语义） */
@@ -482,8 +496,136 @@ class Player {
     if (this.current) void this.fetchLyric(this.current);
   }
 
+  private clearRadioRetry() {
+    if (this.radioRetryTimer !== null) {
+      window.clearTimeout(this.radioRetryTimer);
+      this.radioRetryTimer = null;
+    }
+  }
+
+  /** 退出电台会话（不动当前播放）：任何“换整张队列/手动改队列”的动作都先走这里。 */
+  private exitRadio() {
+    this.radioSeq++;
+    this.clearRadioRetry();
+    this.radioOn = false;
+    this.radioEnd = -1;
+    this._radioLoading = false;
+    this.radioWaitingNext = false;
+    this.radioError = "";
+  }
+
+  stopRadio() {
+    if (!this.radioOn) return;
+    this.exitRadio();
+    this.notify();
+  }
+
+  /**
+   * 开启猜你喜欢无限电台：立刻展开正在播放页，先取一轮 5 首，取到后整队列起播。
+   * 本轮第五首开始播放时由 maybeExtendRadio() 续下一轮；每一轮都只请求 rounds=1。
+   */
+  async startRadio(): Promise<boolean> {
+    const seq = ++this.radioSeq;
+    const prev = { on: this.radioOn && this.radioEnd >= 0, end: this.radioEnd, waiting: this.radioWaitingNext };
+    this.clearRadioRetry();
+    this.radioOn = true;
+    this.radioEnd = -1;
+    this._radioLoading = true;
+    this.radioWaitingNext = false;
+    this.radioError = "";
+    this.error = "";
+    this.queueOpen = false; // 无限电台没有可编辑的播放列表，进入即收掉队列面板
+    const wasExpanded = this.expanded;
+    this.expanded = true; // 不等网络：点击入口就先进正在播放页
+    this.notify();
+    try {
+      const songs = await this.fetchRadioRound();
+      if (seq !== this.radioSeq) return false;
+      if (!songs.length) throw new Error("猜你喜欢暂无推荐，登录后可得");
+      this.queue = songs;
+      this.index = 0;
+      this.radioEnd = this.queue.length - 1;
+      this._radioLoading = false;
+      this.queueVersion++;
+      this.error = "";
+      this.notify();
+      void this.startCurrent();
+      return true;
+    } catch (e) {
+      if (seq !== this.radioSeq) return false;
+      // 换一批失败时把上一轮电台会话放回去；首次进入失败则回到普通播放态。
+      this.radioOn = prev.on;
+      this.radioEnd = prev.end;
+      this._radioLoading = false;
+      this.radioWaitingNext = prev.waiting;
+      this.radioError = String((e as Error)?.message ?? e);
+      this.expanded = wasExpanded;
+      this.notify();
+      if (this.radioOn && this.radioEnd >= 0 && this.index >= this.radioEnd) {
+        this.clearRadioRetry();
+        this.radioRetryTimer = window.setTimeout(() => {
+          this.radioRetryTimer = null;
+          this.maybeExtendRadio();
+        }, 5_000);
+      }
+      throw e;
+    }
+  }
+
+  /** 单轮电台取歌：上游一次固定 5 首，所以这里显式 rounds=1，不把多轮结果当成一张歌单。 */
+  private async fetchRadioRound(): Promise<Song[]> {
+    const r = await api<{ songs?: Song[] }>("/recommend/guess?rounds=1");
+    return (r?.songs ?? []).filter((s) => !!s?.mid).slice(0, 5);
+  }
+
+  /** 播到本轮最后一首时续批；radioLoading 同时挡住自然结束与手点下一首的重复请求。 */
+  private maybeExtendRadio() {
+    if (!this.radioOn || this._radioLoading || this.radioEnd < 0 || this.index < this.radioEnd) return;
+    void this.extendRadio();
+  }
+
+  /** 追加下一轮 5 首，并删除当前曲之前的全部历史。当前曲对象本身留在队列首位。 */
+  private async extendRadio() {
+    if (!this.radioOn || this._radioLoading || this.radioEnd < 0 || this.index < this.radioEnd) return;
+    this.clearRadioRetry();
+    const seq = this.radioSeq;
+    this._radioLoading = true;
+    this.radioError = "";
+    this.notify();
+    try {
+      const songs = await this.fetchRadioRound();
+      if (seq !== this.radioSeq) return;
+      if (!songs.length) throw new Error("猜你喜欢暂无更多推荐");
+      this.queue.push(...songs);
+      const anchor = this.current;
+      const at = anchor ? this.queue.indexOf(anchor) : this.index;
+      const drop = Math.max(0, at);
+      if (drop) this.queue.splice(0, drop);
+      this.index = Math.max(0, this.index - drop);
+      this.queueVersion++;
+      this.radioEnd = this.queue.length - 1;
+      this._radioLoading = false;
+      this.notify();
+      if (this.radioWaitingNext) {
+        this.radioWaitingNext = false;
+        if (this.index + 1 < this.queue.length) this.jump(this.index + 1);
+      }
+    } catch (e) {
+      if (seq !== this.radioSeq) return;
+      this._radioLoading = false;
+      this.radioError = String((e as Error)?.message ?? e);
+      this.notify();
+      // 网络/上游节流时别让第五首放完后回绕到旧歌：停在轮末，稍后自动再续。
+      this.radioRetryTimer = window.setTimeout(() => {
+        this.radioRetryTimer = null;
+        this.maybeExtendRadio();
+      }, 5_000);
+    }
+  }
+
   /** 用新列表替换队列并从 i 播放（整队列替换：视图语义一致）。不 await：双击即刻打断切歌。 */
   playList(songs: Song[], i = 0) {
+    this.exitRadio();
     this.queue = songs.filter((s) => s?.mid);
     this.index = Math.max(0, Math.min(i, this.queue.length - 1));
     this.queueVersion++;
@@ -497,6 +639,7 @@ class Player {
   enqueueNext(song: Song) {
     if (!song?.mid) return;
     if (this.index < 0 || !this.queue.length) { this.playList([song], 0); return; }
+    this.exitRadio();
     this.queueVersion++;
     this.queue.splice(this.index + 1, 0, song);
     this.notify();
@@ -508,6 +651,7 @@ class Player {
     const list = songs.filter((s) => s?.mid);
     if (!list.length) return;
     if (this.index < 0 || !this.queue.length) { this.playList(list, 0); return; }
+    this.exitRadio();
     this.queueVersion++;
     this.queue.splice(this.index + 1, 0, ...list);
     this.notify();
@@ -520,6 +664,7 @@ class Player {
   playNextNow(song: Song) {
     if (!song?.mid) return;
     if (this.index < 0 || !this.queue.length) { this.playList([song], 0); return; }
+    this.exitRadio();
     this.queue.splice(this.index + 1, 0, song);
     this.index++;
     this.queueVersion++;
@@ -530,6 +675,7 @@ class Player {
    *  删当前曲之前的歌：指针前移；删之后的歌：指针不动。 */
   removeAt(i: number) {
     if (i < 0 || i >= this.queue.length) return;
+    this.exitRadio();
     const cur = this.index;
     this.queue.splice(i, 1);
     this.queueVersion++;
@@ -546,6 +692,7 @@ class Player {
   moveInQueue(from: number, to: number) {
     const n = this.queue.length;
     if (from === to || from < 0 || to < 0 || from >= n || to >= n) return;
+    this.exitRadio();
     const [s] = this.queue.splice(from, 1);
     this.queue.splice(to, 0, s);
     this.queueVersion++;
@@ -558,6 +705,7 @@ class Player {
   /** 清空队列并停止播放 */
   clearQueue() {
     if (!this.queue.length && this.index < 0) { this.notify(); return; }
+    this.exitRadio();
     this.queue = [];
     this.index = -1;
     this.queueVersion++;
@@ -568,6 +716,7 @@ class Player {
   jump(i: number) {
     if (i < 0 || i >= this.queue.length) return;
     this.index = i;
+    this.maybeExtendRadio();
     void this.startCurrent();
   }
 
@@ -686,6 +835,8 @@ class Player {
       this.notify();
       return;
     }
+    // 电台的“下一首”还负责轮末续批；这里不能绕过 next() 直接 stepInOrder 回绕。
+    if (this.radioOn) { this.next(true); return; }
     const i = this.stepInOrder(1);
     if (i < 0) { this.loading = false; this.notify(); return; }
     this.jump(i);
@@ -979,6 +1130,13 @@ class Player {
    *  这样「走一步 / 走 N 步」两种模式共用同一套 step/walk，不必各写一份下标算术。 */
   private identityOrder: number[] = [];
   private orderOf(): number[] {
+    // 电台固定按队列原序向前走：随机/单曲循环都不能打乱“每五首一轮”的边界。
+    if (this.radioOn) {
+      if (this.identityOrder.length !== this.queue.length) {
+        this.identityOrder = Array.from({ length: this.queue.length }, (_, i) => i);
+      }
+      return this.identityOrder;
+    }
     if (this.shuffle) return this.dailyOrder();
     if (this.identityOrder.length !== this.queue.length) {
       this.identityOrder = Array.from({ length: this.queue.length }, (_, i) => i);
@@ -1036,6 +1194,23 @@ class Player {
 
   next(auto = false) {
     if (!this.queue.length) return;
+    if (this.radioOn) {
+      if (this.radioEnd < 0) return; // 首轮还没取回：旧队列不参与电台推进
+      // 轮末还没等到下一轮时先挂起，绝不回绕到旧队列。
+      if (this.index >= this.radioEnd && this.index >= this.queue.length - 1) {
+        this.radioWaitingNext = true;
+        this.maybeExtendRadio();
+        return;
+      }
+      const i = this.index + 1;
+      if (i >= this.queue.length) {
+        this.radioWaitingNext = true;
+        this.maybeExtendRadio();
+        return;
+      }
+      this.jump(i);
+      return;
+    }
     if (auto && this.mode === "one") {
       this.transport.seek(0);
       if (this.transport.paused) void this.transport.play().catch(() => {});
@@ -1049,6 +1224,7 @@ class Player {
 
   prev(force = false) {
     if (!this.queue.length) return;
+    if (this.radioOn) return; // 无限电台屏蔽上一曲（按钮/热键/媒体键最终都落到这里）
     // 「上一首」逻辑（Playing.PrevReplay，设置页即时生效）：
     // replay=把当前曲从头重放（播放条双击走 force 直接切上一首）；previous=直接切到队列里的上一首。
     // force 只由播放条双击与媒体键/热键的连按判定传：单次动作永远按单击逻辑走
@@ -1080,6 +1256,7 @@ class Player {
 
   /** 播放模式菜单用：直接落某一档（不再靠 cycleMode 推进，菜单点哪档就是哪档） */
   setMode(m: Mode) {
+    if (this.radioOn) return; // 无限电台按固定轮次向前走，循环档不生效也不可改
     if (this.mode === m) return;
     this.mode = m;
     this.notify();
@@ -1088,6 +1265,7 @@ class Player {
   /** 随机播放开关。开着时按当日种子重排当日顺序 —— 因为种子只由日期决定，
    *  当天反复开关得到的都是同一套顺序（不会每次开关都换一批歌）。 */
   toggleShuffle() {
+    if (this.radioOn) return; // 电台不支持随机播放
     this.shuffle = !this.shuffle;
     this.notify();
   }

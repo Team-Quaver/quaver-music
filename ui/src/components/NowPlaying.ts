@@ -56,6 +56,7 @@ export function NowPlaying(): HTMLElement {
           <div class="np-title np-marquee" id="np-title"><span class="mt">未在播放</span></div>
           <div class="np-artist np-marquee" id="np-artist"><span class="mt"></span></div>
           <div class="np-morewrap">
+            <button class="np-love" id="np-love" type="button" aria-label="收藏" aria-pressed="false">${icons.heart}</button>
             <button class="np-qpill" id="np-quality" type="button" aria-haspopup="dialog" aria-expanded="false" title="音质"></button>
             <button class="np-more" id="np-more" type="button" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false" title="更多操作">${icons.more}</button>
             <div class="np-menu" id="np-menu"></div>
@@ -112,6 +113,8 @@ export function NowPlaying(): HTMLElement {
   // 开合是 class 驱动的缩放动画（.np-menu，锚在按钮圆心上）；跳转类动作先播收拢动画再走 hash。
   const moreBtn = $("np-more");
   const moreMenu = $("np-menu");
+  const loveBtn = $<HTMLButtonElement>("np-love");
+  loveBtn.onclick = () => void player.toggleLove(player.current);
   let auxButtons = new Map<LyricAuxMode, HTMLButtonElement>();
   const menuOpen = () => moreMenu.classList.contains("open");
   // 与 CSS 收拢过渡时长（.13s）对齐：跳转前留出动画时间，视觉上是「缩回去 → 落到目标页」
@@ -271,6 +274,7 @@ export function NowPlaying(): HTMLElement {
   const qPill = $("np-quality"), qInfo = $("np-qinfo");
   const qinfoOpen = () => qInfo.classList.contains("open");
   let lastQLabel = ""; // 胶囊文案签名（4Hz notify 里防重复写 DOM）
+  let lastLove = "";
   let qFillSig = "";   // 浮窗内容签名
   function onDocDownQ(e: PointerEvent) {
     const t = e.target as Node;
@@ -620,6 +624,17 @@ export function NowPlaying(): HTMLElement {
       lastQLabel = qLabel;
       qPill.textContent = qLabel;
       qPill.title = `音质：${qLabel}${player.current && ls ? "（实际档位）" : "（当前设置）"}；点看这条流的采样率/位深/编码/码率/声道`;
+    }
+    const loved = !!s && player.loved.has(s.mid);
+    const loveSig = `${s?.mid ?? ""}|${loved ? "1" : "0"}|${s?.local ? "l" : "o"}`;
+    if (loveSig !== lastLove) {
+      lastLove = loveSig;
+      loveBtn.innerHTML = loved ? icons.heartFill : icons.heart;
+      loveBtn.classList.toggle("on", loved);
+      loveBtn.disabled = !s || !!s.local;
+      loveBtn.setAttribute("aria-pressed", String(loved));
+      loveBtn.title = s?.local ? "本地歌曲不支持在线收藏" : loved ? "取消收藏" : "收藏";
+      loveBtn.setAttribute("aria-label", loveBtn.title);
     }
     if (qinfoOpen()) void syncQInfo();
 
