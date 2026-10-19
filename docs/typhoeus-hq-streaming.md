@@ -47,6 +47,14 @@ ui (api.ts getPlayUrl → /api/stream/resolve → <audio> src=/api/stream/<token
 - 曲目缺高档资源（104003/404）→ rank 回退链逐档取链（degraded=true 徽章 `→无损 SQ`）。
 - vkey 不出后端：浏览器只见随机 token；token 滑动过期 2h；中继透传 CDN 的
   206/416/Content-Range（`<audio>` seek 全兼容，headless Chrome 实播验证）。
+- 断流分两侧，只有上游侧才算故障：播放器 seek/切歌/暂停或预加载被丢弃时，Chromium 关掉
+  `/api/stream/<token>`，主进程中继随即 `ac.abort()` 掐掉它对 sidecar 的 fetch —— sidecar
+  看到 `context canceled` 或写端 `connection reset by peer / broken pipe`（本机回环，来源
+  确定是客户端）。这类中断是正常操作，`typhoeus.IsClientAbort` 按「错误来自写端还是读端」
+  打标区分，日志降为 DEBUG（默认不打，`QUAVER_LOG_LEVEL=debug` 放开），且不再空耗
+  250ms 退避 + 一次注定失败的回源续传。上游 CDN reset/提前 EOF 仍走续传，补不齐就 WARN。
+  实测参照：某次开发会话 12482 行日志里这条 WARN 刷了 1785 次（占 14%），
+  三类签名全部是客户端侧（1194 canceled / 383 reset / 208 broken pipe），零真故障。
 
 ## 加密曲解密播放复现（Go 版，以 DECO*27《モニタリング/视奸》为例）
 
