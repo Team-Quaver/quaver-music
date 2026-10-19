@@ -115,6 +115,11 @@ contextBridge.exposeInMainWorld("quaverDebug", {
   metrics: () => ipcRenderer.invoke("quaver:metrics"),
 });
 
+// 开源致谢（设置 → 通用 → 版本号下方）：仓库链接交给系统浏览器，不在应用内开新窗。
+contextBridge.exposeInMainWorld("quaverCredits", {
+  open: (url: string) => ipcRenderer.invoke("quaver:credits-open", url),
+});
+
 // 凭证存储状态（只读、不含凭证本体）：确认这次走的是系统密钥管理器还是 0600 明文。
 contextBridge.exposeInMainWorld("quaverSecurity", {
   info: () => ipcRenderer.invoke("quaver:credential-info"),

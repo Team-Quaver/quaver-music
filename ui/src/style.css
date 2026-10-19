@@ -1889,6 +1889,7 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 
 /* 设置页的分组不再用卡片底色，统一走发丝线；关于区居中收尾 */
 .set-view .set-about { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 32px 0; }
+.set-view .credits-btn { margin-top: 8px; padding: 7px 16px; font-size: 12.5px; }
 
 /* ===================== 浮层菜单的玻璃（共享规则） =====================
    七处菜单 + 三个模态弹窗（更新/本地插件/插件设置，共用 .upd-dialog）的底片 / 描边 /
@@ -2246,6 +2247,32 @@ html[data-theme="dark"] .upd-warn.upd-switch.is-risk { color: #e66; }
 .dbg-note { font-size: 11.5px; line-height: 1.55; margin: 10px 0 0; }
 .dbg-note2 { font-size: 11.5px; line-height: 1.55; margin: 6px 0 0; }
 .dbg-auto { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; opacity: .8; }
+
+/* —— 开源软件 / 第三方库引用弹窗（components/CreditsDialog.ts）——
+   壳沿用 .upd-overlay + .upd-dialog；列表项是仓库入口，许可证做成右侧胶囊标签。 */
+.crd-dialog { width: min(560px, 92vw); }
+.crd-list { display: flex; flex-direction: column; gap: 8px; }
+.upd-notes a.crd-item {
+  display: flex; align-items: center; gap: 12px; min-width: 0;
+  padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--card); color: var(--ink); text-decoration: none;
+  transition: border-color .16s ease, background .16s ease;
+}
+.upd-notes a.crd-item:hover {
+  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 58%, var(--line));
+  background: color-mix(in srgb, var(--cvg-accent, var(--acc)) 7%, var(--card));
+  text-decoration: none;
+}
+.upd-notes a.crd-item:focus-visible { outline: 2px solid var(--cvg-accent, var(--acc)); outline-offset: 2px; }
+.crd-repo { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.crd-license {
+  flex: 0 0 auto; margin-left: auto; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--ink2);
+  font: 11px ui-monospace, "JetBrains Mono", monospace; letter-spacing: .2px;
+}
+.crd-arrow { flex: 0 0 auto; color: var(--ink2); font-size: 14px; }
+.crd-foot { gap: 10px; }
+.crd-note { font-size: 11.5px; }
 
 @media (prefers-reduced-motion: reduce) {
   .upd-overlay, .upd-dialog, .upd-overlay.leaving, .upd-overlay.leaving .upd-dialog { animation: none; }

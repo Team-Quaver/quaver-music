@@ -1074,6 +1074,31 @@ ipcMain.handle("quaver:devtools", (_e, msg) => {
   return { ok: true, open: false };
 });
 
+// 开源致谢弹窗里的仓库链接。渲染层只传仓库地址，主进程限定为白名单内的 GitHub 仓库后
+// 交系统浏览器打开 —— 应用窗口本身禁止 target=_blank / window.open 新建 BrowserWindow。
+const CREDIT_REPOS = new Set([
+  "electron/electron",
+  "vitejs/vite",
+  "amll-dev/applemusic-like-lyrics",
+  "splayer-dev/lyric-kit",
+  "team-quaver/quaver-sparkle",
+  "team-quaver/typhoeus-go",
+  "l-1124/qqmusicapi",
+]);
+ipcMain.handle("quaver:credits-open", async (_e, rawUrl) => {
+  try {
+    const url = new URL(String(rawUrl ?? ""));
+    const repo = url.pathname.replace(/^\/+|\/+$/g, "").toLowerCase();
+    if (url.protocol !== "https:" || url.hostname !== "github.com" || url.search || url.hash || !CREDIT_REPOS.has(repo)) {
+      return { ok: false, error: "不是允许打开的引用仓库" };
+    }
+    await shell.openExternal(`https://github.com/${repo}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+});
+
 // 进程/内存自检：一次拍平所有事实源，渲染层只负责摆出来（口径说明写在 DebugPanel 里）。
 // 为什么不在渲染层自己量：Chromium 的多进程模型里，渲染层看不见主进程、GPU 进程与外部子进程。
 ipcMain.handle("quaver:metrics", () => {

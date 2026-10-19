@@ -1,5 +1,6 @@
 // Quaver — 路由视图：settings（由 src/views/index.ts 按需动态 import，不在首屏解析）
 import { mountHotkeysPanel } from "../components/HotkeySettings";
+import { showCreditsDialog } from "../components/CreditsDialog";
 import { showDebugDialog } from "../components/DebugDialog";
 import { toast } from "../components/SongMenu";
 import { currentAccent, refreshAccent } from "../lib/accent";
@@ -490,10 +491,11 @@ export default async function settingsView(root: HTMLElement) {
       </div>
 
       <div class="set-group set-about">
-        <div class="about-img"><img class="ic-dark" src="/quaver-icon-dark.svg" width=60 alt="Quaver Icon"><img class="ic-light" src="/quaver-icon.svg" width=60 alt="Quaver Icon">
+        <div class="about-img"><img class="ic-dark" src="/quaver-icon-dark.svg" width=60 alt="Quaver Icon"><img class="ic-light" src="/quaver-icon.svg" width=60 alt="Quaver Icon"></div>
         <h3> Quaver Music </h3>
         <h4> 现代、流畅、百变的第三方 QQ 音乐客户端，基于 Electron + Vite + Golang </h4>
         <small> Version: ${__APP_VERSION__} </small>
+        <button class="ghost-btn credits-btn" id="open-credits" type="button">开源软件与第三方库（Credits）</button>
       </div>
     </section>
     
@@ -1449,6 +1451,8 @@ export default async function settingsView(root: HTMLElement) {
   wrap.querySelector<HTMLElement>("#open-log")!.onclick = () => (location.hash = "#/log");
   // 自检弹窗：一次性动作，无常驻状态（弹窗自己管定时器）
   wrap.querySelector<HTMLElement>("#open-dbg")!.onclick = () => showDebugDialog();
+  // 开源致谢：同样是一次性弹窗，仓库链接由主进程交给系统浏览器打开
+  wrap.querySelector<HTMLElement>("#open-credits")!.onclick = () => showCreditsDialog();
 
   // Sparkle 面板：切路由时清理插件设置区的订阅与 render 清理函数
   const sparklePanel = wrap.querySelector<HTMLElement>('[data-panel="plugins"]')!;

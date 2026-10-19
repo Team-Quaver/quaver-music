@@ -31,6 +31,11 @@ interface Window {
     metrics(): Promise<any>;
   };
 
+  /** 开源致谢弹窗：只负责把 GitHub 仓库交给系统浏览器打开。 */
+  quaverCredits?: {
+    open(url: string): Promise<{ ok: boolean; error?: string }>;
+  };
+
   quaverUpdate?: {
     invoke(msg: UpdateInvokeMsg): Promise<any>;
     onProgress(cb: (p: UpdateProgressPayload) => void): void;
