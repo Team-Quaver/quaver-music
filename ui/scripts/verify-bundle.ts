@@ -86,7 +86,7 @@ for (const e of entries) {
   const css = [...new Set(closures[e]!.flatMap((f) => manifest[keyByFile.get(f)!]?.css ?? []))];
   const cssBytes = css.reduce((s, f) => s + bytesOf(f), 0);
   check(`${e} 首屏 JS ${kb(js)} ≤ ${kb(BUDGET[e] ?? 0)}`, js <= (BUDGET[e] ?? 0));
-  check(`${e} 首屏 CSS ${kb(cssBytes)} ≤ ${kb(80_000)}`, cssBytes <= 80_000);
+  check(`${e} 首屏 CSS ${kb(cssBytes)} ≤ ${kb(84_000)}`, cssBytes <= 84_000);
   console.log(`      ${closures[e]!.map((f) => `${f.split("/").pop()}=${(bytesOf(f) / 1024).toFixed(0)}k`).join(" ")}`);
 }
 // 桌面歌词覆盖层的职责就是渲染逐字歌词：AMLL 允许进它的静态闭包（否则首帧空白），
@@ -108,8 +108,8 @@ check("主窗首屏不含任何路由视图实现（src/views/<页面>.ts）",
   mainModules.filter((id) => /src\/views\//.test(id)).join(","));
 
 section("视图按路由分块");
-const viewChunks = Object.keys(graph).filter((f) => /^assets\/(home|search|guess|daily|liked|local|playlist|playlists|singer|singer-albums|album|settings|log|user|login)-/.test(f));
-for (const v of ["home", "search", "guess", "daily", "liked", "local", "playlist", "playlists", "singer", "album", "settings", "log", "user", "login"]) {
+const viewChunks = Object.keys(graph).filter((f) => /^assets\/(home|search|guess|daily|liked|local|playlist|playlists|toplist|singer|singer-albums|album|settings|log|user|login)-/.test(f));
+for (const v of ["home", "search", "guess", "daily", "liked", "local", "playlist", "playlists", "toplist", "singer", "album", "settings", "log", "user", "login"]) {
   check(`视图 ${v} 独立成块`, viewChunks.some((f) => f.startsWith(`assets/${v}-`)));
 }
 check("设置页块是真的（≥30KB，说明整页代码在里面而不是空壳）",

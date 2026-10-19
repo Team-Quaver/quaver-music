@@ -1,0 +1,12 @@
+/* 榜单详情页的期次选择器：与吸顶条同高，窄屏优先保留「播放全部」。 */
+.top-period { display: inline-flex; align-items: center; gap: 7px; min-width: 0; color: var(--ink2); font-size: 12px; }
+.top-period[hidden], .top-period__current[hidden] { display: none; }
+.top-period__label { flex: none; }
+.top-period__current { flex: none; color: var(--ink3); font-size: 12px; white-space: nowrap; }
+.top-period__select {
+  max-width: clamp(122px, 26vw, 260px); height: 30px; padding: 0 28px 0 10px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--card);
+  color: var(--ink2); font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.top-period__select:hover:not(:disabled) { border-color: var(--ink2); }
+.top-period__select:disabled { opacity: .55; cursor: default; }

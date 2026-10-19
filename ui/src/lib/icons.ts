@@ -15,6 +15,7 @@ export const icons = {
   heartFill: svg('<path d="M12 20s-7-4.6-9-9c-1.3-3 .8-6.5 4-6.5 2 0 3.5 1.2 5 3 1.5-1.8 3-3 5-3 3.2 0 5.3 3.5 4 6.5-2 4.4-9 9-9 9z" fill="currentColor" stroke="currentColor"/>'),
   radio: svg('<rect x="4" y="9" width="16" height="11" rx="2.5"/><path d="M8 9l8-4"/><circle cx="8.5" cy="14.5" r="2.2"/><path d="M13.5 13h3M13.5 16h2"/>'),
   calendar: svg('<rect x="4" y="5.5" width="16" height="15" rx="2"/><path d="M8 3.5v4M16 3.5v4M4 10h16"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17.5h.01M12 17.5h.01M16 17.5h.01"/>'),
+  sparkles: svg('<path d="M11 3l1.7 4.3L17 9l-4.3 1.7L11 15l-1.7-4.3L5 9l4.3-1.7z"/><path d="M18.5 15l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>', 18, 1.6),
   queue: svg('<path d="M4 6h11M4 11h11M4 16h7"/><path d="M17 13.5v6l4.5-3z" fill="currentColor" stroke="none"/>'),
   chevronDown: svg('<path d="M6 9l6 6 6-6"/>'),
   chevronUp: svg('<path d="M6 15l6-6 6 6"/>'),

@@ -1,0 +1,23 @@
+/* 首页的 AI 歌单 / 排行榜段：与推荐区同一套分隔与卡片语言。 */
+.home-ai { margin-top: 30px; padding-top: 22px; border-top: 1px solid var(--line); }
+.home-ai .sec-head { margin-bottom: 12px; }
+.home-ai__title h2 { display: flex; align-items: center; gap: 7px; }
+.home-ai__icon { display: inline-flex; color: var(--cvg-accent, var(--acc)); }
+.home-ai__icon svg { display: block; }
+.home-ai__refresh { flex: none; }
+.home-ai__loading { grid-column: 1 / -1; padding: 12px 0; }
+.ai-card:hover { background: color-mix(in srgb, var(--cvg-accent, var(--acc)) 7%, var(--row-hover)); }
+.ai-card__badge {
+  position: absolute; top: 8px; left: 8px; z-index: 1;
+  padding: 2px 6px; border: 1px solid #fff3; border-radius: 6px;
+  background: #0009; color: #fff;
+  font-size: 9.5px; font-weight: 700; line-height: 1.35; letter-spacing: .08em;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+.home-toplist { margin-top: 30px; padding-top: 22px; border-top: 1px solid var(--line); }
+.home-toplist__head { align-items: flex-start; flex-wrap: wrap; }
+.home-toplist__groups { flex: 1 1 auto; flex-wrap: wrap; justify-content: flex-end; margin: 0; }
+.home-toplist__groups .tag { padding: 4px 12px; font-size: 12px; }
+.home-toplist__grid { margin-top: 12px; }

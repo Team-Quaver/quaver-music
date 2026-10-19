@@ -80,6 +80,29 @@ export interface SonglistCard {
 
 export interface RecommendSonglistResp { songlists?: SonglistCard[] }
 
+/** 榜单分类/期次历史：周榜为 year + sub_period（ISO 周），日/实时榜靠 period 自带日期。 */
+export interface ToplistHistory { year?: number[]; sub_period?: number[][] }
+
+/** 首页榜单卡片（/top/category 归一化后的形状）。 */
+export interface ToplistCard {
+  id?: number | string; title?: string; picurl?: string; desc?: string;
+  songnum?: number; listennum?: number; period?: string; update_type?: number;
+  update_time?: string; update_tips?: string; title_detail?: string; title_share?: string;
+  history?: ToplistHistory; history_supported?: boolean;
+}
+
+export interface ToplistGroup { id?: number; name?: string; toplists?: ToplistCard[] }
+export interface ToplistCategoryResp { groups?: ToplistGroup[] }
+
+/** 榜单详情与歌单详情近似的契约，供同一套信息头/歌曲行复用。 */
+export interface ToplistInfo {
+  id?: number | string; title?: string; picurl?: string; desc?: string; songnum?: number;
+  listennum?: number; period?: string; update_type?: number; update_time?: string;
+  update_tips?: string; title_detail?: string; title_share?: string; history?: ToplistHistory;
+}
+
+export interface ToplistDetailResp { info?: ToplistInfo | null; songs?: Song[]; total?: number; hasmore?: boolean }
+
 export interface DailyResp { songs?: Song[]; info?: { desc?: string } }
 
 export interface HotkeyResp { vec_hotkey?: { title?: string; query?: string }[] }
@@ -297,11 +320,13 @@ export const compactCount = (value: unknown) => {
 // 卡片播放（悬停浮出的圆形播放键）：取集合歌曲后直接开播，失败则落到详情页
 
 export // 卡片播放（悬停浮出的圆形播放键）：取集合歌曲后直接开播，失败则落到详情页
-async function cardPlay(kind: "playlist" | "album" | "singer", id: string, fallbackHash: string) {
+async function cardPlay(kind: "playlist" | "album" | "singer" | "toplist", id: string, fallbackHash: string) {
   try {
     let songs: Song[] = [];
     if (kind === "playlist") {
       songs = (await api<PlaylistDetailResp>(`/songlist/${id}/detail?page=1&num=100`))?.songs ?? [];
+    } else if (kind === "toplist") {
+      songs = (await api<ToplistDetailResp>(`/top/${id}/detail?page=1&num=100`))?.songs ?? [];
     } else if (kind === "album") {
       songs = (await api<AlbumSongsResp>(`/album/${encodeURIComponent(id)}/songs?num=100`))?.song_list ?? [];
     } else {
