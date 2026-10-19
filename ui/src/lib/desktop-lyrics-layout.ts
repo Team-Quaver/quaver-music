@@ -40,3 +40,54 @@ export function bandFor(viewH: number, blockH: number, pad: number): { top: numb
   if (top < 0) top = 0;
   return { top, h };
 }
+
+/** 桌面歌词镜像里的时间线行（只取排程需要的字段；与 SparkleKaraokeLine 结构兼容）。 */
+export interface TimedLyricWord {
+  startTime: number;
+  endTime: number;
+}
+
+export interface TimedLyricLine {
+  startTime: number;
+  endTime: number;
+  isBG?: boolean;
+  words?: TimedLyricWord[];
+}
+
+/**
+ * 把「主行之间的重叠」在桌面歌词副本里收口成顺序时间线。
+ *
+ * QRC 常把同一句唱词拆成上下两行，并让上一行的行级 endTime 略微越过下一行起点
+ * （例：Cries in a distance 18.986 结束，Can't stop the tremble 18.686 开始）。
+ * AMLL 会把这类重叠当成一个高亮组，焦点停在组内第一行直到再下一行开始；正在播放页
+ * 作为整组显示没问题，但桌面歌词的「当前句 / 当前句 + 下一句」会因此卡在第一行，
+ * 第二行永远轮不到。
+ *
+ * 这里只改传给**桌面歌词渲染器**的副本：下一条非背景主行一开始，上一行就结束。
+ * 背景人声（isBG）保留自己的时间轴，仍由 AMLL 按主行/和声组处理。主窗播放器与
+ * 歌词缓存拿到的仍是原始时间，不受影响。返回新数组/新行/新词，绝不原地改输入。
+ */
+export function sequenceOverlappingLines<T extends TimedLyricLine>(lines: readonly T[]): T[] {
+  const out = lines.map((line) => ({
+    ...line,
+    words: line.words?.map((word) => ({ ...word })),
+  })) as T[];
+
+  for (let i = 0; i < out.length; i++) {
+    const line = out[i]!;
+    if (line.isBG) continue;
+    let next = i + 1;
+    while (next < out.length && out[next]!.isBG) next++;
+    if (next >= out.length) break;
+    const boundary = out[next]!.startTime;
+    // 同起点（或异常倒序）没有可推进的边界；行本身没越界也不动。
+    if (!(boundary > line.startTime) || line.endTime <= boundary) continue;
+    line.endTime = boundary;
+    // AMLL 的 resetLineTimestamps 会用最后一个词的时间覆盖行时间：
+    // 只前行 endTime 不够，最后一个跨过边界的词也必须一起收口。
+    for (const word of line.words ?? []) {
+      if (word.endTime > boundary) word.endTime = Math.max(word.startTime, boundary);
+    }
+  }
+  return out;
+}

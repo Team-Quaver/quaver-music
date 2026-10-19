@@ -23,7 +23,7 @@ import {
   normalizeOpacity, normalizeScale, parseSettings, pickBounds, pinnedHintsFor, sizeHintsFor,
   supportsDlLock,
 } from "../electron/desktop-lyrics-core.ts";
-import { alignFor, bandFor, scrollRange, BAND_MIN_PX } from "../src/lib/desktop-lyrics-layout.ts";
+import { alignFor, bandFor, scrollRange, sequenceOverlappingLines, BAND_MIN_PX } from "../src/lib/desktop-lyrics-layout.ts";
 import { viewsSource } from "./views-source.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -524,6 +524,37 @@ eq("横滚：超宽居中 → 两端各露一半（dist = 溢出量）",
 eq("横滚：比可用区窄 1px 也算装得下（边缘不抖）", scrollRange(0, 100, 0.5, 99.5), null);
 check("横滚：主行滚、翻译不滚 —— 翻译要滚只能是它自己太长",
   scrollRange(0, 100, -100, 200) !== null && scrollRange(0, 100, -100, -60) === null);
+
+section("桌面歌词时间线：重叠主行按「当前句」顺序收口");
+{
+  // 《Cries In A Distance》真实 QRC 的两句：第二句 18.686s 开始，第一句 18.986s 才结束。
+  // AMLL 会把这个重叠当成一个高亮组；桌面歌词必须让第二句在 18.686s 接手焦点。
+  const input = [
+    { startTime: 16681, endTime: 18986, words: [
+      { word: "Cries ", startTime: 16681, endTime: 17321 },
+      { word: "distance", startTime: 18091, endTime: 18985 },
+    ] },
+    { startTime: 18686, endTime: 21149, words: [{ word: "Can't stop the tremble", startTime: 18686, endTime: 21143 }] },
+    { startTime: 20849, endTime: 25020, words: [{ word: "I'm just awaiting my turn", startTime: 20849, endTime: 25016 }] },
+  ];
+  const out = sequenceOverlappingLines(input);
+  eq("第一句结束点推进到第二句起点（行级）", out[0]!.endTime, 18686);
+  eq("第一句最后一个词同步收口（AMLL 会用它反推行时间）", out[0]!.words?.[1]?.endTime, 18686);
+  eq("第二句也不越过后一句", out[1]!.endTime, 20849);
+  eq("第三句是末句，保持原结束点", out[2]!.endTime, 25020);
+  check("输入不被原地修改（镜像副本不污染 player.karaoke）",
+    input[0]!.endTime === 18986 && input[0]!.words![1]!.endTime === 18985);
+
+  const withBg = sequenceOverlappingLines([
+    { startTime: 0, endTime: 3000, words: [{ startTime: 0, endTime: 3000 }] },
+    { startTime: 1000, endTime: 2800, isBG: true, words: [{ startTime: 1000, endTime: 2800 }] },
+    { startTime: 2600, endTime: 5000, words: [{ startTime: 2600, endTime: 5000 }] },
+  ]);
+  eq("跳过后面的背景和声，找下一条主行做边界", withBg[0]!.endTime, 2600);
+  eq("背景和声自己的时间轴不动", withBg[1]!.endTime, 2800);
+}
+check("桌面歌词渲染前走顺序时间线副本，不碰主窗与歌词原始数据",
+  /const lines = sequenceOverlappingLines\(track\.karaoke\.length \? track\.karaoke : linesToKaraoke\(track\.lines\)\);/.test(page));
 
 // ——— 8. 设置页 ———
 section("src/views/settings.ts 设置页");
