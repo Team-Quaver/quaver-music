@@ -33,9 +33,10 @@ import { icons } from "../lib/icons";
 import { getLyricScale, setLyricScale, LYRIC_SCALE_MAX, LYRIC_SCALE_MIN, LYRIC_SCALE_STEP, LYRIC_AUX_MODES, type LyricAuxMode } from "../lib/prefs";
 import { getLyricDelayMs, setLyricDelayMs, fmtLyricDelay, LYRIC_DELAY_STEP_MS, LYRIC_DELAY_MAX_MS } from "../lib/lyric-delay";
 import { isFullscreen, setFullscreen, onFullscreenChange } from "../lib/fullscreen";
-import type { SparkleKaraokeProvider } from "@quaver/sparkle";
+import type { SparkleKaraokeProvider, SparkleNpSpectrumRenderCtx } from "@quaver/sparkle";
 import { sparkleKaraokeProvider, onSparkleChange, sparkleNpMenuItems } from "../sparkle/registry";
-import { syncNpView } from "../sparkle/np-view";
+import { npSongSnapshot, syncNpView } from "../sparkle/np-view";
+import { currentSpectrumMode, loadSpectrumStyles, spectrumFacade, spectrumMode, spectrumModes } from "../lib/spectrum-controller";
 export function NowPlaying(): HTMLElement {
   const el = document.createElement("div");
   el.className = "np";
@@ -64,6 +65,12 @@ export function NowPlaying(): HTMLElement {
         </div>
       </div>
     </div>
+    <!-- 真实音频频谱：浮在底部播放控制条正上方；开关/形态在右侧 ⋮ 菜单。
+         内容由内置模式或 Sparkle 插件模式渲染，宿主只负责定位与生命周期。 -->
+    <div class="np-spectrum" id="np-spectrum" aria-hidden="true">
+      <div class="np-spectrum-host" id="np-spectrum-host"></div>
+      <div class="np-spectrum-status" id="np-spectrum-status"></div>
+    </div>
     <!-- Sparkle 插件小部件槽（左下角浮层；展开态才显示，不参与 np-inner 布局以免扰动歌词列） -->
     <div class="np-widgets" id="np-plugin-widgets"></div>
     <!-- Sparkle 整页接管容器：默认空，插件 np 视图挂在这里（见 sparkle/np-view.ts） -->
@@ -75,6 +82,71 @@ export function NowPlaying(): HTMLElement {
   const bgA = $("np-bg"), bgB = $("np-bg2");
   const karaHost = $("np-karaoke");
   const npViewHost = $("np-view");
+  const spectrumBox = $("np-spectrum");
+  const spectrumHost = $("np-spectrum-host");
+  const spectrumStatus = $("np-spectrum-status");
+
+  // —— 真实音频频谱：宿主只负责“显示/隐藏 + 挂哪个模式”，取样与绘制归模式实现 ——
+  let spectrumCleanup: (() => void) | null = null;
+  let spectrumMountedId = "";
+  let spectrumPendingId = "";
+  function unmountSpectrum() {
+    if (spectrumCleanup) {
+      try { spectrumCleanup(); } catch (e) { console.warn("[np] 频谱模式清理失败", e); }
+    }
+    spectrumCleanup = null;
+    spectrumMountedId = "";
+    spectrumPendingId = "";
+    spectrumHost.innerHTML = "";
+  }
+  function spectrumRenderCtx(): SparkleNpSpectrumRenderCtx {
+    return {
+      frame: () => spectrumFacade.frame(),
+      onFrame: (cb) => spectrumFacade.onFrame(cb),
+      expanded: () => player.expanded,
+      paused: () => player.paused,
+      current: () => npSongSnapshot(player.current),
+    };
+  }
+  function mountSpectrum(id: string) {
+    if (spectrumMountedId === id || spectrumPendingId === id) return;
+    spectrumPendingId = id;
+    void spectrumMode(id).then((mode) => {
+      if (spectrumPendingId !== id) return;
+      spectrumPendingId = "";
+      if (!mode) return;
+      unmountSpectrum();
+      try {
+        spectrumCleanup = mode.render(spectrumHost, spectrumRenderCtx()) ?? null;
+        spectrumMountedId = mode.id;
+      } catch (e) {
+        console.warn(`[np] 频谱模式 ${id} 渲染失败，回落柱状`, e);
+        unmountSpectrum();
+        void spectrumMode("bars").then((fallback) => {
+          if (!fallback) return;
+          spectrumCleanup = fallback.render(spectrumHost, spectrumRenderCtx()) ?? null;
+          spectrumMountedId = fallback.id;
+        });
+      }
+    });
+  }
+  function syncSpectrumSurface(open: boolean, takenOver: boolean) {
+    const show = !!open && !takenOver && spectrumFacade.enabled();
+    el.classList.toggle("spectrum-on", show);
+    if (!show) { unmountSpectrum(); return; }
+    const id = currentSpectrumMode();
+    spectrumBox.dataset.mode = id;
+    mountSpectrum(id);
+    const status = spectrumFacade.status();
+    spectrumBox.dataset.status = status;
+    spectrumStatus.textContent = status === "unavailable"
+      ? "音频分析不可用"
+      : status === "starting"
+        ? "正在接入音频…"
+        : status === "idle"
+          ? (player.current ? "等待播放" : "")
+          : "";
+  }
 
   // 共享 marquee：容器宽 < 文本宽才启用滚动；--mx 行程在溢出量外再补偿两端渐隐遮罩 ±12px，
   // 保证每一字符都能完整滚进清晰区（右对齐文本溢出在左，故正向平移）。
@@ -113,6 +185,9 @@ export function NowPlaying(): HTMLElement {
   const moreBtn = $("np-more");
   const moreMenu = $("np-menu");
   let auxButtons = new Map<LyricAuxMode, HTMLButtonElement>();
+  let spectrumToggleBtn: HTMLButtonElement | null = null;
+  let spectrumModeRow: HTMLElement | null = null;
+  let spectrumModeButtons = new Map<string, HTMLButtonElement>();
   const menuOpen = () => moreMenu.classList.contains("open");
   // 与 CSS 收拢过渡时长（.13s）对齐：跳转前留出动画时间，视觉上是「缩回去 → 落到目标页」
   const MENU_CLOSE_MS = 140;
@@ -163,7 +238,23 @@ export function NowPlaying(): HTMLElement {
       b.setAttribute("aria-checked", String(sel));
     }
   }
+  function syncSpectrumMenu() {
+    const on = spectrumFacade.enabled();
+    if (spectrumToggleBtn) {
+      spectrumToggleBtn.classList.toggle("on", on);
+      spectrumToggleBtn.setAttribute("aria-checked", String(on));
+      spectrumToggleBtn.title = on ? "关闭真实音频频谱" : "开启真实音频频谱";
+    }
+    if (spectrumModeRow) spectrumModeRow.hidden = !on;
+    const cur = currentSpectrumMode();
+    for (const [id, b] of spectrumModeButtons) {
+      const sel = id === cur;
+      b.classList.toggle("sel", sel);
+      b.setAttribute("aria-checked", String(sel));
+    }
+  }
   function openMoreMenu() {
+    void loadSpectrumStyles();
     const s = player.current;
     moreMenu.innerHTML = "";
     if (s) {
@@ -215,6 +306,35 @@ export function NowPlaying(): HTMLElement {
     }
     syncAuxButtons();
     moreMenu.append(auxRow);
+    // 真实音频频谱：总开关 + 形态。开关/形态和 Sparkle ctx 共用同一份持久化偏好；
+    // 这里不包成 menuRow —— 调开关不该顺手收起菜单，用户还要继续挑形态。
+    const specRow = document.createElement("div");
+    specRow.className = "np-menu-toggle";
+    specRow.innerHTML = `<span>频谱可视化</span><button type="button" class="np-menu-switch" role="switch" aria-checked="false" aria-label="频谱可视化"><i></i></button>`;
+    spectrumToggleBtn = specRow.querySelector<HTMLButtonElement>(".np-menu-switch")!;
+    spectrumToggleBtn.onclick = () => spectrumFacade.setEnabled(!spectrumFacade.enabled());
+    moreMenu.append(specRow);
+
+    spectrumModeRow = document.createElement("div");
+    spectrumModeRow.className = "np-menu-option np-menu-spectrum-modes";
+    spectrumModeRow.setAttribute("role", "radiogroup");
+    spectrumModeRow.setAttribute("aria-label", "频谱形态");
+    spectrumModeRow.innerHTML = `<span>频谱模式</span><div class="np-menu-opts"></div>`;
+    const specOpts = spectrumModeRow.querySelector<HTMLElement>(".np-menu-opts")!;
+    spectrumModeButtons = new Map();
+    for (const m of spectrumModes()) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "np-menu-opt";
+      b.dataset.spectrumMode = m.id;
+      b.setAttribute("role", "radio");
+      b.textContent = m.label;
+      b.onclick = () => spectrumFacade.setMode(m.id);
+      spectrumModeButtons.set(m.id, b);
+      specOpts.append(b);
+    }
+    moreMenu.append(spectrumModeRow);
+    syncSpectrumMenu();
     // 歌词大小：−/+ 步进（任何渲染模式下歌词就位时都出现 —— 行级与 AMLL 逐字/行级都吃
     // --np-ly-scale，见 style.css 的 .np-kara-host）。菜单开着时 Ctrl+滚轮缩放 →
     // zoomLyric 里的 syncSizeRow 会原地更新读数与禁用态。
@@ -609,7 +729,7 @@ export function NowPlaying(): HTMLElement {
     // 暂停/无歌收掉投影（CSS 侧过渡到透明，见 .np-cover-wrap::before）
     el.classList.toggle("playing", !!s && player.playing);
     // 菜单开着时同步翻译选项（外部插件 toggleTrans 等别的改法也能跟上）
-    if (menuOpen()) syncAuxButtons();
+    if (menuOpen()) { syncAuxButtons(); syncSpectrumMenu(); }
     // 音质胶囊：直接显示最后实际应用的档位（lastStream；未在播放时回落到当前设置）——
     // 与播放条胶囊同口径，↓ = 该流是被回退降档的
     const ls = getLastStream();
@@ -628,7 +748,10 @@ export function NowPlaying(): HTMLElement {
     //    倒逐字渲染是必须的 —— 否则 amll 的 rAF 循环会脱离 expanded 判定一直跑。
     //    也必须在「无歌收起」早退**之前**算：body.np-takeover 是全局标记，
     //    漏算一次就等于播放条再也回不来。
-    if (syncNpView(el, npViewHost)) {      disposeKara();
+    const npTakenOver = syncNpView(el, npViewHost);
+    syncSpectrumSurface(open, npTakenOver);
+    if (npTakenOver) {
+      disposeKara();
       lastKaraMode = false;
       lastLyricState = "";
       lastLyricRevision = -1;
@@ -689,7 +812,10 @@ export function NowPlaying(): HTMLElement {
   // 「停用插件」也摘不掉它已渲染的 DOM。注册表变化是准实时事件，这里补一刀。
   // 收起状态下也要调：摘除得掉，且 active=false 保证不会误挂 np-takeover。
   onSparkleChange(() => {
-    if (syncNpView(el, npViewHost)) {
+    const takenOver = syncNpView(el, npViewHost);
+    syncSpectrumSurface(player.expanded, takenOver);
+    if (menuOpen()) closeMoreMenu(); // 插件模式表变了：下次打开按新表重建
+    if (takenOver) {
       disposeKara();
       lastKaraMode = false;
       lastLyricState = "";
@@ -699,6 +825,7 @@ export function NowPlaying(): HTMLElement {
     }
   });
 
+  syncSpectrumSurface(player.expanded, el.classList.contains("np-taken-over"));
   return el;
 }
 

@@ -20,6 +20,7 @@ import {
 } from "../lib/api";
 import { isLocalSong, localSongStreamUrl } from "../lib/local";
 import { getLyricDelayMs } from "../lib/lyric-delay";
+import { spectrumFacade } from "../lib/spectrum-controller";
 import { sparkleKaraokeProvider, sparkleNpView } from "./registry";
 
 // —— 档位表（/stream/tiers；一次拉回，全插件共用）——
@@ -53,7 +54,7 @@ function availableTiers(): SparkleQualityTier[] {
 
 // —— 曲目快照 ——
 
-const snapshot = (s: Song | undefined | null): SparkleSongSnapshot | null => {
+export const npSongSnapshot = (s: Song | undefined | null): SparkleSongSnapshot | null => {
   if (!s) return null;
   const local = isLocalSong(s) ? s.local : null;
   return {
@@ -88,11 +89,11 @@ export function npViewCtx(): SparkleNpViewCtx {
       player.notifyPublic(); // 退全屏由 NowPlaying 的 expanded 迁移统一做
     },
 
-    current: () => snapshot(player.current),
-    prevSong: () => snapshot(player.queue[player.neighbors().prev]),
-    nextSong: () => snapshot(player.queue[player.neighbors().next]),
+    current: () => npSongSnapshot(player.current),
+    prevSong: () => npSongSnapshot(player.queue[player.neighbors().prev]),
+    nextSong: () => npSongSnapshot(player.queue[player.neighbors().next]),
     // 按播放顺序偏移取（随机播放时走当日洗牌序）—— 插件自己算 index±1 会指错歌
-    songAt: (offset) => snapshot(player.songAtOffset(offset)),
+    songAt: (offset) => npSongSnapshot(player.songAtOffset(offset)),
     queueLength: () => player.queue.length,
 
     time: () => player.time,
@@ -119,6 +120,8 @@ export function npViewCtx(): SparkleNpViewCtx {
       const provider = sparkleKaraokeProvider();
       return player.karaoke.length > 0 && !!provider && (provider.enabled?.() ?? true);
     },
+
+    spectrum: () => spectrumFacade,
 
     volume: () => player.volume,
     muted: () => player.muted,

@@ -162,6 +162,14 @@ P.setMenuBlur(false); eq("关闭菜单毛玻璃 → MenuBlur=False", conf()["Sty
 eq("读回来也是关", P.getMenuBlur(), false);
 P.setMenuBlur(true);  eq("开启 → True", conf()["Style.MenuBlur"], "True");
 
+// 正在播放页频谱（[Style] Spectrum / SpectrumMode）：开关 + 内置/插件模式 id
+eq("频谱默认关闭", [P.getSpectrumEnabled(), P.getSpectrumMode()], [false, "bars"]);
+P.setSpectrumEnabled(true); eq("频谱开启 → True", [P.getSpectrumEnabled(), conf()["Style.Spectrum"]], [true, "True"]);
+P.setSpectrumMode("mirror"); eq("频谱形态 → mirror", [P.getSpectrumMode(), conf()["Style.SpectrumMode"]], ["mirror", "mirror"]);
+P.setSpectrumMode("plugin-custom"); eq("插件频谱模式 id 原样存取", [P.getSpectrumMode(), conf()["Style.SpectrumMode"]], ["plugin-custom", "plugin-custom"]);
+P.setSpectrumMode("Bad Mode!"); eq("非法频谱模式 id 被忽略", P.getSpectrumMode(), "plugin-custom");
+P.setSpectrumEnabled(false); P.setSpectrumMode("bars");
+
 // 播放控制条（[Style] ControlBar）：bottom=底部行停靠（默认）｜floating=Content View 内悬浮
 P.setControlBarMode("floating");
 eq("悬浮 → floating", [P.getControlBarMode(), conf()["Style.ControlBar"]], ["floating", "floating"]);

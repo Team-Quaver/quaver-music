@@ -11,6 +11,7 @@ import type {
   SparkleMenuItem,
   SparkleNavItem,
   SparkleNpMenuCtx,
+  SparkleNpSpectrumMode,
   SparkleNpView,
   SparkleNpWidget,
   SparklePlaylistMenuCtx,
@@ -46,6 +47,7 @@ export interface StyleLayerEntry { pluginId: string; layer: SparkleStyleLayer; k
 interface ThemePackEntry { pluginId: string; pack: SparkleThemePack }
 interface NpWidgetEntry { pluginId: string; widget: SparkleNpWidget; cleanup: (() => void) | null }
 interface NpViewEntry { pluginId: string; view: SparkleNpView }
+interface NpSpectrumModeEntry { pluginId: string; mode: SparkleNpSpectrumMode }
 interface MenuItemEntry {
   pluginId: string;
   item: SparkleMenuItem | ((ctx: SparkleSongMenuCtx) => SparkleMenuItem);
@@ -71,6 +73,7 @@ const styleLayers: StyleLayerEntry[] = [];
 const themePacks: ThemePackEntry[] = [];
 const npWidgets: NpWidgetEntry[] = [];
 const npViews: NpViewEntry[] = [];
+const npSpectrumModes: NpSpectrumModeEntry[] = [];
 const menuItems: MenuItemEntry[] = [];
 const playlistMenuItems: PlaylistMenuItemEntry[] = [];
 const npMenuItems: NpMenuItemEntry[] = [];
@@ -212,6 +215,22 @@ export function sparkRegisterNpView(pluginId: string, view: SparkleNpView) {
   emitChange();
 }
 
+export function sparkRegisterNpSpectrumMode(pluginId: string, mode: SparkleNpSpectrumMode) {
+  const id = String(mode?.id ?? "").trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(id)) throw new Error(`频谱模式 id 不合法：${mode?.id ?? ""}`);
+  if (!mode.label?.trim()) throw new Error(`频谱模式 ${id} 缺少 label`);
+  if (["bars", "mirror", "wave"].includes(id) || npSpectrumModes.some((e) => e.mode.id === id)) {
+    throw new Error(`频谱模式 id 已被占用：${id}`);
+  }
+  const entry: NpSpectrumModeEntry = { pluginId, mode: { ...mode, id, label: mode.label.trim() } };
+  npSpectrumModes.push(entry);
+  teardownOf(pluginId).push(() => {
+    const at = npSpectrumModes.indexOf(entry);
+    if (at >= 0) npSpectrumModes.splice(at, 1);
+  });
+  emitChange();
+}
+
 export function sparkRegisterSongMenuItem(pluginId: string, item: MenuItemEntry["item"]) {
   const entry: MenuItemEntry = { pluginId, item };
   menuItems.push(entry);
@@ -296,6 +315,8 @@ export const sparkleNpWidgets = (): NpWidgetEntry[] => npWidgets;
 /** 正在播放页接管视图（首个注册者；无 = 宿主走默认 np 布局）。
  *  enabled() 由消费方（np-view.ts）每次 notify 重读，不在这里判。 */
 export const sparkleNpView = (): SparkleNpView | null => npViews[0]?.view ?? null;
+/** 正在播放页频谱形态：内置三种由渲染层提供，这里只列 Sparkle 插件注册的。 */
+export const sparkleNpSpectrumModes = (): SparkleNpSpectrumMode[] => npSpectrumModes.map((e) => e.mode);
 export const sparkleStreamSources = (): SparkleStreamSource[] => streamSources.map((e) => e.source);
 /** 宿主内置的歌词引擎（AMLL）作为兜底提供器存在注册表里，而不是「一个摘不掉的插件」：
  *  src/lyrics/builtin.ts 在启动时把它交进来。本模块因此**不 import** 歌词引擎本体 ——

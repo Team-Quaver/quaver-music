@@ -174,6 +174,29 @@ export function setMenuBlur(v: boolean) {
   cfgSet({ "Style.MenuBlur": v ? "True" : "False" });
 }
 
+// —— 正在播放页频谱可视化（[Style] Spectrum / SpectrumMode）——
+// 模式 id 统一走小写 kebab-case：宿主内置 bars/mirror/wave，Sparkle 插件可注册更多。
+// 插件被停用/未安装时，持久化的插件模式会自然回落 bars（见 lib/spectrum-render.ts 的查找）。
+export type BuiltinSpectrumMode = "bars" | "mirror" | "wave";
+export const BUILTIN_SPECTRUM_MODES: readonly BuiltinSpectrumMode[] = ["bars", "mirror", "wave"];
+const SPECTRUM_MODE_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+export function getSpectrumEnabled(): boolean {
+  return !/^(false|0|no)$/i.test(cfg("Style.Spectrum", "False"));
+}
+export function setSpectrumEnabled(v: boolean) {
+  cfgSet({ "Style.Spectrum": v ? "True" : "False" });
+}
+export function getSpectrumMode(): string {
+  const v = cfg("Style.SpectrumMode", "bars").trim().toLowerCase();
+  return SPECTRUM_MODE_ID.test(v) ? v : "bars";
+}
+export function setSpectrumMode(id: string) {
+  const v = String(id ?? "").trim().toLowerCase();
+  if (!SPECTRUM_MODE_ID.test(v)) return;
+  cfgSet({ "Style.SpectrumMode": v });
+}
+
 // —— 播放控制条：底部停靠（默认）｜Content View 内悬浮 ——
 // 配置值落在 [Style] ControlBar；DOM 状态挂 body（class + data-control-bar），
 // 布局与动画只消费 style.css 的 --control-bar-* 令牌。Sparkle 主题/样式层可直接覆盖

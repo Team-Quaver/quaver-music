@@ -379,6 +379,24 @@ export const SCHEMA: SectionSpec[] = [
         ],
         valid: (v: string) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
       },
+      {
+        key: "Spectrum",
+        def: "False",
+        doc: [
+          "正在播放页的真实音频频谱可视化：True=开启｜False=关闭（**默认**）。",
+          "数据来自当前播放流的 WebAudio FFT；开启后频谱浮在底部播放控制条上方。",
+        ],
+        valid: (v: string) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
+      },
+      {
+        key: "SpectrumMode",
+        def: "bars",
+        doc: [
+          "正在播放页频谱形态：bars=柱状｜mirror=镜像｜wave=波形（默认 bars）。",
+          "Sparkle 插件注册的频谱模式也可写在里；模式不存在时回落 bars。",
+        ],
+        valid: (v: string) => /^[a-z0-9][a-z0-9-]{0,31}$/.test(v.trim()),
+      },
     ],
   },
   {

@@ -3,10 +3,11 @@
 // registry.ts 保持零 ui 依赖；所有会碰 ui 模块的接线都在这里：
 // toast（SongMenu）、player 门面（player.ts）、nav DOM（shell.addNavItem）、
 // 侧栏重画（shell.repaintSidebarPlaylists）、主题 CSS 注入（document.head）。
-import type { SparkleContext, SparkleNpWidget, SparklePlugin, SparklePlayerFacade, SparkleTheme } from "@quaver/sparkle";
+import type { SparkleContext, SparkleNpSpectrumMode, SparkleNpWidget, SparklePlugin, SparklePlayerFacade, SparkleTheme } from "@quaver/sparkle";
 import { toast } from "../components/SongMenu";
 import { OFFICIAL_META } from "./loader";
 import { player } from "../player";
+import { spectrumFacade } from "../lib/spectrum-controller";
 import { addNavItem, repaintSidebarPlaylists } from "../shell";
 // 高亮色（tint）的交接：换主题后要重算宿主让不让位（见 lib/tint.ts / sparkle/theme-tint.ts）。
 // 方向是 host → lib/tint → sparkle/registry，单向，不成环。
@@ -21,7 +22,7 @@ import {
 } from "./style-layer";
 import {
   sparkRecordDrop, sparkRecordInit, sparkRecordOf,
-  sparkRegisterKaraokeProvider, sparkRegisterNav, sparkRegisterNpMenuItem, sparkRegisterNpView,
+  sparkRegisterKaraokeProvider, sparkRegisterNav, sparkRegisterNpMenuItem, sparkRegisterNpSpectrumMode, sparkRegisterNpView,
   sparkRegisterNpWidget, sparkRegisterPlaylistMenuItem,
   sparkRegisterSettingsSection, sparkRegisterSongMenuItem, sparkRegisterSonglistGroup,
   sparkRegisterStreamSource, sparkRegisterTheme, sparkRegisterThemePack, sparkRegisterView,
@@ -97,6 +98,8 @@ const playerFacade: SparklePlayerFacade = {
   get time() { return player.time; },
   get paused() { return player.paused; },
   on(cb) { return player.on(cb); },
+  spectrum: () => spectrumFacade.frame(),
+  onSpectrum: (cb) => spectrumFacade.onFrame(cb),
 };
 
 // —— SparkleContext 工厂 ——
@@ -163,6 +166,7 @@ function makeContext(pluginId: string): SparkleContext {
     },
     // 整页接管：不立即挂载 —— 由 np-view.ts 在正在播放页的 notify 里按 enabled() 决定
     registerNowPlayingView: (view) => sparkRegisterNpView(pluginId, view),
+    registerNowPlayingSpectrumMode: (mode: SparkleNpSpectrumMode) => sparkRegisterNpSpectrumMode(pluginId, mode),
     registerSongMenuItem: (item) => sparkRegisterSongMenuItem(pluginId, item),
     registerPlaylistMenuItem: (item) => sparkRegisterPlaylistMenuItem(pluginId, item),
     registerNowPlayingMenuItem: (item) => sparkRegisterNpMenuItem(pluginId, item),

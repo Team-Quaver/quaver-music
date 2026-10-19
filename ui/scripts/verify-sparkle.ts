@@ -43,6 +43,10 @@ const src = {
   pkg: read("package.json"),
   style: read("src/style.css"),
   npView: read("src/sparkle/np-view.ts"),
+  spectrum: read("src/lib/audio-spectrum.ts"),
+  spectrumRender: read("src/lib/spectrum-render.ts"),
+  spectrumCtrl: read("src/lib/spectrum-controller.ts"),
+  spectrumCss: read("src/lib/spectrum.css"),
   styleLayer: read("src/sparkle/style-layer.ts"),
   sparkleVersion: read("electron/sparkle-version.ts"),
   md3Meta: read("../vendor/Sparkle/marketplace/md3/plugin.json"),
@@ -231,15 +235,27 @@ ok("np-view: render 返回 undefined 视为成功（无清理 ≠ 渲染失败�
 ok("player: neighbors/songAtOffset/jumpToOffset 与播放推进同源（neighbors 走 stepInOrder；±N 走 walk，见 verify-shuffle）", has(src.player, "neighbors(): { prev: number; next: number }") && has(src.player, "songAtOffset(offset: number)") && has(src.player, "return step(this.orderOf(), this.index, dir, true);"));
 ok("player: songAtOffset 对非整数有界、且与 jumpToOffset 同走回绕（队首的上一首 = 队尾；超大 offset 由 walk 取模夹紧，不空转）", re(src.player, /if \(!Number\.isInteger\(offset\)\) return undefined;/) && has(src.player, "return i < 0 ? undefined : this.queue[i];") && re(src.shuffle, /Math\.min\(steps, n\)/) && re(noComments(src.player), /songAtOffset[\s\S]{0,700}?walk\(this\.orderOf\(\), this\.index, Math\.abs\(offset\), dir, true\)/));
 ok("player: jumpToOffset 走 wrap（手动跳允许回绕，与 prev/next 语义一致）", re(noComments(src.player), /jumpToOffset[\s\S]{0,400}?walk\(this\.orderOf\(\), this\.index, Math\.abs\(offset\), dir, true\)/) && re(src.player, /if \(!Number\.isInteger\(offset\) \|\| offset === 0\) return;/));
-ok("NowPlaying: 接管容器存在且在默认布局之前早退", has(src.np, "np-view") && re(noComments(src.np), /if \(syncNpView\(el, npViewHost\)\) \{[\s\S]{0,400}?disposeKara\(\)/));
+ok("NowPlaying: 接管容器存在且在默认布局之前早退", has(src.np, "np-view") && re(noComments(src.np), /const npTakenOver = syncNpView\(el, npViewHost\);\s*syncSpectrumSurface\(open, npTakenOver\);\s*if \(npTakenOver\) \{[\s\S]{0,400}?disposeKara\(\)/));
 ok("NowPlaying: 接管判定早于「无歌收起」早退（body.np-takeover 是全局标记）", (() => {
   const s = noComments(src.np);
-  return s.indexOf("if (syncNpView(el, npViewHost))") < s.indexOf("if (!open && !s) return;");
+  return s.indexOf("const npTakenOver = syncNpView(el, npViewHost);") < s.indexOf("if (!open && !s) return;");
 })());
 ok("NowPlaying: 挂载/卸载由注册表变化驱动（不依赖「恰好在播放」）", has(src.np, "onSparkleChange(") && re(noComments(src.np), /onSparkleChange\(\(\) => \{[\s\S]{0,200}?syncNpView\(el, npViewHost\)/));
 ok("css: 接管容器铺满 .np 且默认布局与插件槽一并让位", has(src.style, ".np-view") && has(src.style, ".np.np-taken-over .np-inner") && has(src.style, ".np.np-taken-over .np-widgets"));
 ok("css: body.np-takeover 收起整条播放条（插件自绘控制）", has(src.style, "body.np-takeover #player-bar { display: none; }"));
 ok("host: registerNowPlayingView 接到 registry（不立即挂载）", has(src.host, "registerNowPlayingView") && has(src.host, "sparkRegisterNpView"));
+
+// ============ 7b. 真实音频频谱（宿主内置 + Sparkle 透传/扩展） ============
+ok("sdk: 频谱数据/门面/模式契约齐备", ["interface SparkleSpectrumFrame", "interface SparkleSpectrumFacade", "interface SparkleNpSpectrumMode", "registerNowPlayingSpectrumMode"].every((t) => has(src.types, t)));
+ok("sdk: np 视图与播放器门面都能拿到频谱", has(src.types, "spectrum?(): SparkleSpectrumFacade;") && has(src.types, "spectrum?(): SparkleSpectrumFrame | null;") && has(src.types, "onSpectrum?("));
+ok("spectrum: 真数据源 = AnalyserNode 的频域 + 时域，不做假波形", ["createAnalyser()", "getFloatFrequencyData(", "getFloatTimeDomainData(", "fftSize = FFT_SIZE"].every((t) => has(src.spectrum, t)));
+ok("spectrum: web 直挂播放器 <audio>；mpv 用同流静音镜像（0 增益）", has(src.spectrum, "createMediaElementSource(el)") && has(src.spectrum, "new Audio()") && re(src.spectrum, /output\.gain\.value = desired === "engine" \? 0 : 1;/));
+ok("spectrum: 内置三模式 + 插件模式同接口", ['id: "bars"', 'id: "mirror"', 'id: "wave"'].every((t) => has(src.spectrumRender, t)) && has(src.spectrumCtrl, "sparkleNpSpectrumModes()"));
+ok("spectrum: 默认关闭且按需动态加载，不占首屏", has(src.spectrumCss, ".np-spectrum") && has(src.spectrumCtrl, 'import("./audio-spectrum")') && has(src.spectrumCtrl, 'import("./spectrum-render")') && has(src.spectrumCtrl, 'import("./spectrum.css")'));
+ok("spectrum: ⋮ 菜单有开关 + 形态，状态与 Sparkle 共用同一门面", has(src.np, "np-menu-switch") && has(src.np, "频谱可视化") && has(src.np, "spectrumModes()") && has(src.np, "spectrumFacade.setMode"));
+ok("spectrum: 挂载在播放条上方、跟随窗口缩放且整页接管时让位", has(src.spectrumCss, "bottom: calc(var(--control-bar-height") && has(src.spectrumCss, "width: 92%; height: clamp(56px, 8.5vh, 96px);") && has(src.spectrumCss, ".np.np-taken-over .np-spectrum { display: none; }"));
+ok("host: 频谱模式注册接到 registry，播放器门面透传数据", has(src.host, "registerNowPlayingSpectrumMode") && has(src.host, "sparkRegisterNpSpectrumMode") && has(src.host, "spectrum: () => spectrumFacade.frame()"));
+ok("guide: 作者指南写明频谱数据透传 + 插件注册新形态", has(src.guide, "registerNowPlayingSpectrumMode") && has(src.guide, "ctx.spectrum?.()") && has(src.guide, "bars` / `mirror` / `wave"));
 
 // ============ 8. 样式层 / 主题包 ============
 // 动机（实测）：style.css 里 var() 引用 405 处，但硬编码有 182 个色值字面量、

@@ -80,12 +80,18 @@ check("模板随读取落地", (readValues(), existsSync(FILE)));
 check("模板含全部段", ["[Style]", "[Window]", "[Playing]", "[Quality]", "[Lyrics]", "[DesktopLyrics]", "[Security]", "[Update]"].every((s) => template().includes(s)));
 check("模板注释来自 schema", template().includes("可选 dark,light,follow-system"));
 eq("默认值与模板占位一致", (() => { const v = readValues().values; return v["Style.Style"] === "dark" && v["Playing.Backend"] === "MPV" && v["Quality.DefaultQuality"] === "Auto" && v["Quality.FallbackToQMAtmos"] === "False"; })(), true);
-eq("schema 默认值表条数", Object.keys(defaults()).length, 69); // [DesktopLyrics] 20 键（Enabled/Locked/Opacity/Backdrop/Scale/Font/Border/Shadow/ShadowBlur/ShadowOpacity/ShadowX/ShadowY/Mode/SingleCenter/ColorMode/Color + X/Y/W/H 记忆坐标）；[Lyrics] 4 键（ChineseConvert 繁简档/OnlineTtml 在线逐字开关/TtmlDatabase 地址模板/TtmlLibrary 本地库目录）；LyricAux 为歌词辅助行（关闭/翻译/音译，两路同位置且各按档位回落）；LyricScale 为行级歌词缩放；Background/BackgroundImage/BackgroundBlur 为默认主题背景（模式/自定义图/模糊强度）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；ControlBar 为控制条停靠形态；PlaylistMode 为歌单显示模式（菜单栏/歌单集合页）；MenuBlur 为浮层菜单毛玻璃开关；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
+eq("schema 默认值表条数", Object.keys(defaults()).length, 71); // [DesktopLyrics] 20 键（Enabled/Locked/Opacity/Backdrop/Scale/Font/Border/Shadow/ShadowBlur/ShadowOpacity/ShadowX/ShadowY/Mode/SingleCenter/ColorMode/Color + X/Y/W/H 记忆坐标）；[Lyrics] 4 键（ChineseConvert 繁简档/OnlineTtml 在线逐字开关/TtmlDatabase 地址模板/TtmlLibrary 本地库目录）；LyricAux 为歌词辅助行（关闭/翻译/音译，两路同位置且各按档位回落）；LyricScale 为行级歌词缩放；Background/BackgroundImage/BackgroundBlur 为默认主题背景（模式/自定义图/模糊强度）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；ControlBar 为控制条停靠形态；PlaylistMode 为歌单显示模式（菜单栏/歌单集合页）；MenuBlur 为浮层菜单毛玻璃开关；Spectrum/SpectrumMode 为正在播放页真实音频频谱开关与形态；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
 check("模板含热键两段", ["[Hotkeys.Global]", "[Hotkeys.Focus]"].every((s) => template().includes(s)));
 eq("全局热键默认 Ctrl+Alt+P", defaults()["Hotkeys.Global.Toggle"], "Ctrl+Alt+P");
 eq("焦点退出默认 Ctrl+Q", defaults()["Hotkeys.Focus.Quit"], "Ctrl+Q");
 eq("音量默认 0.8", defaults()["Playing.Volume"], "0.8");
 eq("歌词辅助默认翻译", defaults()["Style.LyricAux"], "translation");
+eq("频谱默认关闭", defaults()["Style.Spectrum"], "False");
+eq("频谱形态默认柱状", defaults()["Style.SpectrumMode"], "bars");
+eq("频谱开关接受布尔写法", writeValues({ "Style.Spectrum": "True" }), ["Style.Spectrum"]);
+eq("频谱形态接受插件 id", writeValues({ "Style.SpectrumMode": "my-cool-mode" }), ["Style.SpectrumMode"]);
+eq("频谱形态拒绝非法 id", writeValues({ "Style.SpectrumMode": "Bad Mode!" }), []);
+writeValues({ "Style.Spectrum": "False", "Style.SpectrumMode": "bars" });
 eq("歌词翻译兼容键默认开", defaults()["Style.ShowTranslation"], "True");
 eq("上一首逻辑默认开（重放当前曲）", defaults()["Playing.PrevReplay"], "True");
 eq("睡眠禁止默认开", defaults()["Playing.InhibitSleep"], "True");

@@ -443,6 +443,11 @@ class Player {
   get current(): Song | undefined { return this.queue[this.index]; }
   get playing() { return !this.transport.paused; }
   get paused() { return this.transport.paused; }
+  /** 浏览器 <audio> 后端时的真实媒体元素（频谱分析直接接管它；mpv 后端为 null）。
+   *  只给同页的只读采集用，不参与队列/状态语义。 */
+  get webAudioElement(): HTMLAudioElement | null {
+    return this.transport.kind === "web" ? (this.transport as WebTransport).audio : null;
+  }
   /** 无限电台是否生效（播放条据此屏蔽上一曲、QueuePanel 可据此显示电台态） */
   get radioActive() { return this.radioOn; }
   get radioLoading() { return this._radioLoading; }

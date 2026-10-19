@@ -29,6 +29,8 @@ const FALLBACK: ConfigSnapshot = {
   "Style.ControlBar": "bottom",
   "Style.PlaylistMode": "menu",
   "Style.MenuBlur": "True",
+  "Style.Spectrum": "False",
+  "Style.SpectrumMode": "bars",
   "Window.Decor": "csd",
   "Window.CloseAction": "tray",
   "Window.SidebarCollapsed": "False",
