@@ -1018,6 +1018,8 @@ ipcMain.on("quaver:quit", () => app.quit());
 
 // 设置页查询全局热键注册现状（Linux 门户状态 / win·mac 登记数）
 ipcMain.handle("quaver:hotkeys-info", () => hotkeys.info());
+// 装载期同步快照：设置页据此立即决定是否渲染全局录制项（Wayland 隐藏，避免先闪后收）
+ipcMain.on("quaver:hotkeys-info-sync", (e) => { e.returnValue = hotkeys.info(); });
 
 // ——— 调试：开发者控制台（F12）与进程/内存自检 ———
 // 入口只有一个：自检弹窗里的「开发者模式」按钮（设置 → 通用 → 调试）。**F12 不绑定** ——

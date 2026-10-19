@@ -1,15 +1,16 @@
 // Quaver — 热键链路单测（纯 Node，不需要 Electron / 真桌面环境）。
 //
-// 五层保障，按依赖方向排：
+// 六层保障，按依赖方向排：
 //   1. 配置值域（electron/config.ts isHotkey）：合法/非法/停用（空串）
 //   2. accelerator 规范化（src/lib/prefs.ts）：KeyboardEvent 形态 → "Ctrl+Alt+F5" 串
 //      （vite build 现打包 prefs —— 同 verify-prefs-map 的做法）
 //   3. 门户触发串映射（electron/global-hotkeys.ts）：Ctrl+P → CTRL+p（XKB 基础层小写！）
-//   4. shortcut 模式全流程（electron/global-hotkeys.ts × mock globalShortcut）：
+//   4. Wayland 会话判定与门户托管：应用内全局键位不参与绑定，全部动作交桌面门户
+//   5. shortcut 模式全流程（electron/global-hotkeys.ts × mock globalShortcut）：
 //      win/mac 路径（Linux 上以 process.platform 假装 win32 走一遍）——注册/重绑/占用/
 //      非法格式/destroy。mock 只长真实 Electron 的 API 面，误调不存在的 API 当场 TypeError
 //      （globalShortcut.isAccelerator 的教训：Electron 没这个方法，门户路径又测不到它）。
-//   5. D-Bus 线级（electron/xdg-portal.ts）：
+//   6. D-Bus 线级（electron/xdg-portal.ts）：
 //      a. 编解码往返（大端/小端、a{sv}、a(sa{sv)}、o s t a{sv} 信号体）
 //      b. 规范算例：数组长度不含首元素垫片（dbus-broker 以 invalid body 踢线的教训）
 //      c. PortalShortcuts 对 mock 总线全流程：SASL → Hello → CreateSession → Bind →
@@ -24,7 +25,9 @@ import { build as viteBuild } from "vite";
 import {
   PortalShortcuts, buildMessage, parseMessage, encodeValue, parseBusAddress, sigEnd, Writer,
 } from "../electron/xdg-portal.ts";
-import { acceleratorToPortalTrigger, createGlobalHotkeys } from "../electron/global-hotkeys.ts";
+import {
+  acceleratorToPortalTrigger, createGlobalHotkeys, isWaylandSession, portalShortcutsFor,
+} from "../electron/global-hotkeys.ts";
 
 const UI_ROOT = fileURLToPath(new URL("..", import.meta.url));
 let pass = 0, fail = 0;
@@ -134,7 +137,30 @@ eq("PageUp → Page_Up", acceleratorToPortalTrigger("Ctrl+PageUp"), "CTRL+Page_U
 eq("空串/停用", acceleratorToPortalTrigger(""), "");
 eq("未知修饰键 → 空（跳过注册）", acceleratorToPortalTrigger("Fn+P"), "");
 
-// ——— 4. shortcut 模式（win/mac 路径）———
+// ——— 4. Wayland 会话判定与门户托管 ———
+section("Wayland：全局键位由桌面门户管理");
+eq("XDG_SESSION_TYPE=wayland", isWaylandSession("linux", { XDG_SESSION_TYPE: "wayland" }), true);
+eq("WAYLAND_DISPLAY 兜底", isWaylandSession("linux", { WAYLAND_DISPLAY: "wayland-0" }), true);
+eq("X11 不误判", isWaylandSession("linux", { XDG_SESSION_TYPE: "x11", WAYLAND_DISPLAY: "wayland-0" }), false);
+eq("非 Linux 恒 false", isWaylandSession("win32", { XDG_SESSION_TYPE: "wayland", WAYLAND_DISPLAY: "wayland-0" }), false);
+{
+  const appBindings = {
+    toggle: "Ctrl+Alt+P", prev: "", next: "Ctrl+Alt+Right", volup: "Fn+P", voldown: "Ctrl+Alt+Down",
+  };
+  const waylandShortcuts = portalShortcutsFor(appBindings, true);
+  eq("Wayland 仍注册全部 5 个动作", waylandShortcuts.map((s) => s.id), ["toggle", "prev", "next", "volup", "voldown"]);
+  check("Wayland 忽略应用内键位（不传 preferred_trigger）", waylandShortcuts.every((s) => s.trigger === ""));
+  const invalid = [];
+  const x11Shortcuts = portalShortcutsFor(appBindings, false, (accel) => invalid.push(accel));
+  eq("X11 保留应用内绑定并按空值/非法值过滤", x11Shortcuts.map((s) => [s.id, s.trigger]),
+    [["toggle", "CTRL+ALT+p"], ["next", "CTRL+ALT+Right"], ["voldown", "CTRL+ALT+Down"]]);
+  eq("X11 报告非法触发串", invalid, ["Fn+P"]);
+  const hk = createGlobalHotkeys({ platform: "linux", env: { XDG_SESSION_TYPE: "wayland" } });
+  eq("info 回报 portal + wayland", { mode: hk.info().mode, wayland: hk.info().wayland }, { mode: "portal", wayland: true });
+  hk.destroy();
+}
+
+// ——— 5. shortcut 模式（win/mac 路径）———
 section("createGlobalHotkeys × mock globalShortcut（shortcut 模式）");
 {
   // mock 只长真实 Electron GlobalShortcut 的 API 面（register/registerAll/isRegistered/
@@ -209,7 +235,7 @@ section("createGlobalHotkeys × mock globalShortcut（shortcut 模式）");
   }
 }
 
-// ——— 5. D-Bus 线级 ———
+// ——— 6. D-Bus 线级 ———
 section("xdg-portal.ts 编解码");
 {
   // 规范 worked example：大端、单个 u64 元素 5、8 字节对齐 → n=8 且垫片不计入

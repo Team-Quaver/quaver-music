@@ -6,6 +6,7 @@
 //   • Focus 段：渲染层 keydown（lib/hotkeys.ts）实时读内存快照，天然即时生效；
 //   • Global 段：主进程在 quaver:config 落盘后自动重注册（Linux 门户 = 关旧会话再建，
 //     桌面端可能重弹授权框；win/mac 反注册旧的再登记新的）。
+// Wayland 例外：全局键位由桌面门户统一管理，本页不再渲染 Global 录制项，只留说明与 Focus 段。
 // 录制态与 lib/hotkeys.ts 的焦点热键分发互斥（hotkeyRecorder.active），否则录 Ctrl+P
 // 会顺手把歌切了。
 import { configInfo } from "../lib/config";
@@ -22,8 +23,14 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 
 const emptyText = () => "未设置";
 
+type HotkeyInfo = { state?: string; reason?: string; wayland?: boolean } | null;
+
 export function mountHotkeysPanel(host: HTMLElement): () => void {
   const conf = configInfo();
+  const hotkeyInfo = conf.bridged
+    ? ((window as any).quaverHotkeys?.infoSync?.() as HotkeyInfo)
+    : null;
+  const wayland = hotkeyInfo?.wayland === true;
 
   const group = (scope: HotkeyScope, title: string, note: string, actions: HotkeyAction[], hint: string) => {
     const g = document.createElement("div");
@@ -47,19 +54,31 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
       ? "由系统注册，当键位为空时，该功能不生效"
       : "Linux 经 XDG 桌面门户注册"
     : "浏览器开发态没有 shell 层，全局热键不生效";
+  const waylandHint = "Wayland 下全局快捷键由桌面环境统一管理。请到系统设置的「键盘 / 快捷键」中，通过 XDG GlobalShortcuts 桌面门户为 Quaver 绑定；应用内不再提供全局快捷键录制。";
+
+  const portalNotice = () => {
+    const g = document.createElement("div");
+    g.className = "set-group";
+    g.innerHTML = `
+      <div class="set-label">全局热键 <span class="set-note-inline">由桌面门户管理</span></div>
+      <p class="muted set-hint" data-hint>${esc(waylandHint)}</p>`;
+    return g;
+  };
 
   host.append(
-    group("Global", "全局热键", "", GLOBAL_HOTKEY_ACTIONS, globalHint),
+    wayland ? portalNotice() : group("Global", "全局热键", "", GLOBAL_HOTKEY_ACTIONS, globalHint),
     group("Focus", "焦点内热键", "仅窗口聚焦时生效", FOCUS_HOTKEY_ACTIONS,
       "上一曲 / 下一曲 / 音量在输入框内不触发（避免与 Ctrl+方向 的文本编辑冲突）。空 = 停用。"),
   );
 
-  // 门户注册现状（Linux + Electron 壳层）：一行实时状态，排障用
-  const portalLine = host.querySelector<HTMLElement>('[data-hint]')!; // 全局组的第一条 hint
+  // 门户注册现状（Linux + Electron 壳层）：一行实时状态，排障用。Wayland 下挂在提示末尾，
+  // 既保留排障信息，也不把已被桌面接管的键位重新包装成应用内设置。
+  const portalLine = host.querySelector<HTMLElement>('[data-hint]')!; // 全局提示（或门户说明）的第一条 hint
   if (conf.bridged && !isMac && (window as any).quaverHotkeys?.info) {
-    void Promise.resolve((window as any).quaverHotkeys.info()).then((info: { state?: string; reason?: string } | null) => {
+    void Promise.resolve((window as any).quaverHotkeys.info()).then((info: HotkeyInfo) => {
       if (!info?.state || ["idle", "ready"].includes(info.state)) return;
-      portalLine.textContent = globalHint + `（当前门户状态：${info.state}${info.reason ? " — " + info.reason : ""}）`;
+      const base = wayland ? waylandHint : globalHint;
+      portalLine.textContent = base + `（当前门户状态：${info.state}${info.reason ? " — " + info.reason : ""}）`;
     }).catch(() => {});
   }
 
@@ -80,14 +99,18 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
     });
   };
 
-  const groupHint = (scope: HotkeyScope): HTMLElement =>
-    host.querySelector<HTMLElement>(`.hk-btn[data-scope="${scope}"]`)!
-      .closest(".set-group")!.querySelector<HTMLElement>("[data-hint]")!;
+  const groupHint = (scope: HotkeyScope): HTMLElement | null =>
+    host.querySelector<HTMLElement>(`.hk-btn[data-scope="${scope}"]`)
+      ?.closest(".set-group")?.querySelector<HTMLElement>("[data-hint]") ?? null;
   const baseHints = new Map<HotkeyScope, string>();
-  for (const scope of ["Global", "Focus"] as HotkeyScope[]) baseHints.set(scope, groupHint(scope).textContent ?? "");
+  for (const scope of ["Global", "Focus"] as HotkeyScope[]) {
+    const el = groupHint(scope);
+    if (el) baseHints.set(scope, el.textContent ?? "");
+  }
   const hintTimers = new Map<HotkeyScope, number>(); // 每组各一个：共用会把别组待恢复的定时器清掉
   const flashHint = (scope: HotkeyScope, msg: string) => {
     const el = groupHint(scope);
+    if (!el) return;
     el.textContent = msg;
     window.clearTimeout(hintTimers.get(scope));
     hintTimers.set(scope, window.setTimeout(() => { el.textContent = baseHints.get(scope) ?? ""; }, 3200));
@@ -95,7 +118,10 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
 
   const clearHints = () => {
     for (const t of hintTimers.values()) window.clearTimeout(t);
-    for (const [scope, base] of baseHints) groupHint(scope).textContent = base;
+    for (const [scope, base] of baseHints) {
+      const el = groupHint(scope);
+      if (el) el.textContent = base;
+    }
     hintTimers.clear();
   };
 

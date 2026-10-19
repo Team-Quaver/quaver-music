@@ -24,12 +24,16 @@ contextBridge.exposeInMainWorld("quaverCSD", {
 
 // 全局热键（主进程注册，动作转发回渲染层执行；Linux 走 XDG 门户，win/mac 走 globalShortcut）。
 // payload { t: "action", action } | { t: "failed", items } | { t: "status", state, reason }。
+// infoSync 供设置页装载期立即判断 Wayland，避免全局录制项先闪一下再隐藏。
 contextBridge.exposeInMainWorld("quaverHotkeys", {
   onEvent: (cb: (payload: unknown) => void) =>
     ipcRenderer.on("quaver:hotkey", (_e: Electron.IpcRendererEvent, payload: unknown) => {
       try { cb(payload); } catch (err) { console.warn("hotkey event failed", err); }
     }),
   info: () => ipcRenderer.invoke("quaver:hotkeys-info"),
+  infoSync: () => {
+    try { return ipcRenderer.sendSync("quaver:hotkeys-info-sync"); } catch { return null; }
+  },
 });
 
 // MPRIS：渲染层 ↔ mpris daemon（经主进程中转，daemon 走 stdio NDJSON）。

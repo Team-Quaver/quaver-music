@@ -43,12 +43,13 @@ export function startHotkeysBridge(): void {
   // —— 全局热键回程（Electron 壳层才有桥）——
   const hk = (window as any).quaverHotkeys;
   if (hk?.onEvent) {
-    hk.onEvent((payload: { t?: string; action?: HotkeyAction; state?: string; reason?: string; items?: { action: string; accel: string; label?: string; why?: string }[] }) => {
+    hk.onEvent((payload: { t?: string; action?: HotkeyAction; state?: string; reason?: string; wayland?: boolean; items?: { action: string; accel: string; label?: string; why?: string }[] }) => {
       if (payload?.t === "action" && payload.action) applyHotkeyAction(payload.action);
       else if (payload?.t === "failed" && payload.items?.length) {
         toast("全局热键注册失败：" + payload.items.map((x) => `${x.accel}（${x.why ?? "未知原因"}）`).join("、"), "err");
       } else if (payload?.t === "partial" && payload.items?.length) {
-        toast("部分全局热键未生效（可能被其他应用占用，可在设置里换键）：" + payload.items.map((x) => x.label ?? x.action).join("、"), "err");
+        const fix = payload.wayland ? "请在桌面快捷键设置中检查" : "可在设置里换键";
+        toast(`部分全局热键未生效（可能被其他应用占用，${fix}）：` + payload.items.map((x) => x.label ?? x.action).join("、"), "err");
       } else if (payload?.t === "status" && payload.state === "failed") {
         toast("全局快捷键会话中断：" + (payload.reason || "未知原因"), "err");
       }
