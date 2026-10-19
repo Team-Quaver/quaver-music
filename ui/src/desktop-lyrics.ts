@@ -35,7 +35,7 @@ import "./desktop-lyrics.css";
 import { loadConfig } from "./lib/config";
 import { fontCssOf, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsHoverOpacity, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsSingleCenter, getLyricAux } from "./lib/prefs";
 import { fmtLyricDelay, LYRIC_DELAY_MAX_MS, LYRIC_DELAY_STEP_MS } from "./lib/lyric-delay";
-import { alignFor, bandFor, scrollRange } from "./lib/desktop-lyrics-layout";
+import { alignFor, bandFor, scrollRange, sequenceOverlappingLines } from "./lib/desktop-lyrics-layout";
 import { CLOCK_COMP_MS, type DlCmd, type DlLine, type DlStateSnapshot, type DlSyncPayload, type DlTrackPayload } from "./lib/desktop-lyrics-protocol";
 import { LayoutAlignAnchor, LayoutReason } from "@applemusic-like-lyrics/core";
 import { amllPlayerByHost, builtinKaraokeProvider } from "./lyrics/amll";
@@ -188,7 +188,7 @@ function reRender(force = false): void {
   clip.innerHTML = "";
   resetMarquee(); // 旧行元素已随 innerHTML 一起没了：滚动状态/在滚类名一并清掉
   if (!track || track.lyricState !== "ok") return;
-  const lines = track.karaoke.length ? track.karaoke : linesToKaraoke(track.lines);
+  const lines = sequenceOverlappingLines(track.karaoke.length ? track.karaoke : linesToKaraoke(track.lines));
   if (!lines.length) return;
   // 新播放器 = 新行表：条带几何清空重估（applyPlayerLayout 里会先给个估计锚位）
   stripApplied = -1;
