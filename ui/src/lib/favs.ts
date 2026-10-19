@@ -63,8 +63,22 @@ export async function loadFavSonglists(force = false): Promise<FavPlaylist[]> {
     return all;
   })();
   try {
-    items = await inflight;
-    emit();
+    const next = await inflight;
+    // 前台轮询会反复 force 回源：内容没变就别广播，否则侧栏/集合页会被每 30s 重画一次，
+    // 右键菜单与被滚动的列表都会被打断。
+    const prev = items;
+    const changed = !prev || prev.length !== next.length || next.some((x, i) => {
+      const y = prev[i];
+      return !y
+        || String(x.id) !== String(y.id)
+        || x.title !== y.title
+        || x.picurl !== y.picurl
+        || Number(x.songnum ?? 0) !== Number(y.songnum ?? 0)
+        || x.nickname !== y.nickname
+        || Number(x.order_time ?? 0) !== Number(y.order_time ?? 0);
+    });
+    items = next;
+    if (changed) emit();
     return items;
   } finally {
     inflight = null;
