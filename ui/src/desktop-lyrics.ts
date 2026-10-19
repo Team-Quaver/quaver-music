@@ -176,7 +176,9 @@ function paintEmpty(): void {
 
 function reRender(force = false): void {
   paintEmpty();
-  const fp = track ? `${track.key}|${track.lyricState}|${track.karaoke.length}|${track.lines.length}` : "empty";
+  const fp = track
+    ? `${track.key}|${track.lyricState}|${track.lyricRevision ?? 0}|${track.karaoke.length}|${track.lines.length}`
+    : "empty";
   if (!force && fp === renderedFp) return;
   renderedFp = fp;
   if (disposeRender) {

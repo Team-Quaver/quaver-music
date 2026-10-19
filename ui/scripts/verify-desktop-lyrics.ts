@@ -323,6 +323,9 @@ check("歌词两路原文透传（档位由覆盖层现选，桥不代挑）", /
 // ——— 7. 覆盖层页 ———
 section("src/desktop-lyrics.ts 覆盖层页");
 const page = src("src/desktop-lyrics.ts");
+check("歌词内容版本进桥指纹与覆盖层重绘判据（同曲重导入可覆盖）",
+  /lyricRevision: player\.lyricRevision/.test(bridge) && /t\.lyricRevision/.test(bridge)
+  && /track\.lyricRevision/.test(page));
 check("渲染引擎 = 宿主内置 AMLL（复用 builtinKaraokeProvider，不复制渲染实现）", /import \{ amllPlayerByHost, builtinKaraokeProvider \} from "\.\/lyrics\/amll"/.test(page) && /builtinKaraokeProvider\.render\(clip, lines, ctx\)/.test(page));
 check("零 player 依赖（镜像窗不许再持有一个播放器）", !/from "\.\.\/player"|from "\.\/player"/.test(page) && !/import \{ player \}/.test(page));
 check("零网络（不 fetch /api：歌词随桥镜像来）", !/fetch\(/.test(page) && !/\/api\//.test(page));
