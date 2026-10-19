@@ -66,6 +66,9 @@ const LOVED_TTL = 60_000;
 // 以本地乐观态为准（reconcilePending），别让回源把用户刚点的红心冲掉。
 const LOVED_SYNC_DELAY = 2_000;    // 距最后一次写入/进页的静默期（去抖合并连点）
 const LOVED_SYNC_PAGE = 100;       // 增量窗口：单请求，覆盖最近收藏段
+// 前台轮询的轻量探针：先比「最近收藏头部 + total」，变了才做整单回源。
+// 他端的收藏/取消都会体现在这两个量上；没变化时每轮只要一个小请求。
+const LOVED_PROBE_PAGE = 20;
 // 写入庇护期：期内所有读路径都按已确认写入校正读数（读数反映也不提前出名单 ——
 // 读侧缓存不保证单调，同一写值可能被更旧的快照再次冲掉）。实测过期快照能活 20s+，取 2 分钟。
 const LOVED_PENDING_TTL = 120_000;
@@ -1161,6 +1164,28 @@ class Player {
       .finally(() => { if (this.likedFlight === flight) this.likedFlight = null; });
     this.likedFlight = flight;
     return flight;
+  }
+
+  /** 前台对账：轻量探针发现他端增删后，再走整单 loadLoved(true) 收敛红心与列表。
+   *  探针比较「头部 20 首 + total」：手机端收藏/取消都会改变其一，没变就不搬整单数据。 */
+  async refreshLovedFromRemote(): Promise<boolean> {
+    if (this.likedFlight) return this.likedFlight;
+    if (!this.likedCache) return this.loadLoved(true);
+    try {
+      const r: any = await api(`/user/liked?page=1&num=${LOVED_PROBE_PAGE}`);
+      const head: Song[] = ((r?.songs ?? []) as Song[]).filter((s) => s?.mid);
+      const probeLen = Math.min(this.likedCache.length, LOVED_PROBE_PAGE);
+      const sameHead = head.length === probeLen
+        && head.every((s, i) => s.mid === this.likedCache![i]?.mid);
+      if (sameHead && Number(r?.total ?? 0) === this.likedTotal) {
+        this.likedAt = Date.now(); // 确认远端没变：整单缓存重新算新鲜，避免进页白拉
+        return true;
+      }
+    } catch (e) {
+      console.warn("「我喜欢」远端探针失败（保留本地）", e);
+      return false;
+    }
+    return this.loadLoved(true);
   }
 
   /** 订阅「我喜欢」列表内容变更（写确认新增 / 增量回源 / 整单预载后触发）。返回退订函数。 */

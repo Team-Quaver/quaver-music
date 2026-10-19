@@ -7,6 +7,7 @@ import "./style.css";
 import { api, upPic, identityBadges } from "./lib/api";
 import { watchVip } from "./lib/vip.ts";
 import { favSonglists, loadFavSonglists, onFavSonglistsChange } from "./lib/favs";
+import { startAccountSync } from "./lib/account-sync";
 import { getSidebarCollapsed, setSidebarCollapsed, getSidebarWidth, setSidebarWidth } from "./lib/prefs";
 import { bindHResizer } from "./lib/resizer";
 import { sparkleSonglistGroups } from "./sparkle/registry";
@@ -442,6 +443,8 @@ async function bootSidebar() {
   try {
     const st: any = await api("/login/status");
     if (!st?.logged_in) return; // 未登录：保持占位样式
+    // 手机/网页改了收藏后，回到窗口或前台轮询时热更新（收藏歌单 + 我喜欢）
+    startAccountSync();
     // 「我喜欢」预载：全站红心态（行内红心/播放条）都读它，登录确认后立刻后台拉回，不阻塞首屏
     void player.loadLoved();
     const [me, vip] = await Promise.all([
