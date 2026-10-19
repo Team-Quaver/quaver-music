@@ -54,16 +54,18 @@ ok("后端: 全轮都失败才抛 502", re(guessHandler, /len\(songs\) == 0 \{[\
 ok("后端: 实测结论写进注释（num 被忽略 / 22006 / 700000）",
   has(guessHandler, "700000") && has(recommendGo, "22006") && has(recommendGo, "只给 5 首"));
 
-// ============ 2. 入口：点击猜你喜欢即展开并开启电台 ============
+// ============ 2. 入口：Content View 电台主舞台 ============
 ok("入口: 猜你喜欢视图调用 player.startRadio()", re(guessCode, /player\.startRadio\(\)/));
 ok("入口: 进入视图就等首轮取歌，不再等用户双击歌曲行", re(guessCode, /await start\(\)/));
-ok("入口: 电台已在跑时只展开当前会话，不打断重开", re(guessCode, /if \(player\.radioActive\) \{[\s\S]{0,80}player\.expanded = true;[\s\S]{0,80}\} else \{\s*await start\(\);/));
-ok("电台: startRadio() 在取歌前同步 expanded=true（点击即展开，不等网络）",
-  re(playerCode, /this\.expanded = true;[\s\S]{0,220}await this\.fetchRadioRound\(\)/));
-ok("电台: 视图保留“回到正在播放”与“换一批”入口",
-  has(guessCode, "guess-radio-open") && has(guessCode, "guess-radio-restart"));
-ok("电台: 取歌失败有 toast 与可重开入口", has(guessCode, "toast(errText(e)") && has(guessCode, "重新开启电台"));
-ok("css: 猜你喜欢使用电台落点 .guess-radio", re(css, /\.guess-radio \{[^}]*display: flex/));
+ok("入口: 电台已在跑时只恢复主舞台，不打断重开", re(guessCode, /if \(!player\.radioActive\) await start\(\);/));
+ok("入口: 进入电台不自动展开正在播放覆盖层", has(guessCode, "player.expanded = false;") && !re(playerCode, /this\.expanded = true;[\s\S]{0,220}await this\.fetchRadioRound\(\)/));
+ok("舞台: 当前曲目在 Content View 居中", has(guessCode, 'root.classList.add("guess-radio-page")') && re(css, /\.route > \.entering\.guess-radio-page \{[^}]*align-items: center;[^}]*justify-content: center;/));
+ok("舞台: 控制条在封面上方，含暂停/下一首/红心", has(guessCode, 'id="radio-play"') && has(guessCode, 'id="radio-next"') && has(guessCode, 'id="radio-love"'));
+ok("舞台: 手动换一批入口保留", has(guessCode, 'id="radio-restart"') && has(guessCode, "restart.addEventListener(\"click\""));
+ok("封面: 使用与正在播放页相同的 300 档封面地址", has(guessCode, "coverUrl(s, 300)") && !has(guessCode, "coverUrl(s, 600)"));
+ok("封面: 图片加载失败回落 ∞ 占位", has(guessCode, "img.onerror"));
+ok("舞台: 取歌失败有 toast 与可重试入口", has(guessCode, "toast(errText(e)") && has(guessCode, "换一批"));
+ok("css: 电台主舞台 .radio-stage 有定义", re(css, /\.radio-stage \{[^}]*flex-direction: column/));
 
 // ============ 3. 一轮 5 首，播到第五首续下一轮 ============
 ok("取歌: 每轮只请求 rounds=1", re(playerCode, /api(?:<[^>(]*>)?\("\/recommend\/guess\?rounds=1"\)/));
@@ -85,8 +87,9 @@ ok("上一曲: prev() 在电台里直接 return", re(playerCode, /if \(this\.rad
 ok("上一曲: 播放条按钮按 canPrev 禁用", has(playerBarCode, "prev.disabled = !canPrev;"));
 ok("上一曲: 禁用原因写进 title/aria-label", has(playerBarCode, "无限电台只向前播放"));
 ok("红心: 播放条红心仍调用 player.toggleLove(current)", has(playerBarCode, "player.toggleLove(player.current)"));
-ok("红心: 正在播放页也保留红心入口（窄窗口藏播放条红心时仍可收藏）",
-  has(nowPlaying, 'id="np-love"') && has(nowPlaying, "player.toggleLove(player.current)") && has(nowPlaying, "loveBtn.classList.toggle(\"on\", loved)"));
+ok("红心: 电台舞台红心调用 player.toggleLove(current)", has(guessCode, "player.toggleLove(player.current)"));
+ok("红心: 正在播放页不再有红心按钮", !has(nowPlaying, 'id="np-love"') && !has(nowPlaying, "toggleLove(player.current)"));
+ok("红心: 空心/实心只换 SVG 形状，不染色", has(guessCode, "loved ? icons.heartFill : icons.heart") && has(css, ".pb-ghost#pb-love.on { color: var(--ink3); }") && !re(css, /\.radio-control\.on[^}]*color/));
 ok("红心: 电台队列仍是正常 Song 对象，收藏写接口无需特殊分支", !has(guessCode, "hideLove"));
 // ============ 4.5 电台屏蔽播放列表与循环/随机 ============
 ok("播放列表: 进入电台即关掉队列面板", has(playerCode, "this.queueOpen = false;"));

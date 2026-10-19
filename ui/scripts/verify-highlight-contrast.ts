@@ -121,7 +121,7 @@ if (!pill.includes("var(--ink)")) bad(".pb-q.active 前景没锚到 --ink");
 if (!/border-color:\s*var\(--cvg-accent/.test(pill)) bad(".pb-q.active 描边不是实心 accent");
 if (/opacity\s*:/.test(playHover)) bad(".pb-play:hover 不可用 opacity 合成层覆盖 backdrop-filter 播放条");
 if (!/background:\s*color-mix\(in srgb, var\(--ink\)/.test(playHover)) bad(".pb-play:hover 应使用局部底色混合提供 hover 反馈");
-if (love.replace(/\s/g, "") !== "color:#e8465a;") bad(`.pb-ghost#pb-love.on 应保持原样 color:#e8465a（固定色本就够对比），现为：${love.trim()}`);
+if (love.replace(/\s/g, "") !== "color:var(--ink3);") bad(`.pb-ghost#pb-love.on 应为无染色 color:var(--ink3)（只靠空心/实心区分），现为：${love.trim()}`);
 if (fails) { console.log("\n结构不对，先修 CSS 再跑对比度"); process.exit(1); }
 
 // ================= 控制条 =================
@@ -145,7 +145,7 @@ for (const [tn, T] of Object.entries(TOK)) {
   checkE("音质胶囊 · 图形通道：实心 accent 描边 vs --ph2（这个独扛，门槛高）", COVERS.map((p) => dE(p.accent, T.ph2)), 20);
   note(`   低饱和（灰/银）封面下 --cvg-accent 本身就没有彩度（toUiColors 对灰封面刻意保留灰调），`);
   note(`   色彩通道必然弱 —— 这是封面染色系统的全局性质，进度条/侧栏/标签同理，不是控制条能单独解决的。`);
-  check("红心 · 固定色 vs 播放条底", [ratio(hex("#e8465a"), T.bar)], 3.0, "图形 3.0");
+  check("红心 · 无染色图标 vs 播放条底", [ratio(T.ink3, T.bar)], 3.0, "图形 3.0");
 
   // 安全上限
   const capF = (base, need) => {
