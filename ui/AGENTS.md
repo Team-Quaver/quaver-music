@@ -199,7 +199,7 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
   `lib/prefs.ts:applyControlBarMode()` 写、`lib/control-bar.ts` 与 Sparkle 主题策略合流；布局全在
   style.css 的 `--control-bar-*` 令牌（悬浮态 = fixed + 在内容区居中，不 JS 量高度）。
 - **挂在条上方的浮窗，锚点必须跟着它自己的按钮走**，不贴 Bar 右缘、也不写死 `right: calc(...)`。
-  两个原因：① 悬浮态条只有 `--control-bar-width`（默认 680px）且在内容区居中，贴右缘会把整块浮窗
+  两个原因：① 悬浮态条只有 `--control-bar-width`（默认 720px）且在内容区居中，贴右缘会把整块浮窗
   甩到收藏/画廊/队列那一排上面（音量浮窗实测差 55px+，就是用户报的「悬浮模式错位」）；② 右侧按钮
   会增删（画廊/桌面歌词/收藏按宽度隐藏、画质胶囊随档名变宽），写死的偏移改版即过期
   （`.pb-lpop` 如今就是这么过期的，尚未修）。音量浮窗的形状：`<div class="pb-volhost">` 把音量钮

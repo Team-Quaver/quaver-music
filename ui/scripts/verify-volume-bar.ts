@@ -9,7 +9,7 @@
 //
 // 病根二 · 悬浮态错位
 //   浮窗原本锚在 Bar 右缘（`right: 8px`）。停靠态条铺满窗口宽，贴右缘勉强成立；
-//   悬浮态（Style.ControlBar=floating）条只有 --control-bar-width（默认 680px）且在内容区居中，
+//   悬浮态（Style.ControlBar=floating）条只有 --control-bar-width（默认 720px）且在内容区居中，
 //   贴右缘就把整块浮窗甩到收藏/画廊/队列那一排上面 —— 浮窗里的喇叭与条上那颗差 55px+（实测）。
 //   现在锚点跟着音量钮走（.pb-volhost 是那颗钮与浮窗共用的定位锚），窄条放不下时按实测余量
 //   只往左退（minWidth 760 / 半屏吸附会撞上）。
