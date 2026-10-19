@@ -191,7 +191,7 @@ check("越界记忆尺寸不算数（只可能来自合成器把窗拉爆后的�
 // ——— 3. 双写红线：schema 默认 ⇄ 渲染层 FALLBACK ———
 section("[DesktopLyrics] 默认值双写一致");
 const fallbackSrc = src("src/lib/config.ts");
-for (const key of ["Enabled", "Locked", "Opacity", "Backdrop", "Scale", "Mode", "SingleCenter", "ColorMode", "Color", "X", "Y", "W", "H"]) {
+for (const key of ["Enabled", "Locked", "Opacity", "Backdrop", "Scale", "Font", "Border", "Shadow", "ShadowBlur", "ShadowOpacity", "ShadowX", "ShadowY", "Mode", "SingleCenter", "ColorMode", "Color", "X", "Y", "W", "H"]) {
   const want = defaults()[`DesktopLyrics.${key}`];
   const re = new RegExp(`"DesktopLyrics\\.${key}":\\s*"${String(want).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`);
   check(`FALLBACK 含 DesktopLyrics.${key}=${JSON.stringify(want)}`, re.test(fallbackSrc));
@@ -332,7 +332,14 @@ check("零网络（不 fetch /api：歌词随桥镜像来）", !/fetch\(/.test(p
 check("恒展开（覆盖层没有收起一档）", /expanded: \(\) => true/.test(page));
 check("时钟 = 快照外推 + 补偿（延迟扣减在 amll.ts 内做）", /time: \(\) => rawPosMs\(\) \+ CLOCK_COMP_MS/.test(page));
 check("歌词延迟取镜像现值（正=延后口径不动）", /lyricDelay: \(\) => sync\?\.delayMs \?\? 0/.test(page));
-check("字体家族跟随本体歌词字体设置", /fontCssOf\(cfg\("Style\.DefaultLyricsFonts"\)\)/.test(page));
+check("字体家族走独立的 [DesktopLyrics] Font（不再读本体 Style.DefaultLyricsFonts）",
+  /fontCssOf\(getDesktopLyricsFontList\(\)\)/.test(page) && !/cfg\([\s\S]{0,50}Style\.DefaultLyricsFonts/.test(page));
+check("文字描边走 [DesktopLyrics] Border，写成 --dl-border 供 CSS 消费",
+  /getDesktopLyricsBorder\(\)/.test(page) && /--dl-border/.test(page));
+check("文字阴影走 Shadow* 一组，合成单层 text-shadow 到 --dl-shadow",
+  /getDesktopLyricsShadow\(\)/.test(page) && /getDesktopLyricsShadowBlur\(\)/.test(page)
+  && /getDesktopLyricsShadowOpacity\(\)/.test(page) && /getDesktopLyricsShadowX\(\)/.test(page)
+  && /getDesktopLyricsShadowY\(\)/.test(page) && /--dl-shadow/.test(page));
 check("字号走专属 [DesktopLyrics] Scale", /getDesktopLyricsScale\(\)/.test(page) && /--dl-font-size/.test(page));
 check("缩放把手走窗口操作通道（挪窗交给 CSD 拖拽区，不走 IPC）",
   /windowOp\(\{ op: "resize-by", dx, dy \}\)/.test(page) && /windowOp\(\{ op: "close" \}\)/.test(page)
@@ -477,7 +484,10 @@ check("初值即「单行」窗口且居中于视口（JS 缺席也显示正确�
   /--dl-win-t: calc\(\(100% - var\(--dl-font-size, 24px\) \* 1\.7\) \/ 2\)/.test(css)
   && /--dl-win-h: calc\(var\(--dl-font-size, 24px\) \* 1\.7\)/.test(css));
 check("AMLL 取色变量吃 --dl-ink（默认白）", /--amll-lp-color: var\(--dl-ink, #fff\)/.test(css));
-check("default 档外的染色投影加重（浅色字压浅壁纸）", /:not\(\.ink-default\) #dl-clip/.test(css));
+check("桌面歌词不再用昂贵的 filter:drop-shadow；描边与单层 text-shadow 都可调",
+  !/filter\s*:[^;]*drop-shadow\(|ink-default/.test(css)
+  && /#dl-clip,[\s\S]{0,80}?#dl-empty[\s\S]{0,180}?-webkit-text-stroke: var\(--dl-border, 0px\)/.test(css)
+  && /text-shadow: var\(--dl-shadow, none\)/.test(css));
 check("旧「逐行改条带高度」路径已死（--dl-strip-h / mode-single 高度规则不残留）",
   !/--dl-strip-h/.test(css) && !/--dl-strip-h/.test(page) && !/mode-single #dl-stage/.test(css));
 
@@ -518,8 +528,9 @@ check("横滚：主行滚、翻译不滚 —— 翻译要滚只能是它自己�
 // ——— 8. 设置页 ———
 section("src/views/settings.ts 设置页");
 const views = viewsSource();
-check("歌词面板出现桌面歌词组（启用/字号/歌词不透明度/窗体不透明度）", /桌面歌词/.test(views)
-  && /id="dl-enable-cards"/.test(views) && /id="dl-scale"/.test(views)
+check("歌词面板出现桌面歌词组（启用/独立字体/字号/描边/阴影/歌词不透明度/窗体不透明度）", /桌面歌词/.test(views)
+  && /id="dl-enable-cards"/.test(views) && /id="dl-font"/.test(views) && /id="dl-scale"/.test(views)
+  && /id="dl-border"/.test(views) && /id="dl-shadow-cards"/.test(views)
   && /id="dl-opacity"/.test(views) && /id="dl-backdrop"/.test(views)
   && /歌词不透明度/.test(views) && /窗体不透明度/.test(views));
 check("固定/鼠标透穿开关存在，且按主进程的平台能力显隐",
@@ -535,6 +546,20 @@ check("prefs 门面对象齐全（Mode/ColorMode/Color getter+setter）",
   /getDesktopLyricsMode, setDesktopLyricsMode/.test(src("src/lib/prefs.ts")) || (/export function getDesktopLyricsMode\(\)/.test(src("src/lib/prefs.ts")) && /export function setDesktopLyricsColor\(v: string\)/.test(src("src/lib/prefs.ts"))));
 check("开关只写配置（生效走主进程 syncFromConf 单路）", /setDesktopLyrics\(v === "on"\)/.test(views) && /setDesktopLyricsLocked\(v === "on"\)/.test(views));
 check("字号滑条 50..200%", /min="50" max="200"/.test(views) && /setDesktopLyricsScale\(Number\(dlScale\.value\) \/ 100\)/.test(views));
+check("桌面歌词字体独立绑定 [DesktopLyrics] Font（不调用 applyFonts）",
+  /setDesktopLyricsFontList, setDesktopLyricsFontPreset, getDesktopLyricsFontList\(\)/.test(views)
+  && !/setDesktopLyricsFontList[\s\S]{0,160}applyFonts/.test(views));
+check("描边滑条 0..4px，绑定 setDesktopLyricsBorder",
+  /id="dl-border" type="range" min="0" max="4" step="0\.5"/.test(views)
+  && /setDesktopLyricsBorder\(Number\(dlBorder\.value\)\)/.test(views));
+check("阴影系统：开关 + 模糊/透明度/X/Y 四个滑条都接独立写路",
+  /id="dl-shadow-cards"/.test(views) && /setDesktopLyricsShadow\(v === "on"\)/.test(views)
+  && /id="dl-shadow-blur" type="range" min="0" max="32"/.test(views)
+  && /id="dl-shadow-opacity" type="range" min="0" max="100"/.test(views)
+  && /id="dl-shadow-x" type="range" min="-12" max="12"/.test(views)
+  && /id="dl-shadow-y" type="range" min="-12" max="12"/.test(views)
+  && /setDesktopLyricsShadowBlur/.test(views) && /setDesktopLyricsShadowOpacity/.test(views)
+  && /setDesktopLyricsShadowX/.test(views) && /setDesktopLyricsShadowY/.test(views));
 check("歌词不透明度滑条 10..100%（调的是字）",
   /id="dl-opacity" type="range" min="10" max="100" step="5"/.test(views)
   && /歌词不透明度/.test(views)

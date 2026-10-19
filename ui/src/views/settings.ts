@@ -14,7 +14,7 @@ import { desktopLyricsStateSync } from "../lib/desktop-lyrics";
 import { syncInhibit } from "../lib/inhibit";
 import { applyMenuGlass } from "../lib/menu-glass";
 import { BG_BLUR_MAX, BG_BLUR_MIN, FONT_CUSTOM, FONT_LABELS, FONT_PRESETS, TINT_DEFAULT_COLOR, fontKeyOf, getAutoCheck, getBackgroundBlur, getBackgroundImage, getBackgroundMode, getChineseConvert, getCloseAction, getControlBarMode, getDecode,
-  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsLocked, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMenuBlur, getOnlineTtml, getPrevBehavior, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundBlur, setBackgroundImage, setBackgroundMode, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsLocked, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricFontPreset, setMenuBlur, setOnlineTtml, setPrevBehavior, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel } from "../lib/prefs";
+  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsLocked, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMenuBlur, getOnlineTtml, getPrevBehavior, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundBlur, setBackgroundImage, setBackgroundMode, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsBorder, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsFontList, setDesktopLyricsFontPreset, setDesktopLyricsLocked, setDesktopLyricsShadow, setDesktopLyricsShadowBlur, setDesktopLyricsShadowOpacity, setDesktopLyricsShadowX, setDesktopLyricsShadowY, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricFontPreset, setMenuBlur, setOnlineTtml, setPrevBehavior, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel } from "../lib/prefs";
 import type { BackgroundMode, ChineseConvert, CloseAction, ControlBarMode, DecorMode, DlColorMode, DlMode, FadePreset, FallbackSort, PrevBehavior, ThemeMode, TintMode, UpdateChannel } from "../lib/prefs";
 import { applyTint } from "../lib/tint";
 import { TTML_DB_DEFAULT_URL, isTtmlDatabaseUrl } from "../lib/ttml";
@@ -181,11 +181,11 @@ export default async function settingsView(root: HTMLElement) {
               placeholder="留空代表使用默认字体" />
           </div>
         </div>
-        <div class="set-row"><span class="set-row__label">歌词字体</span>
+        <div class="set-row"><span class="set-row__label">正在播放页歌词字体</span>
           <div class="set-row__ctrl font-row">
-            <select id="font-lyric" aria-label="歌词字体预设">${fontOptions}</select>
+            <select id="font-lyric" aria-label="正在播放页歌词字体预设">${fontOptions}</select>
             <input id="font-lyric-list" type="text" spellcheck="false" autocomplete="off"
-              aria-label="字体家族列表"
+              aria-label="正在播放页歌词字体家族列表"
               placeholder="留空代表使用默认字体" />
           </div>
         </div>
@@ -320,10 +320,54 @@ export default async function settingsView(root: HTMLElement) {
             <button class="opt-card" data-opt="off" type="button">关闭</button>
           </div>
         </div>
+        <div class="set-row"><span class="set-row__label">字体</span>
+          <div class="set-row__ctrl font-row">
+            <select id="dl-font" aria-label="桌面歌词字体预设">${fontOptions}</select>
+            <input id="dl-font-list" type="text" spellcheck="false" autocomplete="off"
+              aria-label="桌面歌词字体家族列表"
+              placeholder="留空代表使用默认字体" />
+          </div>
+        </div>
         <div class="set-row"><span class="set-row__label">字号</span>
           <div class="set-row__ctrl">
             <input class="set-blur" id="dl-scale" type="range" min="50" max="200" step="5" aria-label="桌面歌词字号" />
             <span class="bg-blur-val" id="dl-scale-val"></span>
+          </div>
+        </div>
+        <div class="set-row"><span class="set-row__label">描边宽度</span>
+          <div class="set-row__ctrl">
+            <input class="set-blur" id="dl-border" type="range" min="0" max="4" step="0.5" aria-label="桌面歌词文字描边宽度" />
+            <span class="bg-blur-val" id="dl-border-val"></span>
+          </div>
+        </div>
+        <div class="set-row"><span class="set-row__label">阴影</span>
+          <div class="opt-cards" id="dl-shadow-cards">
+            <button class="opt-card" data-opt="on" type="button">开启</button>
+            <button class="opt-card" data-opt="off" type="button">关闭</button>
+          </div>
+        </div>
+        <div class="set-row"><span class="set-row__label">阴影模糊</span>
+          <div class="set-row__ctrl">
+            <input class="set-blur" id="dl-shadow-blur" type="range" min="0" max="32" step="1" aria-label="桌面歌词阴影模糊半径" />
+            <span class="bg-blur-val" id="dl-shadow-blur-val"></span>
+          </div>
+        </div>
+        <div class="set-row"><span class="set-row__label">阴影不透明度</span>
+          <div class="set-row__ctrl">
+            <input class="set-blur" id="dl-shadow-opacity" type="range" min="0" max="100" step="5" aria-label="桌面歌词阴影不透明度" />
+            <span class="bg-blur-val" id="dl-shadow-opacity-val"></span>
+          </div>
+        </div>
+        <div class="set-row"><span class="set-row__label">阴影水平偏移</span>
+          <div class="set-row__ctrl">
+            <input class="set-blur" id="dl-shadow-x" type="range" min="-12" max="12" step="1" aria-label="桌面歌词阴影水平偏移" />
+            <span class="bg-blur-val" id="dl-shadow-x-val"></span>
+          </div>
+        </div>
+        <div class="set-row"><span class="set-row__label">阴影垂直偏移</span>
+          <div class="set-row__ctrl">
+            <input class="set-blur" id="dl-shadow-y" type="range" min="-12" max="12" step="1" aria-label="桌面歌词阴影垂直偏移" />
+            <span class="bg-blur-val" id="dl-shadow-y-val"></span>
           </div>
         </div>
         <div class="set-row"><span class="set-row__label">歌词不透明度</span>
@@ -364,9 +408,9 @@ export default async function settingsView(root: HTMLElement) {
             <input id="dl-color-hex" type="text" spellcheck="false" autocomplete="off" size="9" maxlength="7" aria-label="桌面歌词颜色 HEX" />
           </div>
         </div>
-        <p class="muted set-hint">歌词层背景全透明、恒置顶、不进任务栏；字体家族跟随「外观 → 歌词字体」，逐字引擎与正在播放页同为内置 AMLL。
+        <p class="muted set-hint">歌词层背景全透明、恒置顶、不进任务栏；字体独立于「外观 → 正在播放页歌词字体」，逐字引擎与正在播放页同为内置 AMLL。
           行数=单行只当前句、双行多带下一句；歌词块整体居中于歌词层，超长行自动横向滚动（翻译/音译各自判断，主行滚时它不动）；
-          颜色默认是白字 + 深投影（任何壁纸可读），封面/系统染色与正在播放页同源派生（探测/取色失败自动回落白字）。
+          颜色默认是白字 + 黑色描边与单层柔和阴影（任何壁纸可读）；描边宽度、阴影开关、模糊、透明度与 X/Y 偏移都可自行调节，0 即完全关闭对应效果。封面/系统染色与正在播放页同源派生（探测/取色失败自动回落白字）。
           「歌词不透明度」调的是字；「窗体不透明度」调的是**窗体的那块底**（铺满歌词层表面、画在字后面的背板）——默认 0 = 全透明、只有字，
           花壁纸上想读清就把这块底往上调一点。歌词不透明度有条**悬停地板**：鼠标停在歌词层上（也就是可拖动的那个状态）时字至少
           回到 30%，方便你找到这扇窗；设得比 30% 高就完全按你的设置来，这里不另开开关。浮现出来的控制条不跟着淡——它只在你要按的时候出现。</p>
@@ -1123,6 +1167,18 @@ export default async function settingsView(root: HTMLElement) {
   (window as any).quaverConfig?.onChanged?.((p: { all?: boolean; values?: Record<string, string> } | null) => {
     if (p?.all || Object.prototype.hasOwnProperty.call(p?.values ?? {}, "DesktopLyrics.Locked")) syncDlLock();
   });
+  // 桌面歌词字体：独立存 [DesktopLyrics] Font，不碰 [Style] DefaultLyricsFonts。
+  bindFont(
+    wrap.querySelector<HTMLSelectElement>("#dl-font")!,
+    wrap.querySelector<HTMLInputElement>("#dl-font-list")!,
+    setDesktopLyricsFontList, setDesktopLyricsFontPreset, getDesktopLyricsFontList(),
+  );
+  // 阴影总开关：关闭后仍保留描边，两个效果互不绑定。
+  bindOptCards<"on" | "off">(
+    wrap.querySelector<HTMLElement>("#dl-shadow-cards")!,
+    () => (getDesktopLyricsShadow() ? "on" : "off"),
+    (v) => setDesktopLyricsShadow(v === "on"),
+  );
   // 行数：single=只当前句（裁切条带一条），dual=多带下一句 —— 纯偏好，覆盖层经广播现读现换
   bindOptCards<DlMode>(
     wrap.querySelector<HTMLElement>("#dl-mode-cards")!,
@@ -1178,6 +1234,45 @@ export default async function settingsView(root: HTMLElement) {
     setDesktopLyricsScale(Number(dlScale.value) / 100);
     dlScaleVal.textContent = `${dlScale.value}%`;
   };
+  // 文字描边（px）：0..4。旧版 drop-shadow 已移除，轮廓只走这条；0 = 无描边。
+  const dlBorder = wrap.querySelector<HTMLInputElement>("#dl-border")!;
+  const dlBorderVal = wrap.querySelector<HTMLElement>("#dl-border-val")!;
+  const paintDlBorder = () => {
+    const px = getDesktopLyricsBorder();
+    dlBorder.value = String(px);
+    dlBorderVal.textContent = `${px.toFixed(1)} px`;
+  };
+  paintDlBorder();
+  dlBorder.oninput = () => {
+    setDesktopLyricsBorder(Number(dlBorder.value));
+    dlBorderVal.textContent = `${Number(dlBorder.value).toFixed(1)} px`;
+  };
+  // 阴影参数：单层 text-shadow，四项都可独立调；总开关关掉时这些值仍保留，下次开启即恢复。
+  const bindDlNumber = (
+    sel: string,
+    get: () => number,
+    set: (v: number) => void,
+    format: (v: number) => string,
+    scale = 1,
+  ) => {
+    const input = wrap.querySelector<HTMLInputElement>(sel)!;
+    const label = wrap.querySelector<HTMLElement>(`${sel}-val`)!;
+    const paint = () => {
+      const v = get();
+      input.value = String(v * scale);
+      label.textContent = format(v);
+    };
+    paint();
+    input.oninput = () => {
+      const v = Number(input.value) / scale;
+      set(v);
+      label.textContent = format(v);
+    };
+  };
+  bindDlNumber("#dl-shadow-blur", getDesktopLyricsShadowBlur, setDesktopLyricsShadowBlur, (v) => `${Math.round(v)} px`);
+  bindDlNumber("#dl-shadow-opacity", getDesktopLyricsShadowOpacity, setDesktopLyricsShadowOpacity, (v) => `${Math.round(v * 100)}%`, 100);
+  bindDlNumber("#dl-shadow-x", getDesktopLyricsShadowX, setDesktopLyricsShadowX, (v) => `${Math.round(v)} px`);
+  bindDlNumber("#dl-shadow-y", getDesktopLyricsShadowY, setDesktopLyricsShadowY, (v) => `${Math.round(v)} px`);
   // 歌词层不透明度：0.1..1（滑条 10..100%）—— 调的是**字**（内容淡出；悬停控件与背板各管各的）。
   const dlOpacity = wrap.querySelector<HTMLInputElement>("#dl-opacity")!;
   const dlOpacityVal = wrap.querySelector<HTMLElement>("#dl-opacity-val")!;

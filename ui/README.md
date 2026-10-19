@@ -68,6 +68,9 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
             Tint / TintColor
 [Window]    Decor / CloseAction / SidebarCollapsed
 [Playing]   Backend / AudioDevice / Fade / Volume / Muted
+[DesktopLyrics] Enabled / Locked / Opacity / Backdrop / Scale / Font / Border
+                Shadow / ShadowBlur / ShadowOpacity / ShadowX / ShadowY
+                Mode / SingleCenter / ColorMode / Color / X / Y / W / H
 [Quality]   DefaultQuality / FallbackToQMAtmos
 [Security]  CredentialStore / KeyringBackend
 [Sparkle]   Blacklist
@@ -75,6 +78,9 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
 
 - 键名与可选值以 `electron/config.ts` 的 `SCHEMA` 为唯一真相；改新项要同时改
   `src/lib/config.ts` 的 `FALLBACK` 与 `src/lib/prefs.ts` 的类型化 getter/setter（三处）。
+- 桌面歌词的 `Font` 与正在播放页的 `[Style] DefaultLyricsFonts` 相互独立；`Border` 是文字描边宽度
+  （px，0..4，默认 1）。`Shadow` 为阴影总开关，`ShadowBlur` 0..32px、`ShadowOpacity` 0..1、
+  `ShadowX/Y` -12..12px 共同组成单层 `text-shadow`；`Opacity` 调歌词层、`Backdrop` 调窗体背板。
 - `[Sparkle] Blacklist` = 插件加载黑名单：逗号分隔的插件 id（形如 `flowscape,md3`，与插件目录名一致），
   命中的插件一律不加载（预装与第三方一视同仁，安全模式下同样生效）。空 = 不拉黑；只认 kebab-case id，
   写错的整条列表会被值域校验拒绝并回落为空（`readValues` 会给 warning）。

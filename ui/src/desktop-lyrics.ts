@@ -11,13 +11,13 @@
 // 驱动时钟取 ctx.time() − lyricDelay()（扣减在 amll.ts 内部实现，本文件只保证 ctx
 // 喂的是对的数）。行点击跳转（点行 seek）按产品决定关闭：覆盖层只读，见 ctx.seek。
 //
-// 字体：家族恒跟随「设置 → 外观 → 歌词字体」（Style.DefaultLyricsFonts，配置广播实时跟随）；
-// 字号倍率走 [DesktopLyrics] Scale、歌词层不透明度走 [DesktopLyrics] Opacity、窗体不透明度
-// （背板）走 [DesktopLyrics] Backdrop（都是设置页滑条，经配置广播实时跟随）。歌词层另有一道「悬停地板」：
-// 鼠标停在覆盖层上（= 可拖动那个状态）时内容至少 0.3，设置高于 0.3 就照设置来 —— 见 prefs 的
-// DL_HOVER_OPACITY_FLOOR，值由 applyStyle 算成 --dl-hover-opacity（悬停控件不跟随，恒满值）。
-// 窗面默认全透明，
-// 白字 + 投影，深浅壁纸都能读；要更稳的底就在设置里把背板调出来。
+// 字体：家族走独立的 [DesktopLyrics] Font，与正在播放页的 Style.DefaultLyricsFonts 解绑；
+// 字号倍率走 [DesktopLyrics] Scale、文字描边走 Border、阴影走 Shadow/ShadowBlur/ShadowOpacity/
+// ShadowX/ShadowY、歌词层不透明度走 Opacity、窗体不透明度（背板）走 Backdrop（都经配置广播实时跟随）。
+// 阴影用单层 text-shadow 而非整块 filter:drop-shadow，强度可调到 0；描边与阴影互不替代。
+// 歌词层另有一道「悬停地板」：鼠标停在覆盖层上（= 可拖动那个状态）时内容至少 0.3，
+// 设置高于 0.3 就照设置来 —— 见 prefs 的 DL_HOVER_OPACITY_FLOOR，值由 applyStyle 算成
+// --dl-hover-opacity（悬停控件不跟随，恒满值）。
 //
 // 版面：可见条带（clip-path）恒居中于视口，当前行**整块文字**（主行 + 翻译/音译）的实测
 // 中心钉在视口中心；超长行一行到底、那一行自己横向滚（翻译/音译各判各的）。内核公式在
@@ -32,8 +32,8 @@
 //   • 悬停浮现控制条：⏮ ⏯ ⏭ ｜ 字号 A−/A+ ｜ 延迟 −/读数(点=归零)/＋ ｜ 关窗；
 //   • 底部细进度条：点击 seek。
 import "./desktop-lyrics.css";
-import { cfg, loadConfig } from "./lib/config";
-import { fontCssOf, getDesktopLyricsBackdrop, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsHoverOpacity, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getLyricAux } from "./lib/prefs";
+import { loadConfig } from "./lib/config";
+import { fontCssOf, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsHoverOpacity, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsSingleCenter, getLyricAux } from "./lib/prefs";
 import { fmtLyricDelay, LYRIC_DELAY_MAX_MS, LYRIC_DELAY_STEP_MS } from "./lib/lyric-delay";
 import { alignFor, bandFor, scrollRange } from "./lib/desktop-lyrics-layout";
 import { CLOCK_COMP_MS, type DlCmd, type DlLine, type DlStateSnapshot, type DlSyncPayload, type DlTrackPayload } from "./lib/desktop-lyrics-protocol";
@@ -545,11 +545,22 @@ function tightenStrip(force = false): void {
 }
 
 function applyStyle(): void {
-  const font = fontCssOf(cfg("Style.DefaultLyricsFonts"));
+  const font = fontCssOf(getDesktopLyricsFontList());
   if (font) root.style.setProperty("--dl-font", font);
   else root.style.removeProperty("--dl-font");
   const scale = getDesktopLyricsScale();
   root.style.setProperty("--dl-font-size", `${Math.round(24 * scale)}px`);
+  root.style.setProperty("--dl-border", `${getDesktopLyricsBorder()}px`);
+  // 单层 text-shadow：便宜、可关、参数全由设置页控制；0 不透明度直接撤掉变量。
+  const shadowOpacity = getDesktopLyricsShadowOpacity();
+  if (getDesktopLyricsShadow() && shadowOpacity > 0) {
+    root.style.setProperty(
+      "--dl-shadow",
+      `${getDesktopLyricsShadowX()}px ${getDesktopLyricsShadowY()}px ${getDesktopLyricsShadowBlur()}px rgb(0 0 0 / ${shadowOpacity})`,
+    );
+  } else {
+    root.style.removeProperty("--dl-shadow");
+  }
   root.style.setProperty("--dl-ink", lyricInk());
   // 两层不透明度分开，各管各的（别再混成一个）：
   //   • --dl-opacity（[DesktopLyrics] Opacity）= **歌词层**：淡出内容（字 + 空态提示）；悬停控件不连坐；
@@ -560,8 +571,6 @@ function applyStyle(): void {
   // 悬停地板：停在覆盖层上（= 要拖动的那个状态）时，内容抬到 max(设置, 0.3) —— 变量挂在 root 上
   // 供后代继承，CSS 只在 :hover 里消费，离开悬停自动回落 --dl-opacity。控件不参与（见 CSS 同段注释）。
   root.style.setProperty("--dl-hover-opacity", String(getDesktopLyricsHoverOpacity()));
-  // default 档是纯白字，影子轻一档；染色/自定义色压浅壁纸时靠更重的投影托轮廓
-  root.classList.toggle("ink-default", getDesktopLyricsColorMode() === "default");
   applyPlayerLayout();
 }
 
