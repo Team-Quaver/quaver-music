@@ -307,6 +307,7 @@ section("端到端：手动导入歌词/封面 + 元数据校正（右键菜单�
   eq("导入 TTML → format ttml", r.body?.data?.format, "ttml");
   ly = (await jget(`/local/lyric/${tagged.id}`)).body.data;
   check("歌词接口带 format 字段", ly.source === "import" && ly.format === "ttml" && ly.lyric.includes("ttml行"), JSON.stringify(ly).slice(0, 140));
+  check("重导入原地覆盖（旧内容不残留）", !ly.lyric.includes("手动导入的行") && !ly.lyric.includes("逐字"), JSON.stringify(ly).slice(0, 140));
   // 体积/内容闸
   r = await jpost("/local/lyric/import", { id: tagged.id, name: "big.lrc", data: b64(Buffer.alloc(600 * 1024, 0x31)) });
   eq("超限歌词 413", r.status, 413);
@@ -393,6 +394,13 @@ section("源码接线：player/渲染层绕开 QQ 通路");
   check("QRC 拉取与官方共用一条管线（pullQqLyric）", /private async pullQqLyric\(midRaw: string/.test(player) && /await this\.pullQqLyric\(qqMid, seq, s\)/.test(player));
   check("在线无内容才落回 /local/lyric（本地曲专属兜底；官方曲目行为不变）", /if \(has \|\| !local\) \{ this\.notify\(\); return; \}/.test(player));
   check("库快照更新回填当前曲目（qqMid 到手即升级 QRC）", /onLocalLibraryChange\(\(\) => this\.refreshLocalCurrent\(\)\)/.test(player));
+  const np = src("src/components/NowPlaying.ts");
+  const dlBridge = src("src/lib/desktop-lyrics.ts");
+  const dlPage = src("src/desktop-lyrics.ts");
+  check("重导入歌词即使状态仍为 ok 也重建正在播放页 DOM",
+    /lyricRevision/.test(player) && /player\.lyricRevision !== lastLyricRevision/.test(np));
+  check("重导入歌词会重推桌面歌词整包并按内容版本重绘",
+    /lyricRevision: player\.lyricRevision/.test(dlBridge) && /track\.lyricRevision/.test(dlPage));
   const libSrc2 = src("electron/local/library.ts");
   check("扫描发现新歌 → 服务端自动补刮未匹配段", /if \(scanState\.found > 0 && Object\.values\(loadDb\(\)\.tracks\)\.some\(\(t\) => !t\.match\)\)/.test(libSrc2));
   // 反向：qqMid 判空写坏成恒真/恒假都要能红

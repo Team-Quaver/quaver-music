@@ -56,6 +56,7 @@ function trackPayload(): DlTrackPayload {
     key: currentKey(),
     mid: c ? String(c.mid ?? "") : "",
     lyricState: player.lyricState,
+    lyricRevision: player.lyricRevision,
     durationSec: Math.round((c?.interval ?? player.duration) || 0),
     karaoke: player.karaoke,
     lines: player.lyrics.map((l) => ({ t: l.t, text: l.text, trans: l.trans, roma: l.roma })),
@@ -94,9 +95,9 @@ function syncPayload(): DlSyncPayload {
   };
 }
 
-/** 曲目指纹：换曲 / 歌词状态迁移 / 解析结果形状变化才重推整包（歌词可达百 KB 级，别跟着 4Hz 走）。 */
+/** 曲目指纹：换曲 / 歌词内容版本 / 状态迁移 / 解析结果形状变化才重推整包（歌词可达百 KB 级，别跟着 4Hz 走）。 */
 function trackFp(t: DlTrackPayload): string {
-  return `${t.key}|${t.lyricState}|${t.karaoke.length}|${t.lines.length}`;
+  return `${t.key}|${t.lyricState}|${t.lyricRevision}|${t.karaoke.length}|${t.lines.length}`;
 }
 
 function pushAll(): void {

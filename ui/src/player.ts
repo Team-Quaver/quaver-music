@@ -118,6 +118,9 @@ class Player {
   })();
   lyrics: LyricLine[] = [];
   lyricState: "idle" | "loading" | "ok" | "none" = "idle";
+  /** 歌词内容版本：每次解析结果被替换 +1（不只是状态迁移）。
+   *  重导入同一首歌词时 lyricState 仍是 ok，渲染层必须靠它识别「内容换了、DOM 要重建」。 */
+  lyricRevision = 0;
   /** 逐字歌词（Sparkle 逐字提供器解析的词级时间轴行，毫秒）；无逐字数据时为空 */
   karaoke: SparkleKaraokeLine[] = [];
   loading = false; // 正在取链/缓冲（UI 画加载指示）
@@ -601,6 +604,7 @@ class Player {
     this.lyrics = [];
     this.karaoke = [];
     this.lyricState = "idle";
+    this.lyricRevision++;
     // 换曲即作废在途歌词请求：fetchLyric 的序号守卫只防「更新的 fetch」，不防换曲 ——
     // 不作废的话，上一曲慢悠悠的歌词响应会在新曲起播期间回写（快速连点下一首时显示前前一首的歌词）
     this.lyricSeq++;
@@ -838,14 +842,16 @@ class Player {
         this.karaoke = kara;
         this.lyrics = karaokeToLines(kara);
         this.lyricState = "ok";
+        this.lyricRevision++;
         return true;
       }
       this.karaoke = [];
       this.lyrics = parseLrc(raw, trans, roma);
       this.lyricState = this.lyrics.length ? "ok" : "none";
+      this.lyricRevision++;
       return this.lyrics.length > 0;
     } catch {
-      if (seq === this.lyricSeq) { this.karaoke = []; this.lyricState = "none"; }
+      if (seq === this.lyricSeq) { this.karaoke = []; this.lyricState = "none"; this.lyricRevision++; }
       return false;
     }
   }
@@ -908,6 +914,7 @@ class Player {
       }
     }
     this.lyricState = this.lyrics.length ? "ok" : "none";
+    this.lyricRevision++;
   }
 
   /** 库快照更新（扫描/自动刮削/手动导入落定）→ 正在播的本地曲目跟进新指纹：

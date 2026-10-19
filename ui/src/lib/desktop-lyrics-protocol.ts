@@ -24,6 +24,8 @@ export interface DlTrackPayload {
   key: string;
   mid: string;
   lyricState: "idle" | "loading" | "ok" | "none";
+  /** 歌词内容版本（player.lyricRevision）：状态同为 ok 的重导入也要让覆盖层重建 DOM */
+  lyricRevision: number;
   durationSec: number;
   /** 逐字行（在位提供器解析产物；毫秒）—— 覆盖层交给内置 AMLL 直接渲染 */
   karaoke: SparkleKaraokeLine[];

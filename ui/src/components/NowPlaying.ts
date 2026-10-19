@@ -370,8 +370,9 @@ export function NowPlaying(): HTMLElement {
     player.notifyPublic();
   });
 
-  let lastMid = "";        // 歌词行 DOM 只在换曲/状态迁移/辅助行档位变化时重建
+  let lastMid = "";        // 歌词行 DOM 只在换曲/内容版本/状态/辅助行档位变化时重建
   let lastLyricState = "";
+  let lastLyricRevision = -1; // 同曲重导入：状态仍是 ok，但内容版本变了，DOM 必须重建
   let lastAuxMode = "";    // 翻译选项档位（换档要重挑每行的辅助行文本）
   let lastIdx = -1;        // 高亮行索引（避免每帧改 class）
   let lastCover: string | null = null; // 封面 img 的 src 签名（4Hz notify 里防 <img> 重建/重解码）
@@ -630,6 +631,7 @@ export function NowPlaying(): HTMLElement {
     if (syncNpView(el, npViewHost)) {      disposeKara();
       lastKaraMode = false;
       lastLyricState = "";
+      lastLyricRevision = -1;
       lastMid = "";
       lastIdx = -1;
       bgWant = bgHold = bgFade = bgFailed = "";
@@ -645,15 +647,17 @@ export function NowPlaying(): HTMLElement {
     applyBg(pic);
     if (pic !== lastCover) { lastCover = pic; cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : `<div class="np-cover-ph">${icons.disc ?? ""}</div>`; }
 
-    // 换曲 / 歌词状态迁移 / 接管模式切换（loading→ok/none 时行 DOM 需要重建，否则占位/歌词丢失）
+    // 换曲 / 歌词内容替换 / 状态迁移 / 接管模式切换（重导入同曲时状态仍是 ok，只靠版本号识别）
     const st: "idle" | "loading" | "ok" | "none" = player.lyrics.length ? "ok" : player.lyricState;
     const karaMode = karaModeNow();
     el.classList.toggle("kara", karaMode);
-    if (s?.mid !== lastMid || st !== lastLyricState || karaMode !== lastKaraMode
+    if (s?.mid !== lastMid || st !== lastLyricState || player.lyricRevision !== lastLyricRevision
+      || karaMode !== lastKaraMode
       || player.lyricAux !== lastAuxMode // 换翻译/音译档：行级的辅助行文本要重挑一遍
       || (karaMode && sparkleKaraokeProvider() !== karaProvider)) {
       lastKaraMode = karaMode;
       lastAuxMode = player.lyricAux;
+      lastLyricRevision = player.lyricRevision;
       if (karaMode) { lastMid = s?.mid ?? ""; lastIdx = -1; buildKara(); }
       else { disposeKara(); buildLyricDom(s); }
     }
@@ -689,6 +693,7 @@ export function NowPlaying(): HTMLElement {
       disposeKara();
       lastKaraMode = false;
       lastLyricState = "";
+      lastLyricRevision = -1;
       lastMid = "";
       lastIdx = -1;
     }
