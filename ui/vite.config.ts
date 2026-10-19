@@ -29,7 +29,7 @@ function appVersion(): string {
 }
 
 // desktop-lyrics 是真页面（透明覆盖层独立入口），其余旧 <name>.html 只是 SPA 深链跳转壳
-const PAGES = ["index", "guess", "daily", "liked", "playlist", "user", "settings", "login", "desktop-lyrics"];
+const PAGES = ["index", "guess", "daily", "liked", "playlist", "playlists", "user", "settings", "login", "desktop-lyrics"];
 
 function attachRelay(server: ViteDevServer | PreviewServer) {
   (server.middlewares as Connect.Server).use("/api", apiRelay());

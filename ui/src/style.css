@@ -356,6 +356,15 @@ body.side-collapsed .playlists::-webkit-scrollbar-thumb { border-width: 2px; }
 body.side-collapsed .side-foot { flex-direction: column; justify-content: center; gap: 2px; }
 body.side-collapsed .side-btn svg { transform: rotate(180deg); }
 
+/* —— 歌单显示模式：歌单集合页（body[data-playlist-mode="collection"]）——
+   「菜单栏」态（默认）侧栏照常列歌单；「歌单集合页」态侧栏歌单区整块撤走，导航按钮在
+   栏内垂直居中（.nav 吃掉 .playlists 空出来的那份弹性空间，justify-content 把按钮居中）。
+   与缩态正交：两态叠加时仍是「user 顶 / nav 居中 / foot 底」三段式。
+   状态由 prefs.applyPlaylistModeKind 挂到 body（与 side-collapsed / control-bar 同一套路）。 */
+body[data-playlist-mode="collection"] .playlists,
+body[data-playlist-mode="collection"] .sep { display: none; }
+body[data-playlist-mode="collection"] .nav { flex: 1; justify-content: center; }
+
 /* ===================== 可拖拽分隔条（侧栏右缘 / 停靠队列左缘，逻辑见 shell.ts / QueuePanel.ts） =====================
    命中区 = flex 行内的 10px 竖条：负外边距把自身宽度抵平，悬在两面板接缝上、不改既有版式。
    .body 有 10px gap → .side-resizer 两侧各 -10px 抵平（间距仍是 10px）；

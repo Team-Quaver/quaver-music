@@ -57,6 +57,22 @@ ok("导航项带 title（缩态只剩图标时靠它认字）",
 ok("歌单项带 title（同上；收藏的歌单把创建者也缀上）",
   /const title = String\(x\.title \?\? "歌单"\);[\s\S]{0,120}a\.title = sub \? `\$\{title\} · \$\{sub\}` : title;/.test(shell));
 
+// ============ ②.b 歌单集合页入口：导航项 + 集合页态布局 ============
+ok("侧栏新增「歌单」导航项，且排在「本地音乐」之前",
+  /label: "歌单", icon: "list"/.test(shell)
+  && shell.indexOf('label: "歌单"') > 0
+  && shell.indexOf('label: "歌单"') < shell.indexOf('label: "本地音乐"'));
+const listIco = shell.match(/^\s*list:\s*\n?\s*'([^']+)'/m)?.[1] ?? "";
+ok("歌单图标存在且沿用同一套线性图标口径（24 网格 / currentColor / fill:none）",
+  listIco.includes('viewBox="0 0 24 24"') && listIco.includes("currentColor") && listIco.includes('fill="none"'));
+const cssFlat = css.replace(/\s+/g, " ");
+ok("集合页态：侧栏歌单区与分隔线整块撤走",
+  /body\[data-playlist-mode="collection"\] \.playlists, body\[data-playlist-mode="collection"\] \.sep \{ display: none; \}/.test(cssFlat));
+ok("集合页态：导航按钮在侧栏内垂直居中（.nav 吃掉腾出的弹性空间）",
+  /body\[data-playlist-mode="collection"\] \.nav \{ flex: 1; justify-content: center; \}/.test(cssFlat));
+ok("集合页态不依赖 side-collapsed（两态正交，可叠加）",
+  !/body\[data-playlist-mode="collection"\][^{]*\.side-collapsed/.test(cssFlat));
+
 // ============ ③ 状态源：配置 + body class 一份真相 ============
 ok("prefs 暴露 get/apply/set 三个入口",
   /export function getSidebarCollapsed\(\): boolean/.test(prefs)

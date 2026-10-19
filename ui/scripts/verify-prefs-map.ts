@@ -103,6 +103,8 @@ eq("背景模糊默认 70", P.getBackgroundBlur(), 70);
 eq("控制条默认底部停靠", P.getControlBarMode(), "bottom");
 ls.set("quaver.conf.v1", JSON.stringify({ "Style.ControlBar": "bad" })); await P.loadConfig();
 eq("控制条模式坏值回落停靠", P.getControlBarMode(), "bottom");
+ls.set("quaver.conf.v1", JSON.stringify({ "Style.PlaylistMode": "bad" })); await P.loadConfig();
+eq("歌单模式坏值回落菜单栏", P.getPlaylistMode(), "menu");
 eq("菜单毛玻璃默认开", P.getMenuBlur(), true);
 eq("歌词辅助默认翻译", P.getLyricAux(), "translation");
 eq("翻译门面默认开", P.getShowTrans(), true);
@@ -169,6 +171,16 @@ eq("底部 → bottom", [P.getControlBarMode(), conf()["Style.ControlBar"]], ["b
 check("body 底部 class/data 属性同步", !bodyClasses.has("control-bar-floating") && bodyDataset.controlBar === "bottom", JSON.stringify({cls:[...bodyClasses], ds:bodyDataset}));
 P.setControlBarMode("bad" as any);
 eq("非法写入回落 bottom", [P.getControlBarMode(), conf()["Style.ControlBar"]], ["bottom", "bottom"]);
+
+// 歌单显示模式（[Style] PlaylistMode）：menu=菜单栏（默认，侧栏列歌单）｜collection=歌单集合页
+P.setPlaylistMode("collection");
+eq("集合页 → collection", [P.getPlaylistMode(), conf()["Style.PlaylistMode"]], ["collection", "collection"]);
+check("body 集合页 class/data 属性同步", bodyClasses.has("playlist-collection") && bodyDataset.playlistMode === "collection", JSON.stringify({cls:[...bodyClasses], ds:bodyDataset}));
+P.setPlaylistMode("menu");
+eq("菜单栏 → menu", [P.getPlaylistMode(), conf()["Style.PlaylistMode"]], ["menu", "menu"]);
+check("body 菜单栏 class/data 属性同步", !bodyClasses.has("playlist-collection") && bodyDataset.playlistMode === "menu", JSON.stringify({cls:[...bodyClasses], ds:bodyDataset}));
+P.setPlaylistMode("bad" as any);
+eq("非法写入回落 menu", [P.getPlaylistMode(), conf()["Style.PlaylistMode"]], ["menu", "menu"]);
 P.setMenuBlur(true);  eq("开启 → True", conf()["Style.MenuBlur"], "True");
 
 // 三档替换关系：写 LyricAux 同时写兼容键 ShowTranslation

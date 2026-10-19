@@ -194,6 +194,26 @@ export function setControlBarMode(m: ControlBarMode) {
   applyControlBarMode();
 }
 
+// —— 歌单显示模式：菜单栏（默认）｜歌单集合页 ——
+// 配置值落在 [Style] PlaylistMode；DOM 状态挂 body（data-playlist-mode + body.playlist-collection），
+// 侧栏布局与歌单集合页只按这两个状态走，不互相找节点。Sparkle 主题可用 theme.playlistMode
+// 接管（策略在 src/sparkle/theme-playlist-mode.ts，应用入口在 src/lib/playlist-mode.ts）。
+export type PlaylistMode = "menu" | "collection";
+const PLAYLIST_MODES: readonly string[] = ["menu", "collection"];
+
+export function getPlaylistMode(): PlaylistMode {
+  const v = cfg("Style.PlaylistMode");
+  return PLAYLIST_MODES.includes(v) ? (v as PlaylistMode) : "menu";
+}
+export function applyPlaylistModeKind(mode: PlaylistMode = getPlaylistMode()) {
+  document.body.classList.toggle("playlist-collection", mode === "collection");
+  document.body.dataset.playlistMode = mode;
+}
+export function setPlaylistMode(m: PlaylistMode) {
+  cfgSet({ "Style.PlaylistMode": PLAYLIST_MODES.includes(m) ? m : "menu" });
+  applyPlaylistModeKind();
+}
+
 // —— 界面高亮色（tint）：--cvg-accent / --cvg-glow 的来源 ——
 // 四档落在 quaver.conf 的 [Style] Tint（default=固定青色｜cover=跟随封面｜system=系统强调色｜
 // custom=自定义色），自定义色的取值落在 TintColor（#rrggbb）。这里同样**只**管「枚举 ⇄ 配置取值」：

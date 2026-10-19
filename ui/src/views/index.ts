@@ -27,6 +27,7 @@ const loaders: Record<string, Loader> = {
   "/daily": () => import("./daily").then((m) => m.default),
   "/liked": () => import("./liked").then((m) => m.default),
   "/local": () => import("./local").then((m) => m.default),
+  "/playlists": () => import("./playlists").then((m) => m.default),
   "/playlist": () => import("./playlist").then((m) => m.default),
   "/singer": () => import("./singer").then((m) => m.default),
   "/singer-albums": () => import("./singer-albums").then((m) => m.default),

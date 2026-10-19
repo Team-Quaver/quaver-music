@@ -359,6 +359,17 @@ export const SCHEMA: SectionSpec[] = [
         valid: (v: string) => ["bottom", "floating"].includes(v),
       },
       {
+        key: "PlaylistMode",
+        def: "menu",
+        doc: [
+          "歌单在界面里的呈现方式：menu=菜单栏（侧栏列出歌单，**默认**）｜collection=歌单集合页。",
+          "menu：侧栏「歌单」区照常列出「我创建的歌单 / 收藏的歌单」；collection：侧栏歌单区整块隐藏、",
+          "导航按钮在侧栏内垂直居中，歌单改到 #/playlists 以 grid 分区展示（我创建的歌单 / 我收藏的歌单）。",
+          "Sparkle 主题可用 theme.playlistMode 接管这一形态；宿主据 body[data-playlist-mode] 切换布局",
+        ],
+        valid: (v: string) => ["menu", "collection"].includes(v),
+      },
+      {
         key: "MenuBlur",
         def: "True",
         doc: [

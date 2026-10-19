@@ -108,8 +108,8 @@ check("主窗首屏不含任何路由视图实现（src/views/<页面>.ts）",
   mainModules.filter((id) => /src\/views\//.test(id)).join(","));
 
 section("视图按路由分块");
-const viewChunks = Object.keys(graph).filter((f) => /^assets\/(home|search|guess|daily|liked|local|playlist|singer|singer-albums|album|settings|log|user|login)-/.test(f));
-for (const v of ["home", "search", "guess", "daily", "liked", "local", "playlist", "singer", "album", "settings", "log", "user", "login"]) {
+const viewChunks = Object.keys(graph).filter((f) => /^assets\/(home|search|guess|daily|liked|local|playlist|playlists|singer|singer-albums|album|settings|log|user|login)-/.test(f));
+for (const v of ["home", "search", "guess", "daily", "liked", "local", "playlist", "playlists", "singer", "album", "settings", "log", "user", "login"]) {
   check(`视图 ${v} 独立成块`, viewChunks.some((f) => f.startsWith(`assets/${v}-`)));
 }
 check("设置页块是真的（≥30KB，说明整页代码在里面而不是空壳）",

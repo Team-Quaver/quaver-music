@@ -2,6 +2,7 @@
 // 配置在 preload 阶段已同步取好（见 src/lib/config.ts 顶部说明），这里无需等待任何异步。
 import { applyTheme, applyFonts, applyDecor, applySidebar, syncCloseAction } from "./lib/prefs";
 import { bootControlBar } from "./lib/control-bar";
+import { bootPlaylistMode } from "./lib/playlist-mode";
 import { player } from "./player";
 import { bootShell } from "./shell";
 import { startMprisBridge } from "./mpris";
@@ -14,6 +15,8 @@ applyTheme();
 applyFonts();
 applyDecor();
 bootControlBar();
+// 歌单显示模式（菜单栏 / 歌单集合页）同理：bootShell 前把 body[data-playlist-mode] 定下来
+bootPlaylistMode();
 // 侧栏缩态在 bootShell 之前先挂到 body 上：壳层一注入就是最终形态，不会先展开再收
 applySidebar();
 syncCloseAction(); // 把「关闭按钮行为」偏好推给 Electron 主进程（tray/quit）

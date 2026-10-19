@@ -26,6 +26,8 @@ const FALLBACK: ConfigSnapshot = {
   "Style.BackgroundBlur": "70",
   "Style.Tint": "default",
   "Style.TintColor": "#19c2d8",
+  "Style.ControlBar": "bottom",
+  "Style.PlaylistMode": "menu",
   "Style.MenuBlur": "True",
   "Window.Decor": "csd",
   "Window.CloseAction": "tray",
