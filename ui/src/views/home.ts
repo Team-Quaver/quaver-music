@@ -1,11 +1,14 @@
 // Quaver — 路由视图：home（由 src/views/index.ts 按需动态 import，不在首屏解析）
-import { api, escHtml, upPic } from "../lib/api";
+import { api, upPic } from "../lib/api";
+import { icons } from "../lib/icons";
 import { renderSongRows } from "../lib/songs";
 import { player } from "../player";
 import type { Song } from "../player";
+import { toast } from "../components/SongMenu";
 import type { RecommendSonglistResp } from "./_shared";
-import { cardPlay, compactCount, errText, h, homeStatus, navCard, plainText, routeScroller, trackStuck } from "./_shared";
-// —— 首页：页头 + 双栏领区（今日精选 / 新歌速递）+ 发丝线分隔的推荐网格 ——
+import { cardPlay, compactCount, errText, h, homeStatus, navCard, routeScroller, trackStuck } from "./_shared";
+
+// —— 首页：页头 + 双栏领区（快速开始 / 新歌速递）+ 发丝线分隔的推荐网格 ——
 // 两个数据源并行、独立降级：任一失败不影响另一块，各自原地给重试。
 export default async function homeView(root: HTMLElement) {
   const homeHead = h("div", "sticky-head home-pagehead", `
@@ -16,12 +19,25 @@ export default async function homeView(root: HTMLElement) {
 
   const lead = h("div", "home-lead");
 
-  const featured = h("section", "home-panel");
-  featured.innerHTML = `<div class="sec-head">
-    <h2>今日精选</h2><span class="muted">编辑推荐</span>
-  </div>`;
-  const featureHost = h("div", "home-feature-host", `<div class="muted">加载中…</div>`);
-  featured.append(featureHost);
+  const quickStart = h("section", "home-panel");
+  const quickHead = h("div", "sec-head home-quick-head", `<h2>快速开始</h2>`);
+  const quick = h("div", "home-quick");
+  const addQuickAction = (label: string, icon: string, run: () => void) => {
+    const btn = h("button", "home-quick__item",
+      `<span class="home-quick__icon" aria-hidden="true">${icon}</span><span class="home-quick__label">${label}</span>`) as HTMLButtonElement;
+    btn.type = "button";
+    btn.onclick = run;
+    quick.append(btn);
+  };
+  addQuickAction("猜你喜欢 - 无限电台", icons.radio, () => {
+    if (player.radioLoading) return;
+    void player.startRadio().catch((e) => {
+      if (root.isConnected) toast(errText(e) || "猜你喜欢暂时不可用", "err");
+    });
+  });
+  addQuickAction("每日三十首", icons.calendar, () => { location.hash = "#/daily"; });
+  addQuickAction("我喜欢", icons.heart, () => { location.hash = "#/liked"; });
+  quickStart.append(quickHead, quick);
 
   const newest = h("section", "home-panel");
   const newHead = h("div", "sec-head sec-head--split");
@@ -33,7 +49,7 @@ export default async function homeView(root: HTMLElement) {
   const newRows = h("div", "rows home-new-list", `<div class="muted">加载中…</div>`);
   newest.append(newHead, newRows);
 
-  lead.append(featured, newest);
+  lead.append(quickStart, newest);
 
   const recommendations = h("section", "home-recommendations");
   recommendations.innerHTML = `<div class="sec-head">
@@ -45,60 +61,26 @@ export default async function homeView(root: HTMLElement) {
   root.append(lead, recommendations);
 
   const loadPlaylists = async () => {
-    featureHost.innerHTML = `<div class="muted">加载中…</div>`;
     grid.innerHTML = `<div class="muted">加载中…</div>`;
     try {
       const list = (await api<RecommendSonglistResp>("/recommend/songlist?page=1&num=13"))?.songlists ?? [];
-      const first = list[0];
-      if (!first) {
-        homeStatus(featureHost, "暂时没有今日精选", "稍后回来，这里会出现新的推荐", loadPlaylists);
-        grid.innerHTML = `<div class="muted">暂无推荐歌单</div>`;
+      if (!list.length) {
+        homeStatus(grid, "暂时没有推荐歌单", "稍后回来看看", loadPlaylists);
         return;
       }
 
-      const id = String(first.id ?? "");
-      const title = String(first.title ?? "歌单");
-      const href = `#/playlist?id=${encodeURIComponent(id)}&name=${encodeURIComponent(title)}`;
-      const listens = compactCount(first.listennum);
-      const meta = [
-        first.creator_nick ? `${first.creator_nick} 制作` : "",
-        first.songnum ? `${first.songnum} 首` : "",
-        listens ? `${listens}次播放` : "",
-      ].filter(Boolean).join(" · ");
-      const feature = h("div", "home-feature");
-      feature.innerHTML = `
-        <div class="home-feature__art">${first.picurl ? `<img src="${escHtml(upPic(first.picurl))}" alt=""/>` : ""}</div>
-        <div class="home-feature__main">
-          <p class="home-feature__overline">PLAYLIST</p>
-          <h3 class="home-feature__title">${escHtml(title)}</h3>
-          ${meta ? `<p class="muted home-feature__meta">${escHtml(meta)}</p>` : ""}
-          ${first.desc ? `<p class="home-feature__desc">${escHtml(plainText(first.desc))}</p>` : ""}
-          <div class="home-feature__actions"></div>
-        </div>`;
-      const actions = feature.querySelector<HTMLElement>(".home-feature__actions")!;
-      const play = h("button", "ghost-btn", "播放歌单") as HTMLButtonElement;
-      play.type = "button";
-      play.onclick = () => { void cardPlay("playlist", id, href); };
-      const open = h("button", "ghost-btn ghost-btn--quiet", "查看详情") as HTMLButtonElement;
-      open.type = "button";
-      open.onclick = () => { location.hash = href; };
-      actions.append(play, open);
-      featureHost.replaceChildren(feature);
-
       grid.innerHTML = "";
-      for (const x of list.slice(1, 13)) {
-        const cardId = String(x.id ?? "");
-        const cardTitle = String(x.title ?? "歌单");
-        const cardHref = `#/playlist?id=${encodeURIComponent(cardId)}&name=${encodeURIComponent(cardTitle)}`;
-        const cardListens = compactCount(x.listennum);
-        const sub = [x.creator_nick || "", cardListens ? `${cardListens}次播放` : ""].filter(Boolean).join(" · ") || "歌单";
-        grid.append(navCard(cardHref, upPic(x.picurl), cardTitle, sub,
-          () => cardPlay("playlist", cardId, cardHref)));
+      for (const x of list.slice(0, 13)) {
+        const id = String(x.id ?? "");
+        const title = String(x.title ?? "歌单");
+        const href = `#/playlist?id=${encodeURIComponent(id)}&name=${encodeURIComponent(title)}`;
+        const listens = compactCount(x.listennum);
+        const sub = [x.creator_nick || "", listens ? `${listens}次播放` : ""].filter(Boolean).join(" · ") || "歌单";
+        grid.append(navCard(href, upPic(x.picurl), title, sub,
+          () => cardPlay("playlist", id, href)));
       }
-      if (!grid.childElementCount) grid.innerHTML = `<div class="muted">暂无更多推荐</div>`;
     } catch (e) {
-      homeStatus(featureHost, "推荐加载失败", errText(e) || "网络暂时不可用", loadPlaylists);
-      grid.innerHTML = `<div class="muted">重新加载后显示推荐歌单</div>`;
+      homeStatus(grid, "推荐歌单加载失败", errText(e) || "网络暂时不可用", loadPlaylists);
     }
   };
 
@@ -126,8 +108,3 @@ export default async function homeView(root: HTMLElement) {
   await Promise.all([loadPlaylists(), loadNewSongs()]);
   return offHead; // 吸顶跟踪退订交给 renderRoute
 }
-
-// —— 歌单页收藏按钮（在线收藏写接口：PlaylistFavWrite Fav/CancelFavPlaylist） ——
-// 收藏态取自 lib/favs 的收藏歌单缓存（与侧栏同源，收藏后侧栏同帧出现）；
-// 自有歌单不渲染（不能收藏自己的歌单），未登录不渲染（收藏必须带登录态）。
-// cleanups：视图销毁时的退订登记（playlistView 交给 renderRoute 调用）。

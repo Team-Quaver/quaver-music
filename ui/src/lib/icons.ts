@@ -13,6 +13,8 @@ export const icons = {
   shuffle: svg('<path d="M17 3l4 4-4 4"/><path d="M21 7H7a4 4 0 0 0-4 4v1"/><path d="M17 21l4-4-4-4"/><path d="M3 17h2.5a4 4 0 0 0 3.3-1.8l5.4-8.4A4 4 0 0 1 17.5 5H21"/>', 18),
   heart: svg('<path d="M12 20s-7-4.6-9-9c-1.3-3 .8-6.5 4-6.5 2 0 3.5 1.2 5 3 1.5-1.8 3-3 5-3 3.2 0 5.3 3.5 4 6.5-2 4.4-9 9-9 9z"/>'),
   heartFill: svg('<path d="M12 20s-7-4.6-9-9c-1.3-3 .8-6.5 4-6.5 2 0 3.5 1.2 5 3 1.5-1.8 3-3 5-3 3.2 0 5.3 3.5 4 6.5-2 4.4-9 9-9 9z" fill="currentColor" stroke="currentColor"/>'),
+  radio: svg('<rect x="4" y="9" width="16" height="11" rx="2.5"/><path d="M8 9l8-4"/><circle cx="8.5" cy="14.5" r="2.2"/><path d="M13.5 13h3M13.5 16h2"/>'),
+  calendar: svg('<rect x="4" y="5.5" width="16" height="15" rx="2"/><path d="M8 3.5v4M16 3.5v4M4 10h16"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17.5h.01M12 17.5h.01M16 17.5h.01"/>'),
   queue: svg('<path d="M4 6h11M4 11h11M4 16h7"/><path d="M17 13.5v6l4.5-3z" fill="currentColor" stroke="none"/>'),
   chevronDown: svg('<path d="M6 9l6 6 6-6"/>'),
   chevronUp: svg('<path d="M6 15l6-6 6 6"/>'),

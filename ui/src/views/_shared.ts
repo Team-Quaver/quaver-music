@@ -359,7 +359,7 @@ function homeStatus(box: HTMLElement, title: string, note: string, retry?: () =>
   box.append(status);
 }
 
-// —— 首页：页头 + 双栏领区（今日精选 / 新歌速递）+ 发丝线分隔的推荐网格 ——
+// —— 首页：页头 + 双栏领区（快速开始 / 新歌速递）+ 发丝线分隔的推荐网格 ——
 // 两个数据源并行、独立降级：任一失败不影响另一块，各自原地给重试。
 
 export // —— 歌单页收藏按钮（在线收藏写接口：PlaylistFavWrite Fav/CancelFavPlaylist） ——

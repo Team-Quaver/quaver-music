@@ -469,8 +469,8 @@ body.side-collapsed .side-resizer { display: none; }
   transition: clip-path .28s cubic-bezier(.32,.72,.24,1), opacity .18s ease;
 }
 /* 吸顶中：实底一路撑到吸顶区**下缘**（46px 顶带 + 吸顶区高度），到缘即止、硬切。
-   否则旧渐变到吸顶区下缘几乎全透，下滚内容会隔着吸顶页头浮现，「今日精选」直接叠在
-   「首页」大标题上（窄内容区下最明显）。
+   否则旧渐变到吸顶区下缘几乎全透，下滚内容会隔着吸顶页头浮现，
+   下方内容直接叠在「首页」大标题上（窄内容区下最明显）。
    --panel 本身带 alpha（玻璃），单层压不住底下滚过的文字，所以同一条渐变叠三层
    （连同 .content 自身那层底 ≈ 4 层）：实底段合到 ~0.998，带宽内不再随底下
    有没有内容变色，滚过的文字残留只剩 ~2%、肉眼不可见。 */
@@ -1678,31 +1678,50 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 
 /* 领区双栏：内容区够宽时并排，不够则自动堆成一列 */
 .home-lead {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
   gap: 32px; margin-bottom: 28px;
 }
 .home-panel { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
-.home-feature-host { min-width: 0; }
-
-/* 精选卡：左封面右文案；文案底部的行动区沉到底（margin-top:auto），两栏底边对齐 */
-.home-feature { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 20px; min-width: 0; }
-.home-feature__art {
-  width: 160px; height: 160px; overflow: hidden;
-  border-radius: 10px; background: var(--ph);
+/* 快速开始：三枚纵向长条按钮，随右侧新歌速递的行高一起撑满领区。
+   图标与描边都吃 --cvg-accent，跟随封面染色 / 主题与浅深色切换。 */
+.home-lead .sec-head { min-height: 40px; align-items: center; }
+.home-quick {
+  flex: 1; min-height: 0; display: grid; grid-template-rows: repeat(3, minmax(62px, 1fr));
+  gap: 10px; padding-bottom: 8px;
 }
-.home-feature__art img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.home-feature__main { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
-.home-feature__overline {
-  margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .08em; color: var(--ink2);
+.home-quick__item {
+  position: relative; overflow: hidden;
+  width: 100%; min-width: 0; min-height: 62px; padding: 14px 20px;
+  display: flex; align-items: center; justify-content: flex-end;
+  border: 1px solid color-mix(in srgb, var(--line) 52%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--cvg-accent, var(--acc)) 2%, var(--card));
+  color: var(--ink2); font: inherit; text-align: right; cursor: pointer;
+  transition: border-color .14s ease, background .14s ease, transform .1s ease;
 }
-.home-feature__title { margin: 0; width: 100%; font-size: 18px; font-weight: 800; color: var(--ink);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.home-feature__meta { margin: 0; font-size: 12px; }
-.home-feature__desc {
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-  margin: 0; font-size: 13px; line-height: 1.55; color: var(--ink2);
+.home-quick__item:hover {
+  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 25%, transparent);
+  background: color-mix(in srgb, var(--cvg-glow, var(--acc)) 5%, var(--card));
+  color: var(--ink);
 }
-.home-feature__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 6px; }
+.home-quick__item:active { transform: scale(.997); }
+.home-quick__item:focus-visible { outline: 2px solid color-mix(in srgb, var(--cvg-accent, var(--acc)) 62%, transparent); outline-offset: 2px; }
+/* 图标是压在左下角的大号水印：超出圆角的部分由按钮自身裁掉，只留下淡淡的轮廓。 */
+.home-quick__icon {
+  position: absolute; left: -10px; bottom: -24px;
+  width: 88px; height: 88px; pointer-events: none;
+  color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 52%, var(--ink2));
+  opacity: .28; transition: opacity .14s ease;
+}
+.home-quick__icon svg { display: block; width: 100%; height: 100%; stroke-width: 1.2; }
+.home-quick__item:hover .home-quick__icon { opacity: .46; }
+.home-quick__label {
+  position: relative; z-index: 1;
+  min-width: 0; max-width: 100%; padding-left: 22px; overflow: hidden;
+  font-size: 14.5px; font-weight: 500; letter-spacing: .01em;
+  text-align: right; text-overflow: ellipsis; white-space: nowrap;
+  transition: color .14s ease;
+}
 /* 次级按钮：同 gust-btn 结构，视觉更轻（透明底 + 发丝线） */
 .ghost-btn--quiet { background: transparent; color: var(--ink2); }
 
@@ -1715,7 +1734,9 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 
 /* 新歌速递行内的缩进与行距（列表本身复用 .rows/.row） */
 .home-new-list { margin-top: 0; padding-bottom: 0; }
-.home-new-list .row { padding-right: 8px; padding-left: 8px; }
+/* 首页新歌列表：行盒与区块头同宽，序号贴左、时长贴右，和「播放全部」的两端对齐。 */
+.home-new-list .row { padding-right: 0; padding-left: 0; }
+.home-new-list .row .idx { text-align: left; }
 
 /* 推荐区：与上方领区用发丝线分隔（不用块底色） */
 .home-recommendations { padding-top: 20px; border-top: 1px solid var(--line); }
