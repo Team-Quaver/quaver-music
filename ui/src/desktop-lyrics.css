@@ -10,9 +10,9 @@
  * 声明 no-drag 收回点击（与主窗 .winbtns 同一套做法）。这样挪窗交给窗口管理器做交互移动
  * —— Wayland 下 setPosition 会被合成器无视，拖拽区是唯一真能挪窗的路。
  *
- * 歌词颜色：白字 + 双层投影（贴任何壁纸都能读）。AMLL 的取色变量是 --amll-lp-color；
+ * 歌词颜色：白字 + 可调描边/阴影（贴任何壁纸都能读）。AMLL 的取色变量是 --amll-lp-color；
  * 字号是 --amll-lp-font-size（主窗在 .np-kara-host 上重排过，本窗恒用专属变量
- * --dl-font-size：字体家族跟随「歌词字体」，字号倍率跟随 [DesktopLyrics] Scale）。
+ * --dl-font-size：字体家族跟随独立的 [DesktopLyrics] Font，字号倍率跟随 Scale）。
  *
  * 两层不透明度，别混：
  *   • [DesktopLyrics] Opacity → --dl-opacity —— 调的是**字**（挂在内容两处：#dl-clip 与 #dl-empty，
@@ -34,7 +34,7 @@ body {
   user-select: none;
   -webkit-user-select: none;
   font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  /* 覆盖层不吃深浅主题：文字恒白、投影恒深 */
+  /* 覆盖层不吃深浅主题：文字恒白，轮廓靠可调描边与阴影托底 */
   color: #fff;
 }
 
@@ -122,7 +122,17 @@ body {
   --amll-lp-color: var(--dl-ink, #fff);
   --amll-lp-hover-bg-color: transparent;
   --amll-lp-bottom-line-font-size: max(0.62em, 10px);
-  filter: drop-shadow(0 1px 12px rgb(0 0 0 / 60%)) drop-shadow(0 1px 2px rgb(0 0 0 / 50%));
+}
+/* 文字轮廓与阴影分成两套：
+ *   • --dl-border = [DesktopLyrics] Border（描边宽度，0 即无描边）；
+ *   • --dl-shadow = 单层 text-shadow（开关/模糊/不透明度/X/Y 由 Shadow* 一组写出，缺省即无）。
+ * 刻意不再用 filter:drop-shadow：整块文字层被额外采样/模糊，在透明窗上最容易拖渲染。
+ * 两个内容节点各自继承，不碰悬停控件。 */
+#dl-clip,
+#dl-empty {
+  -webkit-text-stroke: var(--dl-border, 0px) rgb(0 0 0 / 88%);
+  text-shadow: var(--dl-shadow, none);
+  paint-order: stroke fill;
 }
 /* 透明窗上的 plus-lighter 混合在部分合成器上会连页面 alpha 一起加算 —— 覆盖层不需要
  * 它（深色页面里那层「提亮」在这里没有对应物），关掉换确定行为 */
@@ -165,11 +175,6 @@ body {
 #dl-clip br {
   display: none;
 }
-/* 染色档（封面/系统/自定义）下投影加重一档：浅色字压浅壁纸时靠影子托轮廓 */
-#dl-root:not(.ink-default) #dl-clip {
-  filter: drop-shadow(0 1px 14px rgb(0 0 0 / 70%)) drop-shadow(0 1px 3px rgb(0 0 0 / 55%));
-}
-
 /* —— 空态提示（等待播放 / 加载中 / 暂无歌词）—— */
 #dl-empty {
   transition: opacity .12s ease-out;
@@ -180,7 +185,6 @@ body {
   justify-content: center;
   font-size: 14px;
   color: rgb(255 255 255 / 82%);
-  text-shadow: 0 1px 6px rgb(0 0 0 / 65%);
   pointer-events: none;
 }
 #dl-empty[hidden] { display: none; }

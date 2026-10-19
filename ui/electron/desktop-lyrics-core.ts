@@ -8,7 +8,7 @@
 //   • AMLL 歌词渲染区（复用宿主内置引擎 src/lyrics/amll.ts 的提供器，经主窗口 → 主进程
 //     → 本窗的快照桥驱动，数据面与「正在播放页」同源同口径）；
 //   • 悬停浮现的控制条：播放控制（上一曲/播放暂停/下一曲 + 进度条）与歌词延迟（−/+ 一档
-//     0.1s、点数值归零）。字体跟随本体「歌词字体」设置（Style.DefaultLyricsFonts）。
+//     0.1s、点数值归零）。字体走独立的 [DesktopLyrics] Font，轮廓与阴影分别走 Border 与 Shadow* 两组。
 //
 // **固定/鼠标透穿**：macOS、Windows 与 Linux X11 会话开放这一档。锁定后窗口钉在原位并
 // setIgnoreMouseEvents(true)，鼠标事件落到下层窗口；解除入口在托盘菜单与设置页（锁住后的

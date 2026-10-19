@@ -265,6 +265,46 @@ P.setUiFontList("");
 await settle();
 eq("清空 = 不覆盖（回落内置默认栈）", conf()["Style.DefaultUIFonts"], "");
 
+// —— 桌面歌词字体：独立门面，不许串到正在播放页的 Style.DefaultLyricsFonts ——
+P.setLyricFontPreset("sans");
+P.setDesktopLyricsFontPreset("serif");
+eq("桌面歌词字体写独立键", P.getDesktopLyricsFontList(), P.FONT_PRESETS.serif.css);
+eq("桌面歌词字体反查预设", P.getDesktopLyricsFont(), "serif");
+eq("正在播放页歌词字体保持不变", P.getLyricFontList(), P.FONT_PRESETS.sans.css);
+P.setDesktopLyricsFontList('"LXGW WenKai", serif');
+eq("桌面歌词手填字体独立生效", P.getDesktopLyricsFont(), "custom");
+eq("手填仍不污染正在播放页字体", P.getLyricFontList(), P.FONT_PRESETS.sans.css);
+
+// —— 桌面歌词描边：0..4px，0 合法，坏值回落 1 ——
+eq("桌面歌词描边默认 1px", P.getDesktopLyricsBorder(), 1);
+P.setDesktopLyricsBorder(9);
+eq("描边上限夹到 4px", P.getDesktopLyricsBorder(), 4);
+P.setDesktopLyricsBorder(-1);
+eq("描边下限夹到 0px（无描边）", P.getDesktopLyricsBorder(), 0);
+
+// —— 桌面歌词阴影：开关 + 模糊 + 透明度 + X/Y 偏移 ——
+eq("阴影默认开", P.getDesktopLyricsShadow(), true);
+eq("阴影模糊默认 8px", P.getDesktopLyricsShadowBlur(), 8);
+eq("阴影不透明度默认 0.45", P.getDesktopLyricsShadowOpacity(), 0.45);
+eq("阴影偏移默认 X=0/Y=2", [P.getDesktopLyricsShadowX(), P.getDesktopLyricsShadowY()], [0, 2]);
+P.setDesktopLyricsShadow(false);
+eq("阴影开关可关", P.getDesktopLyricsShadow(), false);
+P.setDesktopLyricsShadowBlur(99);
+eq("阴影模糊上限夹到 32px", P.getDesktopLyricsShadowBlur(), 32);
+P.setDesktopLyricsShadowOpacity(9);
+eq("阴影不透明度上限夹到 1", P.getDesktopLyricsShadowOpacity(), 1);
+P.setDesktopLyricsShadowX(-99);
+P.setDesktopLyricsShadowY(99);
+eq("阴影偏移上下限夹到 ±12px", [P.getDesktopLyricsShadowX(), P.getDesktopLyricsShadowY()], [-12, 12]);
+await settle();
+eq("描边独立落盘", conf()["DesktopLyrics.Border"], "0");
+eq("桌面歌词字体独立落盘", conf()["DesktopLyrics.Font"], '"LXGW WenKai", serif');
+eq("阴影开关独立落盘", conf()["DesktopLyrics.Shadow"], "False");
+eq("阴影参数独立落盘", [
+  conf()["DesktopLyrics.ShadowBlur"], conf()["DesktopLyrics.ShadowOpacity"],
+  conf()["DesktopLyrics.ShadowX"], conf()["DesktopLyrics.ShadowY"],
+], ["32", "1", "-12", "12"]);
+
 // ——— 配置取值 → 内部枚举（读盘方向 / 兼容旧值）———
 section("读盘：配置取值 → 内部枚举");
 const reload = async (o) => { seed(o); await P.loadConfig(); };

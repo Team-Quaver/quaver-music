@@ -468,7 +468,7 @@ export function setTtmlLibrary(v: string) {
 }
 
 
-// —— 桌面歌词（[DesktopLyrics] 段）：总开关 / 字号倍率 / 整体不透明度 ——
+// —— 桌面歌词（[DesktopLyrics] 段）：总开关 / 独立字体 / 字号 / 描边 / 不透明度 ——
 // 覆盖层窗口本体在主进程（electron/desktop-lyrics.ts）；这里只做「开关 + 观感」的偏好门面。
 // 判据与 electron/config.ts 的 [DesktopLyrics] schema 同规（改一处要改两处）。
 // 注意：开关的**生效**要走主进程控制通道（开窗/关窗），cfgSet 只落盘 —— 设置页与桥
@@ -582,7 +582,7 @@ export function setDesktopLyricsColor(v: string) {
 export const DL_SCALE_MIN = 0.5;
 export const DL_SCALE_MAX = 2;
 
-/** 桌面歌词字号倍率 0.5..2（1=默认）；字体家族恒跟随「歌词字体」（Style.DefaultLyricsFonts）。 */
+/** 桌面歌词字号倍率 0.5..2（1=默认）。字体家族走独立的 [DesktopLyrics] Font。 */
 export function getDesktopLyricsScale(): number {
   const n = Number(cfg("DesktopLyrics.Scale", "1"));
   if (!Number.isFinite(n)) return 1;
@@ -591,6 +591,84 @@ export function getDesktopLyricsScale(): number {
 export function setDesktopLyricsScale(v: number) {
   const clamped = Math.min(DL_SCALE_MAX, Math.max(DL_SCALE_MIN, Number(v) || 1));
   cfgSetSoon({ "DesktopLyrics.Scale": String(Math.round(clamped * 100) / 100) });
+}
+
+/** 桌面歌词字体列表：独立于正在播放页的 Style.DefaultLyricsFonts，输入口径与全局字体相同。 */
+export const getDesktopLyricsFontList = () => cfg("DesktopLyrics.Font", "Source Han Serif");
+export const getDesktopLyricsFont = () => fontKeyOf(getDesktopLyricsFontList());
+export function setDesktopLyricsFontList(css: string) {
+  cfgSetSoon({ "DesktopLyrics.Font": normalizeFontList(css) }, 400);
+}
+export function setDesktopLyricsFontPreset(key: string) {
+  if (key === FONT_CUSTOM) return;
+  setDesktopLyricsFontList(FONT_PRESETS[key]?.css ?? "");
+}
+
+export const DL_BORDER_MIN = 0;
+export const DL_BORDER_MAX = 4;
+
+/** 桌面歌词文字描边宽度（px）：0..4，默认 1。坏值回落 1；0 是合法的「无描边」。 */
+export function getDesktopLyricsBorder(): number {
+  const raw = String(cfg("DesktopLyrics.Border", "1")).trim();
+  if (!raw) return 1;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(DL_BORDER_MAX, Math.max(DL_BORDER_MIN, Math.round(n * 10) / 10));
+}
+export function setDesktopLyricsBorder(v: number) {
+  const n = Number(v);
+  const clamped = Number.isFinite(n) ? Math.min(DL_BORDER_MAX, Math.max(DL_BORDER_MIN, n)) : 1;
+  cfgSetSoon({ "DesktopLyrics.Border": String(Math.round(clamped * 10) / 10) });
+}
+
+export const DL_SHADOW_BLUR_MAX = 32;
+export const DL_SHADOW_OFFSET_MAX = 12;
+
+function clampDlNum(raw: string, fallback: number, min: number, max: number, digits = 1): number {
+  const s = String(raw ?? "").trim();
+  if (!s) return fallback;
+  const n = Number(s);
+  if (!Number.isFinite(n)) return fallback;
+  const k = 10 ** digits;
+  return Math.min(max, Math.max(min, Math.round(n * k) / k));
+}
+
+/** 桌面歌词文字阴影总开关。关闭后仍保留描边。 */
+export function getDesktopLyricsShadow(): boolean {
+  return !/^(false|0|no|off)$/i.test(cfg("DesktopLyrics.Shadow", "True").trim());
+}
+export function setDesktopLyricsShadow(v: boolean) {
+  cfgSetSoon({ "DesktopLyrics.Shadow": v ? "True" : "False" });
+}
+
+/** 阴影模糊半径 0..32px；0 = 硬边。 */
+export function getDesktopLyricsShadowBlur(): number {
+  return clampDlNum(cfg("DesktopLyrics.ShadowBlur", "8"), 8, 0, DL_SHADOW_BLUR_MAX);
+}
+export function setDesktopLyricsShadowBlur(v: number) {
+  cfgSetSoon({ "DesktopLyrics.ShadowBlur": String(clampDlNum(String(v), 8, 0, DL_SHADOW_BLUR_MAX)) });
+}
+
+/** 阴影不透明度 0..1；0 视觉上等于关闭。 */
+export function getDesktopLyricsShadowOpacity(): number {
+  return clampDlNum(cfg("DesktopLyrics.ShadowOpacity", "0.45"), 0.45, 0, 1, 2);
+}
+export function setDesktopLyricsShadowOpacity(v: number) {
+  cfgSetSoon({ "DesktopLyrics.ShadowOpacity": String(clampDlNum(String(v), 0.45, 0, 1, 2)) });
+}
+
+/** 阴影水平/垂直偏移 -12..12px。 */
+export function getDesktopLyricsShadowX(): number {
+  return clampDlNum(cfg("DesktopLyrics.ShadowX", "0"), 0, -DL_SHADOW_OFFSET_MAX, DL_SHADOW_OFFSET_MAX);
+}
+export function setDesktopLyricsShadowX(v: number) {
+  cfgSetSoon({ "DesktopLyrics.ShadowX": String(clampDlNum(String(v), 0, -DL_SHADOW_OFFSET_MAX, DL_SHADOW_OFFSET_MAX)) });
+}
+export function getDesktopLyricsShadowY(): number {
+  return clampDlNum(cfg("DesktopLyrics.ShadowY", "2"), 2, -DL_SHADOW_OFFSET_MAX, DL_SHADOW_OFFSET_MAX);
+}
+export function setDesktopLyricsShadowY(v: number) {
+  cfgSetSoon({ "DesktopLyrics.ShadowY": String(clampDlNum(String(v), 2, -DL_SHADOW_OFFSET_MAX, DL_SHADOW_OFFSET_MAX)) });
 }
 
 

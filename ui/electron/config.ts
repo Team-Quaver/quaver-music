@@ -580,11 +580,59 @@ export const SCHEMA: SectionSpec[] = [
         key: "Scale",
         def: "1",
         doc: [
-          "桌面歌词字号倍率：0.5..2，1=默认（约 24px 基准）。字体家族恒跟随 [Style] DefaultLyricsFonts。",
+          "桌面歌词字号倍率：0.5..2，1=默认（约 24px 基准）。字体家族见 [DesktopLyrics] Font，与正在播放页的 [Style] DefaultLyricsFonts 独立。",
           "初始窗高按「字号 × 行数」贴合内容（electron/desktop-lyrics-core.ts 的 defaultHeightFor）——",
           "没拖过右下角把手时，改字号/行数会把窗高重新贴合（只长不缩）。",
         ],
         valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0.5 && Number(v) <= 2,
+      },
+      {
+        key: "Font",
+        def: "Source Han Serif",
+        doc: [
+          "桌面歌词字体：CSS font-family 列表（逗号分隔）；留空则用内置默认栈；也可填预设名 system/sans/serif/mono。",
+          "与 [Style] DefaultLyricsFonts（正在播放页歌词字体）各自独立，互不跟随。",
+        ],
+        valid: isFontList,
+      },
+      {
+        key: "Border",
+        def: "1",
+        doc: [
+          "桌面歌词文字描边宽度：0..4（px），1（默认）。0=完全无描边。",
+          "描边只给文字轮廓托底；阴影另由 Shadow* 一组控制。",
+        ],
+        valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 4,
+      },
+      {
+        key: "Shadow",
+        def: "True",
+        doc: ["桌面歌词文字阴影总开关：True（默认）=启用｜False=关闭。关闭后仍保留 Border 描边。"],
+        valid: isBoolValue,
+      },
+      {
+        key: "ShadowBlur",
+        def: "8",
+        doc: ["桌面歌词文字阴影模糊半径：0..32（px），8（默认）。0=硬边阴影，数值越大越柔也越吃渲染。"],
+        valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 32,
+      },
+      {
+        key: "ShadowOpacity",
+        def: "0.45",
+        doc: ["桌面歌词文字阴影不透明度：0..1，0.45（默认）。0=视觉上无阴影（与 Shadow=False 等价）。"],
+        valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 1,
+      },
+      {
+        key: "ShadowX",
+        def: "0",
+        doc: ["桌面歌词文字阴影水平偏移：-12..12（px），0（默认）。"],
+        valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= -12 && Number(v) <= 12,
+      },
+      {
+        key: "ShadowY",
+        def: "2",
+        doc: ["桌面歌词文字阴影垂直偏移：-12..12（px），2（默认，略向下投）。"],
+        valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= -12 && Number(v) <= 12,
       },
       {
         key: "Mode",
@@ -605,7 +653,7 @@ export const SCHEMA: SectionSpec[] = [
       {
         key: "ColorMode",
         def: "default",
-        doc: ["桌面歌词颜色：default=白字+深投影（默认，任何壁纸可读）｜cover=封面染色（与正在播放页同源口径 color-mix 55% 洗白）｜",
+        doc: ["桌面歌词颜色：default=白字+黑色描边（默认，任何壁纸可读）｜cover=封面染色（与正在播放页同源口径 color-mix 55% 洗白）｜",
           "system=系统染色（系统强调色，探测失败回落白字）｜custom=自定义颜色（取值见 Color）"],
         valid: (v: string) => ["default", "cover", "system", "custom"].includes(v),
       },
