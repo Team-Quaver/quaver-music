@@ -263,14 +263,14 @@ export function bootShell() {
   frame.append(PlayerBar());
   document.body.append(NowPlaying(), QueuePanel());
 
-  // 猜你喜欢是播放器入口而不是普通列表页：已经在 #/guess 时再点一次不会触发 hashchange，
-  // 这里把“点击”本身补成“展开/重开电台”，否则收起正在播放页后点侧栏会像没反应。
+  // 猜你喜欢是播放器入口而不是普通列表页：已经在 #/guess 时再点一次不会触发 hashchange。
+  // 电台已在跑就把正在播放覆盖页收起，回到 Content View 的电台主舞台；首次启动仍由视图取歌。
   frame.querySelector<HTMLAnchorElement>('.nav a[data-route="/guess"]')?.addEventListener("click", (e) => {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     if (currentRoute().path !== "/guess") return; // 其它页交给 hashchange → guessView.startRadio()
     e.preventDefault();
     if (player.radioActive) {
-      player.expanded = true;
+      player.expanded = false;
       player.notifyPublic();
     } else {
       void player.startRadio().catch(() => { /* 错误态已写进 player.radioError，页面会显示 */ });

@@ -521,8 +521,9 @@ class Player {
   }
 
   /**
-   * 开启猜你喜欢无限电台：立刻展开正在播放页，先取一轮 5 首，取到后整队列起播。
-   * 本轮第五首开始播放时由 maybeExtendRadio() 续下一轮；每一轮都只请求 rounds=1。
+   * 开启猜你喜欢无限电台：先取一轮 5 首，取到后整队列起播。
+   * 电台主 UI 留在 Content View（views/guess.ts）；本轮第五首开始播放时由 maybeExtendRadio()
+   * 续下一轮，每一轮都只请求 rounds=1。
    */
   async startRadio(): Promise<boolean> {
     const seq = ++this.radioSeq;
@@ -535,8 +536,6 @@ class Player {
     this.radioError = "";
     this.error = "";
     this.queueOpen = false; // 无限电台没有可编辑的播放列表，进入即收掉队列面板
-    const wasExpanded = this.expanded;
-    this.expanded = true; // 不等网络：点击入口就先进正在播放页
     this.notify();
     try {
       const songs = await this.fetchRadioRound();
@@ -559,7 +558,6 @@ class Player {
       this._radioLoading = false;
       this.radioWaitingNext = prev.waiting;
       this.radioError = String((e as Error)?.message ?? e);
-      this.expanded = wasExpanded;
       this.notify();
       if (this.radioOn && this.radioEnd >= 0 && this.index >= this.radioEnd) {
         this.clearRadioRetry();
