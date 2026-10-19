@@ -205,9 +205,49 @@ export function getPlaylistMode(): PlaylistMode {
   const v = cfg("Style.PlaylistMode");
   return PLAYLIST_MODES.includes(v) ? (v as PlaylistMode) : "menu";
 }
-export function applyPlaylistModeKind(mode: PlaylistMode = getPlaylistMode()) {
+// 切换形态走「淡出 → 换布局 → 淡入」两拍：两态之间差的正是 display:none 的整块撤走/回来、
+// 再加上导航按钮从顶部挪到居中 —— 这些都是瞬间跳变，直接切很生硬。做法：先挂 body.pl-mode-out
+// 让侧栏「导航 + 歌单区」淡出，等淡出走完再落新布局（换布局那一瞬正好落在透明度 0，看不见跳变），
+// 再换成 body.pl-mode-in 淡入。用 keyframes 而不是 transition，是因为刚 display:none→block 的节点
+// 没有「前值」可插值、带动画的 from 才可靠地从 0 起播（两套动画与时长都在 style.css）。
+// 首屏（还没上过屏）与同态重放（换了主题但形态没变）都不播，免得开屏闪一下。
+const MODE_FADE_OUT_MS = 150; // 与 style.css .pl-mode-out 的动画时长对齐
+const MODE_FADE_IN_MS = 180; // 与 style.css .pl-mode-in 的动画时长对齐
+/** 上一次真正落到 body 的形态；null = 首屏还没上过屏（用来区分「真变了」与「同态重放」）。 */
+let paintedPlaylistMode: PlaylistMode | null = null;
+/** 在途两拍的票据：连点 / 主题连切时只认最后一次，旧回调作废。 */
+let modeFadeTicket = 0;
+
+const commitPlaylistMode = (mode: PlaylistMode) => {
   document.body.classList.toggle("playlist-collection", mode === "collection");
   document.body.dataset.playlistMode = mode;
+};
+
+export function applyPlaylistModeKind(mode: PlaylistMode = getPlaylistMode()) {
+  const prev = paintedPlaylistMode;
+  paintedPlaylistMode = mode;
+  const body = document.body;
+  const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // 首屏 / 同态重放 / 用户关了动效：直接落终态，并把在途的两拍一并作废。
+  if (prev === null || prev === mode || still) {
+    modeFadeTicket++;
+    body.classList.toggle("pl-mode-out", false);
+    body.classList.toggle("pl-mode-in", false);
+    commitPlaylistMode(mode);
+    return;
+  }
+  const ticket = ++modeFadeTicket;
+  body.classList.toggle("pl-mode-in", false); // 上一拍的淡入若没走完，先撤掉再淡出
+  body.classList.toggle("pl-mode-out", true);
+  window.setTimeout(() => {
+    if (ticket !== modeFadeTicket) return; // 期间又切了：交给最新那次接管
+    commitPlaylistMode(mode);
+    body.classList.toggle("pl-mode-out", false);
+    body.classList.toggle("pl-mode-in", true); // 与换布局同一拍挂上：from(0) 起播，新露面的节点也吃得到
+    window.setTimeout(() => {
+      if (ticket === modeFadeTicket) body.classList.toggle("pl-mode-in", false);
+    }, MODE_FADE_IN_MS);
+  }, MODE_FADE_OUT_MS);
 }
 export function setPlaylistMode(m: PlaylistMode) {
   cfgSet({ "Style.PlaylistMode": PLAYLIST_MODES.includes(m) ? m : "menu" });

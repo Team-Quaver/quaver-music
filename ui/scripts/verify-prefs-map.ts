@@ -175,9 +175,11 @@ eq("非法写入回落 bottom", [P.getControlBarMode(), conf()["Style.ControlBar
 // 歌单显示模式（[Style] PlaylistMode）：menu=菜单栏（默认，侧栏列歌单）｜collection=歌单集合页
 P.setPlaylistMode("collection");
 eq("集合页 → collection", [P.getPlaylistMode(), conf()["Style.PlaylistMode"]], ["collection", "collection"]);
-check("body 集合页 class/data 属性同步", bodyClasses.has("playlist-collection") && bodyDataset.playlistMode === "collection", JSON.stringify({cls:[...bodyClasses], ds:bodyDataset}));
+check("body 集合页 class/data 属性同步（首屏没上过屏 → 直接落终态）", bodyClasses.has("playlist-collection") && bodyDataset.playlistMode === "collection", JSON.stringify({cls:[...bodyClasses], ds:bodyDataset}));
 P.setPlaylistMode("menu");
 eq("菜单栏 → menu", [P.getPlaylistMode(), conf()["Style.PlaylistMode"]], ["menu", "menu"]);
+// 形态真的变了走「淡出 → 换布局 → 淡入」两拍，body 状态在淡出走完后才落（见 prefs.applyPlaylistModeKind）
+await settle();
 check("body 菜单栏 class/data 属性同步", !bodyClasses.has("playlist-collection") && bodyDataset.playlistMode === "menu", JSON.stringify({cls:[...bodyClasses], ds:bodyDataset}));
 P.setPlaylistMode("bad" as any);
 eq("非法写入回落 menu", [P.getPlaylistMode(), conf()["Style.PlaylistMode"]], ["menu", "menu"]);

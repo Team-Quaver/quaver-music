@@ -72,6 +72,29 @@ ok("集合页态：导航按钮在侧栏内垂直居中（.nav 吃掉腾出的�
   /body\[data-playlist-mode="collection"\] \.nav \{ flex: 1; justify-content: center; \}/.test(cssFlat));
 ok("集合页态不依赖 side-collapsed（两态正交，可叠加）",
   !/body\[data-playlist-mode="collection"\][^{]*\.side-collapsed/.test(cssFlat));
+ok("菜单栏态：「歌单」导航入口隐去（歌单已在侧栏列出，功能重叠）",
+  /body\[data-playlist-mode="menu"\] \.nav a\[data-route="\/playlists"\] \{ display: none; \}/.test(cssFlat));
+ok("歌单集合页：两段之间有分割 + 留白",
+  /\.pl-sec \+ \.pl-sec \{[^}]*border-top: 1px solid var\(--line\)/.test(cssFlat));
+ok("歌单集合页：封面左缘与分区标题/页面标题同一条竖线（grid 抵掉 .card 4px 内距）",
+  /\.pl-sec \.grid \{[^}]*margin-left: -4px/.test(cssFlat));
+
+// ②.c 切换形态的淡出/淡入：display:none 的整块切换过渡不了 → 用两拍 keyframes 兜住跳变
+ok("切换形态两拍淡出/淡入：侧栏「导航 + 歌单区」两个方向都挂了 keyframes",
+  /body\.pl-mode-out \.nav, body\.pl-mode-out \.playlists, body\.pl-mode-out \.sep \{/.test(cssFlat)
+  && /body\.pl-mode-in \.nav, body\.pl-mode-in \.playlists, body\.pl-mode-in \.sep \{/.test(cssFlat)
+  && /@keyframes pl-mode-out \{ from \{ opacity: 1; \} to \{ opacity: 0; \} \}/.test(cssFlat)
+  && /@keyframes pl-mode-in \{ from \{ opacity: 0; \} to \{ opacity: 1; \} \}/.test(cssFlat));
+ok("切换形态用 keyframes 而非 transition（刚 display:none→block 的节点没有「前值」可插值）",
+  !/body\.pl-mode-(out|in)[^{]*\{[^}]*transition:/.test(cssFlat));
+ok("prefs 把两拍串起来：先 .pl-mode-out → 落布局 → 换 .pl-mode-in",
+  /classList\.toggle\("pl-mode-out", true\)/.test(prefs)
+  && /commitPlaylistMode\(mode\)/.test(prefs)
+  && /classList\.toggle\("pl-mode-in", true\)/.test(prefs));
+ok("首屏（还没上过屏）与同态重放不播两拍：prev === null || prev === mode 直接落终态",
+  /prev === null \|\| prev === mode \|\| still/.test(prefs));
+ok("用户关了动效时切换形态也直接跳终态（不挂两拍类）",
+  /\(prefers-reduced-motion: reduce\)/.test(prefs) && /if \(prev === null \|\| prev === mode \|\| still\)/.test(prefs));
 
 // ============ ③ 状态源：配置 + body class 一份真相 ============
 ok("prefs 暴露 get/apply/set 三个入口",
@@ -168,6 +191,8 @@ ok("max-width 抓手有初值（none→0 不参与插值，必须在展开态给
 const prm = css.match(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
 ok("减弱动效下侧栏成员禁用过渡（直接跳终态）",
   /transition: none/.test(prm) && /\.side-btn svg/.test(prm) && /\.user-meta/.test(prm));
+ok("减弱动效下切换形态的两拍动画也停掉（animation: none，节点回落到自然不透明度）",
+  /body\.pl-mode-out \.nav/.test(prm) && /body\.pl-mode-in \.nav/.test(prm) && /animation: none/.test(prm));
 
 console.log(`\n${checks - fails}/${checks} passed${fails ? ` — ${fails} FAILED` : ""}`);
 process.exit(fails ? 1 : 0);

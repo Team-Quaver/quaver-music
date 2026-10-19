@@ -364,6 +364,33 @@ body.side-collapsed .side-btn svg { transform: rotate(180deg); }
 body[data-playlist-mode="collection"] .playlists,
 body[data-playlist-mode="collection"] .sep { display: none; }
 body[data-playlist-mode="collection"] .nav { flex: 1; justify-content: center; }
+/* 菜单栏态不需要侧栏「歌单」入口：歌单已在侧栏列出，入口与之功能重叠 → 隐去。
+   （.nav 是纵向 flex，display:none 撤掉整行、不留空档；集合页态才显出来。） */
+body[data-playlist-mode="menu"] .nav a[data-route="/playlists"] { display: none; }
+
+/* —— 切换歌单显示模式（菜单栏 ⇄ 歌单集合页）的两拍淡出/淡入 ——
+   两态之间差的正是 display:none 的整块撤走/回来，外加导航按钮从顶部挪到居中：都过渡不了，
+   硬切太生硬。两拍由 prefs.applyPlaylistModeKind 驱动：先挂 .pl-mode-out 淡出，等淡出走完
+   再落新布局（那一瞬正好落在透明度 0，看不见跳变），随后换成 .pl-mode-in 淡入。
+   用 keyframes 而不是 transition 的原因：刚 display:none→block 的节点没有「前值」可插值，
+   只有带动画自带的 from 才能可靠地从 0 起播（.playlists/.sep 两个方向都吃得到）。
+   时长改了记得同步 prefs.ts 的 MODE_FADE_OUT_MS / MODE_FADE_IN_MS。 */
+body.pl-mode-out .nav, body.pl-mode-out .playlists, body.pl-mode-out .sep {
+  animation: pl-mode-out .15s cubic-bezier(.22,.61,.36,1) both;
+}
+body.pl-mode-in .nav, body.pl-mode-in .playlists, body.pl-mode-in .sep {
+  animation: pl-mode-in .18s cubic-bezier(.22,.61,.36,1) both;
+}
+@keyframes pl-mode-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes pl-mode-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* —— 歌单集合页（#/playlists）：我创建的歌单 / 我收藏的歌单两段 grid ——
+   ① 两段之间用一条实线分割 + 稍大的留白（沿用 .home-recommendations 的分区口径），首段无分割线；
+   ② 对齐：.card 自带 4px 内距 → 把 .grid 左右各外扩 4px，封面左缘就与分区标题、页面标题
+      落在同一条竖线上（不碰全局 .card 的内距，首页卡片不受影响）。 */
+.pl-sec + .pl-sec { margin-top: 6px; padding-top: 22px; border-top: 1px solid var(--line); }
+.pl-sec .sec-head { margin-bottom: 12px; }
+.pl-sec .grid { margin-right: -4px; margin-left: -4px; }
 
 /* ===================== 可拖拽分隔条（侧栏右缘 / 停靠队列左缘，逻辑见 shell.ts / QueuePanel.ts） =====================
    命中区 = flex 行内的 10px 竖条：负外边距把自身宽度抵平，悬在两面板接缝上、不改既有版式。
@@ -1485,6 +1512,9 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
   .me > *, .me.leaving { animation: none; }
   /* 侧栏缩回/展开：直接跳到终态（收字与位移都不做过渡） */
   .sidebar, .user, .user-meta, .avatar, .nav a, .nav a span, .pl, .pname, .side-foot, .side-btn, .side-btn svg { transition: none; }
+  /* 歌单显示模式切换的两拍淡出/淡入：同样直接跳终态 */
+  body.pl-mode-out .nav, body.pl-mode-out .playlists, body.pl-mode-out .sep,
+  body.pl-mode-in .nav, body.pl-mode-in .playlists, body.pl-mode-in .sep { animation: none; }
 }
 .avatar-big { width: 96px; height: 96px; border-radius: 50%; background: var(--ph); overflow: hidden; }
 .avatar-big img { width: 100%; height: 100%; object-fit: cover; }

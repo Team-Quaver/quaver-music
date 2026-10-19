@@ -25,15 +25,17 @@ export default async function playlistsView(root: HTMLElement) {
   root.append(head);
   const offHead = trackStuck(head, routeScroller(root));
 
-  const section = (title: string, note: string) => {
+  // 分区标题只留标题本身（描述性文字与集合页语义重复，去掉更干净）；两段之间的留白/分割线、
+  // 以及「封面左缘 = 分区标题 = 页面标题」的对齐，都交给 style.css 的 .pl-sec 系列规则。
+  const section = (title: string) => {
     const sec = h("section", "pl-sec");
-    sec.innerHTML = `<div class="sec-head"><h2>${title}</h2><span class="muted">${note}</span></div>`;
+    sec.innerHTML = `<div class="sec-head"><h2>${title}</h2></div>`;
     const grid = h("div", "grid playlist-grid", `<div class="muted">加载中…</div>`);
     sec.append(grid);
     return { sec, grid };
   };
-  const created = section("我创建的歌单", "我的作品");
-  const faved = section("我收藏的歌单", "收集的别人的歌单");
+  const created = section("我创建的歌单");
+  const faved = section("我收藏的歌单");
   root.append(created.sec, faved.sec);
 
   // 我的自建歌单卡：右键菜单可立即播放 / 插队 / 删除（删除成功后 lib 缓存已摘除，重画即可）
