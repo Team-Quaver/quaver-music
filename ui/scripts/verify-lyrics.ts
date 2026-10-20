@@ -16,6 +16,7 @@ import {
   TTML_DB_DEFAULT_URL, TTML_PLATFORM_DIRS, expandTtmlUrl, isTtmlDatabaseUrl, looksLikeTtml,
   ttmlMissCached, ttmlMissRemember, fetchTtml,
 } from "../src/lib/ttml.ts";
+import { extractQrcPayload } from "../src/lyric.ts";
 import { viewsSource } from "./views-source.ts";
 
 let pass = 0, fail = 0;
@@ -47,6 +48,14 @@ eq("展开：空 id → null", expandTtmlUrl(TTML_DB_DEFAULT_URL, "qq", ""), nul
 eq("展开：坏模板 → null", expandTtmlUrl("not a url", "qq", "x"), null);
 eq("展开：多次占位都替换", expandTtmlUrl("https://x.example/%s/%p/%s.ttml", "am", "i1"), "https://x.example/i1/am-lyrics/i1.ttml");
 check("平台表含四大源", ["qq", "ncm", "am", "spotify"].every((p) => TTML_PLATFORM_DIRS[p]));
+
+// ——— QRC 信封容错 ———
+section("QRC XML 信封提取");
+const STARBOY_QRC = '<?xml version="1.0" encoding="utf-8"?><QrcInfos><LyricInfo LyricCount="1"><Lyric_1 LyricType="1" LyricContent="[0,3900]Produced by：Daft Punk/Martin "Doc" McKinney&#10;[15607,144]Ayy(15607,144)"/></LyricInfo></QrcInfos>';
+const starboyBody = extractQrcPayload(STARBOY_QRC);
+check("LyricContent 内未转义引号不会截断后续正文（Starboy 回归）",
+  starboyBody.includes('Produced by：Daft Punk/Martin "Doc" McKinney') && starboyBody.includes("[15607,144]Ayy"),
+  starboyBody);
 
 // ——— 嗅探与在线查询（本地 http 桩） ———
 section("在线库查询与负缓存");

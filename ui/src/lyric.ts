@@ -91,6 +91,18 @@ function decodeEnt(s: string): string {
     .replace(/&(\w+);/g, (m, k) => ENT[k] ?? m);
 }
 
+/** 上游 QRC XML 信封里的歌词属性。
+ *
+ * 不能写成 `"([^"]*)"`：QQ 的 `LyricContent` 是伪 XML，正文里的英文引号不一定实体化。
+ * 例如 Starboy 的 `Martin "Doc" McKinney` 原样塞在属性值里，按普通属性匹配会在第一个 `"Doc"`
+ * 处截断，最后只剩片头四行制作名单。这里只在「引号后是标签结束 / 下一个属性」时收口。 */
+const QRC_ENVELOPE_ATTR = /\b(?:Lyrics|LyricContent)\s*=\s*"([\s\S]*?)"(?=\s*(?:\/>|>|[A-Za-z_:][\w:.-]*\s*=))/gi;
+
+/** 抽出 QRC XML 信封中的全部歌词正文并还原实体；不是信封时返回空串。 */
+export function extractQrcPayload(src: string): string {
+  return [...String(src ?? "").matchAll(QRC_ENVELOPE_ATTR)].map((m) => decodeEnt(m[1])).join("\n");
+}
+
 function toTs(sec: number): string {
   const s = Math.max(0, sec);
   const m = Math.floor(s / 60);
@@ -132,7 +144,7 @@ export function ttmlToLrc(src: string): string {
 export function qrcToLrc(src: string): string {
   let body = src;
   if (/<LyricContent\s*=|Lyrics\s*=/i.test(src)) {
-    body = [...src.matchAll(/(?:Lyrics|LyricContent)\s*=\s*"([^"]*)"/g)].map((m) => decodeEnt(m[1])).join("\n");
+    body = extractQrcPayload(src);
   }
   const out: string[] = [];
   for (const raw of body.split(/\r?\n/)) {

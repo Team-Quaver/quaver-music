@@ -47,6 +47,9 @@ const KANA_REAL_PAYLOAD = `[ti:怪物]
 [0,666]怪(0,121)物(121,121)
 [2128,2725]素(2128,14)晴(2142,50)ら(2192,360)し(2552,239)き(2791,94)世(2885,79)界(2964,536)に(3500,143)今日(3643,439)
 `;
+/** Starboy 真实坑位：QQ 把制作名单里的 `Martin "Doc" McKinney` 原样留在 LyricContent 属性中，
+ *  引号没有实体化成 &quot;。旧正则在这里截断，只解析出片头四行。 */
+const QUOTED_ENVELOPE = '<?xml version="1.0" encoding="utf-8"?><QrcInfos><LyricInfo LyricCount="1"><Lyric_1 LyricType="1" LyricContent="[0,3900]Lyrics(0,300) (300,300)by(600,300)：(900,300)Martin(1200,300) (1500,300)"(1800,300)Doc(2100,300)"(2400,300) (2700,300)McKinney(3000,900)&#10;[15607,144]Ayy(15607,144)"/></LyricInfo></QrcInfos>';
 
 /** 上游 qrc=1 的 XML 信封形状（属性内以 &#10; 分行、整段是实体编码过的） */
 const envelope = (payload: string) =>
@@ -67,6 +70,7 @@ const run = await page.evaluate(async (spec: any) => {
   return {
     plainQrc: shape(provider.parse(spec.mainQrc, spec.transLrc, spec.romaQrc)),
     xmlQrc: shape(provider.parse(spec.envelopeMain, spec.transLrc, spec.envelopeRoma)),
+    quotedEnvelope: shape(provider.parse(spec.quotedEnvelope, "", "")),
     lrcRoma: shape(provider.parse(spec.mainQrc, spec.transLrc, spec.romaLrc)),
     romanOnly: shape(provider.parse(spec.mainQrc, "", spec.romaQrc)),
     bare: shape(provider.parse(spec.mainQrc, "", "")),
@@ -86,6 +90,7 @@ const run = await page.evaluate(async (spec: any) => {
   moduleUrl: MODULE,
   mainQrc: MAIN_QRC, romaQrc: ROMA_QRC, romaLrc: ROMA_LRC, transLrc: TRANS_LRC,
   envelopeMain: envelope(MAIN_QRC), envelopeRoma: envelope(ROMA_QRC),
+  quotedEnvelope: QUOTED_ENVELOPE,
   jpQrc: JP_QRC, jpKana: JP_KANA, envelopeKana: envelope(`${JP_KANA}\n${JP_QRC}`),
   kanaRealPayload: KANA_REAL_PAYLOAD,
 });
@@ -105,6 +110,10 @@ section("XML 信封（上游 qrc=1 的真实形状）同样认得");
 check("信封本体解析成逐字行（HTML 实体还原后仍是 QRC）", run.xmlQrc.length === 2 && run.xmlQrc[0].text === "你好世界", JSON.stringify(run.xmlQrc[0]));
 check("信封音译 → 整行 romanLyric", String(run.xmlQrc[0].roman).replace(/\s+/g, " ").trim() === "ni hao shi jie", JSON.stringify(run.xmlQrc[0]));
 check("信封路径也不挂 Ruby", run.xmlQrc.every((l: any) => l.ruby === 0));
+check("LyricContent 内含未转义引号：引号后的正文仍完整解析（Starboy 回归）",
+  run.quotedEnvelope.length === 2
+    && run.quotedEnvelope[0]?.text.includes('Martin "Doc" McKinney')
+    && run.quotedEnvelope[1]?.text === "Ayy", JSON.stringify(run.quotedEnvelope));
 
 section("音译是普通 LRC 时按时间就近配对");
 check("行级音译挂到对应行", run.lrcRoma[0]?.roman === "ni hao shi jie" && run.lrcRoma[1]?.roman === "di er hang", JSON.stringify(run.lrcRoma));
