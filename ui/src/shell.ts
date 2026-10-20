@@ -19,6 +19,7 @@ import { QueuePanel } from "./components/QueuePanel";
 import { SearchBox } from "./components/SearchBox";
 import { playPlaylistNow, playSongsNow, openPlaylistMenu, openVirtualPlaylistMenu, type PlaylistMenuOptions } from "./components/PlaylistMenu";
 import { BACK_SVG } from "./views/_shared";
+import { icons as sharedIcons } from "./lib/icons";
 import { loadView, prefetchView } from "./views/index";
 import { bootTint } from "./lib/tint";
 import { bootBackground } from "./lib/ambient";
@@ -26,8 +27,8 @@ import { bootMenuGlass } from "./lib/menu-glass";
 
 export const nav = [
   { path: "#/", label: "首页", icon: "home" },
-  { path: "#/guess", label: "猜你喜欢", icon: "sparkle" },
-  { path: "#/daily", label: "每日 30 首", icon: "disc" },
+  { path: "#/guess", label: "猜你喜欢", icon: "infinity" },
+  { path: "#/daily", label: "每日 30 首", icon: "calendar" },
   { path: "#/liked", label: "我喜欢", icon: "heart" },
   // 歌单集合页入口：无条件常驻（菜单栏态下侧栏仍列歌单，这里只是「全部歌单」的落地页）
   { path: "#/playlists", label: "歌单", icon: "list" },
@@ -38,7 +39,10 @@ const icons: Record<string, string> = {
   home: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/></svg>',
   sparkle:
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4l1.7 4.3L18 10l-4.3 1.7L12 16l-1.7-4.3L6 10l4.3-1.7z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/></svg>',
-  disc: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/></svg>',
+  // 猜你喜欢 = 无限电台：复用共享图标里的 ∞ 标记（首页电台卡同一符号）。
+  infinity: sharedIcons.infinity,
+  // 每日 30 首：复用共享图标里的日历（首页快捷入口同一枚）。
+  calendar: sharedIcons.calendar,
   heart:
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20s-7-4.6-9-9c-1.3-3 .8-6.5 4-6.5 2 0 3.5 1.2 5 3 1.5-1.8 3-3 5-3 3.2 0 5.3 3.5 4 6.5-2 4.4-9 9-9 9z"/></svg>',
   // 本地音乐：文件夹（带 NAS 语境的通用容器形）。同一套 24 网格 / currentColor 描边。
