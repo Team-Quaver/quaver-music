@@ -121,7 +121,7 @@ ok("views: Sparkle tab 不再是 WIP 文案", !has(src.views, "working in progre
 ok("views: 花火插件与花火面具使用本地化名称", has(src.views, "data-tab=\"plugins\" type=\"button\">花火插件</button>") && has(src.views, "<div class=\"set-label\">花火面具") && has(src.views, 'mkCard("", "Quaver Design")') && !has(src.views, ">Sparkle 主题 <") && !has(src.views, "当前 Sparkle 主题") && !has(src.views, "高亮色由 Sparkle 主题"));
 ok("views: settingsView 返回 sparkle 清理函数", re(noComments(src.views), /mountSparklePanel\(sparklePanel\)/) && re(noComments(src.views), /offSparkle\(\)/));
 ok("settings: 面向用户的桥接和格式提示不暴露 Sparkle 名称", has(src.settings, "当前环境不支持花火插件功能") && has(src.settings, "插件格式不合法") && !has(src.settings, "没有 Sparkle 桥") && !has(src.settings, "需为 SparklePlugin"));
-ok("settings: 四标签齐备且相互隔离（主题/插件/扩展/Marketplace）", ["theme", "plugin", "extension", "market"].every((c) => has(src.settings, `data-cat="${c}"`)) && has(src.settings, "catOf") && has(src.settings, "已装主题") && has(src.settings, "已装插件") && has(src.settings, "已装扩展"));
+ok("settings: 三标签齐备且相互隔离（主题/插件/Marketplace）", ["theme", "plugin", "market"].every((c) => has(src.settings, `data-cat="${c}"`)) && !has(src.settings, 'data-cat="extension"') && has(src.settings, "catOf") && has(src.settings, "已装主题") && has(src.settings, "已装插件"));
 ok("settings: 插件设置不常驻页面（收进齿轮弹窗）", !re(noComments(src.settings), /sparkle-sections/) && has(read("src/components/PluginSettingsDialog.ts"), "插件设置") && re(noComments(src.settings), /showPluginSettingsDialog/));
 ok("settings: 行内齿轮按钮（动作区最左）", has(src.settings, "sparkle-gear") && has(src.style, ".sparkle-gear") && re(noComments(src.settings), /actions\.append\(gearBtn\(/));
 ok("settings: 主题行齿轮仅在提供设置区时出现", re(src.settings, /gearOnlyWithSections/));
@@ -152,8 +152,8 @@ ok("css: 两个图标按钮都是中性实底（不透），Tint 只上在 hover
   && re(src.style, /\.sparkle-gear:hover \{[^}]*color: var\(--cvg-accent, var\(--acc\)\);[^}]*border-color: var\(--cvg-accent, var\(--acc\)\);[^}]*color-mix\(in srgb, var\(--cvg-accent, var\(--acc\)\) 16%, var\(--card\)\)/)
   && re(src.style, /\.sparkle-uninstall:hover \{[^}]*color: #e8465a;[^}]*border-color: #e8465a;[^}]*color-mix\(in srgb, #e8465a 16%, var\(--card\)\)/));
 ok("css: 插件开关勾选色走 Tint（--cvg-accent 回落 --acc）", re(src.style, /\.sparkle-switch input \{ accent-color: var\(--cvg-accent, var\(--acc\)\)/));
-ok("settings: 索引源固定（默认 URL，UI 不可改）", has(src.settings, "DEFAULT_MARKET_URL") && !has(src.settings, "MARKET_URL_KEY") && !re(src.settings, /sparkle-market-bar[^`]*<input/));
-ok("settings: 分类徽标样式齐备", ["cat-theme", "cat-plugin", "cat-extension"].every((c) => has(src.style, `sparkle-badge.${c}`)));
+ok("settings: 索引源不在 UI 展示（请求仍用固定默认 URL）", has(src.settings, "DEFAULT_MARKET_URL") && !has(src.settings, "MARKET_URL_KEY") && !has(src.settings, "sparkle-src") && !re(src.settings, /sparkle-market-bar[^`]*<input/));
+ok("settings: 分类徽标样式齐备", ["cat-theme", "cat-plugin"].every((c) => has(src.style, `sparkle-badge.${c}`)) && !has(src.style, "cat-extension"));
 ok("settings: 徽标 = 预装 / 官方 / 第三方，不再带分类后缀", has(src.settings, 'text: "预装"')
   && has(src.settings, 'text: "官方"') && has(src.settings, 'text: "第三方"')
   && !/官方\$\{CAT_LABEL|第三方\$\{CAT_LABEL/.test(noComments(src.settings)));
@@ -162,9 +162,9 @@ ok("settings: 已装条目按作者分官方/第三方（Team Quaver 大小写�
   return re(s, /const isTeamQuaver =/) && /team quaver/.test(s.toLowerCase())
     && has(s, '{ cls: "official", text: "官方" }') && has(s, '{ cls: "third-party", text: "第三方" }');
 })());
-ok("settings: 主题/插件/扩展三处已装行都走 sourceBadge", (noComments(src.settings).match(/sourceBadge\(inst\.manifest\?\.author\)/g) ?? []).length === 3);
+ok("settings: 主题/插件两处已装行都走 sourceBadge", (noComments(src.settings).match(/sourceBadge\(inst\.manifest\?\.author\)/g) ?? []).length === 2);
 ok("settings: 本地安装按钮红色渐变", has(src.settings, "sparkle-local--danger") && re(src.style, /\.sparkle-local--danger[\s\S]*?linear-gradient/));
-ok("settings: Marketplace 内部分类筛选（全部/主题/插件/扩展）", ["all", "theme", "plugin", "extension"].every((c) => has(src.settings, `data-mcat="${c}"`)) && re(src.settings, /mcat === "all"/) && has(src.style, ".sparkle-mkt-chip"));
+ok("settings: Marketplace 内部分类筛选（全部/主题/插件）", ["all", "theme", "plugin"].every((c) => has(src.settings, `data-mcat="${c}"`)) && !has(src.settings, 'data-mcat="extension"') && re(src.settings, /mcat === "all"/) && has(src.style, ".sparkle-mkt-chip"));
 ok("settings: 安装 ≠ 启用的警示文案", has(src.settings, "默认关闭") || has(src.settings, "默认不加载"));
 ok("settings: 安装时把 category 写进元数据", re(noComments(src.settings), /category: cat\s*[,}]/));
 ok("host: enable 失败回滚 teardown", re(src.host, /for \(const fn of \[\.\.\.record\.teardown\]\.reverse\(\)/g) !== null);

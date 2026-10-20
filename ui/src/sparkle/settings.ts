@@ -1,11 +1,11 @@
 // Sparkle — 设置页 Sparkle tab 的面板（ui/src/views/settings.ts 的 settingsView 填充）
 //
-// 四个相互隔离的标签：① 主题（已装主题，开关=启停提供它的插件；切换去 设置→外观）
-// ② 插件（已装插件）③ 扩展（已装扩展）④ Marketplace（固定索引源 + 浏览/安装 +
-// 红色渐变的「添加本地插件」）。行内齿轮按钮就地弹窗渲染该插件的设置区
+// 三个相互隔离的标签：① 主题（已装主题，开关=启停提供它的插件；切换去 设置→外观）
+// ② 插件（已装插件）③ Marketplace（浏览/安装 + 红色渐变的「添加本地插件」）。
+// 行内齿轮按钮就地弹窗渲染该插件的设置区
 // （components/PluginSettingsDialog.ts），设置不再常驻页面。
-// 索引条目 category: "theme" | "plugin" | "extension"，缺省按 plugin；安装时把
-// category 写进 plugin.json，已装列表据此归入 主题/插件/扩展 三个标签。
+// 索引条目 category: "theme" | "plugin"，缺省按 plugin；安装时把 category 写进
+// plugin.json，已装列表据此归入 主题/插件 两个标签。旧的 extension 归入插件。
 import { DEFAULT_MARKET_URL } from "@quaver/sparkle/market/default-index";
 import { getSparkleHostVersionError } from "../../electron/sparkle-version.ts";
 import { showPluginSettingsDialog } from "../components/PluginSettingsDialog";
@@ -29,10 +29,10 @@ interface MarketEntry {
   minHostVersion?: string; allowBeta?: boolean; category?: string; download: string; homepage?: string; hash?: string;
 }
 
-/** 索引条目分类；未知/缺省一律按 plugin（主题/扩展是显式声明才有的分类） */
-type MarketCategory = "theme" | "plugin" | "extension";
-const catOf = (c: string | undefined): MarketCategory => (c === "theme" || c === "extension" ? c : "plugin");
-const CAT_LABEL: Record<MarketCategory, string> = { theme: "主题", plugin: "插件", extension: "扩展" };
+/** 索引条目分类；未知/缺省/旧 extension 一律按 plugin（主题是显式声明才有的分类） */
+type MarketCategory = "theme" | "plugin";
+const catOf = (c: string | undefined): MarketCategory => (c === "theme" ? "theme" : "plugin");
+const CAT_LABEL: Record<MarketCategory, string> = { theme: "主题", plugin: "插件" };
 
 // —— 徽标口径 ——
 // ① 宿主内置（OFFICIAL_META）恒为「预装」；
@@ -60,13 +60,12 @@ const TRASH_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 export function mountSparklePanel(section: HTMLElement): () => void {
   section.innerHTML = "";
 
-  // —— 四个分类标签（与设置页大 tab 同一套 .set-tab 形态，只管面板内显隐） ——
+  // —— 三个分类标签（与设置页大 tab 同一套 .set-tab 形态，只管面板内显隐） ——
   const cats = document.createElement("div");
   cats.className = "set-tabs sparkle-cats";
   cats.innerHTML = `
     <button class="set-tab is-active" data-cat="theme" type="button">主题</button>
     <button class="set-tab" data-cat="plugin" type="button">插件</button>
-    <button class="set-tab" data-cat="extension" type="button">扩展</button>
     <button class="set-tab" data-cat="market" type="button">Marketplace</button>`;
 
   const mkPanel = (cat: string) => {
@@ -78,13 +77,12 @@ export function mountSparklePanel(section: HTMLElement): () => void {
   };
   const themePanel = mkPanel("theme");
   const pluginPanel = mkPanel("plugin");
-  const extPanel = mkPanel("extension");
   const marketPanel = mkPanel("market");
   cats.querySelectorAll<HTMLButtonElement>(".set-tab").forEach((t) => {
     t.onclick = () => {
       if (t.classList.contains("is-active")) return;
       cats.querySelectorAll(".set-tab").forEach((x) => x.classList.toggle("is-active", x === t));
-      [themePanel, pluginPanel, extPanel, marketPanel].forEach((p) => { p.hidden = p.dataset.cat !== t.dataset.cat; });
+      [themePanel, pluginPanel, marketPanel].forEach((p) => { p.hidden = p.dataset.cat !== t.dataset.cat; });
     };
   });
 
@@ -106,21 +104,12 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     <div class="sparkle-list sparkle-plugin-rows"></div>`;
   const pluginRows = pluginGroup.querySelector<HTMLElement>(".sparkle-plugin-rows")!;
 
-  // —— ③ 扩展：已装扩展 ——
-  const extGroup = document.createElement("div");
-  extGroup.className = "set-group";
-  extGroup.innerHTML = `
-    <div class="set-label">已装扩展 <span class="set-note-inline">第三方扩展将在本地运行任意代码，请只安装信任来源</span></div>
-    <div class="sparkle-list sparkle-ext-rows"></div>`;
-  const extRows = extGroup.querySelector<HTMLElement>(".sparkle-ext-rows")!;
-
-  // —— ④ Marketplace：固定索引源 + 本地安装 + 全量列表（与上面三个标签隔离） ——
+  // —— ③ Marketplace：本地安装 + 全量列表（与上面两个标签隔离） ——
   const marketGroup = document.createElement("div");
   marketGroup.className = "set-group";
   marketGroup.innerHTML = `
-    <div class="set-label">Marketplace <span class="set-note-inline">索引源由官方固定提供，无法更改</span></div>
+    <div class="set-label">Marketplace</div>
     <div class="sparkle-market-bar">
-      <code class="sparkle-src">${esc(DEFAULT_MARKET_URL)}</code>
       <button class="ghost-btn ghost-btn--quiet sparkle-market-refresh" type="button">刷新</button>
       <button class="ghost-btn sparkle-local sparkle-local--danger" type="button">添加本地插件</button>
     </div>
@@ -129,7 +118,6 @@ export function mountSparklePanel(section: HTMLElement): () => void {
       <button class="sparkle-mkt-chip is-active" data-mcat="all" type="button">全部</button>
       <button class="sparkle-mkt-chip" data-mcat="theme" type="button">主题</button>
       <button class="sparkle-mkt-chip" data-mcat="plugin" type="button">插件</button>
-      <button class="sparkle-mkt-chip" data-mcat="extension" type="button">扩展</button>
     </div>
     <div class="sparkle-market-list"></div>`;
   const marketRefresh = marketGroup.querySelector<HTMLButtonElement>(".sparkle-market-refresh")!;
@@ -138,9 +126,8 @@ export function mountSparklePanel(section: HTMLElement): () => void {
 
   themePanel.append(themeGroup);
   pluginPanel.append(pluginGroup);
-  extPanel.append(extGroup);
   marketPanel.append(marketGroup);
-  section.append(cats, themePanel, pluginPanel, extPanel, marketPanel);
+  section.append(cats, themePanel, pluginPanel, marketPanel);
 
   // 安全模式（QUAVER_REDFLAG=1）：所有第三方插件都被拒之门外（含运行期手动开启），
   // 面板顶上明说一句 —— 否则用户只会看到开关点不动，以为坏了。
@@ -212,12 +199,12 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     return b;
   };
 
-  /** 已装内容行（主题/插件/扩展 三个标签共用）：[齿轮] [垃圾桶=卸载] [启用开关] */
+  /** 已装内容行（主题/插件两个标签共用）：[齿轮] [垃圾桶=卸载] [启用开关] */
   const manageRow = (o: {
     id: string; name: string; version: string; author?: string; description?: string;
     badge: { cls: string; text: string };
     enabled: boolean; broken: boolean;
-    /** 主题行只在插件真的提供设置区（高级选项）时显示齿轮；插件/扩展行恒显 */
+    /** 主题行只在插件真的提供设置区（高级选项）时显示齿轮；插件行恒显 */
     showGear: boolean;
     pluginId: string;
     /** 非空 = 这一行锁住（安全模式 / [Sparkle] Blacklist）：开关画出来但不可点，
@@ -281,7 +268,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
   const officialLock = (id: string): string | null =>
     sparkIdBlacklisted(id) ? "已在 [Sparkle] Blacklist 黑名单里" : null;
 
-  /** 启停一个已装第三方插件（主题/插件/扩展三处标签共用同一套语义） */
+  /** 启停一个已装第三方插件（主题/插件两处标签共用同一套语义） */
   const toggleThird = async (inst: InstalledPlugin, on: boolean) => {
     // 兜底：UI 上开关已锁，但键盘/脚本仍可能触发；真正的事实源在 host.enableSparklePlugin
     const why = rowLock(inst.id);
@@ -404,7 +391,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     for (const inst of themeInst) themeRows.append(thirdRow(inst, sourceBadge(inst.manifest?.author), { gearOnlyWithSections: true }));
     renderPacks();
 
-    // ② 插件：官方 + 非 theme/extension 的第三方
+    // ② 插件：官方 + 非主题的第三方（旧 extension 也归在这里）
     pluginRows.innerHTML = "";
     const enabled = new Set(sparkEnabledIds());
     for (const meta of OFFICIAL_META) {
@@ -430,7 +417,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
         },
       }));
     }
-    const plainThird = installedThird.filter((i) => installedCategory(i) !== "theme" && installedCategory(i) !== "extension");
+    const plainThird = installedThird.filter((i) => installedCategory(i) !== "theme");
     if (!plainThird.length && !installedThird.length) {
       const empty = document.createElement("div");
       empty.className = "sparkle-empty";
@@ -438,14 +425,6 @@ export function mountSparklePanel(section: HTMLElement): () => void {
       pluginRows.append(empty);
     }
     for (const inst of plainThird) pluginRows.append(thirdRow(inst, sourceBadge(inst.manifest?.author)));
-
-    // ③ 扩展：category=extension 的已装插件
-    extRows.innerHTML = "";
-    const extInst = installedThird.filter((i) => installedCategory(i) === "extension");
-    if (!extInst.length) {
-      extRows.innerHTML = `<div class="sparkle-empty">没有已安装的扩展 —— 从 Marketplace 安装</div>`;
-    }
-    for (const inst of extInst) extRows.append(thirdRow(inst, sourceBadge(inst.manifest?.author)));
   };
 
   // —— Marketplace：一份索引一个列表，条目按 category 打徽标 ——

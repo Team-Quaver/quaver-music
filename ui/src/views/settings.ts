@@ -65,7 +65,7 @@ export default async function settingsView(root: HTMLElement) {
 
       <!-- 背景（默认主题的环境色层）：三档 + 自定义图片 + 模糊强度，绑定见下方 paintBg* -->
       <div class="set-group">
-        <div class="set-label">背景 <span class="set-note-inline">默认主题的环境色层；插件主题自带背景时不受此项影响</span></div>
+        <div class="set-label">背景</div>
         <div class="opt-cards" id="bg-cards">
           <button class="opt-card" data-opt="off" type="button">关闭背景</button>
           <button class="opt-card" data-opt="cover" type="button">专辑封面</button>
@@ -83,13 +83,13 @@ export default async function settingsView(root: HTMLElement) {
             <span class="bg-blur-val" id="bg-blur-val"></span>
           </div>
         </div>
-        <p class="muted set-hint" id="bg-hint"></p>
+        <p class="muted set-hint" id="bg-hint" hidden></p>
       </div>
 
       <!-- 高亮颜色（tint）：三档来源 + 自定义色的颜色选择器（HSL / CMYK / RGB + HEX），
            绑定见下方 paintTint* 那一段 -->
       <div class="set-group">
-        <div class="set-label">高亮颜色 <span class="set-note-inline">进度条 / 选中态 / 激活描边用的强调色系</span></div>
+        <div class="set-label">高亮颜色</div>
         <div class="opt-cards" id="tint-cards">
           <button class="opt-card" data-opt="default" type="button">青色（默认）</button>
           <button class="opt-card" data-opt="cover" type="button">跟随封面</button>
@@ -126,41 +126,41 @@ export default async function settingsView(root: HTMLElement) {
         <!-- 主题自带的高亮方案（SDK: SparkleTheme.tint.mode="presets"）动态填充；
              主题接管高亮色（tint 缺省）时这组与上面的三档都不出现，只留一行说明 -->
         <div class="opt-cards" id="tint-spark-cards" hidden></div>
-        <p class="muted set-hint" id="tint-hint"></p>
+        <p class="muted set-hint" id="tint-hint" hidden></p>
       </div>
 
       <!-- 浮层菜单的毛玻璃：一棵总开关（右键菜单 / 音质·播放模式·音量浮窗 / 正在播放页 ⋮ /
            音频流信息浮窗），绑定见下方 paintMenuGlass*。令牌与七处消费点全在 style.css 顶部。 -->
       <div class="set-group">
-        <div class="set-label">菜单毛玻璃 <span class="set-note-inline">右键菜单 / 音质与播放模式浮窗 / 正在播放页「更多操作」</span></div>
+        <div class="set-label">模糊效果</div>
         <div class="opt-cards" id="menu-glass-cards">
           <button class="opt-card" data-opt="on" type="button">开启</button>
           <button class="opt-card" data-opt="off" type="button">关闭</button>
         </div>
-        <p class="muted set-hint" id="menu-glass-hint"></p>
+        <p class="muted set-hint" id="menu-glass-hint" hidden></p>
       </div>
 
       <!-- 播放控制条：底部停靠 / Content View 内悬浮。悬浮态的让位动画与安全区全在
            style.css 的 --control-bar-*；Sparkle 主题/样式层可覆盖同一组令牌或重画形态。 -->
       <div class="set-group">
-        <div class="set-label">播放控制条 <span class="set-note-inline">悬浮时 Content View 与侧栏会让出底部空间</span></div>
+        <div class="set-label">播放控制</div>
         <div class="opt-cards" id="control-bar-cards">
           <button class="opt-card" data-opt="bottom" type="button">底部停靠</button>
           <button class="opt-card" data-opt="floating" type="button">内容区悬浮</button>
         </div>
-        <p class="muted set-hint" id="control-bar-hint">悬浮在 Content View 底部，列表滚动不会被遮住；展开「正在播放」时滑回窗口底部并保持尺寸。</p>
+        <p class="muted set-hint" id="control-bar-hint" hidden></p>
       </div>
 
       <!-- 歌单显示模式：菜单栏（侧栏列歌单，默认）/ 歌单集合页（侧栏不列歌单、导航垂直居中，
            歌单改到 #/playlists 以 grid 分区）。主题声明 theme.playlistMode 时整组禁用，
            呈现形态与让位一律由 style.css 按 body[data-playlist-mode] 接管。 -->
       <div class="set-group">
-        <div class="set-label">歌单显示模式 <span class="set-note-inline">侧栏列出歌单，或收进「歌单」集合页</span></div>
+        <div class="set-label">菜单栏模式</div>
         <div class="opt-cards" id="playlist-mode-cards">
-          <button class="opt-card" data-opt="menu" type="button">菜单栏</button>
-          <button class="opt-card" data-opt="collection" type="button">歌单集合页</button>
+          <button class="opt-card" data-opt="menu" type="button">高效模式</button>
+          <button class="opt-card" data-opt="collection" type="button">简洁模式</button>
         </div>
-        <p class="muted set-hint" id="playlist-mode-hint"></p>
+        <p class="muted set-hint" id="playlist-mode-hint" hidden></p>
       </div>
 
       <!-- 花火面具：卡片由下方 renderSparkleThemes 动态填充（无插件主题时整组隐藏） -->
@@ -172,8 +172,8 @@ export default async function settingsView(root: HTMLElement) {
       <div class="set-group">
         <div class="set-label">窗口装饰模式 <span class="set-note-inline">点击切换后立即重启</span></div>
         <div class="opt-cards" id="decor-cards">
-          <button class="opt-card" data-opt="csd" type="button">使用 Quaver Design</button>
-          <button class="opt-card" data-opt="ssd" type="button">使用系统原生标题栏</button>
+          <button class="opt-card" data-opt="csd" type="button">无边窗口模式</button>
+          <button class="opt-card" data-opt="ssd" type="button">系统装饰模式</button>
         </div>
       </div>
 
@@ -274,19 +274,16 @@ export default async function settingsView(root: HTMLElement) {
     <!-- 歌词面板：繁简转换 / 在线 TTML 逐字库 / 本地 TTML 歌词库目录（[Lyrics] 段，见 electron/config.ts） -->
     <section class="set-panel" data-panel="lyrics" hidden>
       <div class="set-group">
-        <div class="set-label">繁简转换 <span class="set-note-inline">对歌词正文、注音与翻译生效</span></div>
+        <div class="set-label">繁简转换 <span class="set-note-inline">Powered by OpenCC</span></div>
         <div class="opt-cards" id="cjk-cards">
           <button class="opt-card" data-opt="off" type="button">不转换</button>
           <button class="opt-card" data-opt="simplified" type="button">转为简体</button>
           <button class="opt-card" data-opt="traditional" type="button">转为繁体</button>
         </div>
-        <p class="muted set-hint">按 OpenCC 词典转换（简→繁带短语级歧义处理：「头发」不会变成「頭發」的那颗「發」）。
-          只转换进入播放器的歌词文本 —— 磁盘缓存与手动导入的原文不动，关掉档位即回原样；切换即时重拉当前曲，
-          词典在第一次用到该档位时才加载（简→繁词典较大，约 1MB，只为此付费一次）。</p>
       </div>
 
       <div class="set-group">
-        <div class="set-label">在线 TTML 歌词 <span class="set-note-inline">AMLL 逐字歌词库</span></div>
+        <div class="set-label">在线 TTML 歌词</div>
         <div class="opt-cards" id="ttml-online-cards">
           <button class="opt-card" data-opt="on" type="button">开启</button>
           <button class="opt-card" data-opt="off" type="button">关闭</button>
@@ -298,11 +295,9 @@ export default async function settingsView(root: HTMLElement) {
             <button class="ghost-btn" id="ttml-db-default" type="button">恢复默认</button>
           </div>
         </div>
-        <p class="muted set-hint">仅在歌曲拿不到逐字歌词时补一次查询（已有 QRC 逐字或手动导入的发都不发；行级 LRC 会被升级成逐字）。
-          地址模板：<code>%p</code> = 平台目录（QQ→qq-lyrics、网易云→ncm-lyrics、Apple→am-lyrics、Spotify→spotify-lyrics），
-          <code>%s</code> = 该平台歌曲 id（QQ 为 songmid），必须含 %s。默认是 AMLL TTML 数据库（amll-dev/amll-ttml-db）的
-          bikonoo 实时镜像，全平台一份模板；换成别的镜像或自建库只改这一行。未命中记 10 分钟会话缓存，不重复打服务器。</p>
-        <p class="muted set-hint" id="ttml-db-note"></p>
+        <p class="muted set-hint">地址模板：<code>%p</code> = 平台目录（QQ→qq-lyrics、网易云→ncm-lyrics、Apple→am-lyrics、Spotify→spotify-lyrics），
+          <code>%s</code> = 该平台歌曲 ID（QQ 为 songmid），必须包含 <code>%s</code>。</p>
+        <p class="muted set-hint" id="ttml-db-note" hidden></p>
       </div>
 
       <div class="set-group">
@@ -314,14 +309,11 @@ export default async function settingsView(root: HTMLElement) {
             <button class="ghost-btn" id="ttml-lib-clear" type="button">清除</button>
           </div>
         </div>
-        <p class="muted set-hint">指向一个存满 .ttml 的文件夹即可启用（非空即开）。命名兼容三种习惯：
-          AMLL TTML 数据库仓库克隆布局 <code>库/qq-lyrics/&lt;songmid&gt;.ttml</code>（或 id 平铺）、
-          「歌名-歌手.ttml」/「歌手-歌名.ttml」（连字符两侧空格均可）、以及「歌名.ttml」。
-          查询顺序：本地库先于在线库；两者都只补「没有逐字」的歌，手动导入永远优先。设置后即时重拉当前曲。</p>
+        <p class="muted set-hint">放入 .ttml 文件即可启用，支持歌曲 ID、歌名-歌手或歌名命名；本地库优先于在线库。</p>
       </div>
 
       <div class="set-group">
-        <div class="set-label">桌面歌词 <span class="set-note-inline">透明置顶的桌面歌词层</span></div>
+        <div class="set-label">桌面歌词</div>
         <div class="set-row"><span class="set-row__label">启用</span>
           <div class="opt-cards" id="dl-enable-cards">
             <button class="opt-card" data-opt="on" type="button">开启</button>
@@ -422,19 +414,7 @@ export default async function settingsView(root: HTMLElement) {
             <input id="dl-color-hex" type="text" spellcheck="false" autocomplete="off" size="9" maxlength="7" aria-label="桌面歌词颜色 HEX" />
           </div>
         </div>
-        <p class="muted set-hint">歌词层背景全透明、恒置顶、不进任务栏；字体独立于「外观 → 正在播放页歌词字体」，逐字引擎与正在播放页同为内置 AMLL。
-          行数=单行只当前句、双行多带下一句；歌词块整体居中于歌词层，超长行自动横向滚动（翻译/音译各自判断，主行滚时它不动）；
-          颜色默认是白字 + 黑色描边与单层柔和阴影（任何壁纸可读）；描边宽度、阴影开关、模糊、透明度与 X/Y 偏移都可自行调节，0 即完全关闭对应效果。封面/系统染色与正在播放页同源派生（探测/取色失败自动回落白字）。
-          「歌词不透明度」调的是字；「窗体不透明度」调的是**窗体的那块底**（铺满歌词层表面、画在字后面的背板）——默认 0 = 全透明、只有字，
-          花壁纸上想读清就把这块底往上调一点。歌词不透明度有条**悬停地板**：鼠标停在歌词层上（也就是可拖动的那个状态）时字至少
-          回到 30%，方便你找到这扇窗；设得比 30% 高就完全按你的设置来，这里不另开开关。浮现出来的控制条不跟着淡——它只在你要按的时候出现。</p>
-        <p class="muted set-hint">悬停歌词层浮现控制条：播放/上一曲/下一曲、字号 A−/A+、歌词延迟 −/＋（一档 0.1s，点读数归零）与关窗；
-          未锁定时歌词层是纯 CSD 窗口 —— **拖任意歌词区域**挪位置、**拖右下角把手**缩放，位置尺寸会记住。
-          「固定（鼠标透穿）」只在 macOS / Windows / X11 会话开放：锁定后位置不动、鼠标点击全部落到下层窗口；
-          解除入口是托盘的「桌面歌词 → 固定（鼠标透穿）」或本页这个开关。
-          高度默认按字号与行数贴合内容，拖把手也能自己改（要更高的字就调字号、要两行就换行数档位，那两条路更省事）。
-          高度那条尺寸提示同时是本窗**申请浮窗**的依据：平铺式窗口管理器（Hyprland 这类）会因此把它放成浮窗，而不是塞进布局格子。
-          **不支持最大化/全屏** —— 被窗口管理器贴到屏幕边缘或按出平铺手势时会当场还原回横带。</p>
+        <p class="muted set-hint">「固定（鼠标透穿）」仅在 macOS / Windows / X11 会话开放。</p>
       </div>
     </section>
 
@@ -484,10 +464,6 @@ export default async function settingsView(root: HTMLElement) {
           <button class="ghost-btn" id="open-log" type="button">打开日志页面</button>
           <button class="ghost-btn" id="open-dbg" type="button">进程与内存自检</button>
         </div>
-        <p class="muted set-hint">自检弹窗逐进程列出 RSS / Pss / CPU 与首屏解析量（数据源在主进程：
-          <code>app.getAppMetrics</code> + <code>/proc</code>），里面另有「开发者模式」开 DevTools。
-          <code>F12</code> 默认不绑定 —— 插件宿主里 DevTools 是能把任何代码敲进渲染层的口子，
-          只走这个显式按钮。</p>
       </div>
 
       <div class="set-group set-about">
@@ -518,6 +494,11 @@ export default async function settingsView(root: HTMLElement) {
   // preset 是「Sparkle 主题自带的高亮方案」那组（见 #tint-spark-cards）
   const syncSel = (box: HTMLElement, attr: "opt" | "q" | "preset", active: string) =>
     box.querySelectorAll<HTMLElement>("[data-" + attr + "]").forEach((b) => b.classList.toggle("sel", b.dataset[attr] === active));
+  /** 说明行只承载当前状态 / 主题接管备注：没有内容时整行收起。 */
+  const setHint = (el: HTMLElement, text: string) => {
+    el.textContent = text;
+    el.hidden = !text;
+  };
 
   /** 通用「卡片选项组」绑定：点击写偏好 + 原地同步选中态（外观/装饰/关闭行为/Fallback/淡入淡出共用） */
   function bindOptCards<K extends string>(box: HTMLElement, get: () => K, set: (v: K) => void) {
@@ -534,7 +515,6 @@ export default async function settingsView(root: HTMLElement) {
   // —— 背景（默认主题的环境色层）：关闭背景 / 专辑封面 / 自定义图片 + 模糊强度 ——
   // 选图走主进程的原生对话框（路径落进 quaver.conf，图片本体由同源 /api/bg 端点交给界面，
   // 见 lib/ambient.ts）；浏览器 dev 下没有这个桥，只能看不能换。
-  const BG_HINT = "关闭背景（默认）：只留主题底色；专辑封面：当前曲封面模糊铺底；自定义图片：用你自己的图，建议把模糊强度调小。";
   const bgCards = wrap.querySelector<HTMLElement>("#bg-cards")!;
   const bgFile = wrap.querySelector<HTMLElement>("#bg-file")!;
   const bgPick = wrap.querySelector<HTMLButtonElement>("#bg-pick")!;
@@ -617,16 +597,16 @@ export default async function settingsView(root: HTMLElement) {
     applyBackground();
   });
 
-  /** 组内说明（没被主题接管时的那份；接管时换成让位说明）。 */
-  const bgHintBase = bgBridge?.pick ? BG_HINT : `${BG_HINT} 浏览器里没法选本地图片，请在桌面端设置。`;
+  /** 浏览器 dev 没有选图桥时只保留一句功能提示；桌面端不显示通用描述。 */
+  const bgHintBase = bgBridge?.pick ? "" : "浏览器里无法选择本地图片，请在桌面端设置。";
   /** 整组的主刷新：主题接管背景时三档留在原位但禁用并写明原因（整组消失会让人找不到）。
    *  面板初次挂载 / 切换主题 / 插件启停都要重跑一遍。 */
   const paintBgPolicy = () => {
     const locked = bgPolicy().mode === "off";
     bgCards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = locked; });
-    bgHint.textContent = locked
-      ? `当前花火面具「${sparkleActiveTheme()?.name ?? ""}」自带背景，已接管；切到「默认」主题，或让主题声明 background 才可调。`
-      : bgHintBase;
+    setHint(bgHint, locked
+      ? `由花火面具「${sparkleActiveTheme()?.name ?? ""}」接管背景。`
+      : bgHintBase);
     paintBgMode(); // 顺带把按钮显隐与滑块可用性收口（那里也要叠加 locked）
   };
 
@@ -639,9 +619,6 @@ export default async function settingsView(root: HTMLElement) {
   // —— 高亮颜色（tint）：三档来源 + 自定义色的颜色选择器（HSL / CMYK / RGB + HEX） ——
   // 颜色真相只有一个 RGB：三个模式与 HEX 都只是它的不同表示，表示之间的换算走 lib/color.ts 的
   // 纯函数。落盘的永远是 HEX（prefs.setTintColor），样式侧由 lib/tint.ts 写 --cvg-accent/--cvg-glow。
-  const TINT_HINT = "青色：固定强调色，不随歌曲变化（默认）；跟随封面：取当前曲封面主色（换曲平滑过渡）；"
-    + "系统强调色：跟随桌面配色（Noctalia / matugen 模板、KDE / GNOME / Windows / macOS 的系统强调色，"
-    + "读不到时先用默认青色）；自定义颜色：自己挑，点色块展开颜色选择器，支持 HSL / CMYK / RGB 与 HEX。";
   const tintCards = wrap.querySelector<HTMLElement>("#tint-cards")!;
   const tintChip = wrap.querySelector<HTMLButtonElement>("#tint-chip")!;
   const tintPop = wrap.querySelector<HTMLElement>("#tint-pop")!;
@@ -825,13 +802,16 @@ export default async function settingsView(root: HTMLElement) {
     tintChip.hidden = tintPolicy().mode !== "host" || mode !== "custom";
     setPopOpen(popOpen);
     // 「系统强调色」档：把读到的来源/色值直接说给用户听（读不到也说明白为什么 + 怎么办）。
-    if (mode === "system" && tintPolicy().mode === "host") {
+    if (tintPolicy().mode !== "host") return;
+    if (mode === "system") {
       const a = currentAccent();
-      tintHint.textContent = a?.color
+      setHint(tintHint, a?.color
         ? `系统强调色：已读到${a.label ? ` ${a.label} 的` : ""} ${a.color}，换桌面配色后自动跟随。`
         : "系统强调色：暂时没读到（先用默认青色）。在 Noctalia / matugen 的模板里把颜色写到"
-          + " <配置目录>/system-theme.json，或在系统设置里挑一个强调色。";
+          + " <配置目录>/system-theme.json，或在系统设置里挑一个强调色。");
       probeAccentOnce(); // 值是异步来的：还没读到就先刷一次，回来重画（accentProbed 防自旋）
+    } else {
+      setHint(tintHint, "");
     }
   };
 
@@ -851,11 +831,11 @@ export default async function settingsView(root: HTMLElement) {
       // 方案里有哨兵（color:"system"）且系统强调色还没到：补拉一次，回来重画方案卡的色块
       if (policy.presets.some((p) => p.color === TINT_PRESET_SYSTEM)) probeAccentOnce();
     }
-    tintHint.textContent = locked
-      ? `当前花火面具「${themeName}」自带配色，已接管高亮色；切到「默认」主题或让主题声明 tint 才可调。`
+    setHint(tintHint, locked
+      ? `由花火面具「${themeName}」接管高亮颜色。`
       : presets
-        ? `高亮色由花火面具「${themeName}」提供，从上面挑一套。`
-        : TINT_HINT;
+        ? `高亮颜色由花火面具「${themeName}」提供。`
+        : "");
     paintTintMode(); // 顺带把 chip / 选择器的可用性收口
   };
 
@@ -878,16 +858,14 @@ export default async function settingsView(root: HTMLElement) {
   // —— 菜单毛玻璃（[Style] MenuBlur）：浮层菜单的玻璃底 + 背景模糊开不开 ——
   // 真相是 <html data-menu-glass>（由 lib/menu-glass.ts 写，on/off/theme 三态），CSS 侧一组
   // --menu-* 令牌据此取值；这里只管这棵开关的呈现。主题自带菜单外观时整组留在原位但禁用。
-  const MENU_GLASS_HINT = "开启：半透明玻璃底 + backdrop 模糊（默认）；关闭：改成实底、完全不糊，"
-    + "省一层 GPU 合成且文字最清晰。玻璃感来自透出来的背景色 —— 看不出模糊时，先把上面的「背景」打开。";
   const menuGlassCards = wrap.querySelector<HTMLElement>("#menu-glass-cards")!;
   const menuGlassHint = wrap.querySelector<HTMLElement>("#menu-glass-hint")!;
   const menuGlassPolicy = () => menuGlassPolicyOf(activeSparkTheme());
   const paintMenuGlass = () => {
     syncSel(menuGlassCards, "opt", getMenuBlur() ? "on" : "off");
-    menuGlassHint.textContent = menuGlassPolicy().mode === "off"
-      ? `当前花火面具「${activeSparkTheme()?.name ?? ""}」自带菜单外观，已接管；切到「默认」主题或让主题声明 menus 才可调。`
-      : MENU_GLASS_HINT;
+    setHint(menuGlassHint, menuGlassPolicy().mode === "off"
+      ? `由花火面具「${activeSparkTheme()?.name ?? ""}」接管模糊效果。`
+      : "");
   };
   /** 整组的主刷新：主题接管时这组留在原位但禁用（整组消失会让人找不到）。 */
   const paintMenuGlassPolicy = () => {
@@ -917,7 +895,6 @@ export default async function settingsView(root: HTMLElement) {
   };
   // 播放控制条：底部停靠（默认）/ Content View 内悬浮。主题声明 controlBar 时是最终态，
   // 这里整组禁用并显示实际生效值；宿主态由 setControlBarMode + applyControlBar 即时同步。
-  const CONTROL_BAR_HINT = "悬浮在 Content View 底部，列表滚动不会被遮住；展开「正在播放」时滑回窗口底部并保持尺寸。";
   const controlBarCards = wrap.querySelector<HTMLElement>("#control-bar-cards")!;
   const controlBarHint = wrap.querySelector<HTMLElement>("#control-bar-hint")!;
   const paintControlBarPolicy = () => {
@@ -926,9 +903,9 @@ export default async function settingsView(root: HTMLElement) {
     controlBarCards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = locked; });
     syncSel(controlBarCards, "opt", locked ? policy.mode : getControlBarMode());
     controlBarCards.querySelector<HTMLElement>('[data-opt="bottom"]')!.textContent = locked ? "底部停靠（主题接管）" : "底部停靠";
-    controlBarHint.textContent = locked
-      ? `当前花火面具「${activeSparkTheme()?.name ?? ""}」接管控制条停靠；切到「默认」主题或让主题声明 controlBar:"host" 才可调。`
-      : CONTROL_BAR_HINT;
+    setHint(controlBarHint, locked
+      ? `由花火面具「${activeSparkTheme()?.name ?? ""}」接管播放控制。`
+      : "");
   };
   controlBarCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
     b.onclick = () => {
@@ -937,10 +914,8 @@ export default async function settingsView(root: HTMLElement) {
     };
   });
   paintControlBarPolicy();
-  // 歌单显示模式：菜单栏（默认）/ 歌单集合页。主题声明 playlistMode 时是最终态，这里整组禁用
+  // 菜单栏模式：高效模式（默认）/ 简洁模式。主题声明 playlistMode 时是最终态，这里整组禁用
   // 并显示实际生效值；宿主态由 setPlaylistMode + applyPlaylistModeKind 即时同步。
-  const PLAYLIST_MODE_HINT = "菜单栏：歌单在侧栏列出（我创建的歌单 / 收藏的歌单）；歌单集合页：侧栏不再列歌单、"
-    + "导航按钮在侧栏内垂直居中，歌单改到「歌单」页以 grid 分区展示。";
   const playlistModeCards = wrap.querySelector<HTMLElement>("#playlist-mode-cards")!;
   const playlistModeHint = wrap.querySelector<HTMLElement>("#playlist-mode-hint")!;
   const paintPlaylistModePolicy = () => {
@@ -948,10 +923,10 @@ export default async function settingsView(root: HTMLElement) {
     const locked = policy.mode !== "host";
     playlistModeCards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = locked; });
     syncSel(playlistModeCards, "opt", locked ? policy.mode : getPlaylistMode());
-    playlistModeCards.querySelector<HTMLElement>('[data-opt="collection"]')!.textContent = locked ? "歌单集合页（主题接管）" : "歌单集合页";
-    playlistModeHint.textContent = locked
-      ? `当前花火面具「${activeSparkTheme()?.name ?? ""}」接管歌单显示模式；切到「默认」主题或让主题声明 playlistMode:"host" 才可调。`
-      : PLAYLIST_MODE_HINT;
+    playlistModeCards.querySelector<HTMLElement>('[data-opt="collection"]')!.textContent = locked ? "简洁模式（主题接管）" : "简洁模式";
+    setHint(playlistModeHint, locked
+      ? `由花火面具「${activeSparkTheme()?.name ?? ""}」接管菜单栏模式。`
+      : "");
   };
   playlistModeCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
     b.onclick = () => {
@@ -1131,7 +1106,7 @@ export default async function settingsView(root: HTMLElement) {
   /** 输入框永远显示「当前生效值」（getTtmlDatabase 已把坏值回落默认）；note 只放一次性反馈。 */
   const paintTtmlUrl = (note = "") => {
     ttmlUrlInput.value = getTtmlDatabase();
-    ttmlUrlNote.textContent = note;
+    setHint(ttmlUrlNote, note);
   };
   paintTtmlUrl();
   const commitTtmlUrl = () => {
@@ -1150,7 +1125,7 @@ export default async function settingsView(root: HTMLElement) {
   ttmlUrlInput.onkeydown = (e) => { if (e.key === "Enter") ttmlUrlInput.blur(); };
   wrap.querySelector<HTMLButtonElement>("#ttml-db-default")!.onclick = () => {
     setTtmlDatabase(TTML_DB_DEFAULT_URL);
-    paintTtmlUrl("已恢复默认模板（AMLL TTML 数据库的 bikonoo 镜像，%p 展开平台目录）。");
+    paintTtmlUrl("已恢复默认模板。");
     player.reloadLyric();
   };
   // 本地 TTML 歌词库目录：原生选目录走「本地音乐」页同一座桥（quaver:local pick-folder），

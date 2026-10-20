@@ -595,11 +595,9 @@ check("歌词不透明度滑条 10..100%（调的是字）",
   /id="dl-opacity" type="range" min="10" max="100" step="5"/.test(views)
   && /歌词不透明度/.test(views)
   && /setDesktopLyricsOpacity\(Number\(dlOpacity\.value\) \/ 100\)/.test(views));
-check("设置页交代悬停地板（停在歌词层上字至少 30%）、高度可拖、申请浮窗、不支持最大化",
-  /悬停地板/.test(views) && /字至少\s*回到\s*30%/.test(views) && /设得比 30% 高就完全按你的设置来/.test(views)
-  && /高度默认按字号与行数贴合内容，拖把手也能自己改/.test(views) && /申请浮窗/.test(views)
-  && /拖右下角把手\*\*缩放/.test(views) && /不支持最大化/.test(views)
-  && /只在 macOS \/ Windows \/ X11 会话开放/.test(views));
+check("桌面歌词说明只保留固定功能的平台限制",
+  /固定（鼠标透穿）」仅在 macOS \/ Windows \/ X11 会话开放/.test(views)
+  && !/悬停地板/.test(views) && !/不支持最大化/.test(views) && !/申请浮窗/.test(views));
 check("窗体不透明度滑条 0..100%（调背板，默认 0 = 只有字）——与歌词那条分开、命名不混",
   /id="dl-backdrop" type="range" min="0" max="100" step="5"/.test(views)
   && /窗体不透明度/.test(views)

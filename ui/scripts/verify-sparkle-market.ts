@@ -1,8 +1,8 @@
 // Quaver — Sparkle Marketplace 冒烟（手动跑，需 dev server：QBASE 缺省 http://localhost:5173）
 //
 // 覆盖：
-//  - 四标签相互隔离：主题/插件/扩展（已装管理）与 Marketplace（安装入口）
-//  - 索引按 category 安装后归入对应标签（theme→主题 / 缺省→插件 / extension→扩展）
+//  - 三标签相互隔离：主题/插件（已装管理）与 Marketplace（安装入口）
+//  - 索引按 category 安装后归入对应标签（theme→主题 / 缺省与旧 extension→插件）
 //  - 插件设置收进行内齿轮弹窗（不再常驻页面）；主题行齿轮仅在插件提供设置区时出现
 //  - 「添加本地插件」红色渐变按钮 + 5s 倒计时警告弹窗 → blob import 校验 → installLocal
 //  - Esc / 取消关弹窗不触发安装；非法形状拒绝落盘
@@ -30,7 +30,7 @@ const page = await browser.newPage();
 await page.setViewport({ width: 1280, height: 840 });
 page.on("pageerror", (e) => console.log("[pageerror]", String(e)));
 
-// 桥桩：索引带齐三类条目；安装把 category 持久化进 manifest（同主进程行为）
+// 桥桩：索引带齐主题/插件/旧 extension；安装把 category 持久化进 manifest（同主进程行为）
 await page.evaluateOnNewDocument((fakeB64) => {
   window.__installed = [];
   window.__installLocalMsg = null;
@@ -57,32 +57,33 @@ const text = (sel) => page.$eval(sel, (el) => el.textContent.trim()).catch(() =>
 const exists = (sel) => page.$(sel).then((x) => !!x);
 const catTab = (c) => `.sparkle-cats .set-tab[data-cat="${c}"]`;
 
-// —— 1. 进 Sparkle tab，四标签骨架 ——
+// —— 1. 进 Sparkle tab，三标签骨架 ——
 await page.waitForSelector(".set-tabs", { timeout: 15000 });
 await click('.set-tabs .set-tab[data-tab="plugins"]');
 await page.waitForSelector(".sparkle-cats", { timeout: 5000 });
 const cats = await page.$$eval(".sparkle-cats .set-tab", (els) => els.map((e) => e.dataset.cat));
-check("四标签齐备（主题/插件/扩展/Marketplace）", JSON.stringify(cats) === JSON.stringify(["theme", "plugin", "extension", "market"]), JSON.stringify(cats));
-check("索引源固定展示且不可编辑", (await text(".sparkle-src")) === "https://quaver.0w0.red/marketplace.json" && !(await exists(".sparkle-market-bar input")));
+check("三标签齐备（主题/插件/Marketplace）", JSON.stringify(cats) === JSON.stringify(["theme", "plugin", "market"]), JSON.stringify(cats));
+check("Marketplace 不展示索引链接（刷新/本地安装仍在）", !(await exists(".sparkle-src")) && !(await exists(".sparkle-market-bar input"))
+  && (await exists(".sparkle-market-refresh")) && (await exists(".sparkle-local")));
 check("添加本地插件按钮为红色渐变", await page.$eval(".sparkle-local", (e) => getComputedStyle(e).backgroundImage.includes("linear-gradient")));
 
 // —— 2. Marketplace 安装 → 按分类归入对应标签（相互隔离） ——
 await click(catTab("market"));
 await page.waitForFunction(() => document.querySelectorAll(".sparkle-market-list .sparkle-row").length === 3, { timeout: 8000 });
 const marketBadges = await page.$$eval(".sparkle-market-list .sparkle-badge", (els) => els.map((e) => e.textContent.trim()));
-check("Marketplace 列表三类条目同列（徽标=主题/插件/扩展）", JSON.stringify(marketBadges) === JSON.stringify(["主题", "插件", "扩展"]), JSON.stringify(marketBadges));
+check("Marketplace 列表只显示两类徽标（旧 extension 归插件）", JSON.stringify(marketBadges) === JSON.stringify(["主题", "插件", "插件"]), JSON.stringify(marketBadges));
 
 // Marketplace 内部分类筛选 chips
 const mcatChips = await page.$$eval(".sparkle-mkt-chip", (els) => els.map((e) => e.dataset.mcat));
-check("Marketplace 分类筛选 chips 齐备", JSON.stringify(mcatChips) === JSON.stringify(["all", "theme", "plugin", "extension"]), JSON.stringify(mcatChips));
+check("Marketplace 分类筛选 chips 齐备", JSON.stringify(mcatChips) === JSON.stringify(["all", "theme", "plugin"]), JSON.stringify(mcatChips));
 const mcatCount = async () => (await page.$$(".sparkle-market-list .sparkle-row")).length;
 const pickMcat = async (c) => { await page.evaluate((cc) => document.querySelector(`.sparkle-mkt-chip[data-mcat="${cc}"]`).click(), c); await sleep(150); };
 await pickMcat("theme");
 check("「主题」筛选只剩主题条目", (await mcatCount()) === 1 && (await text(".sparkle-market-list .sparkle-name"))?.startsWith("主题一号"));
-await pickMcat("extension");
-check("「扩展」筛选只剩扩展条目", (await mcatCount()) === 1 && (await text(".sparkle-market-list .sparkle-name"))?.startsWith("扩展一号"));
 await pickMcat("plugin");
-check("「插件」筛选只剩插件条目（缺省 category 归插件）", (await mcatCount()) === 1 && (await text(".sparkle-market-list .sparkle-name"))?.startsWith("插件一号"));
+check("「插件」筛选包含缺省 category 与旧 extension", (await mcatCount()) === 2
+  && (await page.$$eval(".sparkle-market-list .sparkle-name", (els) => els.map((e) => e.textContent)))?.some((t) => t.startsWith("插件一号"))
+  && (await page.$$eval(".sparkle-market-list .sparkle-name", (els) => els.map((e) => e.textContent)))?.some((t) => t.startsWith("扩展一号")));
 await pickMcat("all");
 check("「全部」恢复三行", (await mcatCount()) === 3);
 const installEntry = async (name) => {
@@ -157,10 +158,8 @@ const tintAccent = await page.evaluate(() => {
 });
 check("开关勾选色 = Tint（--cvg-accent）", swAccent === tintAccent, `${swAccent} vs ${tintAccent}`);
 
-check("插件不混进「扩展」标签", !(await rowInfo('[data-cat="extension"]', "插件一号")));
-await click(catTab("extension"));
-const e1 = await rowInfo('[data-cat="extension"]', "扩展一号");
-check("扩展装进「扩展」标签（非 Team Quaver → 第三方，恒有齿轮）", e1?.badge === "第三方" && e1?.gear === true, JSON.stringify(e1));
+const e1 = await rowInfo('[data-cat="plugin"]', "扩展一号");
+check("旧 extension 装进「插件」标签（非 Team Quaver → 第三方，恒有齿轮）", e1?.badge === "第三方" && e1?.gear === true, JSON.stringify(e1));
 
 // —— 3. 插件设置收进齿轮弹窗（die-for-you 默认启用、提供设置区） ——
 await click(catTab("plugin"));

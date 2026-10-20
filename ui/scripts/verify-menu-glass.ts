@@ -177,13 +177,13 @@ check("点档位写配置 + 立刻重算属性",
   /setMenuBlur\(b\.dataset\.opt === "on"\)/.test(views) && /setMenuBlur\([\s\S]{0,80}applyMenuGlass\(\)/.test(views));
 check("主题接管时整组留在原位但禁用 + 写明由谁接管",
   /menuGlassCards\.querySelectorAll<HTMLButtonElement>\("\[data-opt\]"\)\.forEach\(\(b\) => \{ b\.disabled = locked; \}\)/.test(views)
-  && views.includes("自带菜单外观，已接管"));
+  && views.includes("接管模糊效果"));
 check("切主题后重算这一组", /paintBgPolicy\(\);[\s\S]{0,120}paintMenuGlassPolicy\(\)/.test(views));
 check("插件启停（主题列表变化）也重算这一组",
   (views.match(/paintMenuGlassPolicy\(\)/g) ?? []).length >= 3, String((views.match(/paintMenuGlassPolicy\(\)/g) ?? []).length));
 check("host 换/停主题后重算（否则停在上一套策略上）", /applyBackground\(\);\n\s*applyMenuGlass\(\)/.test(host));
-check("提示里点明「看不到模糊先开背景」（默认配置下背景是关的，那才是看不出玻璃的主因）",
-  views.includes("看不出模糊时，先把上面的「背景」打开"));
+check("宿主态不再显示通用描述，只保留主题接管备注",
+  !views.includes("看不出模糊时，先把上面的「背景」打开") && /setHint\(menuGlassHint/.test(views));
 
 // ——— 配置三处 + Sparkle 契约 ———
 section("源码接线 · 配置 / SDK / 宿主接入点");

@@ -167,7 +167,7 @@ check("选「自定义」但还没有图 → 直接弹选图，不落进空状�
   views.includes('next === "custom" && !getBackgroundImage() && !(await pickBgImage())'));
 check("背景三处改动都即时生效（applyBackground）", (views.match(/applyBackground\(\)/g) ?? []).length >= 4);
 check("图片文件现状问主进程（渲染层看不到磁盘）", views.includes("bgBridge.info()"));
-check("没有桥（浏览器 dev）时给提示，不静默失败", /bgBridge\?\.pick \? BG_HINT/.test(views));
+check("没有桥（浏览器 dev）时给提示，不静默失败", views.includes('bgBridge?.pick ? "" : "浏览器里无法选择本地图片，请在桌面端设置。"'));
 
 check("背景层由 ambient 模块建", /className = "ambient"/.test(ambient));
 check("shell 只留界面染色（不再自己建环境层）", !/className = "ambient"/.test(shell) && !/ambient-art/.test(shell));
@@ -297,7 +297,7 @@ check("host 换/停主题后重算背景（否则会停在上一套策略上）"
 check("CSS：主题接管态与 off 一样整层藏掉",
   css.includes('.ambient[data-mode="off"], .ambient[data-mode="theme"] { display: none; }'));
 check("设置页按策略收口：三档禁用 + 写明由谁接管",
-  /b\.disabled = locked/.test(views) && views.includes("自带背景，已接管"));
+  /b\.disabled = locked/.test(views) && views.includes("接管背景"));
 check("主题接管时不给换图（选图按钮与文件名一并收起）", views.includes('const isCustom = mode === "custom" && !locked'));
 check("模糊滑块也叠加 locked", views.includes("bgBlur.disabled = locked ||"));
 check("切主题 / 插件启停都重刷这一组",

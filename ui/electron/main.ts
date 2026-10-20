@@ -1084,6 +1084,7 @@ const CREDIT_REPOS = new Set([
   "team-quaver/quaver-sparkle",
   "team-quaver/typhoeus-go",
   "l-1124/qqmusicapi",
+  "byvoid/opencc",
 ]);
 ipcMain.handle("quaver:credits-open", async (_e, rawUrl) => {
   try {

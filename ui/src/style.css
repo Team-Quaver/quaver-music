@@ -2085,15 +2085,8 @@ html[data-sparkle-scheme="dark"] { color-scheme: dark; }
 /* 安全模式横幅：贴在分类标签下，页面顶部就能看到（开关为什么全锁着） */
 .sparkle-lock-note { margin: 0 0 10px; padding: 7px 11px; border-radius: 9px; border: 1px solid var(--line); background: var(--hover); color: var(--ink2); }
 .sparkle-market-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-/* 固定索引源：只读展示（UI 内不可改），等宽字 + 弱化底色 */
-.sparkle-src {
-  flex: 1; min-width: 200px; padding: 5px 12px; border-radius: 9px;
-  border: 1px solid var(--line); background: var(--hover); color: var(--ink2);
-  font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 12px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text;
-}
 .sparkle-local { padding: 5px 12px; font-size: 12px; }
-/* Marketplace 内部分类筛选 chips（全部/主题/插件/扩展；与 .hk-btn 同胶囊语言） */
+/* Marketplace 内部分类筛选 chips（全部/主题/插件；与 .hk-btn 同胶囊语言） */
 .sparkle-mkt-cats { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 2px 0 8px; }
 .sparkle-mkt-chip {
   padding: 3px 12px; border-radius: 999px; border: 1px solid var(--line);
@@ -2133,13 +2126,12 @@ html[data-sparkle-scheme="dark"] { color-scheme: dark; }
   border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
   padding: 12px 2px;
 }
-/* Sparkle 面板内的分类 tabs 与三个分类面板（复用 .set-tabs/.set-tab 形态） */
+/* Sparkle 面板内的分类 tabs 与分类面板（复用 .set-tabs/.set-tab 形态） */
 .sparkle-cats { margin: 2px 0 10px; }
 .sparkle-catpanel[hidden] { display: none; }
-/* Marketplace 分类徽标（索引条目 category：主题/插件/扩展） */
+/* Marketplace 分类徽标（索引条目 category：主题/插件） */
 .sparkle-badge.cat-theme { background: #b85cc4; }
 .sparkle-badge.cat-plugin { background: #8a6cff; }
-.sparkle-badge.cat-extension { background: #4aa3a3; }
 
 
 
@@ -2267,28 +2259,35 @@ html[data-theme="dark"] .upd-warn.upd-switch.is-risk { color: #e66; }
 .dbg-auto { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; opacity: .8; }
 
 /* —— 开源软件 / 第三方库引用弹窗（components/CreditsDialog.ts）——
-   壳沿用 .upd-overlay + .upd-dialog；列表项是仓库入口，许可证做成右侧胶囊标签。 */
-.crd-dialog { width: min(560px, 92vw); }
+   壳沿用 .upd-overlay + .upd-dialog；列表项是原生折叠卡，许可证做成右侧胶囊标签。 */
+.crd-dialog { width: min(620px, 92vw); }
 .crd-list { display: flex; flex-direction: column; gap: 8px; }
-.upd-notes a.crd-item {
-  display: flex; align-items: center; gap: 12px; min-width: 0;
-  padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px;
-  background: var(--card); color: var(--ink); text-decoration: none;
+.crd-item {
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--card); color: var(--ink);
   transition: border-color .16s ease, background .16s ease;
 }
-.upd-notes a.crd-item:hover {
+.crd-item[open] {
   border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 58%, var(--line));
   background: color-mix(in srgb, var(--cvg-accent, var(--acc)) 7%, var(--card));
-  text-decoration: none;
 }
-.upd-notes a.crd-item:focus-visible { outline: 2px solid var(--cvg-accent, var(--acc)); outline-offset: 2px; }
+.crd-summary {
+  display: flex; align-items: center; gap: 12px; min-width: 0;
+  padding: 11px 12px; cursor: pointer; list-style: none;
+}
+.crd-summary::-webkit-details-marker { display: none; }
+.crd-summary:focus-visible { outline: 2px solid var(--cvg-accent, var(--acc)); outline-offset: -2px; border-radius: 9px; }
 .crd-repo { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
 .crd-license {
   flex: 0 0 auto; margin-left: auto; padding: 2px 8px; border-radius: 999px;
   border: 1px solid var(--line); color: var(--ink2);
   font: 11px ui-monospace, "JetBrains Mono", monospace; letter-spacing: .2px;
 }
-.crd-arrow { flex: 0 0 auto; color: var(--ink2); font-size: 14px; }
+.crd-arrow { flex: 0 0 auto; color: var(--ink2); font-size: 14px; transition: transform .16s ease; }
+.crd-item[open] .crd-arrow { transform: rotate(180deg); }
+.crd-panel { padding: 10px 12px 12px; border-top: 1px solid var(--line); }
+.upd-notes .crd-purpose { margin: 0 0 10px; color: var(--ink2); font-size: 12.5px; line-height: 1.55; }
+.crd-link { padding: 5px 11px; font-size: 12px; }
 .crd-foot { gap: 10px; }
 .crd-note { font-size: 11.5px; }
 
