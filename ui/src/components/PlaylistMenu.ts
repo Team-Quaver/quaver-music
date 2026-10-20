@@ -66,14 +66,16 @@ export async function playSongsNow(title: string, fetchSongs: () => Promise<Song
 }
 
 /** 插队播放：整组按原序排到当前曲之后，不打断当前曲；队列空着没有「下一首」
- *  可言，enqueueNextMany 会退化成整列起播，文案跟着变。 */
+ *  可言，enqueueNextMany 会退化成整列起播，文案跟着变。无限电台期间先拦下，连取歌都不发。 */
 export async function playSongsNext(title: string, fetchSongs: () => Promise<Song[]>) {
+  if (player.radioActive) { toast("无限电台播放中，不能插队播放歌单", "err"); return; }
   const songs = await fetchSongsOrComplain(fetchSongs);
   if (!songs) return; // 取歌失败已 toast
   if (!songs.length) { toast("歌单为空或不可见", "err"); return; }
   const wasEmpty = player.index < 0 || !player.queue.length;
-  player.enqueueNextMany(songs);
-  toast(wasEmpty ? `开始播放歌单「${title}」` : `已插队：「${title}」（${songs.length} 首排在当前曲之后）`);
+  if (player.enqueueNextMany(songs)) {
+    toast(wasEmpty ? `开始播放歌单「${title}」` : `已插队：「${title}」（${songs.length} 首排在当前曲之后）`);
+  }
 }
 
 /** 立即播放（普通歌单入口）：按 disstid 翻页拉全歌后走 playSongsNow */
@@ -99,7 +101,12 @@ export function openVirtualPlaylistMenu(
 ) {
   const items: MenuItem[] = [
     { label: "立即播放", note: "替换当前队列", run: () => playSongsNow(title, fetchSongs) },
-    { label: "插队播放", note: "排到当前曲之后", run: () => playSongsNext(title, fetchSongs) },
+    {
+      label: "插队播放",
+      note: player.radioActive ? "无限电台播放中" : "排到当前曲之后",
+      disabled: player.radioActive,
+      run: () => playSongsNext(title, fetchSongs),
+    },
   ];
   // Sparkle 插件追加项（SparkleMenuItem 与 MenuItem 同型；异常已在 registry 侧吞掉）
   items.push(...sparklePlaylistMenuItems({ id, title, kind: "virtual", songnum: 0 }));
@@ -116,7 +123,12 @@ export function openPlaylistMenu(
 ) {
   const items: MenuItem[] = [
     { label: "立即播放", note: "替换当前队列", run: () => playPlaylistNow(pl) },
-    { label: "插队播放", note: "排到当前曲之后", run: () => playPlaylistNext(pl) },
+    {
+      label: "插队播放",
+      note: player.radioActive ? "无限电台播放中" : "排到当前曲之后",
+      disabled: player.radioActive,
+      run: () => playPlaylistNext(pl),
+    },
   ];
   if (opts.kind === "created") {
     items.push({

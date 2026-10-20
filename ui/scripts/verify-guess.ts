@@ -17,6 +17,9 @@ const playerBar = read("src/components/PlayerBar.ts");
 const nowPlaying = read("src/components/NowPlaying.ts");
 const queuePanel = read("src/components/QueuePanel.ts");
 const mpris = read("src/mpris.ts");
+const session = read("src/lib/session.ts");
+const songMenu = read("src/components/SongMenu.ts");
+const playlistMenu = read("src/components/PlaylistMenu.ts");
 const guess = viewSource("guess");
 const guessRoutes = readFileSync(join(root, "..", "vendor", "Typhoeus-go", "server", "app.go"), "utf8");
 const guessHandler = readFileSync(join(root, "..", "vendor", "Typhoeus-go", "server", "handlers_discovery.go"), "utf8");
@@ -38,6 +41,9 @@ const playerCode = code(playerSrc);
 const playerBarCode = code(playerBar);
 const queuePanelCode = code(queuePanel);
 const mprisCode = code(mpris);
+const sessionCode = code(session);
+const songMenuCode = code(songMenu);
+const playlistMenuCode = code(playlistMenu);
 
 // ============ 1. 后端（Go sidecar）：单轮固定 5 首的串行上游 ============
 ok("后端: /recommend/guess 路由存在",
@@ -101,6 +107,21 @@ ok("循环: 进入电台关闭已打开的循环菜单", re(playerBarCode, /if \
 ok("循环: player.setMode 在电台里 no-op", re(playerCode, /setMode\(m: Mode\) \{\s*if \(this\.radioOn\) return;/));
 ok("循环: player.toggleShuffle 在电台里 no-op", re(playerCode, /toggleShuffle\(\) \{\s*if \(this\.radioOn\) return;/));
 ok("循环: MPRIS 电台态报告 None", has(mprisCode, 'loop: player.radioActive ? "None"'));
+
+// ============ 4.6 电台状态跨重启 + 禁止插队 ============
+ok("存档: 写入 radio/radioEnd", has(sessionCode, "radio,") && has(sessionCode, "radioEnd,"));
+ok("存档: 空队列也保留已开启的电台", re(sessionCode, /if \(!queue\.length && !radio\) return null;/));
+ok("存档: 读回 radio/radioEnd", has(sessionCode, "radio,") && re(sessionCode, /radioEnd,[\s\S]{0,120}quality:/));
+ok("恢复: 电台开关与轮末边界一起还原", re(playerCode, /this\.radioOn = !!snap\.radio;[\s\S]{0,320}this\.radioEnd = this\.radioOn && this\.queue\.length/));
+ok("恢复: 空电台取回首轮但不自动出声", re(playerCode, /if \(this\.radioOn && !this\.current\) \{\s*void this\.startRadio\(false\)/));
+ok("存档: 节流落盘也带上电台态", re(playerCode, /radio: this\.radioOn, radioEnd: this\.radioEnd,/));
+ok("插队: 单曲插队在电台里 no-op 且不退出电台", re(playerCode, /enqueueNext\(song: Song\): boolean \{\s*if \(!song\?\.mid \|\| this\.radioOn\) return false;/));
+ok("插队: 整批插队在电台里 no-op", re(playerCode, /enqueueNextMany\(songs: Song\[\]\): boolean \{\s*if \(this\.radioOn\) return false;/));
+ok("插队: 立即插队在电台里 no-op", re(playerCode, /playNextNow\(song: Song\): boolean \{\s*if \(!song\?\.mid \|\| this\.radioOn\) return false;/));
+ok("插队: 单曲菜单禁用以外的 UI 路径仍有 toast", has(songMenuCode, "无限电台播放中，不能插队播放其他歌曲"));
+ok("插队: 歌曲菜单禁用插队项", re(songMenuCode, /label: "插队播放",[\s\S]{0,100}disabled: player\.radioActive/));
+ok("插队: 歌单菜单禁用电台期间的插队项", re(playlistMenuCode, /label: "插队播放",[\s\S]{0,120}disabled: player\.radioActive/));
+ok("插队: 歌单插队先拦电台再取歌", re(playlistMenuCode, /playSongsNext[\s\S]{0,180}if \(player\.radioActive\)[\s\S]{0,100}return;[\s\S]{0,100}fetchSongsOrComplain/));
 
 
 // ============ 5. 电台退出与队列语义 ============

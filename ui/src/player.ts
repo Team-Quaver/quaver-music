@@ -83,7 +83,7 @@ class Player {
   /** 队列内容版本号：任何队列变更 +1（QueuePanel 据此做 4Hz 去重，
    *  免得每次位置广播都把整条队列拼成大字符串比对） */
   queueVersion = 0;
-  /** 猜你喜欢无限电台：运行时态，不随会话存档恢复。
+  /** 猜你喜欢无限电台：开关与当前轮次随会话存档恢复。
    *  radioEnd = 当前这一轮最后一首在 queue 里的下标；播到它时补下一轮并裁掉当前曲之前的历史。 */
   private radioOn = false;
   private radioEnd = -1;
@@ -285,10 +285,25 @@ class Player {
     this.index = snap.index;
     this.mode = snap.mode;
     this.shuffle = !!snap.shuffle;
+    this.radioOn = !!snap.radio;
+    // radioEnd 是轮末续批的边界。旧/过渡存档可能没有它（或存到了 -1），
+    // 有队列时按当前队列尾部兜底；否则保留空电台，等首轮取回。
+    this.radioEnd = this.radioOn && this.queue.length
+      ? Math.min(this.queue.length - 1, Math.max(this.index, snap.radioEnd ?? this.queue.length - 1, 0))
+      : -1;
+    this._radioLoading = false;
+    this.radioWaitingNext = false;
+    this.radioError = "";
+    if (this.radioOn) this.queueOpen = false;
     this.queueVersion++;
     this.savedPos = snap.position;
     this.notify();
     this.sessionReady = true;
+    // 首轮还没取回就退出的空电台：恢复电台会话但继续走非自动播放的启动语义。
+    if (this.radioOn && !this.current) {
+      void this.startRadio(false).catch(() => { /* 错误态已写进 radioError；保留电台态并定时重试 */ });
+      return;
+    }
     // 引擎正在播（CSD/SSD 重建窗口：mpv 跨重建没停）→ 直接接管，**绝不重新挂流** ——
     // startCurrent 的 load 是 loadfile replace，会把正在放的歌掐掉。位置/时长/播放态
     // 由引擎 snapshot 如实汇报（比 ≤5s 节流的存档位置准），进度条/歌词/MPRIS 随即对齐。
@@ -330,6 +345,7 @@ class Player {
     saveSession({
       queue: this.queue, index: this.index, position: this.posForSave(), mode: this.mode,
       shuffle: this.shuffle,
+      radio: this.radioOn, radioEnd: this.radioEnd,
       quality: getSessionQuality(), lastStream: getLastStream(),
     });
   }
@@ -530,8 +546,9 @@ class Player {
    * 电台主 UI 留在 Content View（views/guess.ts）；本轮第五首开始播放时由 maybeExtendRadio()
    * 续下一轮，每一轮都只请求 rounds=1。
    */
-  async startRadio(): Promise<boolean> {
+  async startRadio(autoplay = true): Promise<boolean> {
     const seq = ++this.radioSeq;
+    const wasRadio = this.radioOn;
     const prev = { on: this.radioOn && this.radioEnd >= 0, end: this.radioEnd, waiting: this.radioWaitingNext };
     this.clearRadioRetry();
     this.radioOn = true;
@@ -553,18 +570,25 @@ class Player {
       this.queueVersion++;
       this.error = "";
       this.notify();
-      void this.startCurrent();
+      void this.startCurrent(0, autoplay);
       return true;
     } catch (e) {
       if (seq !== this.radioSeq) return false;
-      // 换一批失败时把上一轮电台会话放回去；首次进入失败则回到普通播放态。
-      this.radioOn = prev.on;
-      this.radioEnd = prev.end;
+      // 换一批失败时把上一轮电台会话放回去；从存档恢复的空电台也必须继续保留开关。
+      // 只有用户第一次主动进入、且此前不在电台里时才回到普通播放态。
+      this.radioOn = prev.on || wasRadio;
+      this.radioEnd = prev.on ? prev.end : this.radioOn && this.queue.length ? this.queue.length - 1 : -1;
       this._radioLoading = false;
       this.radioWaitingNext = prev.waiting;
       this.radioError = String((e as Error)?.message ?? e);
       this.notify();
-      if (this.radioOn && this.radioEnd >= 0 && this.index >= this.radioEnd) {
+      if (this.radioOn && this.radioEnd < 0 && !this.queue.length) {
+        this.clearRadioRetry();
+        this.radioRetryTimer = window.setTimeout(() => {
+          this.radioRetryTimer = null;
+          void this.startRadio(autoplay).catch(() => { /* 保留电台态并继续退避重试 */ });
+        }, 5_000);
+      } else if (this.radioOn && this.radioEnd >= 0 && this.index >= this.radioEnd) {
         this.clearRadioRetry();
         this.radioRetryTimer = window.setTimeout(() => {
           this.radioRetryTimer = null;
@@ -636,42 +660,43 @@ class Player {
   }
 
   /** 插队播放：把这首插到**当前曲之后**就完事 —— 当前曲继续放，下一首轮到它。
-   *  语义是「排进队列的下一位」，**不是**打断当前曲立刻切过去；搜索页双击、右键菜单
-   *  「插队播放」共用这一条（试听不打断自己正在放的整张列表）。
+   *  语义是「排进队列的下一位」，**不是**打断当前曲立刻切过去；右键菜单「插队播放」走这条。
+   *  无限电台期间拒绝执行：电台队列只由取歌轮次推进，不能被外部歌曲插队。
    *  队列还空着（没播过任何东西）时没有「下一首」可言，退化成单曲起播。 */
-  enqueueNext(song: Song) {
-    if (!song?.mid) return;
-    if (this.index < 0 || !this.queue.length) { this.playList([song], 0); return; }
-    this.exitRadio();
+  enqueueNext(song: Song): boolean {
+    if (!song?.mid || this.radioOn) return false;
+    if (this.index < 0 || !this.queue.length) { this.playList([song], 0); return true; }
     this.queueVersion++;
     this.queue.splice(this.index + 1, 0, song);
     this.notify();
+    return true;
   }
 
   /** 整批插队：把一批歌（歌单「插队播放」）按原序排到当前曲之后等着播 —— 不切歌、不打断。
-   *  与 enqueueNext 同一分叉：队列还空着时没有「下一首」可言，退化成整列起播。 */
-  enqueueNextMany(songs: Song[]) {
+   *  与 enqueueNext 同一分叉：队列还空着时没有「下一首」可言，退化成整列起播；电台期间一律拒绝。 */
+  enqueueNextMany(songs: Song[]): boolean {
+    if (this.radioOn) return false;
     const list = songs.filter((s) => s?.mid);
-    if (!list.length) return;
-    if (this.index < 0 || !this.queue.length) { this.playList(list, 0); return; }
-    this.exitRadio();
+    if (!list.length) return false;
+    if (this.index < 0 || !this.queue.length) { this.playList(list, 0); return true; }
     this.queueVersion++;
     this.queue.splice(this.index + 1, 0, ...list);
     this.notify();
+    return true;
   }
 
   /** 立即插队播放：插到**当前曲之后**并**马上切过去**（打断当前曲）。与 enqueueNext 只差时机 ——
    *  不等当前曲放完。只带这一首进队列，队列原有内容不动（其余搜索结果不入列）。
-   *  搜索页双击用：即点即播，但不把搜索结果整列灌进队列。
+   *  搜索页双击用：即点即播，但不把搜索结果整列灌进队列；电台期间与排队插队一样拒绝。
    *  队列还空着（没播过任何东西）时没有「插队」可言，退化成单曲起播。 */
-  playNextNow(song: Song) {
-    if (!song?.mid) return;
-    if (this.index < 0 || !this.queue.length) { this.playList([song], 0); return; }
-    this.exitRadio();
+  playNextNow(song: Song): boolean {
+    if (!song?.mid || this.radioOn) return false;
+    if (this.index < 0 || !this.queue.length) { this.playList([song], 0); return true; }
     this.queue.splice(this.index + 1, 0, song);
     this.index++;
     this.queueVersion++;
     void this.startCurrent();
+    return true;
   }
 
   /** 从队列移除第 i 首。删除的是当前曲：停流停在原地（指针落到同槽位的下一首），不自动续播；

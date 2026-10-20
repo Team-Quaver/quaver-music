@@ -102,19 +102,19 @@ ok("css: 提示条 .toast / .toast.show 有样式", has(src.css, ".toast {") && 
 // ============ 3. 搜索页双击 = 立即插队播放（只带这一首，不清空队列） ============
 // 双击 = 插到当前曲之后并**马上切过去**（打断当前曲，playNextNow）；其余搜索结果不入列，
 // 队列原有内容不动。右键菜单「插队播放」仍是「排到下一首等着播」（enqueueNext）—— 两条语义分开。
-const enqueueBody = (src.player.match(/enqueueNext\(song: Song\) \{([\s\S]*?)\n  \}/) ?? [])[1] ?? "";
+const enqueueBody = (src.player.match(/enqueueNext\(song: Song\)(?:: boolean)? \{([\s\S]*?)\n  \}/) ?? [])[1] ?? "";
 ok("player: 菜单插队插到当前曲之后（排在下一首）",
   /this\.queue\.splice\(this\.index \+ 1, 0, song\);\s*this\.notify\(\);/.test(noComments(enqueueBody)));
 ok("player: 菜单插队不动指针、不切歌（队列空时才退化成起播）",
   !/this\.index \+=/.test(noComments(enqueueBody))
   && !/startCurrent/.test(noComments(enqueueBody))
-  && /if \(this\.index < 0 \|\| !this\.queue\.length\) \{ this\.playList\(\[song\], 0\); return; \}/.test(noComments(enqueueBody)));
-const nowBody = (src.player.match(/playNextNow\(song: Song\) \{([\s\S]*?)\n  \}/) ?? [])[1] ?? "";
+  && /if \(this\.index < 0 \|\| !this\.queue\.length\) \{ this\.playList\(\[song\], 0\); return true; \}/.test(noComments(enqueueBody)));
+const nowBody = (src.player.match(/playNextNow\(song: Song\)(?:: boolean)? \{([\s\S]*?)\n  \}/) ?? [])[1] ?? "";
 ok("player: 立即插队插到当前曲之后并马上切歌（指针前移 + startCurrent）",
   /this\.queue\.splice\(this\.index \+ 1, 0, song\);\s*this\.index\+\+;/.test(noComments(nowBody))
   && /startCurrent/.test(noComments(nowBody)));
 ok("player: 立即插队队列空时退化成单曲起播",
-  /if \(this\.index < 0 \|\| !this\.queue\.length\) \{ this\.playList\(\[song\], 0\); return; \}/.test(noComments(nowBody)));
+  /if \(this\.index < 0 \|\| !this\.queue\.length\) \{ this\.playList\(\[song\], 0\); return true; \}/.test(noComments(nowBody)));
 ok("views: 搜索页双击走立即插队（不是 playList 整列灌队，也不是排到下一首）",
   /renderSongRows\(box, list, \{ showAlbum: true, onPlay: \(s\) => playNowWithToast\(s\) \}\)/.test(src.views));
 ok("菜单: 排队插队与搜索页立即插队分开（各自入口 + 回执）",

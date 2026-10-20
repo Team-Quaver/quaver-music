@@ -81,13 +81,13 @@ ok("plMenu: 空歌单不静默（toast 提示，不把空列表灌进队列）",
 ok("plMenu: 双击与菜单共用 playPlaylistNow",
   re(src.shell, /playPlaylistNow\(x\)/) && re(src.plMenu, /run: \(\) => playPlaylistNow\(pl\)/));
 
-const enqBody = (src.player.match(/enqueueNextMany\(songs: Song\[\]\) \{([\s\S]*?)\n  \}/) ?? [])[1] ?? "";
+const enqBody = (src.player.match(/enqueueNextMany\(songs: Song\[\]\)(?:: boolean)? \{([\s\S]*?)\n  \}/) ?? [])[1] ?? "";
 ok("player: 整批插队排到当前曲之后（保序插入）",
   /this\.queue\.splice\(this\.index \+ 1, 0, \.\.\.list\);/.test(noComments(enqBody)));
 ok("player: 整批插队不打断当前曲（不动指针、不起播）",
   !/this\.index \+=/.test(noComments(enqBody)) && !/startCurrent/.test(noComments(enqBody)));
 ok("player: 队列空时整批插队退化成整列起播（与单曲插队同一分叉）",
-  /if \(this\.index < 0 \|\| !this\.queue\.length\) \{ this\.playList\(list, 0\); return; \}/.test(noComments(enqBody)));
+  /if \(this\.index < 0 \|\| !this\.queue\.length\) \{ this\.playList\(list, 0\); return true; \}/.test(noComments(enqBody)));
 ok("player: 整批插队 bump queueVersion（QueuePanel 靠它去重重画）",
   /this\.queueVersion\+\+/.test(noComments(enqBody)));
 

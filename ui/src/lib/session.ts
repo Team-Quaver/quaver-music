@@ -27,6 +27,10 @@ export interface SessionSnapshot {
   /** 随机播放（每日一套顺序，种子=本地日期）：与 mode 同一生命周期，退出前开着则重进仍开着。
    *  缺字段（旧存档）按 false 读，不阻断还原。 */
   shuffle?: boolean;
+  /** 退出时是否仍处于猜你喜欢无限电台。广播态照常恢复，但冷启动仍不自动出声。 */
+  radio?: boolean;
+  /** 当前电台轮次的末曲下标；旧存档或窗口重建期间的临时快照可能缺省。 */
+  radioEnd?: number;
   /** 播放条会话音质覆盖（Quality | "auto" | 未覆盖=null）。
    *  只在窗口重建接管时恢复 —— 冷启动仍回设置页默认（会话级语义不变） */
   quality?: string | null;
@@ -72,6 +76,7 @@ function slim(s: Song): Song | null {
 
 export function saveSession(snap: {
   queue: Song[]; index: number; position: number; mode: Mode; shuffle?: boolean;
+  radio?: boolean; radioEnd?: number;
   quality?: string | null;
   lastStream?: { tier: string; label: string; degraded: boolean } | null;
 }): void {
@@ -80,18 +85,26 @@ export function saveSession(snap: {
     // 队列过长：保住指针所在的窗口，其余丢弃（指针同步平移）
     let index = snap.index;
     let kept = queue;
+    let from = 0;
     if (queue.length > MAX_QUEUE) {
       const half = Math.floor(MAX_QUEUE / 2);
-      const from = Math.max(0, Math.min(index - half, queue.length - MAX_QUEUE));
+      from = Math.max(0, Math.min(index - half, queue.length - MAX_QUEUE));
       kept = queue.slice(from, from + MAX_QUEUE);
       index -= from;
     }
+    const radio = snap.radio === true;
+    const rawRadioEnd = Number.isFinite(snap.radioEnd) && Number(snap.radioEnd) >= 0
+      ? Number(snap.radioEnd) - from
+      : kept.length - 1;
+    const radioEnd = radio && kept.length ? Math.max(0, Math.min(rawRadioEnd, kept.length - 1)) : -1;
     const payload: SessionSnapshot = {
       queue: kept,
-      index: Math.max(0, Math.min(index, kept.length - 1)),
+      index: kept.length ? Math.max(0, Math.min(index, kept.length - 1)) : -1,
       position: Number.isFinite(snap.position) && snap.position > 0 ? snap.position : 0,
       mode: snap.mode,
       shuffle: !!snap.shuffle,
+      radio,
+      radioEnd,
       quality: snap.quality ?? null,
       lastStream: snap.lastStream ?? null,
       at: Date.now(),
@@ -105,18 +118,28 @@ export function loadSession(): SessionSnapshot | null {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const d = JSON.parse(raw) as SessionSnapshot;
-    if (!Array.isArray(d?.queue) || !d.queue.length) return null;
+    if (!Array.isArray(d?.queue)) return null;
+    const radio = d.radio === true;
     const queue = d.queue.filter((s) => s && typeof s.mid === "string" && s.mid);
-    if (!queue.length) return null;
+    // 普通空队列没有可恢复内容；电台态例外：首轮还在路上就退出时，至少把电台会话保留下来。
+    if (!queue.length && !radio) return null;
     // 旧存档可能是已移除的「off（顺序播放）」：一律落回列表循环
     const mode: Mode = d.mode === "one" ? "one" : "all";
     const ls = d.lastStream;
+    const rawRadioEnd = Number.isFinite(d.radioEnd) && Number(d.radioEnd) >= 0
+      ? Number(d.radioEnd)
+      : queue.length - 1;
+    const radioEnd = radio && queue.length ? Math.max(0, Math.min(rawRadioEnd, queue.length - 1)) : -1;
     return {
       queue,
-      index: Number.isFinite(d.index) ? Math.max(0, Math.min(d.index, queue.length - 1)) : 0,
+      index: queue.length
+        ? Number.isFinite(d.index) ? Math.max(0, Math.min(d.index, queue.length - 1)) : 0
+        : -1,
       position: Number.isFinite(d.position) ? Math.max(0, d.position) : 0,
       mode,
       shuffle: d.shuffle === true,
+      radio,
+      radioEnd,
       quality: typeof d.quality === "string" ? d.quality : null,
       lastStream: ls && typeof ls === "object" && typeof ls.tier === "string" ? ls : null,
       at: Number(d.at) || 0,
