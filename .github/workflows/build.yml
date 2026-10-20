@@ -120,7 +120,7 @@ jobs:
       # qmc 与 unlock-music 的跨语言对拍向量 + zzc 签名对拍 —— 编译前先拦住算法回归
       - name: Test (qmc 对拍 + 签名)
         working-directory: vendor/Typhoeus-go
-        run: go test ./qmc/ ./qqmusic/
+        run: go test ./inhibit/ ./qmc/ ./qqmusic/
 
       - name: Build
         working-directory: vendor/Typhoeus-go
