@@ -252,6 +252,7 @@ ok("spectrum: 真数据源 = AnalyserNode 的频域 + 时域，不做假波形",
 ok("spectrum: web 直挂播放器 <audio>；mpv 用同流静音镜像（0 增益）", has(src.spectrum, "createMediaElementSource(el)") && has(src.spectrum, "new Audio()") && re(src.spectrum, /output\.gain\.value = desired === "engine" \? 0 : 1;/));
 ok("spectrum: 内置三模式 + 插件模式同接口", ['id: "bars"', 'id: "mirror"', 'id: "wave"'].every((t) => has(src.spectrumRender, t)) && has(src.spectrumCtrl, "sparkleNpSpectrumModes()"));
 ok("spectrum: 默认关闭且按需动态加载，不占首屏", has(src.spectrumCss, ".np-spectrum") && has(src.spectrumCtrl, 'import("./audio-spectrum")') && has(src.spectrumCtrl, 'import("./spectrum-render")') && has(src.spectrumCtrl, 'import("./spectrum.css")'));
+ok("spectrum: 开关有离场过渡，形态切换双层交叉淡化并尊重 reduced-motion", ["spectrumLayers", "retireSpectrumLayer", "spectrum-closing"].every((t) => has(src.np, t)) && [".np-spectrum-layer", "np-spectrum-out", "@media (prefers-reduced-motion: reduce)"].every((t) => has(src.spectrumCss, t)));
 ok("spectrum: 懒加载前定位骨架常驻，频谱节点不会挤动 .np-inner", re(noComments(src.style), /\.np-spectrum\s*\{[^}]*position:\s*absolute;[^}]*display:\s*none;[^}]*pointer-events:\s*none;/));
 ok("spectrum: ⋮ 菜单有开关 + 形态，状态与 Sparkle 共用同一门面", has(src.np, "np-menu-switch") && has(src.np, "频谱可视化") && has(src.np, "spectrumModes()") && has(src.np, "spectrumFacade.setMode"));
 ok("spectrum: 挂载在播放条上方、跟随窗口缩放且整页接管时让位", has(src.spectrumCss, "bottom: calc(var(--control-bar-height") && has(src.spectrumCss, "width: 92%; height: clamp(56px, 8.5vh, 96px);") && has(src.spectrumCss, ".np.np-taken-over .np-spectrum { display: none; }"));

@@ -68,7 +68,7 @@ export function currentSpectrumMode(): string {
 
 /** 取模式实现：内置模式在动态渲染块里，插件模式直接来自注册表。 */
 export async function spectrumMode(id: string): Promise<SparkleNpSpectrumMode | null> {
-  void loadSpectrumStyles();
+  await loadSpectrumStyles();
   const plugin = sparkleNpSpectrumModes().find((m) => m.id === id);
   if (plugin) return plugin;
   const r = await loadRenderer();

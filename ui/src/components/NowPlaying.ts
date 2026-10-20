@@ -87,17 +87,41 @@ export function NowPlaying(): HTMLElement {
   const spectrumStatus = $("np-spectrum-status");
 
   // —— 真实音频频谱：宿主只负责“显示/隐藏 + 挂哪个模式”，取样与绘制归模式实现 ——
-  let spectrumCleanup: (() => void) | null = null;
+  // 换形态时不能先清空旧画布：内置/插件模式的加载与首帧会有空窗。每个模式各占一层，
+  // 新层就绪后与旧层交叉淡化，既没有闪断，也不会让两套渲染器共享同一个 host。
+  type SpectrumLayer = {
+    host: HTMLElement;
+    cleanup: (() => void) | null;
+    removeTimer: number;
+  };
+  const SPECTRUM_SWAP_MS = 340;
+  const SPECTRUM_EXIT_MS = 240;
+  const spectrumLayers = new Set<SpectrumLayer>();
   let spectrumMountedId = "";
   let spectrumPendingId = "";
+  let spectrumExitTimer = 0;
+  const reduceSpectrumMotion = () =>
+    typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function disposeSpectrumLayer(layer: SpectrumLayer) {
+    if (!spectrumLayers.delete(layer)) return;
+    if (layer.removeTimer) window.clearTimeout(layer.removeTimer);
+    try { layer.cleanup?.(); } catch (e) { console.warn("[np] 频谱模式清理失败", e); }
+    layer.host.remove();
+  }
+  function retireSpectrumLayer(layer: SpectrumLayer) {
+    if (!spectrumLayers.has(layer)) return;
+    if (reduceSpectrumMotion()) { disposeSpectrumLayer(layer); return; }
+    layer.host.classList.remove("is-live");
+    layer.host.classList.add("is-leaving");
+    if (layer.removeTimer) window.clearTimeout(layer.removeTimer);
+    layer.removeTimer = window.setTimeout(() => disposeSpectrumLayer(layer), SPECTRUM_SWAP_MS);
+  }
   function unmountSpectrum() {
-    if (spectrumCleanup) {
-      try { spectrumCleanup(); } catch (e) { console.warn("[np] 频谱模式清理失败", e); }
-    }
-    spectrumCleanup = null;
+    if (spectrumExitTimer) { window.clearTimeout(spectrumExitTimer); spectrumExitTimer = 0; }
     spectrumMountedId = "";
     spectrumPendingId = "";
-    spectrumHost.innerHTML = "";
+    for (const layer of [...spectrumLayers]) disposeSpectrumLayer(layer);
+    spectrumHost.replaceChildren();
   }
   function spectrumRenderCtx(): SparkleNpSpectrumRenderCtx {
     return {
@@ -114,26 +138,70 @@ export function NowPlaying(): HTMLElement {
     void spectrumMode(id).then((mode) => {
       if (spectrumPendingId !== id) return;
       spectrumPendingId = "";
-      if (!mode) return;
-      unmountSpectrum();
+      // 模式块是异步加载的：等回来时用户可能已经关掉本页/切到插件接管态。
+      if (!el.classList.contains("spectrum-on") || el.classList.contains("spectrum-closing")) return;
+      if (!mode) {
+        if (id !== "bars") mountSpectrum("bars");
+        return;
+      }
+
+      const firstLayer = spectrumLayers.size === 0;
+      const layer: SpectrumLayer = {
+        host: document.createElement("div"),
+        cleanup: null,
+        removeTimer: 0,
+      };
+      layer.host.className = "np-spectrum-layer";
+      layer.host.dataset.mode = mode.id;
+      spectrumHost.append(layer.host);
+      spectrumLayers.add(layer);
       try {
-        spectrumCleanup = mode.render(spectrumHost, spectrumRenderCtx()) ?? null;
-        spectrumMountedId = mode.id;
+        layer.cleanup = mode.render(layer.host, spectrumRenderCtx()) ?? null;
       } catch (e) {
         console.warn(`[np] 频谱模式 ${id} 渲染失败，回落柱状`, e);
-        unmountSpectrum();
-        void spectrumMode("bars").then((fallback) => {
-          if (!fallback) return;
-          spectrumCleanup = fallback.render(spectrumHost, spectrumRenderCtx()) ?? null;
-          spectrumMountedId = fallback.id;
+        disposeSpectrumLayer(layer);
+        if (id !== "bars") mountSpectrum("bars");
+        return;
+      }
+
+      spectrumMountedId = mode.id;
+      spectrumBox.dataset.mode = mode.id;
+      for (const old of [...spectrumLayers]) {
+        if (old !== layer) retireSpectrumLayer(old);
+      }
+
+      // 首次打开由 .np-spectrum 自己播入场动画；之后每次换形态让两层同帧交叉淡化。
+      if (firstLayer) {
+        layer.host.classList.add("is-live");
+      } else {
+        layer.host.getBoundingClientRect(); // 先让浏览器记下透明/位移初态
+        requestAnimationFrame(() => {
+          if (spectrumLayers.has(layer)) layer.host.classList.add("is-live");
         });
       }
     });
   }
+  function closeSpectrumSurface() {
+    if (!el.classList.contains("spectrum-on") || el.classList.contains("spectrum-closing")) return;
+    if (reduceSpectrumMotion()) {
+      el.classList.remove("spectrum-on", "spectrum-closing");
+      unmountSpectrum();
+      return;
+    }
+    if (spectrumExitTimer) window.clearTimeout(spectrumExitTimer);
+    el.classList.add("spectrum-closing");
+    spectrumExitTimer = window.setTimeout(() => {
+      spectrumExitTimer = 0;
+      el.classList.remove("spectrum-on", "spectrum-closing");
+      unmountSpectrum();
+    }, SPECTRUM_EXIT_MS);
+  }
   function syncSpectrumSurface(open: boolean, takenOver: boolean) {
     const show = !!open && !takenOver && spectrumFacade.enabled();
-    el.classList.toggle("spectrum-on", show);
-    if (!show) { unmountSpectrum(); return; }
+    if (!show) { closeSpectrumSurface(); return; }
+    if (spectrumExitTimer) { window.clearTimeout(spectrumExitTimer); spectrumExitTimer = 0; }
+    el.classList.remove("spectrum-closing");
+    el.classList.add("spectrum-on");
     const id = currentSpectrumMode();
     spectrumBox.dataset.mode = id;
     mountSpectrum(id);

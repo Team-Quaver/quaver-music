@@ -1,9 +1,9 @@
 /* Quaver — 正在播放页真实音频频谱（按需加载；默认关闭时不进首屏 CSS） */
-/* 频谱开启时给底部留出真实空间，歌词/封面不会压到可视化上；收起时自然回弹。 */
-.np.spectrum-on .np-inner {
-  padding-bottom: calc(clamp(56px, 8.5vh, 96px) + 50px);
-  transition: padding-bottom .22s ease;
-}
+/* 频谱开启时给底部留出真实空间，歌词/封面不会压到可视化上；收起时自然回弹。
+   过渡常驻本类，而不是只在 .spectrum-on 上：否则关掉开关时 transition 先消失，回弹会跳。 */
+.np .np-inner { transition: padding-bottom .26s cubic-bezier(.32,.72,.24,1); }
+.np.spectrum-on .np-inner { padding-bottom: calc(clamp(56px, 8.5vh, 96px) + 50px); }
+.np.spectrum-on.spectrum-closing .np-inner { padding-bottom: 40px; }
 /* 真实音频频谱：浮在播放控制条正上方。播放条在停靠态占 frame 末行、悬浮态为 fixed，
    两套几何分别对齐；--control-bar-* 由主题/控制条模式接管时这里跟着走。 */
 .np-spectrum {
@@ -13,8 +13,13 @@
   opacity: 0;
 }
 .np.spectrum-on .np-spectrum {
-  display: block; opacity: 1;
+  display: block; opacity: 1; transform: translateX(-50%);
   animation: np-spectrum-in .32s cubic-bezier(.32,.72,.24,1) both;
+}
+/* 关闭时先播完离场，再由 JS 摘掉 display:block 与画布；不能直接 class 一撤就 display:none。 */
+.np.spectrum-on.spectrum-closing .np-spectrum {
+  display: block;
+  animation: np-spectrum-out .22s cubic-bezier(.4,0,.6,1) both;
 }
 body[data-control-bar="floating"] .np-spectrum {
   bottom: calc(var(--control-bar-inset) * 2 + var(--control-bar-lift) + var(--control-bar-height) + 18px);
@@ -33,6 +38,22 @@ body[data-control-bar="floating"] .np-spectrum {
   pointer-events: none;
 }
 .np-spectrum-host { position: absolute; inset: 0; }
+/* 每个形态独占一层。旧层留到新层渲染完首帧才开始退场，两个画布真正同时存在，
+   所以换模式是交叉淡化而不是「清空 → 等加载 → 出现」。 */
+.np-spectrum-layer {
+  position: absolute; inset: 0; opacity: 0;
+  transform: translateY(5px) scale(.985); filter: blur(4px);
+  transition:
+    opacity .22s ease,
+    transform .34s cubic-bezier(.32,.72,.24,1),
+    filter .3s ease;
+  will-change: opacity, transform, filter;
+}
+.np-spectrum-layer.is-live { opacity: 1; transform: none; filter: none; }
+.np-spectrum-layer.is-leaving {
+  opacity: 0; transform: translateY(-4px) scale(1.012); filter: blur(4px);
+  transition-duration: .18s, .24s, .18s;
+}
 .np-spectrum-canvas { display: block; width: 100%; height: 100%; }
 .np-spectrum-status {
   position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
@@ -41,12 +62,22 @@ body[data-control-bar="floating"] .np-spectrum {
 }
 .np-spectrum[data-status="live"] .np-spectrum-status { display: none; }
 @keyframes np-spectrum-in {
-  from { opacity: 0; transform: translate(-50%, 8px) scale(.985); }
-  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  from { opacity: 0; transform: translate(-50%, 8px) scale(.985); filter: blur(4px); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); filter: none; }
+}
+@keyframes np-spectrum-out {
+  from { opacity: 1; transform: translate(-50%, 0) scale(1); filter: none; }
+  to { opacity: 0; transform: translate(-50%, 7px) scale(.99); filter: blur(3px); }
 }
 @media (max-width: 720px) {
   .np.spectrum-on .np-inner { padding-bottom: calc(clamp(50px, 9vh, 64px) + 38px); }
   .np-spectrum { width: calc(100% - 36px); height: clamp(50px, 9vh, 64px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .np .np-inner,
+  .np-spectrum-layer { transition: none; }
+  .np.spectrum-on .np-spectrum,
+  .np.spectrum-on.spectrum-closing .np-spectrum { animation: none; }
 }
 .np-menu-option[hidden] { display: none; }
 /* 频谱总开关：与翻译/大小行同一套深色菜单语言；开关本体是 34×18 的胶囊。 */
