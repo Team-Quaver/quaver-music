@@ -50,6 +50,19 @@ ok("开合仍由播放条队列按钮驱动（.open 只跟 player.queueOpen，�
   re(code, /const open = player\.queueOpen && !player\.radioActive;\s*el\.classList\.toggle\("open", open\)/));
 ok("关闭态 inert：常驻 DOM 但不能被 Tab 聚焦（聚焦会把它滚进视野 → 祖先被程序化滚动）",
   re(code, /el\.toggleAttribute\("inert", !open\)/));
+ok("浮窗队列按播放条队列钮实测定位（不是钉死窗口右下）",
+  re(code, /document\.querySelector<HTMLElement>\("#pb-queue"\)/)
+  && re(code, /function positionFloat\(\) \{[\s\S]{0,1400}?getBoundingClientRect\(\)/)
+  && re(code, /window\.innerWidth - qr\.right/)
+  && re(code, /const barTop = br && br\.height > 1 \? br\.top : qr\.top/)
+  && re(code, /window\.innerHeight - barTop/));
+ok("浮窗队列在显示/尺寸变化/控制条位移动画后重锚",
+  re(code, /positionFloat\(\);[\s\S]{0,160}?return false;/)
+  && re(code, /new ResizeObserver\(syncMount\)[\s\S]{0,260}?ro\.observe\(playerBox\)/)
+  && re(code, /addEventListener\("transitionend", onBarMotion\)/)
+  && re(code, /addEventListener\("resize", positionFloat/));
+ok("播放条隐藏时清掉内联坐标，回退 CSS 兜底",
+  re(code, /if \(!qr \|\| qr\.width < 1 \|\| qr\.height < 1\) \{[\s\S]{0,160}?el\.style\.removeProperty\("right"\)[\s\S]{0,120}?el\.style\.removeProperty\("bottom"\)/));
 
 // ============ CSS：关闭态必须是「可过渡的隐藏」，不能用 display:none ============
 // 规则块一律**从行首**取：`.queue-panel.float {` 在文件里还有一条带前缀的兄弟规则
