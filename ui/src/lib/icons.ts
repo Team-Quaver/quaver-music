@@ -21,10 +21,13 @@ export const icons = {
   chevronUp: svg('<path d="M6 15l6-6 6 6"/>'),
   close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
   disc: svg('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/>'),
-  volMute: svg('<path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" stroke="none"/><path d="M16.5 9.5l5 5M21.5 9.5l-5 5"/>', 18, 1.6),
-  volLow: svg('<path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" stroke="none"/>', 18),
-  volMid: svg('<path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" stroke="none"/><path d="M16 9a4.5 4.5 0 0 1 0 6"/>', 18),
-  volHigh: svg('<path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" stroke="none"/><path d="M16 9a4.5 4.5 0 0 1 0 6"/><path d="M18.6 6.4a8 8 0 0 1 0 11.2"/>', 18),
+  // 音量图标：喇叭本体与分级声波要吃掉接近满格的 24×24 视窗。旧版只画到 x=13，
+  // 在播放条里比相邻的循环/红心/队列矮一圈，看起来像误用了小号图标。声波保留
+  // 1.7 的细描边，喇叭用实心形，整体光学面积与大号线性图标对齐。
+  volMute: svg('<path d="M11 4.5 6.5 8H2v8h4.5L11 19.5z" fill="currentColor" stroke="none"/><path d="M15.5 9.5l5 5M20.5 9.5l-5 5"/>', 18, 1.7),
+  volLow: svg('<path d="M11 4.5 6.5 8H2v8h4.5L11 19.5z" fill="currentColor" stroke="none"/><path d="M14.8 9.2a4.2 4.2 0 0 1 0 5.6"/>', 18, 1.7),
+  volMid: svg('<path d="M11 4.5 6.5 8H2v8h4.5L11 19.5z" fill="currentColor" stroke="none"/><path d="M14.8 9.2a4.2 4.2 0 0 1 0 5.6"/><path d="M18 6.8a8 8 0 0 1 0 10.4"/>', 18, 1.7),
+  volHigh: svg('<path d="M11 4.5 6.5 8H2v8h4.5L11 19.5z" fill="currentColor" stroke="none"/><path d="M14.8 9.2a4.2 4.2 0 0 1 0 5.6"/><path d="M18 6.8a8 8 0 0 1 0 10.4"/><path d="M21 4.3a12.2 12.2 0 0 1 0 15.4"/>', 18, 1.7),
   pin: svg('<path d="M12 16V4M8 8l4-4 4 4"/><path d="M4 20h16"/>', 16),
   spinner: svg('<circle cx="12" cy="12" r="8" opacity=".25"/><path d="M12 4a8 8 0 0 1 8 8"/>', 18, 2.2),
   retry: svg('<path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v4h-4"/>', 18, 2),

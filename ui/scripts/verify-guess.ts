@@ -107,5 +107,11 @@ ok("循环: MPRIS 电台态报告 None", has(mprisCode, 'loop: player.radioActiv
 ok("电台: 换整张队列/手动改队列会退出电台", re(playerCode, /playList\(songs: Song\[\], i = 0\) \{\s*this\.exitRadio\(\);/));
 ok("电台: 只向前走（orderOf 在 radioOn 时走原序）",
   re(playerCode, /if \(this\.radioOn\) \{[\s\S]{0,180}return this\.identityOrder;/));
+ok("电台: 封面流邻曲不回绕（左侧 -1，轮末 next 也为 -1）",
+  re(playerCode, /if \(this\.radioOn\) \{\s*const next = this\.index >= 0 && this\.index \+ 1 < this\.queue\.length \? this\.index \+ 1 : -1;\s*return \{ prev: -1, next \};/));
+ok("电台: songAtOffset 负偏移为空、正向不越过队列末尾",
+  re(playerCode, /if \(this\.radioOn\) \{\s*if \(offset < 0\) return undefined;\s*const i = this\.index \+ offset;\s*return i >= 0 && i < this\.queue\.length \? this\.queue\[i\] : undefined;/));
+ok("电台: jumpToOffset 负偏移与越界都是 no-op，绝不倒带/回绕",
+  re(playerCode, /jumpToOffset[\s\S]{0,500}?if \(this\.radioOn\) \{\s*const i = this\.index \+ offset;\s*if \(i < 0 \|\| i >= this\.queue\.length\) return;\s*this\.jump\(i\);/));
 console.log(`\n${checks - fails}/${checks} passed${fails ? ` — ${fails} FAILED` : ""}`);
 process.exit(fails ? 1 : 0);

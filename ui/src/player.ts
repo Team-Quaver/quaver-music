@@ -1157,6 +1157,11 @@ class Player {
   /** 播放顺序上的相邻下标（-1 = 没有）：随机播放时按当日洗牌序，与 stepInOrder 同源。
    *  正在播放页的封面流用它取左右邻曲 —— 别自己写 index±1（随机序下会指错歌）。 */
   neighbors(): { prev: number; next: number } {
+    // 电台是单向流：左侧没有「上一首」，轮末也绝不回绕到本轮第一首。
+    if (this.radioOn) {
+      const next = this.index >= 0 && this.index + 1 < this.queue.length ? this.index + 1 : -1;
+      return { prev: -1, next };
+    }
     return { prev: this.stepInOrder(-1), next: this.stepInOrder(1) };
   }
 
@@ -1172,12 +1177,18 @@ class Player {
    * 就是队尾那首（顺序播放档已移除，播放推进一律回绕）。所以歌单**第一首**的左侧两格
    * 也有封面，点下去跳的正是那一首。这条必须与 jumpToOffset 口径一致：否则「取邻曲」
    * 说没有、而「跳过去」却回绕，封面流拿旧邻居表做的方向判定会当场失配（点了不滚格）。
+   * 无限电台例外：只向前、不回绕 —— 负偏移恒为空，正向越过当前队列末尾也为空。
    * 只有队列为空才返回 undefined。
    */
   songAtOffset(offset: number): Song | undefined {
     if (!this.queue.length) return undefined;
     if (offset === 0) return this.current;
     if (!Number.isInteger(offset)) return undefined;
+    if (this.radioOn) {
+      if (offset < 0) return undefined;
+      const i = this.index + offset;
+      return i >= 0 && i < this.queue.length ? this.queue[i] : undefined;
+    }
     const dir: 1 | -1 = offset > 0 ? 1 : -1;
     // walk 逐首前进、每步从上一步的落点继续。**别改成循环调 stepInOrder** ——
     // 它每次都从 this.index 出发，循环 N 次也只走一步，±2 会取回 ±1 那首
@@ -1186,9 +1197,16 @@ class Player {
     return i < 0 ? undefined : this.queue[i]; // 只可能是空队列；下标越界由 walk 夹紧后不会发生
   }
 
-  /** 跳到播放顺序上偏移 offset 首（0 = 当前即原地重播）。给封面流「点第几张跳第几首」用。 */
+  /** 跳到播放顺序上偏移 offset 首（0 = 当前即原地重播）。给封面流「点第几张跳第几首」用。
+   *  无限电台只接受正向且未越过队列末尾的偏移，负偏移与回绕一律 no-op。 */
   jumpToOffset(offset: number) {
     if (!Number.isInteger(offset) || offset === 0) return;
+    if (this.radioOn) {
+      const i = this.index + offset;
+      if (i < 0 || i >= this.queue.length) return;
+      this.jump(i);
+      return;
+    }
     const dir: 1 | -1 = offset > 0 ? 1 : -1;
     const i = walk(this.orderOf(), this.index, Math.abs(offset), dir, true); // wrap：手动跳允许回绕
     if (i < 0) return;

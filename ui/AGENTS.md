@@ -192,6 +192,9 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
 （解析层活体：词级 QRC / XML 信封 / 普通 LRC 的音译形状都归一成行级 `romanLyric`，`[kana:]`
 在正文前后与信封里都挂对 ruby，并用 QQ《怪物》真实样本对齐上游期望，需 dev server）、`node scripts/verify-np-gallery.ts`
 （渲染层：三档辅助行行为 + 「辅助行只有一条」+ ruby 真画在词上方）、`verify:sparkle`（源码接线）。
+整页接管视图也必须消费同一份 ruby（参考 Flowscape：词上注音、按 ruby 自己的时间轴扫色），
+不能只把 `words[].word` 拼成一行；无限电台经 `radioActive/radioLoading/radioError` 透传给插件，
+左侧历史卡与 `songAt(-1)` 在电台态都必须为空。
 
 ## 播放控制条（底部停靠 / 内容区悬浮）· 音量浮窗与滚轮
 

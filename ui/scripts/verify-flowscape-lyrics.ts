@@ -7,7 +7,7 @@ import puppeteer from "puppeteer-core";
 declare global {
   interface Window {
     flowscapeFixture: {
-      state: { time: number; karaoke: boolean; trans: boolean; rows: string };
+      state: { time: number; karaoke: boolean; trans: boolean; rows: string; radio: boolean; radioLoading: boolean; radioError: string };
       notify(): void;
       dispose(): void;
     };
@@ -29,14 +29,28 @@ try {
     const plugin = (await import(URL.createObjectURL(new Blob([source], { type: "text/javascript" })))).default;
     let view: { render(host: HTMLElement, ctx: Record<string, unknown>): () => void } | undefined;
     let notify = () => {};
-    const state = { time: -0.2, karaoke: true, trans: true, rows: "1" };
+    const state = { time: -0.2, karaoke: true, trans: true, rows: "1", radio: false, radioLoading: false, radioError: "" };
     const song = { mid: "fixture", name: "Tourdion of Silver Seagulls", singer: [{ name: "HOYO-MiX" }] };
+    const neighbor = (mid: string, name: string) => ({ mid, name, singer: [{ name: "Fixture Artist" }] });
+    const neighbors: Record<number, ReturnType<typeof neighbor>> = {
+      [-2]: neighbor("prev2", "上上首"),
+      [-1]: neighbor("prev1", "上一首"),
+      1: neighbor("next1", "下一首"),
+      2: neighbor("next2", "下下首"),
+    };
     const lines = [
       { startTime: 0, endTime: 2000, words: [{ word: "银鸥的回旋 Tourdion of Silver Seagulls - HOYO-MiX", startTime: 0, endTime: 2000 }], translatedLyric: "银鸥的回旋 · 混排与换行测试" },
       { startTime: 3000, endTime: 5000, words: [
         { word: "   保留空格 ", startTime: 3000, endTime: 4000 },
         { word: "第二句 <&>", startTime: 4000, endTime: 5000 },
       ], translatedLyric: "第二句翻译" },
+      { startTime: 6000, endTime: 8000, words: [
+        { word: "貴方", startTime: 6000, endTime: 7500, ruby: [
+          { word: "あな", startTime: 5900, endTime: 6500 },
+          { word: "た", startTime: 6500, endTime: 7000 },
+        ] },
+        { word: "の", startTime: 7500, endTime: 8000 },
+      ], translatedLyric: "你的" },
     ];
     plugin.setup({
       storage: { get: (key: string) => key === "lyrows" ? state.rows : null, set: () => {} },
@@ -44,9 +58,14 @@ try {
     });
     if (!view) throw new Error("Flowscape 未注册播放页");
     const dispose = view.render(document.querySelector<HTMLElement>("#host")!, {
-      current: () => song, songAt: () => null, cover: () => "", expanded: () => true,
+      current: () => song,
+      songAt: (offset: number) => state.radio
+        ? (state.radioLoading || offset < 0 ? null : (neighbors[offset] ?? null))
+        : (neighbors[offset] ?? null),
+      cover: () => "", expanded: () => true,
       time: () => state.time, duration: () => 10, paused: () => true, loading: () => false,
       error: () => "", volume: () => 0.8, muted: () => false, loved: () => false,
+      radioActive: () => state.radio, radioLoading: () => state.radioLoading, radioError: () => state.radioError,
       qualityLabel: () => "自动", qualityTiers: () => [], quality: () => "auto",
       showTrans: () => state.trans, lyricAux: () => (state.trans ? "translation" : "off"), lyricState: () => "ready",
       karaokeActive: () => state.karaoke, karaoke: () => lines,
@@ -210,9 +229,77 @@ try {
     document.documentElement.dataset.md3Np = "on";
     document.documentElement.dataset.md3NpColor = "theme";
   });
+  // QRCKana：振假名必须真的排在词上方，并沿用 ruby 自己的时间轴扫色。
+  await update({ time: 6.3 });
+  const rubyLayout = await page.$eval(".fs-ll.cur .kw.has-ruby", (el) => {
+    const ruby = el.querySelector<HTMLElement>(".kw-ruby")!;
+    const base = el.querySelector<HTMLElement>(".kw-base")!;
+    return {
+      ruby: ruby.textContent,
+      base: base.textContent,
+      rubyBottom: ruby.getBoundingClientRect().bottom,
+      baseTop: base.getBoundingClientRect().top,
+      rubyProgress: [...ruby.querySelectorAll<HTMLElement>(".kr")].map((x) => Number(x.style.getPropertyValue("--p"))),
+    };
+  });
+  assert.equal(rubyLayout.ruby, "あなた");
+  assert.equal(rubyLayout.base, "貴方");
+  assert.ok(rubyLayout.rubyBottom <= rubyLayout.baseTop + 1.5,
+    `ruby 没排在词上方：rubyBottom=${rubyLayout.rubyBottom} baseTop=${rubyLayout.baseTop}`);
+  await update({ time: 6.5 });
+  const rubyProgress = await page.$eval(".fs-ll.cur .kw.has-ruby .kw-ruby", (el) =>
+    [...el.querySelectorAll<HTMLElement>(".kr")].map((x) => Number(x.style.getPropertyValue("--p"))));
+  assert.ok(rubyProgress[1] > rubyLayout.rubyProgress[1], `ruby 时间轴没有推进：${rubyLayout.rubyProgress} → ${rubyProgress}`);
+  if (snapshots) writeFileSync(`${snapshots}/qrc-kana-ruby.png`, Buffer.from(await page.screenshot()));
+  console.log(`PASS QRCKana ruby 位于词上方且逐片扫色：${rubyProgress.join(" / ")}`);
+
+  // 无限电台：左侧历史卡隐藏/禁用，右侧保留下一首；轮末取歌时切换状态文案。
+  await update({ radio: true, radioLoading: false, radioError: "" });
+  await new Promise((resolve) => setTimeout(resolve, 380)); // 等卡片 opacity 过渡走完
+  const radioUi = await page.evaluate(() => {
+    const badge = document.querySelector<HTMLElement>("#fs-radio")!;
+    const left = document.querySelector<HTMLButtonElement>('.fs-card[data-off="-1"]')!;
+    const right = document.querySelector<HTMLButtonElement>('.fs-card[data-off="1"]')!;
+    return {
+      badgeHidden: badge.hidden,
+      badgeText: badge.textContent,
+      leftEmpty: left.classList.contains("empty"),
+      leftDisabled: left.disabled,
+      leftOpacity: getComputedStyle(left).opacity,
+      rightEmpty: right.classList.contains("empty"),
+      rightDisabled: right.disabled,
+      rightOpacity: getComputedStyle(right).opacity,
+      rootRadio: document.querySelector(".fs-root")!.classList.contains("is-radio"),
+    };
+  });
+  assert.equal(radioUi.badgeHidden, false);
+  assert.ok(radioUi.badgeText?.includes("无限电台"));
+  assert.equal(radioUi.leftEmpty, true);
+  assert.equal(radioUi.leftDisabled, true);
+  assert.equal(radioUi.leftOpacity, "0");
+  assert.equal(radioUi.rightEmpty, false);
+  assert.equal(radioUi.rightDisabled, false);
+  assert.equal(radioUi.rightOpacity, "1");
+  assert.equal(radioUi.rootRadio, true);
+  if (snapshots) writeFileSync(`${snapshots}/infinite-radio.png`, Buffer.from(await page.screenshot()));
+  await update({ radioLoading: true });
+  assert.ok((await page.$eval("#fs-radio-text", (el) => el.textContent))?.includes("正在续上下一轮"));
+  const waitingCard = await page.$eval('.fs-card[data-off="1"]', (el) => ({
+    waiting: el.classList.contains("radio-wait"),
+    empty: el.classList.contains("empty"),
+    disabled: (el as HTMLButtonElement).disabled,
+  }));
+  assert.deepEqual(waitingCard, { waiting: true, empty: false, disabled: true });
+  if (snapshots) writeFileSync(`${snapshots}/infinite-radio-loading.png`, Buffer.from(await page.screenshot()));
+  await update({ radioLoading: false, radio: false });
+  assert.equal(await page.$eval("#fs-radio", (el) => (el as HTMLElement).hidden), true);
+  console.log("PASS 无限电台：隐藏历史卡、保留前进卡与续轮状态");
+
   await update({ time: 3.3, rows: "5" });
   assert.equal(await page.$eval(".fs-ll.cur .t1", (el) => el.textContent), "   保留空格 第二句 <&>");
   assert.equal(await page.$$eval(".fs-ll.cur .kw", (els) => els.length), 2);
+  assert.ok(await page.$$eval(".fs-ll:not(.cur) .kw.has-ruby .kw-ruby", (els) => els.length) > 0,
+    "五行里的非当前句也要保留振假名");
   await update({ trans: false });
   assert.equal(await page.$(".fs-ll.cur .t2"), null);
   await update({ karaoke: false });

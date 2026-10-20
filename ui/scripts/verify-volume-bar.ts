@@ -24,6 +24,7 @@ const UI = fileURLToPath(new URL("..", import.meta.url));
 const src = (rel: string) => readFileSync(join(UI, rel), "utf8");
 const bar = src("src/components/PlayerBar.ts");
 const css = src("src/style.css");
+const icons = src("src/lib/icons.ts");
 
 let pass = 0, fail = 0;
 const check = (name: string, cond: unknown, detail = "") => {
@@ -55,6 +56,12 @@ check("paintVol 与 notify 回写都读指针态",
   && /if \(!volEditing\) vol\.value = String\(Math\.round\(/.test(bar));
 check("松手立刻回到播放器真值（拖中被滚轮改过也不留假读数）",
   /volEditing = false;[\s\S]{0,240}?vol\.value = String\(Math\.round\(\(player\.muted \? 0 : player\.volume\) \* 100\)\);\s*\n\s*paintVol\(\);/.test(bar));
+// 音量图标曾只画到 x=13（24 视窗），视觉面积比旁边的红心/队列小一圈。四档喇叭本体
+// 必须统一从 x=2 起笔，高音量三层声波铺到 x≈21；同时锁住旧的小号路径不再回来。
+const volumeIcons = [...icons.matchAll(/vol(?:Mute|Low|Mid|High): svg\('<path d="([^"]+)"/g)].map((m) => m[1]);
+check("四档音量图标都存在且使用大视窗喇叭本体", volumeIcons.length === 4 && volumeIcons.every((d) => d.startsWith("M11 4.5 6.5 8H2v8h4.5L11 19.5z")));
+check("高音量图标铺满横向视窗（不再明显小于相邻图标）", /volHigh: svg\('[^']*M21 4\.3a12\.2 12\.2 0 0 1 0 15\.4/.test(icons));
+check("旧版只到 x=13 的小号喇叭路径已移除", !icons.includes("M4 9v6h4l5 4V5L8 9H4z"));
 
 const volpopRule = ruleOf(css, ".pb-volpop");
 check(".pb-volpop 规则取得到（防失配让下面全绿）", volpopRule.length > 80, String(volpopRule.length));

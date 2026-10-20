@@ -46,8 +46,8 @@ ok("ResizeObserver 无条件同步：**关闭时也跟宽度走**（否则尺寸
   re(code, /new ResizeObserver\(syncMount\)/) && !re(code, /ResizeObserver\(\(\) => \{ if \(player\.queueOpen\)/));
 ok("正在播放全屏页仍强制浮窗（那条实测结论不许被解耦改掉）",
   re(code, /const dock = !\(npEl\(\) && player\.expanded\) && dockable\(\);/));
-ok("开合仍由播放条队列按钮驱动（.open 只跟 player.queueOpen）",
-  re(code, /const open = player\.queueOpen;\s*el\.classList\.toggle\("open", open\)/));
+ok("开合仍由播放条队列按钮驱动（.open 只跟 player.queueOpen，且电台态强制关闭）",
+  re(code, /const open = player\.queueOpen && !player\.radioActive;\s*el\.classList\.toggle\("open", open\)/));
 ok("关闭态 inert：常驻 DOM 但不能被 Tab 聚焦（聚焦会把它滚进视野 → 祖先被程序化滚动）",
   re(code, /el\.toggleAttribute\("inert", !open\)/));
 

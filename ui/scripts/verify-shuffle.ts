@@ -142,7 +142,7 @@ ok("player：onEnded 不再自己判末曲（交给 stepInOrder）", /private on
 ok("player：坏流回退沿当日顺序走（不打乱当天听感）", /skipSong[\s\S]{0,600}const i = this\.stepInOrder\(1\);/.test(player));
 ok("player：菜单需要直接落档的 setter", /setMode\(m: Mode\)/.test(player));
 ok("player：cycleMode 仍在（MPRIS/热键兼容）", /cycleMode\(\)/.test(player));
-ok("player：toggleShuffle 存在且翻转自身", /toggleShuffle\(\)\s*\{\s*this\.shuffle = !this\.shuffle;/.test(player));
+ok("player：toggleShuffle 存在且翻转自身（电台态 no-op）", /toggleShuffle\(\)\s*\{[\s\S]{0,120}?this\.shuffle = !this\.shuffle;/.test(player));
 
 // —— 存档：随机与循环同生命周期
 ok("session：快照带 shuffle", /shuffle\?: boolean;/.test(sess));
@@ -161,7 +161,7 @@ ok("bar：菜单外点击关闭", /#pb-loop, #pb-lpop/.test(bar));
 ok("bar：浮窗内滚轮不被音量吃掉", /#pb-qpop, #pb-lpop/.test(bar) && /if \(t\.closest\("#pb-quality, #pb-loop"\)\) return;/.test(bar));
 ok("bar：seek 拖拽不吞浮窗区域", /button, input, \.pb-volpop, \.pb-qpop, \.pb-lpop/.test(bar));
 ok("bar：随机开 → 画随机图标", /loop\.innerHTML = player\.shuffle \? icons\.shuffle/.test(bar));
-ok("bar：重画签名含 shuffle（只切随机也要换图标）", /const loopSig = `\$\{player\.mode\}\|\$\{player\.shuffle\}`;/.test(bar));
+ok("bar：重画签名含 shuffle / 电台态（只切随机或进出电台也要换图标）", /const loopSig = `\$\{player\.mode\}\|\$\{player\.shuffle\}\|\$\{player\.radioActive \? "radio" : "normal"\}`;/.test(bar));
 ok("bar：菜单开着时跟随状态同步勾选（MPRIS 也能改档，菜单要跟得上）", /classList\.contains\("lp-open"\)\) syncLPop\(\)/.test(bar));
 ok("bar：aria 暴露展开态", /aria-haspopup="menu" aria-expanded="false"/.test(bar) && /loop\.setAttribute\("aria-expanded", String\(open\)\)/.test(bar));
 ok("bar：随机档有可读说明（每日一套顺序）", /每日一套顺序/.test(bar));
@@ -179,7 +179,7 @@ ok("css：循环/随机之间有分隔线", /\.lp-sep \{/.test(css));
 ok("css：菜单项不加底（只有 hover 态有，选中不换底）", !/\.lp-i\.sel \{[^}]*background:/.test(css));
 
 // —— MPRIS：上报真实能力，接住总线回推
-ok("mpris：shuffle 如实上报 player.shuffle", /shuffle: player\.shuffle/.test(mpris) && !/shuffle: false/.test(mpris));
+ok("mpris：shuffle 如实上报 player.shuffle，电台态对外关闭", /shuffle: !player\.radioActive && player\.shuffle/.test(mpris) && !/shuffle: false/.test(mpris));
 ok("mpris：指纹含随机（切随机要推快照）", /player\.shuffle \? "s" : "n"/.test(mpris));
 ok("mpris：setShuffle 不再是空 case", /case "setShuffle":\s*\n\s*if \(!!msg\.on !== player\.shuffle\) player\.toggleShuffle\(\);/.test(mpris));
 ok("mpris：setLoop 改走 setMode（不必靠轮转凑）", /player\.setMode\(want === "Track"/.test(mpris) && !/靠循环推进/.test(mpris));
