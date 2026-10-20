@@ -20,6 +20,12 @@ body[data-control-bar="floating"] .np-spectrum {
   bottom: calc(var(--control-bar-inset) * 2 + var(--control-bar-lift) + var(--control-bar-height) + 18px);
 }
 .np.np-taken-over .np-spectrum { display: none; }
+/* 矮窗里右侧信息列（封面 + 歌名 + 音质胶囊）会比留给频谱的净空还高，频谱会从
+   「自动」胶囊下半部穿过去。只缩频谱开启态在矮窗下的封面，让整列收回频谱上方；
+   正常窗口仍保持原尺寸。minHeight=520，28vh 在最小高度仍能留出安全间距。 */
+@media (max-height: 640px) {
+  .np.spectrum-on .np-cover-wrap { width: min(240px, 28vh); }
+}
 .np-spectrum::before {
   content: ""; position: absolute; inset: 10px -4% 2px;
   background: linear-gradient(90deg, transparent, #0b0e1930 18%, #0b0e1930 82%, transparent);

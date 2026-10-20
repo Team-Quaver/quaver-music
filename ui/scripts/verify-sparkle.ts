@@ -255,6 +255,7 @@ ok("spectrum: 默认关闭且按需动态加载，不占首屏", has(src.spectru
 ok("spectrum: 懒加载前定位骨架常驻，频谱节点不会挤动 .np-inner", re(noComments(src.style), /\.np-spectrum\s*\{[^}]*position:\s*absolute;[^}]*display:\s*none;[^}]*pointer-events:\s*none;/));
 ok("spectrum: ⋮ 菜单有开关 + 形态，状态与 Sparkle 共用同一门面", has(src.np, "np-menu-switch") && has(src.np, "频谱可视化") && has(src.np, "spectrumModes()") && has(src.np, "spectrumFacade.setMode"));
 ok("spectrum: 挂载在播放条上方、跟随窗口缩放且整页接管时让位", has(src.spectrumCss, "bottom: calc(var(--control-bar-height") && has(src.spectrumCss, "width: 92%; height: clamp(56px, 8.5vh, 96px);") && has(src.spectrumCss, ".np.np-taken-over .np-spectrum { display: none; }"));
+ok("spectrum: 矮窗收缩封面列，频谱与音质胶囊不相交", re(noComments(src.spectrumCss), /@media \(max-height: 640px\)\s*\{\s*\.np\.spectrum-on \.np-cover-wrap\s*\{\s*width: min\(240px, 28vh\);/));
 ok("host: 频谱模式注册接到 registry，播放器门面透传数据", has(src.host, "registerNowPlayingSpectrumMode") && has(src.host, "sparkRegisterNpSpectrumMode") && has(src.host, "spectrum: () => spectrumFacade.frame()"));
 ok("guide: 作者指南写明频谱数据透传 + 插件注册新形态", has(src.guide, "registerNowPlayingSpectrumMode") && has(src.guide, "ctx.spectrum?.()") && has(src.guide, "bars` / `mirror` / `wave"));
 

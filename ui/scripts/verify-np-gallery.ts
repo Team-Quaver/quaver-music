@@ -143,6 +143,31 @@ await step("频谱关闭 + 懒加载样式未到位时，打开 ⋮ 不会挤动
   await page.waitForFunction(() => !document.querySelector(".np")?.classList.contains("open"), { timeout: 4000 });
 });
 
+await step("矮窗开启频谱：波形画布不会穿过音质胶囊", async () => {
+  await page.setViewport({ width: 760, height: 520 });
+  await page.evaluate(async () => {
+    const { spectrumFacade } = await import("/src/lib/spectrum-controller.ts");
+    spectrumFacade.setEnabled(true);
+  });
+  await setupSong("short");
+  await page.waitForFunction(() => document.querySelector(".np.open.spectrum-on"), { timeout: 4000 });
+  await sleep(350);
+  const boxes = await page.evaluate(() => {
+    const q = document.querySelector<HTMLElement>("#np-quality")!.getBoundingClientRect();
+    const s = document.querySelector<HTMLElement>("#np-spectrum")!.getBoundingClientRect();
+    return { qualityBottom: q.bottom, qualityTop: q.top, spectrumTop: s.top, spectrumBottom: s.bottom };
+  });
+  if (boxes.qualityBottom >= boxes.spectrumTop) throw new Error(`音质胶囊与频谱相交: ${JSON.stringify(boxes)}`);
+  await page.evaluate(async () => {
+    const { spectrumFacade } = await import("/src/lib/spectrum-controller.ts");
+    spectrumFacade.setEnabled(false);
+    window.__player.expanded = false;
+    window.__player.notifyPublic();
+  });
+  await page.waitForFunction(() => !document.querySelector(".np")?.classList.contains("open"), { timeout: 4000 });
+  await page.setViewport({ width: 1280, height: 840 });
+});
+
 await step("主页面：搜索历史候选覆盖吸顶区（含无 backdrop-filter 的主题）", async () => {
   await page.evaluate(() => {
     localStorage.setItem("quaver.search.history.v1", JSON.stringify(["晴天", "周杰伦", "七里香"]));
