@@ -35,7 +35,7 @@ import { LyricPlayer, type LyricLine as CoreLyricLine } from "@applemusic-like-l
 import "@applemusic-like-lyrics/core/style.css";
 import type { SparkleKaraokeLine, SparkleKaraokeProvider, SparkleKaraokeRenderCtx } from "@quaver/sparkle";
 import type { LyricAuxMode } from "../lib/prefs";
-import { pickAux } from "../lyric";
+import { extractQrcPayload, pickAux } from "../lyric";
 import { applyKanaToLines, extractKanaTag, stripKanaTag } from "./qrc-kana";
 
 // —— 解析 ——
@@ -46,21 +46,6 @@ import { applyKanaToLines, extractKanaTag, stripKanaTag } from "./qrc-kana";
 type KaraLine = SparkleKaraokeLine;
 /** 整形行级时用得上的最小形状（AMLL 行与 KaraLine 都满足） */
 interface RawLine { startTime: number; words: Array<{ word: string }>; isBG?: boolean; isDuet?: boolean }
-
-const NAMED_ENTITIES: Record<string, string> = { quot: '"', apos: "'", lt: "<", gt: ">", nbsp: " " };
-
-/** XML 属性值实体解码（&amp; 最后替换，避免二次解码） */
-function decodeEntities(s: string): string {
-  return s
-    .replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (_m, body: string) => {
-      if (body.startsWith("#")) {
-        const n = /^#x/i.test(body) ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
-        return Number.isFinite(n) && n >= 0 ? String.fromCodePoint(n) : "";
-      }
-      return NAMED_ENTITIES[body.toLowerCase()] ?? "";
-    })
-    .replaceAll("&amp;", "&");
-}
 
 function tryParseQrc(src: string): KaraLine[] | null {
   try {
@@ -125,10 +110,8 @@ function qrcPayload(src: string): { text: string; kanaTag: string } {
   if (!c) return { text: "", kanaTag: "" };
   if (/<QrcInfos|<LyricInfo/i.test(c)) {
     // QRC XML 信封：抽出全部歌词正文属性（实测为 LyricContent="…"，旧格式为 Lyrics="…"，
-    // 属性内以原文换行/&#10; 分行），实体解码后拼回纯文本 QRC
-    const payload = [...c.matchAll(/(?:Lyrics|LyricContent)\s*=\s*"([^"]*)"/g)]
-      .map((m) => decodeEntities(m[1]))
-      .join("\n");
+    // 属性内以原文换行/&#10; 分行）。提取器与宿主行级兜底共用，QQ 正文里未转义的引号也不能截断。
+    const payload = extractQrcPayload(c);
     return { text: payload, kanaTag: extractKanaTag(payload) };
   }
   return { text: c, kanaTag: extractKanaTag(c) };
