@@ -7,10 +7,9 @@
 /* 真实音频频谱：浮在播放控制条正上方。播放条在停靠态占 frame 末行、悬浮态为 fixed，
    两套几何分别对齐；--control-bar-* 由主题/控制条模式接管时这里跟着走。 */
 .np-spectrum {
-  position: absolute; z-index: 3; left: 50%; bottom: calc(var(--control-bar-height, 64px) + var(--control-bar-dock-gap, 10px) + 24px);
+  z-index: 3; left: 50%; bottom: calc(var(--control-bar-height, 64px) + var(--control-bar-dock-gap, 10px) + 24px);
   width: 92%; height: clamp(56px, 8.5vh, 96px);
   transform: translateX(-50%);
-  display: none; pointer-events: none;
   opacity: 0;
 }
 .np.spectrum-on .np-spectrum {

@@ -1304,6 +1304,14 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
   display: grid; grid-template-columns: 1.15fr 1fr; gap: 48px; align-items: center;
   padding-bottom: 40px; /* 给播放条让位 */
 }
+/* 频谱完整样式按需加载；定位骨架必须常驻首屏。频谱关闭时懒加载不会发生，若节点还是
+   .np 居中 grid 的普通子项，会与 .np-inner 分占两行、把整页内容挤上去，直到某次懒加载
+   才突然落回。这里先让它绝对定位 + display:none，彻底脱离外层布局。 */
+.np-spectrum {
+  position: absolute;
+  display: none;
+  pointer-events: none;
+}
 /* 歌词 = 整首列表可滚轮翻阅；当前句清晰（颜色与进度条染色同源），其余模糊渐隐。
    文本全部左对齐（原文/翻译同左）。逐字卡拉OK动画后续叠加在 .cur 上。
    字号档位 = --np-ly-scale（左下胶囊 −/+ 或歌词上 Ctrl+滚轮）：行内排版全走 em，

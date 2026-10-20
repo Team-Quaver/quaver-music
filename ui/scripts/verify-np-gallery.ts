@@ -116,6 +116,33 @@ const setupSong = (mid) => page.evaluate((mid) => {
 await page.goto(`${BASE}/index.html#/`, { waitUntil: "networkidle2" });
 await sleep(1500); // 等 initSparkle（内置歌词引擎 + 官方插件都是动态 import）
 
+await step("频谱关闭 + 懒加载样式未到位时，打开 ⋮ 不会挤动正在播放页", async () => {
+  await setupSong("layout");
+  await page.waitForFunction(() => document.querySelector(".np.open .np-inner"), { timeout: 4000 });
+  await sleep(350); // 让 np 的展开位移过渡结束，只比较静态布局
+  const before = await page.evaluate(() => {
+    const np = document.querySelector<HTMLElement>(".np")!;
+    const inner = document.querySelector<HTMLElement>(".np-inner")!;
+    return {
+      top: inner.getBoundingClientRect().top,
+      spectrumOn: np.classList.contains("spectrum-on"),
+      spectrumPosition: getComputedStyle(document.querySelector<HTMLElement>(".np-spectrum")!).position,
+    };
+  });
+  if (before.spectrumOn) throw new Error("回归用例应保持频谱关闭");
+  if (before.spectrumPosition !== "absolute") throw new Error(`频谱在懒加载前仍参与 grid 布局: ${before.spectrumPosition}`);
+  await page.click("#np-more");
+  await page.waitForFunction(() => document.querySelector("#np-menu")?.classList.contains("open"), { timeout: 4000 });
+  await page.waitForFunction(() =>
+    [...document.styleSheets].some((sheet) => sheet.ownerNode?.textContent?.includes("正在播放页真实音频频谱")), { timeout: 4000 });
+  const afterTop = await page.evaluate(() => document.querySelector<HTMLElement>(".np-inner")!.getBoundingClientRect().top);
+  if (Math.abs(afterTop - before.top) > 1) throw new Error(`⋮ 触发频谱样式加载后页面位移 ${before.top} → ${afterTop}px`);
+  await page.click("#np-more");
+  await page.waitForFunction(() => !document.querySelector("#np-menu")?.classList.contains("open"), { timeout: 4000 });
+  await page.evaluate(() => { window.__player.expanded = false; window.__player.notifyPublic(); });
+  await page.waitForFunction(() => !document.querySelector(".np")?.classList.contains("open"), { timeout: 4000 });
+});
+
 await step("主页面：搜索历史候选覆盖吸顶区（含无 backdrop-filter 的主题）", async () => {
   await page.evaluate(() => {
     localStorage.setItem("quaver.search.history.v1", JSON.stringify(["晴天", "周杰伦", "七里香"]));
