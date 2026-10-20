@@ -2,7 +2,7 @@
 // 双形态自适应（ResizeObserver 驱动）：
 //   内容区宽度足够 → 停靠（.dock）在 .content 右缘（.content-body flex 行内），
 //                    路由视图区（主页/搜索/歌手页…）自动让宽 = 整页缩放；
-//   宽度不够       → 浮窗（.float）固定于窗口右下、悬在内容之上（原行为）。
+//   宽度不够       → 浮窗（.float）挂在播放条队列钮上方、悬在内容之上。
 import { player, type Song } from "../player";
 import { coverUrl, songTitle } from "../lib/api";
 import { getQueueWidth, setQueueWidth } from "../lib/prefs";
@@ -36,7 +36,39 @@ export function QueuePanel(): HTMLElement {
   const contentEl = () => document.querySelector<HTMLElement>(".content");
   const contentBody = () => document.querySelector<HTMLElement>(".content-body");
   const npEl = () => document.querySelector<HTMLElement>(".np");
+  const playerEl = () => document.querySelector<HTMLElement>(".player");
+  const queueBtn = () => document.querySelector<HTMLElement>("#pb-queue");
   const dockable = () => { const c = contentEl(); return !!c && c.clientWidth >= DOCK_MIN_CONTENT; };
+
+  /** 浮窗队列跟着播放条自己的队列钮走，不再钉在窗口右下。
+   *
+   *  悬浮控制条只在内容区里居中（默认 720px），窗口右下与队列钮之间会差出几十到几百像素；
+   *  右侧按钮还会随宽度增删，CSS 里写死 right 偏移改版即过期。这里在显示、窗口/控制条
+   *  尺寸变化及控制条位移动画结束时量一次：右缘对齐按钮，底缘落在整条控制条上方 10px
+   *  （按钮本身在 64px 条里垂直居中，只拿按钮顶边会让面板压进条顶 5px）。
+   *  全屏正在播放页里播放条可能被隐藏（矩形为 0）——那时清掉内联值，回退 CSS 的窗口右下。 */
+  function positionFloat() {
+    if (!el.classList.contains("float")) {
+      el.style.removeProperty("right");
+      el.style.removeProperty("bottom");
+      return;
+    }
+    const qr = queueBtn()?.getBoundingClientRect();
+    if (!qr || qr.width < 1 || qr.height < 1) {
+      el.style.removeProperty("right");
+      el.style.removeProperty("bottom");
+      return;
+    }
+    const edge = 14; // 与窗口边缘至少留出的呼吸位
+    const panelW = el.offsetWidth || 320;
+    const maxRight = Math.max(edge, window.innerWidth - panelW - edge);
+    const right = Math.max(edge, Math.min(maxRight, window.innerWidth - qr.right));
+    const br = playerEl()?.getBoundingClientRect();
+    const barTop = br && br.height > 1 ? br.top : qr.top;
+    const bottom = Math.max(edge, window.innerHeight - barTop + 10);
+    el.style.right = `${Math.round(right)}px`;
+    el.style.bottom = `${Math.round(bottom)}px`;
+  }
 
   // —— 停靠宽度可拖拽：分隔条挂在面板左缘（随 .dock 一起进 .content-body），宽度持久化在
   //    Window.QueueWidth，经 --qp-w 变量驱动 .queue-panel.dock 的 flex-basis/width 与
@@ -86,14 +118,15 @@ export function QueuePanel(): HTMLElement {
    *  代价为零：关闭态是 width:0/opacity:0，隐藏着搬节点肉眼看不出。 */
   function applyLayout(): boolean {
     // 正在播放全屏页：一律浮窗（固定右侧的通栏 dock 会把歌词区挤失衡，实测弃用）。
-    // float 挂 body、z:70 浮在全屏层（z:50）之上，开关仍由播放条队列按钮驱动；
-    // 收回全屏页后走正常逻辑按宽度停靠/浮窗。
+    // 其余场景仍按内容区宽度停靠/浮窗 —— 宽屏非正在播放页保持原来的停靠布局。
+    // float 挂 body、z:70 浮在全屏层（z:50）之上，开关仍由播放条队列按钮驱动。
     const dock = !(npEl() && player.expanded) && dockable();
     el.classList.toggle("dock", dock);
     el.classList.toggle("float", !dock);
     const want = dock ? contentBody() : document.body;
     if (!want || el.parentElement === want) {
       if (!dock) qpResizer.remove(); // 浮窗态分隔条不跟随（挪回 body 时摘掉）
+      positionFloat();
       return false;
     }
     if (dock) {
@@ -105,6 +138,7 @@ export function QueuePanel(): HTMLElement {
       want.append(el);
       qpResizer.remove(); // 浮窗态分隔条不跟随
     }
+    positionFloat();
     return true;
   }
 
@@ -136,10 +170,16 @@ export function QueuePanel(): HTMLElement {
   const contentBox = contentEl();
   if (contentBox) ro.observe(contentBox);
   syncMount();
-  // 再补一次：本组件构造时节点**还没进 DOM**（壳层是 `document.body.append(NowPlaying(), QueuePanel())`），
-  // 上面那次定完形态后立刻被壳层搬去 body。等一帧再定，让首次展开时形态与父节点都已就位 ——
-  // 不补这一次也能靠 syncMount 的 rAF 兜底动画，但那样第一次展开仍会搬节点，不如让它彻底不动。
+  // 本组件构造时节点还没进 DOM（壳层随后才 append），等一帧再补一次定形态。
   requestAnimationFrame(syncMount);
+  const playerBox = playerEl();
+  if (playerBox) ro.observe(playerBox);
+  // ResizeObserver 只报尺寸，不报纯位移：悬浮条在「内容区居中 ⇄ 窗口居中」之间切位置时
+  // 宽高可能没变，但按钮已经移动。等 transition 落定再量一次，浮窗不会留在旧位置。
+  const onBarMotion = (ev: Event) => { if (ev.target === playerBox) positionFloat(); };
+  playerBox?.addEventListener("transitionend", onBarMotion);
+  playerBox?.addEventListener("animationend", onBarMotion);
+  window.addEventListener("resize", positionFloat, { passive: true });
 
   // —— 列表渲染（订阅式：队列/指针/播放态变化才重建） ——
   const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);

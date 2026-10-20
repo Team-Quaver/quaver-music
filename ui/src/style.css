@@ -1425,6 +1425,9 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
   background: var(--card); color: var(--ink);
 }
 .queue-panel.float {
+  /* right/bottom 是兜底（正在播放全屏页里播放条隐藏时用）。正常浮窗由 QueuePanel.ts
+     positionFloat() 量 #pb-queue 后写内联值：悬浮控制条只在内容区居中，窗口右下不等于
+     队列钮的位置；右侧按钮还会随宽度增删，不能在这里写死跟随偏移。 */
   position: fixed; right: 14px; bottom: 88px; z-index: 70; width: 320px; max-height: 52vh;
   border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 16px 48px #00000026;
   opacity: 0; pointer-events: none;
