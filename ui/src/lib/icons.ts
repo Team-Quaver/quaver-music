@@ -17,7 +17,10 @@ export const icons = {
   calendar: svg('<rect x="4" y="5.5" width="16" height="15" rx="2"/><path d="M8 3.5v4M16 3.5v4M4 10h16"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17.5h.01M12 17.5h.01M16 17.5h.01"/>'),
   // 无限电台标记：复用应用里已经在用的 ∞ 字形（首页电台卡、电台页品牌标都是它），
   // 不另画路径 —— 放进 svg 只是为了占住与其它图标同尺寸的 18×18 图标位。
-  infinity: svg('<text x="12" y="12" font-size="24" fill="currentColor" stroke="none" text-anchor="middle" dominant-baseline="middle">∞</text>'),
+  // 基线取 central（em 盒中心），不是 middle：∞ 的墨迹重心在字面上偏上，
+  // 用 middle 会让它比同排的首页/日历高出约 1.9px，看起来是「飘在上面」。
+  // y=10.7 把墨迹中心压回 24 网格中心（实测与首页/红心/日历的墨迹中心同高）。
+  infinity: svg('<text x="12" y="10.7" font-size="24" fill="currentColor" stroke="none" text-anchor="middle" dominant-baseline="central">∞</text>'),
   sparkles: svg('<path d="M11 3l1.7 4.3L17 9l-4.3 1.7L11 15l-1.7-4.3L5 9l4.3-1.7z"/><path d="M18.5 15l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>', 18, 1.6),
   queue: svg('<path d="M4 6h11M4 11h11M4 16h7"/><path d="M17 13.5v6l4.5-3z" fill="currentColor" stroke="none"/>'),
   chevronDown: svg('<path d="M6 9l6 6 6-6"/>'),
