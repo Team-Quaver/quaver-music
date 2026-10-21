@@ -4,8 +4,7 @@
 // **前端调用路径 ↔ sidecar 路由 ↔ 数据层** 三边对得上，以及几处
 // 「界面上很难一眼看出来」的语义分叉（整批插队不打断当前曲、
 // 删除歌单走 dirid 而不是 tid、拉歌单要分页拉全）。
-// 删除歌单路由 Python（quaver-typhoeus）与 Go（typhoeus-go）两侧都要有，
-// 打包态跑的是 Go 二进制 —— 缺一侧就是某一形态的 app 删不掉歌单。
+// 删除歌单路由只在 Go sidecar（typhoeus-go）里维护；Python 后端已退役。
 //
 // 用法：node scripts/verify-playlist-menu.ts
 import { readFileSync } from "node:fs";
@@ -22,7 +21,6 @@ const src = {
   plMenu: read("src/components/PlaylistMenu.ts"),
   playlists: read("src/lib/playlists.ts"),
   favs: read("src/lib/favs.ts"),
-  app: readFileSync(join(root, "..", "vendor", "Typhoeus", "quaver_server", "app.py"), "utf8"),
   appGo: readFileSync(join(root, "..", "vendor", "Typhoeus-go", "server", "handlers_content.go"), "utf8")
     + readFileSync(join(root, "..", "vendor", "Typhoeus-go", "server", "app.go"), "utf8"),
   pkg: read("package.json"),
@@ -104,11 +102,7 @@ ok("plMenu: 删除成功才回调 onDeleted（失败时侧栏条目不能消失�
   re(src.plMenu, /await deleteSonglist\(\{ dirid: pl\.dirid!, title: pl\.title \}\);\s*opts\.onDeleted\?\.\(pl\);/));
 ok("plMenu: 缺 dirid 时删除项禁用（写接口的唯一定位缺失，点了也是空手）",
   re(src.plMenu, /disabled: !Number\(pl\.dirid\)/));
-ok("app.py: DELETE /songlist/{dirid} -> songlist.delete（PlaylistBaseWrite DelPlaylist）",
-  re(src.app, /@app\.delete\("\/songlist\/\{dirid\}"\)[\s\S]{0,420}session\.client\.songlist\.delete\(dirid\)/));
-ok("app.py: 删除歌单要求登录态", re(src.app, /songlist_delete[\s\S]{0,460}need_login=True/));
-
-// ============ 4b. Go sidecar 同款路由（打包态跑 Go 二进制，两侧必须对齐） ============
+// ============ 4b. Go sidecar 路由 ============
 ok("go: DELETE /songlist/{dirid} 已注册", re(src.appGo, /mux\.HandleFunc\("DELETE \/songlist\/\{dirid\}", a\.handleSonglistDelete\)/));
 ok("go: handler 走 songlist.Delete（模块侧 PlaylistBaseWrite DelPlaylist）",
   re(src.appGo, /handleSonglistDelete[\s\S]{0,600}a\.songlist\.Delete\(dirid\)/));

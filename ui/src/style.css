@@ -42,10 +42,11 @@ html[data-theme="dark"] {
 
 
 /* ===================== 浮层菜单的玻璃（唯一来源：data-menu-glass） =====================
-   消费方（七处，一处定义）：.ctx-menu（侧栏歌单 / 歌曲右键菜单）、.pb-qpop（音质）、
+   消费方（八个浮层，一处定义）：.ctx-menu（侧栏歌单 / 歌曲右键菜单）、.pb-qpop（音质）、
    .pb-lpop（播放模式）、.pb-volpop（音量）、.np-menu（正在播放页「更多操作」）、
-   .np-qinfo（音频流信息）、.tint-pop（设置页颜色选择器）；模态弹窗 .upd-dialog
-   （更新 / 本地插件 / 插件设置）也吃同一组令牌，随这棵开关与主题接管一起走。
+   .np-qinfo（音频流信息）、.tint-pop（设置页颜色选择器）、.queue-panel.float（浮窗播放列表）；
+   模态弹窗 .upd-dialog（更新 / 本地插件 / 插件设置）也吃同一组令牌，随这棵开关与主题接管一起走。
+   侧栏与 Content View 复用 --shell-filter / 关闭档实底，不用菜单表面令牌（各自的 --glass / --panel 保留）。
 
    这也解释了「菜单看起来完全没有模糊」的四个叠加成因（按重要性排）：
      ① **[已修，最致命] 压缩器把无前缀的 backdrop-filter 吃掉了** —— 见下面那段 ⚠️：
@@ -59,8 +60,8 @@ html[data-theme="dark"] {
      ⑤ 默认配置下背景层是 off（纯色底）+ 内容卡是实白 —— 模糊纯色 = 纯色，结构上无从体现
         （设置页的提示语里点了这一条：想看出玻璃感，先把「背景」打开）。
 
-   --menu-filter 是模糊的唯一开关：关掉时是 none 而不是 blur(0px) —— 后者照样建 backdrop
-   root、照样占一层 GPU 合成，等于没关。关掉时底片同时换实色，保证关掉后文字依旧清晰。
+   --menu-filter / --shell-filter 是模糊的两档开关：菜单 16px，大面积外壳 12px。
+   关掉时都取 none 而不是 blur(0px) —— 后者照样建 backdrop root、照样占一层 GPU 合成。
 
    三态（由 lib/menu-glass.ts 写在 <html data-menu-glass> 上）：
      on    —— 半透明玻璃 + 模糊（用户开关的「开启」）
@@ -80,13 +81,19 @@ html[data-theme="dark"] {
      targets），**不要**把前缀补回来。
      护栏 scripts/verify-menu-glass.ts 里有源码级 + 产物级两条断言钉着这件事。 */
 :root {
-  /* 与侧栏/播放条同一套玻璃（--glass 0.62 + blur 26 那档），菜单略薄一点：
-     比改造前的 0.78~0.85（--volpop）薄，模糊才透得出来 */
-  --menu-filter: blur(26px) saturate(1.5);
+  /* 性能分档：菜单是小块浮层，保留 16px；侧栏 / Content View / 播放条 / 浮窗队列
+     这些大面积表面只给 12px，避免每个大图层都做一次重采样把 AMLL 帧率拖下去。 */
+  --menu-filter: blur(16px) saturate(1.4);
+  --shell-filter: blur(12px) saturate(1.3);
   --menu-surface: rgba(246, 246, 248, .66);
   --menu-line: var(--glass-line);
   --menu-shadow: 0 12px 36px rgba(15, 20, 30, .22);
   --menu-edge: rgba(255, 255, 255, .5); /* 上缘内高光 = 玻璃的「厚度」，不是装饰 */
+  /* 外壳表面：侧栏 / Content View 与浮层共用同一棵模糊开关，但保留各自原来的
+     --glass / --panel 色锚。默认主题关闭模糊时仍保持透明，只撤掉 backdrop 采样；
+     菜单才切实底。 */
+  --sidebar-surface: var(--glass);
+  --content-surface: var(--panel);
 }
 html[data-theme="dark"] {
   --menu-surface: rgba(30, 32, 38, .62);
@@ -104,6 +111,7 @@ html[data-theme="dark"] {
    .np 自己也声明了 --menu-surface，不专门顶掉它的话本页会漏开关）。 */
 html[data-menu-glass="off"] {
   --menu-filter: none;
+  --shell-filter: none;
   --menu-surface: var(--card);
   --menu-line: var(--line);
   --menu-edge: transparent;
@@ -113,11 +121,8 @@ html[data-menu-glass="off"] .np {
   --menu-line: #ffffff1f;
   --menu-edge: transparent;
 }
-/* 控制条底片也跟着模糊开关走：off 时从玻璃换成实底。模糊没了 + 底片仍半透明会看不出差别；
-   主题可用 --control-bar-surface 单独接管控制条的底片，不影响其它菜单。 */
-html[data-menu-glass="off"] body {
-  --control-bar-surface: var(--card);
-}
+/* 关闭模糊只撤掉 backdrop 采样，不把外壳透明面换成实底：侧栏 / Content View / 播放条
+   仍走 --glass / --panel，保持默认主题的透明观感；只有菜单与浮层保留实底策略。 */
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 /* 全站禁选中：这是桌面应用，指针手势是「点 / 拖 / 双击播放」，不是选词 —— 一选中，
@@ -232,9 +237,10 @@ body.side-collapsed {
 .sidebar {
   flex: 0 0 var(--side-w, 216px); border-radius: 14px; padding: 14px 10px;
   display: flex; flex-direction: column; gap: 10px; overflow: hidden; min-height: 0;
-  background: var(--glass); border: 1px solid var(--glass-line);
+  background: var(--sidebar-surface, var(--glass)); border: 1px solid var(--glass-line);
   box-shadow: 0 8px 32px rgba(15,20,30,.10);
-  backdrop-filter: blur(26px) saturate(1.5); /* 无前缀！见文件顶部「别补 -webkit-」那段 */
+  /* 侧栏也吃「模糊效果」总开关：大面积表面走更轻的 --shell-filter。 */
+  backdrop-filter: var(--shell-filter); /* 无前缀！见文件顶部「别补 -webkit-」那段 */
   /* 缩回/展开只动 flex-basis 与水平内距（216↔64px，见文件下方 body.side-collapsed 段）：
      条目本身不改结构，只让各自的文字（max-width→0 + 淡出）与 gap 收干净。过渡声明在下一段。 */
 }
@@ -435,8 +441,9 @@ body.side-collapsed .side-resizer { display: none; }
     var(--panel) 0,
     var(--panel) calc(46px + var(--stuck-h, 0px)),
     transparent calc(46px + var(--stuck-h, 0px)));
-  background: var(--panel); border: 1px solid var(--panel-line);
-  backdrop-filter: blur(24px) saturate(1.4); /* 无前缀！见文件顶部「别补 -webkit-」那段 */
+  background: var(--content-surface, var(--panel)); border: 1px solid var(--panel-line);
+  /* Content View 与侧栏共用同一棵开关；大面积表面走 --shell-filter，关闭时换实底。 */
+  backdrop-filter: var(--shell-filter); /* 无前缀！见文件顶部「别补 -webkit-」那段 */
 }
 /* 顶部渐隐层 = **吸顶底**：全内容区唯一的那层渐变。从最上缘（CSD 按钮簇/搜索栏所在的
    顶带）一路往下淡到透明，所以顶带、吸顶条/吸顶页头、以及右缘滚动条槽吃的是同一段渐变，
@@ -882,8 +889,8 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 .player::before {
   content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: -1;
   /* 控制条也吃「菜单毛玻璃」总开关：开关只控制模糊，不抢 .player 的 --glass 底片 ——
-     主题依旧可用 --glass 自己换皮；主题接管菜单外观时可覆盖 --menu-filter。 */
-  backdrop-filter: var(--menu-filter); /* 无前缀！见文件顶部「别补 -webkit-」那段 */
+     主题依旧可用 --glass 自己换皮；大面积外壳外观可覆盖 --shell-filter。 */
+  backdrop-filter: var(--shell-filter); /* 无前缀！见文件顶部「别补 -webkit-」那段 */
   pointer-events: none;
 }
 /* 窄窗口防溢出：三列可收缩 + 中列按钮间隙收紧（播放/暂停永远留位） */
@@ -911,7 +918,10 @@ body[data-control-bar="floating"] .player {
   margin: 0; width: var(--control-bar-width); height: var(--control-bar-height);
   /* Content View 中心 ⇄ 窗口中心的水平位移走同一条 NowPlaying 曲线 */
   transition: left .34s cubic-bezier(.32,.72,.24,1), bottom .34s cubic-bezier(.32,.72,.24,1);
-  animation: control-bar-float-in .34s cubic-bezier(.32,.72,.24,1) both;
+  /* backwards 而不是 both：动画结束后必须落回基础态（transform: none）。若保留终帧，
+     Chromium 会给 .player 留下一个 identity transform / 合成层，它成为后代浮窗的
+     backdrop root —— 播放条自己的毛玻璃与音质/播放模式/音量浮窗都只采到残缺底图。 */
+  animation: control-bar-float-in .34s cubic-bezier(.32,.72,.24,1) backwards;
 }
 body[data-control-bar="floating"].side-collapsed .player {
   left: calc(64px + var(--control-bar-inset) * 2
@@ -1020,10 +1030,13 @@ body[data-control-bar="floating"] .settings-page .set-view {
   position: absolute; right: 68px; bottom: calc(100% + 10px); z-index: 70;
   display: flex; flex-direction: column; gap: 2px; padding: 6px; min-width: 190px;
   max-height: 320px; overflow-y: auto; border-radius: 12px;
-  /* 底片 / 描边 / 模糊 / 阴影由下方「浮层菜单的玻璃」那条共享规则统一给 */
-  opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity .16s, transform .16s;
+  /* 底片 / 描边 / 模糊 / 阴影由下方「浮层菜单的玻璃」那条共享规则统一给。
+     玻璃本体不做 transform/opacity 入场：带 backdrop-filter 的元素一旦参与这两类动画，
+     Chromium 会临时把它当 backdrop root，菜单刚打开的一瞬只透色、不模糊。 */
+  opacity: 0; pointer-events: none; transform: none; transition: opacity .16s;
 }
-.player.q-open .pb-qpop { opacity: 1; pointer-events: auto; transform: none; }
+.player.q-open .pb-qpop { opacity: 1; pointer-events: auto; transition: none; }
+.player.q-open .pb-qpop > * { animation: menu-content-in .16s cubic-bezier(.32,.72,.24,1) both; }
 /* 播放模式浮窗：循环三档 + 随机播放。与音质浮窗同一套玻璃语言，锚在循环按钮上方。
    位置用 calc 表达：距右 = 循环按钮中心到 Bar 内侧的固定距离（音量钮 34 + 间隔 2 + 半宽 17），
    不写死像素 —— 右侧按钮数会变（画质胶囊宽度随档名变），写死会在改版后错位。 */
@@ -1031,10 +1044,11 @@ body[data-control-bar="floating"] .settings-page .set-view {
   position: absolute; right: calc(34px + 2px + 17px + 8px); bottom: calc(100% + 10px); z-index: 70;
   display: flex; flex-direction: column; gap: 2px; padding: 6px; min-width: 208px;
   max-height: 320px; overflow-y: auto; border-radius: 12px;
-  /* 底片 / 描边 / 模糊 / 阴影同上（共享规则） */
-  opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity .16s, transform .16s;
+  /* 底片 / 描边 / 模糊 / 阴影同上（共享规则）；动画只落在菜单项，见 .pb-qpop 注释 */
+  opacity: 0; pointer-events: none; transform: none; transition: opacity .16s;
 }
-.player.lp-open .pb-lpop { opacity: 1; pointer-events: auto; transform: none; }
+.player.lp-open .pb-lpop { opacity: 1; pointer-events: auto; transition: none; }
+.player.lp-open .pb-lpop > * { animation: menu-content-in .16s cubic-bezier(.32,.72,.24,1) both; }
 .lp-i {
   display: flex; align-items: center; gap: 9px;
   border: 0; background: transparent; color: var(--ink2); font-size: 12.5px; text-align: left;
@@ -1105,10 +1119,11 @@ body[data-control-bar="floating"] .settings-page .set-view {
      的算式，主题改条高时浮窗跟着抬，不会骑到条身上（实测漏掉这项会压住条顶 5px）。 */
   bottom: calc(100% + (var(--control-bar-height, 64px) - 100%) / 2 + 10px);
   display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px;
-  /* 底片 / 描边 / 模糊 / 阴影同上（共享规则） */
-  opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity .16s, transform .16s;
+  /* 底片 / 描边 / 模糊 / 阴影同上（共享规则）；动画只落在内容，见 .pb-qpop 注释 */
+  opacity: 0; pointer-events: none; transform: none; transition: opacity .16s;
 }
-.player.vol-open .pb-volpop { opacity: 1; pointer-events: auto; transform: none; }
+.player.vol-open .pb-volpop { opacity: 1; pointer-events: auto; transition: none; }
+.player.vol-open .pb-volpop > * { animation: menu-content-in .16s cubic-bezier(.32,.72,.24,1) both; }
 .pb-volnum { font-size: 11.5px; color: var(--ink2); min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
 /* 浮窗内滑杆：青色填充段 = --v（Chrome/FF 双写法） */
 .pb-vol {
@@ -1165,7 +1180,8 @@ body:has(> .np.open) .win-dragtop { visibility: hidden; }
    .show 即「该层可见」 */
 .np-bg {
   position: absolute; inset: -80px; background-size: cover; background-position: center;
-  filter: blur(24px) saturate(1.6) brightness(1.08);
+  /* 封面底图是全屏大纹理：降到 16px，AMLL 每帧滚动时合成压力明显更小。 */
+  filter: blur(16px) saturate(1.6) brightness(1.08);
   transform: scale(1.05);
   opacity: 0; transition: opacity .45s ease;
 }
@@ -1181,26 +1197,33 @@ body:has(> .np.open) .win-dragtop { visibility: hidden; }
    视觉沿用播放条音质胶囊（.pb-q）的胶囊语言，但本页恒为深色玻璃，色锚走 .np-menu 的白字口径。 */
 .np-qpill {
   height: 24px; min-width: 44px; padding: 0 10px; border-radius: 999px; cursor: pointer;
-  border: 1px solid #ffffff2e; background: #ffffff14; color: #fffb;
+  /* 与 .np-menu 同一块深玻璃：之前是 8% 白底，压在亮封面上时边缘和文字一起被吃没，
+     截图里就像半截胶囊在闪。统一表面/描边/内高光后，任意封面下都有稳定轮廓。 */
+  border: 1px solid var(--menu-line);
+  background: var(--menu-surface); color: #fff;
+  box-shadow: inset 0 1px 0 var(--menu-edge);
   font: inherit; font-size: 11px; font-weight: 600; letter-spacing: .2px; white-space: nowrap;
-  backdrop-filter: var(--menu-filter);
+  /* 不给 24px 的小胶囊单独开 backdrop 采样：它底下本来就是已模糊的 .np-bg，
+     多这一层既看不出纹理，又会在 1.25x 缩放下随 4Hz 状态广播反复重采样（闪烁源）。
+     背景/描边仍吃 --menu-*，模糊总开关与主题接管照常生效。 */
   transition: background .12s, color .12s, border-color .12s;
 }
-.np-qpill:hover, .np-qpill.open { background: #ffffff1f; color: #fff; border-color: #ffffff4d; }
-html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffffff1f; }
+.np-qpill:hover, .np-qpill.open { background: color-mix(in srgb, var(--menu-surface) 88%, #fff); color: #fff; border-color: #ffffff4d; }
+html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffffff1f; box-shadow: none; }
 /* 音频流信息浮窗：锚在音质胶囊上方（右缘对齐胶囊右缘），同 .np-menu 深玻璃 + 开合动画。 */
 .np-qinfo {
   position: absolute; right: 36px; bottom: calc(100% + 8px); z-index: 5;
   min-width: 228px; padding: 10px 12px 11px; border-radius: 12px;
   /* 底片 / 描边 / 模糊 / 阴影由共享规则统一给（本页的深色表面见 .np 上那几个令牌） */
   text-align: left;
-  transform-origin: calc(100% - 24px) calc(100% + 8px);
-  opacity: 0; transform: scale(.8);
+  /* 玻璃本体始终 static：只淡出，不做 transform/scale。backdrop-filter 元素在
+     transform/opacity 过渡期间会临时形成 backdrop root，歌名会从菜单里原样透出来。 */
+  opacity: 0; transform: none;
   pointer-events: none;
-  transition: transform .16s cubic-bezier(.32,.72,.24,1), opacity .12s ease;
+  transition: opacity .13s ease;
 }
-.np-qinfo.open { opacity: 1; transform: scale(1); pointer-events: auto; }
-.np-qinfo:not(.open) { transition-duration: .13s, .1s; }
+.np-qinfo.open { opacity: 1; pointer-events: auto; transition: none; }
+.np-qinfo.open > * { animation: menu-content-in .16s cubic-bezier(.32,.72,.24,1) both; }
 .qi-title {
   display: flex; justify-content: space-between; align-items: baseline; gap: 14px;
   font-size: 11px; color: #fff8; letter-spacing: .4px;
@@ -1226,16 +1249,14 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
   min-width: 180px; padding: 6px; border-radius: 12px;
   /* 底片 / 描边 / 模糊 / 阴影由共享规则统一给（本页的深色表面见 .np 上那几个令牌） */
   display: flex; flex-direction: column; gap: 2px;
-  /* 开合动画：transform 锚在 ⋮ 按钮圆心上（按钮 30px 宽右对齐 → 圆心在菜单右缘内 15px、
-     下缘外 8px），scale 从按钮的位置长出来/缩回去；曲线用本仓库弹簧曲线（非线性）。 */
-  transform-origin: calc(100% - 15px) calc(100% + 8px);
-  opacity: 0; transform: scale(.8);
+  /* 开合动画拆成两层：玻璃本体立即出现/只做淡出，菜单项各自做轻微上移。
+     这样 backdrop-filter 从第一帧就能拿到完整底图，不会先透出歌名再变糊。 */
+  opacity: 0; transform: none;
   pointer-events: none;
-  transition: transform .16s cubic-bezier(.32,.72,.24,1), opacity .12s ease;
+  transition: opacity .13s ease;
 }
-.np-menu.open { opacity: 1; transform: scale(1); pointer-events: auto; }
-/* 收拢略快于展开：跳转类动作是「缩回去 → 落页」，收拢拖沓会显得粘 */
-.np-menu:not(.open) { transition-duration: .13s, .1s; }
+.np-menu.open { opacity: 1; pointer-events: auto; transition: none; }
+.np-menu.open > * { animation: menu-content-in .16s cubic-bezier(.32,.72,.24,1) both; }
 .np-menu-item {
   border: 0; background: transparent; color: #fffb; font: inherit; font-size: 13px; text-align: left;
   padding: 7px 10px; border-radius: 8px; cursor: pointer;
@@ -1367,6 +1388,11 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
 }
 .np.kara .np-lyrics { display: none; }
 .np.kara .np-kara-host { display: block; }
+/* AMLL 的 DOM 播放器默认用 mix-blend-mode: plus-lighter 做歌词发光。该混合模式会让
+   Chromium 在歌词挂载后走另一条合成路径，正在播放页菜单的 backdrop-filter 会持续
+   采不到底图（菜单里的歌名/封面色块原样透出）。只在玻璃菜单打开期间把它让回 normal，
+   菜单关掉立即恢复 AMLL 原本的发光效果。 */
+.np:has(.np-menu.open, .np-qinfo.open) .np-kara-host .amll-lyric-player { mix-blend-mode: normal; }
 /* 逐字模式下加深歌词列背光：Tint 文字与模糊封面**同源同相**（都是封面主色），
    亮暖封面（米黄/棕调）下掺白 Tint 的亮度会落进背景的同一区间 —— 文字色单方面怎么调
    都躲不开同源撞色（实测暖灰底 144 压橄榄字 120，约 1.1:1）。对比度只能从背景侧兜：
@@ -1414,6 +1440,17 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
   from { transform: translateX(10px); }
   to { transform: translateX(var(--mx, -70px)); }
 }
+/* 玻璃表面的内容入场：只动子项，不动带 backdrop-filter 的菜单本体。 */
+@keyframes menu-content-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .np-menu, .np-qinfo, .pb-qpop, .pb-lpop, .pb-volpop, .queue-panel.float { transition: none; }
+  .np-menu.open > *, .np-qinfo.open > *, .queue-panel.float.open > *,
+  .player.q-open .pb-qpop > *, .player.lp-open .pb-lpop > *,
+  .player.vol-open .pb-volpop > * { animation: none; }
+}
 
 /* ===================== 队列面板（播放列表） =====================
    双形态：
@@ -1429,13 +1466,15 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
      positionFloat() 量 #pb-queue 后写内联值：悬浮控制条只在内容区居中，窗口右下不等于
      队列钮的位置；右侧按钮还会随宽度增删，不能在这里写死跟随偏移。 */
   position: fixed; right: 14px; bottom: 88px; z-index: 70; width: 320px; max-height: 52vh;
-  border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 16px 48px #00000026;
-  opacity: 0; pointer-events: none;
-  transform-origin: bottom right; /* 从播放条队列按钮方向缩放展开 */
-  transform: scale(.9) translateY(10px);
-  transition: opacity .2s ease, transform .2s cubic-bezier(.32,.72,.24,1);
+  border-radius: 14px;
+  /* 底片 / 描边 / 模糊 / 阴影由共享玻璃规则统一给。
+     玻璃本体不做 transform/opacity 入场：带 backdrop-filter 的 fixed 面板一旦同时
+     参与这两类动画，Chromium 会临时把它当 backdrop root，打开前半程只透色不模糊。 */
+  opacity: 0; pointer-events: none; transform: none;
+  transition: opacity .18s ease;
 }
-.queue-panel.float.open { opacity: 1; pointer-events: auto; transform: none; }
+.queue-panel.float.open { opacity: 1; pointer-events: auto; transition: none; }
+.queue-panel.float.open > * { animation: menu-content-in .18s cubic-bezier(.32,.72,.24,1) both; }
 .queue-panel.dock {
   flex: 0 0 var(--qp-w, 300px); width: var(--qp-w, 300px); min-width: 0; min-height: 0;
   border-left: 1px solid var(--line);
@@ -1916,12 +1955,26 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
    `background + border + box-shadow + backdrop-filter`（改造前是七份，且不透明度各不同，
    所以才会出现「有的菜单看着糊、有的看着是实心」）。
    模糊只写无前缀的 backdrop-filter —— 别补 -webkit-，原因见文件顶部那段。 */
-.ctx-menu, .pb-qpop, .pb-lpop, .pb-volpop, .tint-pop, .np-menu, .np-qinfo, .upd-dialog {
+.ctx-menu, .pb-qpop, .pb-lpop, .pb-volpop, .tint-pop, .np-menu, .np-qinfo, .queue-panel.float, .upd-dialog {
   background: var(--menu-surface);
   border: 1px solid var(--menu-line);
   box-shadow: var(--menu-shadow), inset 0 1px 0 var(--menu-edge);
   backdrop-filter: var(--menu-filter);
 }
+/* 浮窗队列面积比普通菜单大一个量级，和小块菜单同档会让拖拽/滚动时持续做更贵的采样；
+   外壳档 12px 已足够形成玻璃层次。 */
+.queue-panel.float { backdrop-filter: var(--shell-filter); }
+/* 正在播放页是整窗不透明覆盖层，后面的侧栏 / Content View 已经看不见；播放条压在
+   AMLL 上。此时继续做 backdrop 采样只会拖帧率，视觉上没有任何收益。
+   浮窗队列例外：它需要玻璃层次，保留自己的 --shell-filter；性能由 queue-open 期间
+   暂停 AMLL 非当前行的逐行 blur 来兜。 */
+body:has(> .np.open) .sidebar,
+body:has(> .np.open) .content,
+body:has(> .np.open) .player::before { backdrop-filter: none; }
+/* 队列打开时 AMLL 每行仍在跑 filter:blur(0~5px)。队列盖住的区域不需要这层景深，
+   直接撤掉逐行滤镜（inline style 需要 !important），队列关闭即随类名移除恢复。
+   这比再关掉整层混合模式更精准，也不会改变歌词原本的 plus-lighter 发光。 */
+.np.queue-open .np-kara-host [class*="lyricLineWrapper"] { filter: none !important; }
 
 /* ===================== 歌曲右键菜单（SongMenu） =====================
    层 = body 下的 fixed 覆盖层（pointer-events:none），面板各自 fixed 定位：

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Quaver — QQ 音乐扫码登录助手（终端版，适配 Python sidecar :3200）
+# Quaver — QQ 音乐扫码登录助手（终端版，适配 Typhoeus-Go sidecar :3200）
 # 流程：GET /login/qrcode/<type> → zbarimg 解 URL → qrencode 终端渲染 →
 #       轮询 /login/qrcode/<type>/status；DONE 后凭证由 sidecar 自行处理 —— 本脚本不落 token。
 #   由 Electron 主进程拉起时（QUAVER_CREDENTIAL_MODE=external）：交给主进程加密存进系统密钥管理器。
@@ -9,7 +9,7 @@
 #
 # 用法:  ./scripts/qq-login.sh [mobile|qq|wx]
 #   mobile = 手机 QQ 音乐 App 扫码（推荐，MQTT 推送）; qq = 手机 QQ; wx = 微信
-# 依赖:  curl jq qrencode zbarimg;  sidecar 已在 :3200 运行（vendor/Typhoeus: uv run run.py）
+# 依赖:  curl jq qrencode zbarimg;  sidecar 已在 :3200 运行（vendor/Typhoeus-go）
 set -euo pipefail
 
 CHANNEL="${1:-mobile}"

@@ -41,7 +41,7 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
         └── SearchBox.ts    # 顶带常驻搜索框（联想 + 搜索历史）
 ```
 
-`electron/`（桌面壳，不属于 vite 构建）：`main.ts` 主进程（窗口/托盘/MPRIS daemon 拉起/音频引擎接线/配置 IPC）、
+`electron/`（桌面壳，不属于 vite 构建）：`main.ts` 主进程（窗口/托盘/MPRIS 服务/音频引擎接线/配置 IPC）、
 `config.ts` 配置文件引擎（跨平台目录、INI 保注释读写、schema 与原子落盘）、
 `background.ts` 自定义背景图的读盘侧（只认 conf 里的路径 + 扩展名白名单 + 体积上限，见 `/api/bg`）、
 `preload.cts` 桥（窗口控制 + MPRIS + `quaverAudio` + `quaverConfig` + `quaverBackground`）、

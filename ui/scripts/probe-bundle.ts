@@ -145,7 +145,7 @@ async function live() {
       try { comm = readFileSync(`/proc/${p}/comm`, "utf8").trim(); } catch {}
       try { cl = readFileSync(`/proc/${p}/cmdline`, "utf8").replace(/\0/g, " "); } catch {}
       const role = cl.match(/--type=([a-z-]+)/)?.[1]
-        ?? (/typhoeus-go|quaver-server/.test(cl) ? "sidecar" : /\/mpv\b|ld-linux.*mpv/.test(cl) ? "mpv" : /mpris-daemon/.test(cl) ? "mpris" : /crashpad|crash_?pad/.test(cl) ? "crashpad" : comm === "electron" ? "main" : comm);
+        ?? (/typhoeus-go|quaver-server/.test(cl) ? "sidecar" : /\/mpv\b|ld-linux.*mpv/.test(cl) ? "mpv" : /crashpad|crash_?pad/.test(cl) ? "crashpad" : comm === "electron" ? "main" : comm);
       return { pid: Number(p), role, rss: rssOf(p) };
     });
     const s = {

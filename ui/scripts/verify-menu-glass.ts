@@ -91,14 +91,21 @@ eq("策略模块零 ui 依赖（可在 node 里直接 import 做单测）",
 section("CSS 令牌与共享规则");
 const glass = between(css, "浮层菜单的玻璃（唯一来源", "* { box-sizing");
 check("玻璃令牌段取得到（防失配让下面全绿）", glass.length > 400, String(glass.length));
-check("模糊半径是令牌（不许退回写死值）", /--menu-filter: blur\(\d+px\) saturate\([\d.]+\);/.test(glass));
+check("模糊半径是令牌（不许退回写死值）", /--menu-filter: blur\(\d+px\) saturate\([\d.]+\);/.test(glass)
+  && /--shell-filter: blur\(\d+px\) saturate\([\d.]+\);/.test(glass));
+const menuBlurPx = Number(/--menu-filter: blur\((\d+)px\)/.exec(glass)?.[1] ?? NaN);
+const shellBlurPx = Number(/--shell-filter: blur\((\d+)px\)/.exec(glass)?.[1] ?? NaN);
+check("性能分档：菜单模糊 ≤16px，大面积外壳 ≤12px 且低于菜单档",
+  menuBlurPx <= 16 && shellBlurPx <= 12 && shellBlurPx < menuBlurPx,
+  `menu=${menuBlurPx} shell=${shellBlurPx}`);
 const surfaceAlpha = Number(/--menu-surface: rgba\(246, 246, 248, \.(\d+)\);/.exec(glass)?.[1] ?? NaN);
 check("底片不透明度落在 0.6~0.7（≥0.7 时模糊被实色底片吃掉，是这次的病根之一）",
   surfaceAlpha >= 60 && surfaceAlpha <= 70, String(surfaceAlpha));
 check("暗色主题另给一份表面/阴影/内高光", /html\[data-theme="dark"\] \{[^}]*--menu-surface:/.test(glass));
 check("正在播放页另给一份深色表面（那一页恒为深色玻璃）",
   /\.np \{[^}]*--menu-surface:/.test(glass));
-check("关闭档：模糊换 none（不是 blur(0px)）", /html\[data-menu-glass="off"\] \{[\s\S]*?--menu-filter: none;/.test(glass));
+check("关闭档：菜单与外壳模糊都换 none（不是 blur(0px)）",
+  /html\[data-menu-glass="off"\] \{[\s\S]*?--menu-filter: none;[\s\S]*?--shell-filter: none;/.test(glass));
 check("关闭档：底片换实色（不然关掉模糊后文字压不住背景）",
   /html\[data-menu-glass="off"\] \{[\s\S]*?--menu-surface: var\(--card\);/.test(glass));
 check("关闭档：正在播放页那份深色表面也要顶掉（.np 自己声明过同一个变量）",
@@ -115,9 +122,23 @@ check("共享规则吃令牌：底片 / 描边 / 阴影 + 内高光",
   /background: var\(--menu-surface\);/.test(shared)
   && /border: 1px solid var\(--menu-line\);/.test(shared)
   && /box-shadow: var\(--menu-shadow\), inset 0 1px 0 var\(--menu-edge\);/.test(shared));
-check("正在播放页音质胶囊也读取菜单模糊开关", /\.np-qpill \{[^}]*backdrop-filter: var\(--menu-filter\);/.test(css));
+check("正在播放页音质胶囊不单独开 backdrop 采样（小胶囊只做玻璃表面，避免 4Hz 重采样闪烁）",
+  /\.np-qpill \{/.test(css) && !ruleOf(css, ".np-qpill").includes("backdrop-filter"));
+check("音质胶囊与正在播放菜单共用深色玻璃表面（不再用会被亮封面吃掉的 8% 白底）",
+  /\.np-qpill \{[^}]*background: var\(--menu-surface\);/.test(css)
+  && /\.np-qpill \{[^}]*border: 1px solid var\(--menu-line\);/.test(css));
+check("音质胶囊悬停/打开时仍是深玻璃（不许回退成低对比的白色薄片）",
+  /\.np-qpill:hover, \.np-qpill\.open \{[^}]*background: color-mix\(in srgb, var\(--menu-surface\) 88%, #fff\);/.test(css));
 check("关闭菜单毛玻璃时音质胶囊退回实底", /html\[data-menu-glass="off"\] \.np-qpill \{[^}]*background: #14171f;/.test(css));
-check("正在播放背景保留纹理供菜单二次模糊", /\.np-bg \{[^}]*filter: blur\(24px\)/.test(css));
+check("正在播放背景保留纹理供菜单二次模糊，并限制在大面积档内", /\.np-bg \{[^}]*filter: blur\(16px\)/.test(css));
+check("浮窗播放列表加入共享玻璃规则", shared.includes(".queue-panel.float"));
+check("侧栏与 Content View 的模糊由 --shell-filter 总开关接管",
+  /\.sidebar \{[^}]*backdrop-filter: var\(--shell-filter\);/.test(css)
+  && /\.content \{[^}]*backdrop-filter: var\(--shell-filter\);/.test(css));
+check("关闭模糊时侧栏 / Content View / 播放条都保持透明表面（只撤采样，不换实底）",
+  !/html\[data-menu-glass="off"\] body \{[^}]*--sidebar-surface: var\(--card\)/s.test(css)
+  && !/html\[data-menu-glass="off"\] body \{[^}]*--content-surface: var\(--card\)/s.test(css)
+  && !/html\[data-menu-glass="off"\] body \{[^}]*--control-bar-surface: var\(--card\)/s.test(css));
 
 // —— 这一条是本次「菜单完全没有模糊」的真凶，必须钉死 ——
 // lightningcss（Vite 8 的 CSS 压缩器）把同一逻辑属性的重复声明按后者优先折叠，它不认前缀；
@@ -139,13 +160,51 @@ check(".player 自己的规则不带 backdrop-filter（带了就是那三颗浮�
 const playerBefore = ruleOf(noComments(css), ".player::before");
 check(".player 的玻璃挪到 ::before：铺满 + 圆角继承 + z-index:-1（压在内容之下、自身背景之上）",
   playerBefore.includes("inset: 0") && playerBefore.includes("border-radius: inherit")
-  && playerBefore.includes("z-index: -1") && playerBefore.includes("backdrop-filter: var(--menu-filter)"),
+  && playerBefore.includes("z-index: -1") && playerBefore.includes("backdrop-filter: var(--shell-filter)"),
   playerBefore.replace(/\s+/g, " ").slice(0, 150));
 check("…且 ::before 不吃指针（它铺满整条）", /\.player::before \{[\s\S]*?pointer-events: none/.test(css));
-check("关闭菜单毛玻璃时控制条底片退回实底", /html\[data-menu-glass="off"\] body \{[^}]*--control-bar-surface: var\(--card\)/.test(css));
+check("关闭菜单毛玻璃时控制条仍保留透明底片（只是 backdrop-filter: none）", !/--control-bar-surface: var\(--card\)/.test(css));
+// identity transform 也会留下合成层 / backdrop root，导致浮窗只采到一部分底图。
+// 悬浮条入场动画必须用 backwards（结束后回到基础态），不能 both。
+check("悬浮播放条动画结束后释放 transform（不能用 fill-mode both 留终帧）",
+  /animation: control-bar-float-in[^;]*\bbackwards;/.test(css)
+  && !/animation: control-bar-float-in[^;]*\bboth;/.test(css));
+check("正在播放页两个菜单的玻璃本体不声明入场 transform（打开态只切透明度）",
+  !/\.np-menu\.open \{[^}]*transform:/.test(css)
+  && !/\.np-qinfo\.open \{[^}]*transform:/.test(css));
+check("正在播放页菜单玻璃本体不做 transform/opacity 入场（否则打开瞬间不模糊）",
+  /\.np-menu \{[^}]*transform: none;[^}]*transition: opacity \.13s/.test(css)
+  && /\.np-qinfo \{[^}]*transform: none;[^}]*transition: opacity \.13s/.test(css)
+  && /\.np-menu\.open \{[^}]*transition: none;/.test(css)
+  && /\.np-qinfo\.open \{[^}]*transition: none;/.test(css));
+check("菜单入场动画只落在内容子项上",
+  /\.np-menu\.open > \* \{[^}]*animation: menu-content-in/.test(css)
+  && /\.np-qinfo\.open > \* \{[^}]*animation: menu-content-in/.test(css));
+check("AMLL 只在菜单打开时临时切 normal，平时保留 plus-lighter 发光/独立合成层",
+  /\.np:has\(\.np-menu\.open, \.np-qinfo\.open\) \.np-kara-host \.amll-lyric-player \{[^}]*mix-blend-mode: normal;/.test(css)
+  && !/\n\.np-kara-host \.amll-lyric-player \{[^}]*mix-blend-mode: normal;/.test(css));
+check("浮窗队列打开时撤掉 AMLL 非当前行的逐行 blur 滤镜",
+  /\.np\.queue-open \.np-kara-host \[class\*="lyricLineWrapper"\] \{[^}]*filter: none !important;/.test(css)
+  && /classList\.toggle\("queue-open", player\.queueOpen\)/.test(nowPlaying));
+check("正在播放页停掉被遮住的侧栏 / Content View / 播放条 backdrop 采样",
+  /body:has\(> \.np\.open\) \.sidebar,[\s\S]{0,220}?body:has\(> \.np\.open\) \.player::before \{[^}]*backdrop-filter: none;/.test(css));
+check("浮窗队列在正在播放页保留自己的外壳模糊（不被停采样名单误伤）",
+  /\.queue-panel\.float \{[^}]*backdrop-filter: var\(--shell-filter\);/.test(css)
+  && !/body:has\(> \.np\.open\) > \.queue-panel\.float[^}]*backdrop-filter: none;/.test(css));
+check("浮窗播放列表玻璃本体不做入场动画、只动画内容",
+  /\.queue-panel\.float \{[^}]*transform: none;[^}]*transition: opacity \.18s/.test(css)
+  && /\.queue-panel\.float\.open \{[^}]*transition: none;/.test(css)
+  && /\.queue-panel\.float\.open > \* \{[^}]*menu-content-in/.test(css));
+check("播放条三颗浮窗同样只动画内容，不动画玻璃本体",
+  /\.player\.q-open \.pb-qpop \{[^}]*transition: none;/.test(css)
+  && /\.player\.lp-open \.pb-lpop \{[^}]*transition: none;/.test(css)
+  && /\.player\.vol-open \.pb-volpop \{[^}]*transition: none;/.test(css)
+  && /\.player\.q-open \.pb-qpop > \* \{[^}]*menu-content-in/.test(css)
+  && /\.player\.lp-open \.pb-lpop > \* \{[^}]*menu-content-in/.test(css)
+  && /\.player\.vol-open \.pb-volpop > \* \{[^}]*menu-content-in/.test(css));
 
 for (const sel of MENU_SELECTORS) {
-  const body = ruleOf(css, sel);
+  const body = ruleOf(noComments(css), sel);
   check(`${sel} 自己的规则不再各写一份玻璃（只留定位/尺寸/动画）`,
     body.length > 0 && !body.includes("backdrop-filter") && !body.includes("background:"), body.slice(0, 120));
 }
@@ -154,7 +213,7 @@ check("旧的 --volpop 令牌已清干净（七处都转到了 --menu-surface）
 // 反向自证：某处菜单又自己写一份 backdrop-filter 必须被逮住
 const dupGlass = (s: string) => MENU_SELECTORS.some((sel) => ruleOf(s, sel).includes("backdrop-filter"));
 check("…反向：菜单又自己写一份 backdrop-filter 会被逮住", dupGlass("\n.pb-qpop {\n  backdrop-filter: blur(24px);\n}"));
-check("…当前源码确实没有", !dupGlass(css));
+check("…当前源码确实没有", !dupGlass(noComments(css)));
 const zeroBlur = (s: string) => /data-menu-glass="off"\][\s\S]{0,120}--menu-filter: blur\(0px\)/.test(s);
 check("…反向：关闭档退回 blur(0px)（照样占一层 GPU 合成）会被逮住",
   zeroBlur('html[data-menu-glass="off"] {\n  --menu-filter: blur(0px);\n}'));
@@ -251,12 +310,16 @@ section("产物级（dist 存在时）");
       !built.includes("-webkit-backdrop-filter") || /-webkit-backdrop-filter:([^;}]+);\s*backdrop-filter:\1/.test(built));
     check("产物里的菜单玻璃走令牌 var(--menu-filter)",
       /(?<!-)backdrop-filter:var\(--menu-filter\)/.test(built));
-    check("产物里的 .player 玻璃在 :before 上，并走菜单模糊令牌",
-      /\.player:before\{[^}]*(?<!-)\bbackdrop-filter:var\(--menu-filter\)/.test(built)
+    check("产物里的 .player 玻璃在 :before 上，并走外壳模糊令牌",
+      /\.player:before\{[^}]*(?<!-)\bbackdrop-filter:var\(--shell-filter\)/.test(built)
       && !/\.player\{[^}]*backdrop-filter/.test(built));
-    check("产物里的控制条关闭档换实底（不只是模糊变 none）",
-      /--control-bar-surface:var\(--card\)/.test(built));
+    check("产物里的控制条关闭档保持透明（不写入实底令牌）",
+      !/--control-bar-surface:var\(--card\)/.test(built));
     check("产物里的关闭档是 none（不是 blur(0px)）", /--menu-filter:none/.test(built));
+    check("产物里的侧栏 / Content View / 浮窗队列都走模糊令牌",
+      /\.sidebar\{[^}]*backdrop-filter:var\(--shell-filter\)/.test(built)
+      && /\.content\{[^}]*backdrop-filter:var\(--shell-filter\)/.test(built)
+      && /\.queue-panel\.float\{[^}]*opacity:0/.test(built));
   }
 }
 

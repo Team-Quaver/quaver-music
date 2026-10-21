@@ -13,6 +13,7 @@ const CREDITS: Credit[] = [
   { repo: "SPlayer-Dev/lyric-kit", license: "AGPL-v3", purpose: "本应用的歌词附加解析引擎（仅 QRC Kana）" },
   { repo: "team-quaver/quaver-sparkle", license: "AGPL-v3", purpose: "本应用的插件 SDK，与插件供应商" },
   { repo: "team-quaver/typhoeus-go", license: "AGPL-v3", purpose: "本应用的后端，提供系统集成，流媒体 API 接入等功能" },
+  { repo: "dbusjs/mpris-service", license: "MIT", purpose: "Linux MPRIS 2.0 D-Bus 接口" },
   { repo: "L-1124/QQMusicApi", license: "GPL-3.0", purpose: "本应用曾经的后端" },
   { repo: "BYVoid/OpenCC", license: "Apache-2.0", purpose: "为本应用提供繁简转换功能" },
 ];

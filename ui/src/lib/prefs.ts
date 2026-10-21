@@ -161,9 +161,10 @@ export function setBackgroundBlur(px: number) {
   cfgSetSoon({ "Style.BackgroundBlur": String(clamped) });
 }
 
-// —— 浮层菜单的毛玻璃（[Style] MenuBlur）——
-// 一棵开关：开 = 半透明玻璃底 + backdrop 模糊（右键菜单 / 音质·播放模式·音量浮窗 /
-// 正在播放页「更多操作」菜单 / 音频流信息浮窗）；关 = 实底且完全不模糊。
+// —— 界面毛玻璃（[Style] MenuBlur）——
+// 一棵开关：开 = 半透明玻璃底 + backdrop 模糊（侧栏 / Content View / 浮窗播放列表 /
+// 右键菜单 / 音质·播放模式·音量浮窗 / 正在播放页「更多操作」菜单 / 音频流信息浮窗）；
+// 关 = 菜单换实底；侧栏 / Content View / 播放条保持透明表面但完全不模糊。
 // 这里同样**只**管「布尔 ⇄ 配置取值」：写 DOM 属性的那侧在 src/lib/menu-glass.ts
 // （prefs 被 player/api 反向依赖，不能反过来 import 渲染层模块），主题归属策略在
 // src/sparkle/theme-menus.ts。默认开（与 schema 的 def 同值）。

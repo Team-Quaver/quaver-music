@@ -46,6 +46,8 @@ import {
   evaluateKeyring, pickPasswordStore,
 } from "./keyring.ts";
 import { getSparkleHostVersionError } from "./sparkle-version.ts";
+// Linux MPRIS：主进程内直接挂 D-Bus，不再 spawn 外部 daemon。
+import { createMprisBridge, type MprisBridge, type MprisCommand } from "./mpris.ts";
 // 注意：vite 不能在顶层 import——实测其在 Electron 主进程有副作用，会让 app.whenReady() 永不兑现。
 // 只在 createWindow 里动态 import()。
 
@@ -204,7 +206,8 @@ let cachedUrl = null; // preview 服务器只起一次；CSD/SSD 重建窗口时
 let appUrl = null;
 // 桌面歌词控制器：whenReady 里构造（IPC 注册 + 平台判据），boot 由 createWindow 尾部触发
 let desktopLyrics = null;
-let sidecar = null;   // 打包态自拉起的 Python sidecar 子进程
+let sidecar = null;   // 自拉起的 Typhoeus-Go sidecar 子进程
+let mpris = null;     // Linux MPRIS 服务（进程内；win/mac 不走这里）
 let credentialStore = null; // 凭证存档（ready 之后才能建：safeStorage 要 ready 才可用）
 // 窗口装饰模式：csd=自绘（frame:false，右上角按钮簇）；ssd=系统标题栏。初值取 quaver.conf 的 [Window] Decor。
 let decorMode = bootConf["Window.Decor"] === "ssd" ? "ssd" : "csd";
@@ -258,94 +261,29 @@ function toggleWindow() {
   else { winShown = true; showWindow(); }
 }
 
-// MPRIS cmd 里 raise/quit 由主进程消费，其余转发给渲染层执行
-
-function mprisDaemonPath() {
-  // 打包态：electron-builder extraResources 把编译产物放到 <resources>/mpris/
-  if (app.isPackaged) return join(process.resourcesPath, "mpris", "mpris-daemon.cjs");
-  // 开发态：vendor/Typhoeus/mpris/dist/（pnpm run mpris:build 产物，缺失则跳过 MPRIS）
-  return resolve(UI_ROOT, "..", "vendor", "Typhoeus", "mpris", "dist", "mpris-daemon.cjs");
+// MPRIS 的 raise/quit 由主进程消费，其余原样转发渲染层执行；播放器仍是唯一事实源。
+function handleMprisCommand(msg: MprisCommand) {
+  if (msg.cmd === "raise") {
+    if (!win) createWindow().catch(() => {});
+    else { if (win.isMinimized()) win.restore(); win.show(); win.focus(); winShown = true; }
+  } else if (msg.cmd === "quit") {
+    app.quit();
+  } else if (win && !win.isDestroyed()) {
+    win.webContents.send("quaver:mpris-cmd", msg);
+  }
 }
-
-let mprisBuf = "";      // daemon stdout 行缓冲
-let mprisReady = false; // 收到 hello 前缓存最新 state，避免总线未就绪时丢首帧
-let mprisPending = null;
-let mprisRetries = 0;
-let mprisDaemon = null; // 当前 daemon 子进程
-let mprisSpawnedAt = 0; // 上次拉起时刻（崩溃重拉的存活判据）
 
 function startMpris() {
-  if (process.platform !== "linux") return; // Linux MPRIS；win/mac 由渲染层 navigator.mediaSession 直驱（src/mpris.ts）
-  const script = mprisDaemonPath();
-  if (!existsSync(script)) {
-    log("[quaver] mpris daemon missing, skipped:", script);
-    return;
-  }
-  log("[quaver] spawning mpris daemon:", script);
-  // Electron 自带 node 跑 .cjs（ELECTRON_RUN_AS_NODE），打包态无需系统 node
-  const child = spawn(process.execPath, [script], {
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", QUAVER_MPRIS_NAME: "quaver", QUAVER_MPRIS_IDENTITY: "Quaver Music" },
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  child.stdout.on("data", (chunk) => {
-    mprisBuf += chunk;
-    let i;
-    while ((i = mprisBuf.indexOf("\n")) >= 0) {
-      const line = mprisBuf.slice(0, i).trim();
-      mprisBuf = mprisBuf.slice(i + 1);
-      if (!line) continue;
-      let msg;
-      try { msg = JSON.parse(line); } catch { log("[mpris] bad stdout line:", line.slice(0, 120)); continue; }
-      if (msg.t === "hello") {
-        mprisReady = true;
-        log("[quaver] mpris daemon up:", msg.identity);
-        if (mprisPending) mprisWrite(mprisPending);
-      } else if (msg.t === "cmd") {
-        if (msg.cmd === "raise") {
-          if (!win) createWindow().catch(() => {});
-          else { if (win.isMinimized()) win.restore(); win.show(); win.focus(); winShown = true; }
-        } else if (msg.cmd === "quit") {
-          app.quit();
-        } else if (win && !win.isDestroyed()) {
-          win.webContents.send("quaver:mpris-cmd", msg);
-        }
-      }
-    }
-  });
-  child.stderr.on("data", (d) => log(String(d).trimEnd()));
-  child.on("exit", (code) => {
-    log("[quaver] mpris daemon exited:", code);
-    mprisReady = false;
-    mprisDaemon = null;
-    // 快速退出 = D-Bus 会话不可用（无总线/头环境），重试无意义；存活过的崩溃才重拉
-    if (code !== 0 && mprisRetries < 3 && Date.now() - mprisSpawnedAt > 5000) {
-      mprisRetries++;
-      setTimeout(startMpris, 2000 * mprisRetries);
-    }
-  });
-  mprisSpawnedAt = Date.now();
-  mprisDaemon = child;
+  mpris = createMprisBridge({ log, onCommand: handleMprisCommand });
 }
 
-function mprisWrite(state) {
-  mprisPending = state; // 始终留最新一帧：hello 未到先缓存，到了补发
-  if (!mprisReady || !mprisDaemon || mprisDaemon.killed || !mprisDaemon.stdin.writable) return;
-  try {
-    mprisDaemon.stdin.write(JSON.stringify(state) + "\n");
-  } catch (e) {
-    log("[quaver] mpris state write failed:", String(e));
-  }
-}
-
-// 渲染层快照（preload quaverMpris.send）→ 直写 daemon stdin（win/mac 无 daemon，
+// 渲染层快照（preload quaverMpris.send）→ 进程内 MPRIS 服务（win/mac 无此服务，
 // 系统媒体控件由渲染层 navigator.mediaSession 直驱，不经主进程）；
 // 同一份快照顺带喂托盘菜单（曲目行/播放态/循环档/随机勾选）
 ipcMain.on("quaver:mpris", (_e, state) => {
   if (state && state.t === "state") {
     updateTrayMenu(state);
-    mprisWrite(state);
+    mpris?.applyState(state);
   }
 });
 
@@ -411,7 +349,7 @@ function createTray() {
 
 // ——— 托盘菜单扩展：播放控制块 ———
 // 状态来自渲染层快照（quaver:mpris → updateTrayMenu），命令回发 quaver:mpris-cmd ——
-// 与 MPRIS daemon 命令同一通道，播放器仍是唯一事实源，主进程只转发不动播放状态。
+// 与 MPRIS 命令同一通道，播放器仍是唯一事实源，主进程只转发不动播放状态。
 // 渲染层不在线（窗口未起/拆窗间隙）时快照缺位 → 控制项按兜底灰置，点击自然丢弃（同热键语义）。
 let trayState = null;
 let trayMenuSig = "";
@@ -1026,7 +964,7 @@ ipcMain.on("quaver:hotkeys-info-sync", (e) => { e.returnValue = hotkeys.info(); 
 // 本应用是插件宿主，DevTools 等于把渲染层控制台与网络面板交给任何能碰到键盘的人，
 // 所以宁可多两次点击，也不要一个顺手就能按开的口子。
 
-/** 外部子进程（sidecar / mpris / mpv / 看门狗）不在 Chromium 的进程表里，只能自己读。
+/** 外部子进程（sidecar / mpv / 看门狗）不在 Chromium 的进程表里，只能自己读。
  *  Linux 走 /proc，其余平台退到 ps；拿不到就返回 null —— 自检面板少一行，不该整块坏掉。 */
 function rssKBOf(pid: number): number | null {
   if (!pid || pid <= 0) return null;
@@ -1083,6 +1021,7 @@ const CREDIT_REPOS = new Set([
   "splayer-dev/lyric-kit",
   "team-quaver/quaver-sparkle",
   "team-quaver/typhoeus-go",
+  "dbusjs/mpris-service",
   "l-1124/qqmusicapi",
   "byvoid/opencc",
 ]);
@@ -1128,7 +1067,6 @@ ipcMain.handle("quaver:metrics", () => {
   }).sort((a, b) => b.rssKB - a.rssKB);
   const external = [
     { pid: sidecar?.pid, tag: "外部 · sidecar（typhoeus-go）" },
-    { pid: mprisDaemon?.pid, tag: "外部 · MPRIS 守护（node）" },
     { pid: audioEngine.mpv?.child?.pid ?? null, tag: "外部 · mpv（音频）" },
     { pid: audioEngine.watchdog?.pid ?? null, tag: "外部 · mpv 看门狗" },
   ].map((x) => ({ pid: x.pid ?? 0, tag: x.tag, rssKB: rssKBOf(x.pid), privKB: pssKBOf(x.pid) }))
@@ -1217,8 +1155,8 @@ ipcMain.on("quaver:decor", (_e, mode) => {
 // Wayland：本机 Electron 44 默认 ozone 平台即可，不加任何 ozone 相关开关。
 // 但要关掉 Electron 内嵌 Chromium 的 MPRIS mediator：渲染层 HTML5 音频开播后，
 // Chromium 自己会注册 org.mpris.MediaPlayer2.chromium.instance<pid>（Identity 用页面标题），
-// 与 Quaver 的 mpris daemon 在总线上双条目并存、互抢桌面部件/媒体键（实测 electron#18253 workaround）。
-// Quaver 不用 navigator.mediaSession 挂 MPRIS，全局媒体键由我们自己的 daemon 提供。
+// 与进程内 Quaver MPRIS 服务在总线上双条目并存、互抢桌面部件/媒体键（实测 electron#18253 workaround）。
+// Quaver 不用 navigator.mediaSession 挂 MPRIS，全局媒体键由 electron/mpris.ts 提供。
 // MediaSessionService 仅 Linux 关：win/mac 的系统媒体控件（SMTC / Now Playing）恰恰依赖
 // 渲染层 navigator.mediaSession（src/mpris.ts），关掉 MediaSessionService 它们就全瞎了。
 // AutofillServerCommunication 与媒体键无关，全平台关：本应用没有表单自动填充，省掉它的
@@ -1343,6 +1281,8 @@ app.whenReady().then(() => {
     // cfgSet 的「值没变」短路就会把「再开一次」吃掉（关了打不开的根因，见 desktop-lyrics.ts:persistConf）
     broadcastConfig: (values) => broadcastConfigChanged(Object.keys(values), values),
   });
+  // MPRIS 服务先于主窗建立：渲染层启动后的第一帧快照不会丢。
+  try { startMpris(); } catch (e) { log("[quaver] mpris init failed:", String(e)); }
   createWindow().catch((e) => {
     log("[quaver] startup failed:", String(e && e.stack || e));
     app.quit();
@@ -1353,19 +1293,18 @@ app.whenReady().then(() => {
   // ③Windows 的 watchWindowsShellTheme（Electron 在 KDE 下看不见真实配色变化、在 Windows 上也未必发事件）。
   // 换图本身很便宜（两张 256² 缩到 16/32），不做去重。
   nativeTheme.on("updated", () => refreshTrayImage());
-  try { startMpris(); } catch (e) { log("[quaver] mpris init failed:", String(e)); }
   try { hotkeys.apply(); } catch (e) { log("[quaver] hotkeys init failed:", String(e)); }
 });
 app.on("window-all-closed", () => { if (!rebuilding) app.quit(); });
 // 注销/登出：会话管理器对本进程发 SIGTERM（超时后 SIGKILL）。不接住的话默认行为是立刻死，
-// will-quit 等收尾不会跑 —— sidecar/mpris/mpv 全成孤儿，mpv 继续放歌。这里先清子进程再退；
+// will-quit 等收尾不会跑 —— sidecar/mpv 全成孤儿，mpv 继续放歌。这里先清子进程再退；
 // 期间被 SIGKILL 的极端场景由 mpv 看门狗兜底（父死 → 管道断 → mpv 必死，见 engine.ts）。
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
   process.on(sig, () => {
     log("[quaver] signal:", sig, "— 清理子进程后退出");
     try { audioEngine.shutdown(); } catch {}
     try { sidecar?.kill(); } catch {}
-    try { mprisDaemon?.kill(); } catch {}
+    try { mpris?.destroy(); } catch {}
     // app.exit 不触发 will-quit（上面已手动清理）；显式接信号后也不再用默认终止
     app.exit(0);
   });
@@ -1373,6 +1312,6 @@ for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
 app.on("will-quit", () => {
   try { hotkeys.destroy(); } catch {} // win/mac 反注册系统级热键；Linux 关门户会话
   try { sidecar?.kill(); } catch {}
-  try { mprisDaemon?.kill(); } catch {}
+  try { mpris?.destroy(); } catch {}
   try { audioEngine.shutdown(); } catch {}
 });

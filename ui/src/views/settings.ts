@@ -855,7 +855,7 @@ export default async function settingsView(root: HTMLElement) {
   paintColor();
   paintTintPolicy();
 
-  // —— 菜单毛玻璃（[Style] MenuBlur）：浮层菜单的玻璃底 + 背景模糊开不开 ——
+  // —— 界面毛玻璃（[Style] MenuBlur）：侧栏 / Content View / 浮层与浮窗的模糊开不开 ——
   // 真相是 <html data-menu-glass>（由 lib/menu-glass.ts 写，on/off/theme 三态），CSS 侧一组
   // --menu-* 令牌据此取值；这里只管这棵开关的呈现。主题自带菜单外观时整组留在原位但禁用。
   const menuGlassCards = wrap.querySelector<HTMLElement>("#menu-glass-cards")!;

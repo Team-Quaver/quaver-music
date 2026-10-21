@@ -1,5 +1,7 @@
 # Spike #3 — 用 Node 版 qq-music-api 实现 SQ（无损 FLAC）播放
 
+> **历史记录**：文中「当前后端为 Python sidecar」是当时状态；现已统一为 Typhoeus-Go。
+
 日期：2026-09-14 · 环境：Node v22.23.2 / @yakult-green-tea/qq-music-api 3.1.2 · 实验目录 `~/qq-node-spike`
 
 ## 背景与问题

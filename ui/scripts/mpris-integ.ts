@@ -1,6 +1,6 @@
 // 双向集成验证（真·Electron 应用内）：
-//   方向 A：渲染层改 player 状态 → mpris 桥 → 主进程 → daemon → D-Bus 总线（playerctl/gdbus 读回）
-//   方向 B：总线 Set LoopStatus/Volume → daemon cmd → 主进程 → 渲染层回调 → player 状态变化
+//   方向 A：渲染层改 player 状态 → mpris 桥 → 主进程内 MPRIS 服务 → D-Bus 总线（playerctl/gdbus 读回）
+//   方向 B：总线 Set LoopStatus/Volume → D-Bus 回调 → 主进程 → 渲染层回调 → player 状态变化
 import puppeteer from "puppeteer-core";
 import { execFile } from "node:child_process";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

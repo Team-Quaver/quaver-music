@@ -36,7 +36,7 @@ contextBridge.exposeInMainWorld("quaverHotkeys", {
   },
 });
 
-// MPRIS：渲染层 ↔ mpris daemon（经主进程中转，daemon 走 stdio NDJSON）。
+// MPRIS：渲染层 → 主进程内 MPRIS 服务；总线命令再由主进程中转回来。
 // state 为播放器快照（结构化克隆可序列化）；命令回调只收纯数据。
 contextBridge.exposeInMainWorld("quaverMpris", {
   send: (state: unknown) => ipcRenderer.send("quaver:mpris", state),
@@ -109,7 +109,7 @@ contextBridge.exposeInMainWorld("quaverConfig", {
 });
 
 // 调试（设置 → 通用 → 调试）：开发者控制台开关与进程/内存自检。
-// 自检必须问主进程 —— 渲染层看不见主进程、GPU 进程与外部子进程（sidecar/mpv/mpris）。
+// 自检必须问主进程 —— 渲染层看不见主进程、GPU 进程与外部子进程（sidecar/mpv/看门狗）。
 contextBridge.exposeInMainWorld("quaverDebug", {
   devtools: (msg: Record<string, unknown>) => ipcRenderer.invoke("quaver:devtools", msg),
   metrics: () => ipcRenderer.invoke("quaver:metrics"),

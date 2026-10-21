@@ -1,4 +1,4 @@
-// Quaver — 浏览器侧 API 封装（全部走同源 /api 中继 → Python sidecar :3200）
+// Quaver — 浏览器侧 API 封装（全部走同源 /api 中继 → Typhoeus-Go sidecar）
 // 响应信封：{code:0,msg:"ok",data:...}；错误 {code:-1,msg:...} + HTTP 状态。
 import { escHtml } from "./html.ts";
 export { escHtml } from "./html.ts";
