@@ -230,7 +230,7 @@ check("逐字行把 ruby 挂回词上", amll.includes("applyKanaToLines(word, ka
 check("core 渲染行透传 ruby（AMLL 原生画词上方注音）",
   /if \(w\.ruby\?\.length\) core\.ruby =/.test(amll), "toCoreLines 没透传 ruby");
 check("辅助行档位规则复用宿主唯一那份 pickAux（不再有两份实现）",
-  amll.includes('import { pickAux } from "../lyric"') && !amll.includes("const prefer ="));
+  /import \{[^}]*\bpickAux\b[^}]*\} from "\.\.\/lyric"/.test(amll) && !amll.includes("const prefer ="));
 check("内置提供器不注册 enabled（没有「关掉歌词引擎」这一档）",
   /export const builtinKaraokeProvider: SparkleKaraokeProvider = \{/.test(amll)
     && !amll.includes("enabled?()") && !amll.includes("enabled:"));

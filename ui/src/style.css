@@ -1862,6 +1862,9 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 .set-blur::-moz-range-track { height: 4px; border-radius: 2px; background: var(--track); }
 .set-blur::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--cvg-accent, var(--acc)); }
 .set-blur::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: var(--cvg-accent, var(--acc)); box-shadow: 0 1px 3px #0004; }
+/* 桌面歌词参数只保留圆点：整条轨道同色，不显示已滑过一段的 accent 内条。 */
+.set-blur.set-blur--flat::-webkit-slider-runnable-track { background: var(--track); }
+.set-blur.set-blur--flat::-moz-range-progress { background: var(--track); }
 .set-row__ctrl input.set-blur:disabled { opacity: .5; cursor: not-allowed; }
 .set-blur:disabled::-webkit-slider-thumb { background: var(--idx); }
 .set-blur:disabled::-moz-range-thumb { background: var(--idx); }

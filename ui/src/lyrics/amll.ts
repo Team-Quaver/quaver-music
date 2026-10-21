@@ -35,7 +35,7 @@ import { LyricPlayer, type LyricLine as CoreLyricLine } from "@applemusic-like-l
 import "@applemusic-like-lyrics/core/style.css";
 import type { SparkleKaraokeLine, SparkleKaraokeProvider, SparkleKaraokeRenderCtx } from "@quaver/sparkle";
 import type { LyricAuxMode } from "../lib/prefs";
-import { extractQrcPayload, pickAux } from "../lyric";
+import { cleanAuxText, extractQrcPayload, pickAux } from "../lyric";
 import { applyKanaToLines, extractKanaTag, stripKanaTag } from "./qrc-kana";
 
 // —— 解析 ——
@@ -136,15 +136,19 @@ function auxLines(src: string): KaraLine[] {
   try { return parseLrc(c); } catch { return []; }
 }
 
-/** 按行起始时间就近取辅助文本（1.5s 容忍，同宿主 src/lyric.ts 的口径） */
+/** 按行起始时间就近取辅助文本（1.5s 容忍，同宿主 src/lyric.ts 的口径）。
+ *  `//` 是上游的「本行无译文/音译」占位：跳过它再找最近的真文本，不能让它上屏，
+ *  也不能让一条占位挡住同时间附近的真实辅助行。 */
 function nearestAuxText(aux: RawLine[], line: { startTime: number }): string {
-  let best: RawLine | undefined;
+  let best = "";
   let bd = 1500;
   for (const t of aux) {
+    const text = cleanAuxText(t.words.map((w) => w.word).join(""));
+    if (!text) continue;
     const d = Math.abs(t.startTime - line.startTime);
-    if (d < bd) { bd = d; best = t; }
+    if (d < bd) { bd = d; best = text; }
   }
-  return best ? best.words.map((w) => w.word).join("").trim() : "";
+  return best;
 }
 
 /** 翻译与音译都挂成**行级**辅助文本（translatedLyric / romanLyric），显示哪一路交给档位。

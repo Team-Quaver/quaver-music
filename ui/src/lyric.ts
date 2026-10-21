@@ -15,6 +15,12 @@ export interface LyricLine {
 
 const TS = /\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?]/g;
 
+/** 辅助行可见文本：上游常用 `//` 表示这一行没有翻译/音译，不能当成正文上屏。 */
+export function cleanAuxText(value: string | undefined): string {
+  const text = (value ?? "").trim();
+  return /^\/+$/.test(text) ? "" : text;
+}
+
 function parseBlock(src: string): LyricLine[] {
   const out: LyricLine[] = [];
   for (const raw of src.split(/\r?\n/)) {
@@ -25,9 +31,9 @@ function parseBlock(src: string): LyricLine[] {
       const ms = m[3] ? Number(("0." + m[3]).slice(0, 4)) : 0;
       times.push(Number(m[1]) * 60 + Number(m[2]) + ms);
     }
-    const text = raw.replace(TS, "").trim();
-    // 跳过占位行（上游翻译常用 "//" 占位、歌词站用 空/纯符号行）
-    if (!times.length || !text || text === "//") continue;
+    const text = cleanAuxText(raw.replace(TS, ""));
+    // 跳过占位行（上游翻译常用 "//" 占位、歌词站用 空行）
+    if (!times.length || !text) continue;
     for (const t of times) out.push({ t, text });
   }
   out.sort((a, b) => a.t - b.t);
@@ -70,7 +76,7 @@ export function pickAux(line: Pick<LyricLine, "trans" | "roma">, mode: LyricAuxM
   if (mode === "off") return "";
   const prefer = (mode === "romanization" ? line.roma : line.trans) ?? "";
   const fallback = (mode === "romanization" ? line.trans : line.roma) ?? "";
-  return prefer.trim() || fallback.trim();
+  return cleanAuxText(prefer) || cleanAuxText(fallback);
 }
 
 export const fmtDur = (sec: number) => {
