@@ -1,5 +1,8 @@
 # Spike #2 — 后端切换到 L-1124/QQMusicApi（Python）
 
+> **历史记录（已退役）**：Python sidecar 与 `vendor/Typhoeus` submodule 已移除；当前后端为
+> `vendor/Typhoeus-go`。本文保留当时的决策与踩坑，不再代表运行形态。
+
 日期：2026-09-13 · 环境：Fedora 44 / Python 3.12 (uv) / qqmusic-api-python 0.7.2（vendor submodule @3740170）
 
 ## 为什么换

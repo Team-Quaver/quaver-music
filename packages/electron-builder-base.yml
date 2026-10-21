@@ -17,8 +17,6 @@ extraResources:
     to: bin
     filter:
       - quaver-server*
-  - from: ../vendor/Typhoeus/mpris/dist/mpris-daemon.cjs
-    to: mpris/mpris-daemon.cjs
   - from: build-res/icon.png
     to: build-res/icon.png
   - from: build-res/icons

@@ -382,7 +382,7 @@ WebDAV 客户端在 `electron/local/webdav.ts`（PROPFIND + Range；NAS 走挂�
 - **凭证归属在 Electron 主进程**（打包态）。main 把已存凭证写进 sidecar 的 stdin（`QCRED1 {json}` /
   `QCRED1 null` 一行），sidecar 登录/刷新/登出时从 stdout 交回同一格式 → main 加密落盘。
   前缀常量两侧必须逐字一致：`ui/electron/keyring.ts:HANDOFF_PREFIX` ↔
-  `vendor/Typhoeus/quaver_server/session.py:HANDOFF_PREFIX`（含末尾空格，verify:keyring 会比对）。
+  `vendor/Typhoeus-go/server/session.go:HandoffPrefix`（含末尾空格，verify:keyring 会比对）。
   sidecar 侧只在 `QUAVER_CREDENTIAL_MODE=external` 下启用（stdin 阻塞读、save/clear 改交接）；
   不设该变量（手工单跑）= memory 模式，什么都不落盘。
 - **日志卫生**：sidecar 的 stdout 是混着的 —— 必须**先按行切**（`drainLines`）**再判前缀**，
@@ -395,7 +395,7 @@ WebDAV 客户端在 `electron/local/webdav.ts`（PROPFIND + Range；NAS 走挂�
 （更旧的残留不许顶掉新登录态）。设备指纹 `device.json` 不是密钥，保持明文。
 
 **开发态也走同一条交接通道**（踩过一次）：`pnpm run app` 时主进程自己拉起
-`vendor/Typhoeus/run.py`（优先 `.venv/bin/python`，退回 `uv run`），必须在 vite 加载**之前**拉
+`vendor/Typhoeus-go`（优先用已编译的 `quaver-server`，没有就 `go run ./cmd/quaver-server`），必须在 vite 加载**之前**拉
 （`relay.ts` 在模块加载时读一次 `QUAVER_API`）。手工起的 sidecar 拿不到交接管道 → 只能 memory 模式，
 所以**不要再手工起 sidecar 并期望登录被持久化** —— 环境里已有 `QUAVER_API` 时主进程不抢，并在日志里说明。
 打包态与开发态的启动方式只在 `sidecarCommand()` 一处分叉，凭证通道完全一致。
@@ -407,7 +407,7 @@ WebDAV 客户端在 `electron/local/webdav.ts`（PROPFIND + Range；NAS 走挂�
 
 - 目录：Linux `~/.config/quaver-music`｜Windows `%AppData%\Quaver Music`｜macOS `Application Support/Quaver Music`；
   `QUAVER_CONFIG_DIR` 可整体顶掉（主进程也用它下发给 sidecar，两边规则必须一致：
-  `ui/electron/config.ts:configDir` ↔ `vendor/Typhoeus/quaver_server/session.py:_config_dir`）。
+  `ui/electron/config.ts:configDir` ↔ `vendor/Typhoeus-go/server/session.go:ConfigDir`）。
 - 加新设置项：改 `electron/config.ts` 的 `SCHEMA` + `src/lib/config.ts` 的 `FALLBACK`
   + `src/lib/prefs.ts` 的类型化 getter/setter（三处都要动）。**例外**：只有主进程消费的项
   （`[Security]` 三项）只需前两处，渲染层不加 getter。
@@ -576,6 +576,9 @@ Exec 写死「当前 electron + 仓库 ui/」，落进 `applications/` 就是启
   另开分支（否则同一首歌在三个系统上显示成三样）。上限别调大来「修好」截断。
 - 曲目行是 `enabled:false` 的纯展示项；命令一律回发渲染层（`quaver:mpris-cmd`），播放器仍是唯一
   事实源。
+- **MPRIS 在 Electron 主进程内**（`electron/mpris.ts` + `mpris-service` 生产依赖）：渲染层只推
+  状态快照，D-Bus 命令原样回推；没有 daemon、没有 `mpris:build`、没有额外子进程。别再把它搬回
+  Typhoeus submodule 或 sidecar —— 前者制造漏构建静默失效，后者把系统媒体控件绑死后端生命周期。
 
 ## 打包与首屏（Rolldown · 动态加载 · 内存）
 
@@ -617,7 +620,7 @@ Vite 8 的打包内核就是 **Rolldown**（`node_modules/rolldown` 1.2.x），�
 界面里也能直接问出答案：**设置 → 通用 → 调试 → 「进程与内存自检」**（`src/components/DebugDialog.ts`，
 沿用模态弹窗那套壳 `.upd-overlay/.upd-dialog`）。逐进程列 RSS / Pss / 峰值 / CPU，外加首屏实际解析量与
 DOM 规模；数据源在主进程（`app.getAppMetrics` + Linux `/proc`，IPC 走 `quaver:metrics`）—— 渲染层看不见
-主进程、GPU 进程、zygote 池和外部子进程（sidecar / mpv / MPRIS），这三类必须在那边拍平再送过来。
+主进程、GPU 进程、zygote 池和外部子进程（sidecar / mpv / 看门狗），这三类必须在那边拍平再送过来。
 CPU 列是「自上次采样以来的均值」，所以第一次采样必是 0（外部子进程没有这个数，显示 `—`）。
 
 弹窗里的**「开发者模式」按钮是 DevTools 的唯一入口，F12 不绑定**：本应用是插件宿主，DevTools 等于把
@@ -634,7 +637,7 @@ node scripts/probe-bundle.ts --live-only --label xxx      # 已开着带 Crotche
 实测（Wayland / Electron 44 / 本机）一个实例的进程树 ~2.6GB，**JS 堆只占其中约 10MB**：大头是
 Chromium 侧的 `/dev/shm` 合成器缓冲（主进程 ~620MB）与**字体映射**（思源黑体一份 .ttc 就映射
 ~450MB RSS、思源宋体 ~155MB —— 这些是 clean file-backed 页，内存紧张时可回收，别当成泄漏），
-再加 renderer / gpu-process / mpv / mpris / sidecar。所以这里定的规矩是：
+再加 renderer / gpu-process / mpv / sidecar。所以这里定的规矩是：
 
 - **改内存前先跑 `--static` 与 `--live-only` 拿到归因**，别拿「总内存好大」当依据动 GPU 或字体。
 - 应用侧真正能省的是：不进首屏的代码（解析与常驻都不付）、有上限的缓存、以及用完就丢的对象。

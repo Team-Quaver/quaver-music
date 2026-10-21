@@ -1,4 +1,4 @@
-// Quaver — 浮层菜单的毛玻璃（[Style] MenuBlur，设置→外观→菜单毛玻璃）。
+// Quaver — 界面毛玻璃（[Style] MenuBlur，设置→外观→模糊效果）。
 //
 // 三态写在 <html data-menu-glass> 上，CSS 侧（style.css 顶部那组 --menu-* 令牌 + 那条共享
 // 的「浮层菜单的玻璃」规则）据此取值：
@@ -12,9 +12,8 @@
 // 底片能压薄、玻璃感才成立；但 glass 有代价（每层浮层一次 backdrop 采样 + 一层 GPU 合成），
 // 精简党 / 低配机需要一条退路，所以给用户一棵总开关。
 //
-// 消费的七个菜单：.ctx-menu（侧栏歌单 / 歌曲右键菜单）、.pb-qpop（音质）、.pb-lpop（播放模式）、
-// .pb-volpop（音量）、.np-menu（正在播放页「更多操作」）、.np-qinfo（音频流信息）、
-// .tint-pop（设置页颜色选择器）。
+// 消费点：七个浮层菜单 + 浮窗播放列表；侧栏 / Content View 复用同一棵 --menu-filter 与
+// 关闭档实底，因此这个开关现在是整块外壳的模糊总闸，而不只是菜单外观。
 //
 // 分工：本模块只管这一个属性。令牌定义与消费点全在 style.css / 各组件；
 // 「布尔 ⇄ 配置取值」在 lib/prefs.ts；主题归属策略在 sparkle/theme-menus.ts。

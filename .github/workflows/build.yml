@@ -207,19 +207,12 @@ jobs:
           cache: pnpm
           cache-dependency-path: |
             ui/pnpm-lock.yaml
-            vendor/Typhoeus/mpris/pnpm-lock.yaml
 
-      # 顺序要紧：submodule 必须先 init，再往仓库里放产物，
-      # 否则 checkout 后 vendor/Typhoeus 空目录被产物填充，submodule update
-      # 会拒绝 clone 进非空目录（"already exists and is not an empty directory"）。
-      # Typhoeus：MPRIS 守护进程源码所在（mpris/），esbuild 产物供 extraResources
-      #           （sidecar 自 Go 起改由 vendor/Typhoeus-go 交叉编译，此 submodule 只剩 mpris）
       # Sparkle：插件 SDK，ui/tsconfig.json 的 paths 把 @quaver/sparkle 指到
       #          ../vendor/Sparkle/sdk —— 不 init 的话 tsc 全量 TS2307，缺类型再连锁
       #          TS7006/TS2339，构建直接挂
       - name: Init submodules
         run: |
-          git submodule update --init --depth 1 vendor/Typhoeus
           git submodule update --init --depth 1 vendor/Sparkle
 
       # sidecar 产物落仓库根 dist-bin/（.gitignore 已覆盖），不再碰 submodule 路径
@@ -228,12 +221,6 @@ jobs:
         with:
           name: sidecar-linux-${{ matrix.arch_label }}
           path: dist-bin
-
-      - name: Build MPRIS daemon bundle
-        working-directory: vendor/Typhoeus/mpris
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm run build
 
       # 随包音频运行时（mpv）：上游不发 Linux 二进制，脚本钉 pkgforge 的 AppImage（含版本 + sha256），
       # 在构建期 --appimage-extract 展开成目录再进 extraResources。运行期由 engine 用包内自带
@@ -314,7 +301,7 @@ jobs:
 
       # 清掉随包音频运行时再打这三个包：extraResources 的 `build-res/audio` 源缺失时
       # builder 只记一条 "file source doesn't exist" 警告并跳过，不是错误 —— 于是落进包里
-      # 的就只有 sidecar + mpris + 前端，音源由发行版的 mpv 提供。（AppImage 已在上一轮打完，
+      # 的就只有 sidecar + 前端，音源由发行版的 mpv 提供。（AppImage 已在上一轮打完，
       # 那份是自包含的，不受影响。）
       - name: Drop bundled mpv runtime (distro packages resolve mpv via Depends)
         working-directory: ui
@@ -435,11 +422,9 @@ jobs:
           cache: pnpm
           cache-dependency-path: |
             ui/pnpm-lock.yaml
-            vendor/Typhoeus/mpris/pnpm-lock.yaml
 
       - name: Init submodules
         run: |
-          git submodule update --init --depth 1 vendor/Typhoeus
           git submodule update --init --depth 1 vendor/Sparkle
 
       - name: Fetch sidecar for this arch
@@ -447,12 +432,6 @@ jobs:
         with:
           name: sidecar-linux-${{ matrix.flatpak_arch }}
           path: dist-bin
-
-      - name: Build MPRIS daemon bundle
-        working-directory: vendor/Typhoeus/mpris
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm run build
 
       - name: Stage bundled mpv runtime
         working-directory: ui
@@ -547,11 +526,9 @@ jobs:
           cache: pnpm
           cache-dependency-path: |
             ui/pnpm-lock.yaml
-            vendor/Typhoeus/mpris/pnpm-lock.yaml
 
       - name: Init submodules
         run: |
-          git submodule update --init --depth 1 vendor/Typhoeus
           git submodule update --init --depth 1 vendor/Sparkle
 
       - name: Fetch sidecar (loong64)
@@ -559,12 +536,6 @@ jobs:
         with:
           name: sidecar-linux-loong64
           path: dist-bin
-
-      - name: Build MPRIS daemon bundle
-        working-directory: vendor/Typhoeus/mpris
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm run build
 
       - name: Stage sidecar
         working-directory: dist-bin
@@ -618,14 +589,19 @@ jobs:
           mkdir -p "$APP"
           cp -r electron "$APP/electron"
           cp -r dist "$APP/dist"
-          node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version='${QUAVER_VERSION}'; fs.writeFileSync('$APP/package.json', JSON.stringify(p,null,2))"
+          # MPRIS 随主进程运行，生产依赖也必须进 asar。先只放 dependencies 的临时 manifest，
+          # 绕开 npm 对 dev peer graph 的解析；装完再换回完整 package.json。
+          node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version='${QUAVER_VERSION}'; const prod={name:p.name,version:p.version,type:p.type,main:p.main,dependencies:p.dependencies}; fs.writeFileSync('$APP/package.full.json', JSON.stringify(p,null,2)); fs.writeFileSync('$APP/package.json', JSON.stringify(prod,null,2))"
+          npm install --prefix "$APP" --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund
+          mv "$APP/package.full.json" "$APP/package.json"
+          rm -f "$APP/package-lock.json"
+          test -f "$APP/node_modules/mpris-service/dist/index.js"
           pnpm dlx @electron/asar pack "$APP" "$STAGE/app.asar"
           PAYLOAD="$STAGE/payload/resources"
-          mkdir -p "$PAYLOAD/bin" "$PAYLOAD/mpris" "$PAYLOAD/build-res"
+          mkdir -p "$PAYLOAD/bin" "$PAYLOAD/build-res"
           mv "$STAGE/app.asar" "$PAYLOAD/app.asar"
           cp ../dist-bin/quaver-server "$PAYLOAD/bin/"
           file "$PAYLOAD/bin/quaver-server" | grep -qi LoongArch
-          cp ../vendor/Typhoeus/mpris/dist/mpris-daemon.cjs "$PAYLOAD/mpris/"
           cp build-res/icon.png "$PAYLOAD/build-res/"
           cp -r build-res/icons "$PAYLOAD/build-res/"
           cp -r build-res/tray "$PAYLOAD/build-res/"
@@ -727,12 +703,10 @@ jobs:
           cache: pnpm
           cache-dependency-path: |
             ui/pnpm-lock.yaml
-            vendor/Typhoeus/mpris/pnpm-lock.yaml
 
       - name: Init submodules
         shell: bash
         run: |
-          git submodule update --init --depth 1 vendor/Typhoeus
           git submodule update --init --depth 1 vendor/Sparkle
 
       - name: Fetch sidecar
@@ -740,13 +714,6 @@ jobs:
         with:
           name: sidecar-windows-${{ matrix.arch_label }}
           path: dist-bin
-
-      - name: Build MPRIS daemon bundle
-        working-directory: vendor/Typhoeus/mpris
-        shell: bash
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm run build
 
       # 随包音频运行时（mpv 官方 release）：x64=mingw（自带 DLL）、arm64=msvc（静态链接）。
       # 平铺 mpv.exe 布局，运行期 bins.ts 直接 spawn（见其 win32 分支）。
@@ -817,11 +784,9 @@ jobs:
           cache: pnpm
           cache-dependency-path: |
             ui/pnpm-lock.yaml
-            vendor/Typhoeus/mpris/pnpm-lock.yaml
 
       - name: Init submodules
         run: |
-          git submodule update --init --depth 1 vendor/Typhoeus
           git submodule update --init --depth 1 vendor/Sparkle
 
       - name: Fetch sidecar
@@ -835,12 +800,6 @@ jobs:
         run: |
           # artifact 走 zip 不保权限，必须补 exec 位
           chmod +x quaver-server
-
-      - name: Build MPRIS daemon bundle
-        working-directory: vendor/Typhoeus/mpris
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm run build
 
       # 随包音频运行时（mpv 官方 release，arm64 单架构）：
       # 自包含 mpv.app（自带 dylib rpath），bins.ts 直接 spawn（见其 darwin 分支）

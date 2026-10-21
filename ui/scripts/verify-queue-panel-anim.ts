@@ -72,12 +72,14 @@ const floatBlock = blockOf("\\.queue-panel\\.float");
 const floatOpen = blockOf("\\.queue-panel\\.float\\.open");
 const dockBlock = blockOf("\\.queue-panel\\.dock");
 const dockClosed = blockOf("\\.queue-panel\\.dock:not\\(\\.open\\)");
-ok("css: 浮窗态有 transition（opacity + transform）",
-  /transition:[^;]*opacity/.test(floatBlock) && /transition:[^;]*transform/.test(floatBlock));
-ok("css: 浮窗关闭态 = 透明 + 缩放位移（起始帧可过渡）",
-  /opacity:\s*0/.test(floatBlock) && /transform:\s*scale\(\.9\)/.test(floatBlock));
-ok("css: 浮窗打开态落在终态（opacity 1 / transform none）",
-  /opacity:\s*1/.test(floatOpen) && /transform:\s*none/.test(floatOpen));
+ok("css: 浮窗态只做 opacity 过渡（玻璃本体保持 static，backdrop 才能完整采样）",
+  /transition:[^;]*opacity/.test(floatBlock) && !/transition:[^;]*transform/.test(floatBlock)
+  && /transform:\s*none/.test(floatBlock));
+ok("css: 浮窗关闭态 = 透明但无缩放位移（不再拿 glass 元素做 transform 动画）",
+  /opacity:\s*0/.test(floatBlock) && !/transform:\s*scale/.test(floatBlock));
+ok("css: 浮窗打开态立即显示，并把入场动画交给内容子项",
+  /opacity:\s*1/.test(floatOpen) && /transition:\s*none/.test(floatOpen)
+  && /\.queue-panel\.float\.open > \* \{[^}]*menu-content-in/.test(css));
 ok("css: 停靠态 transition 覆盖 flex-basis/width/opacity/transform（展开是卷出而不是闪现）",
   ["flex-basis", "width", "opacity", "transform"].every((k) => new RegExp(`transition:[^;]*${k}`).test(dockBlock)));
 ok("css: 停靠关闭态收成 0 宽 + 淡出（收/展都可过渡）",

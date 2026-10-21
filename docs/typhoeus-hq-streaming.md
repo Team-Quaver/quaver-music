@@ -8,7 +8,7 @@
 > `typhoeus/stream.go`（Range 中继+解密）、`qmc/`（Map/RC4/TEA，unlock-music
 > 官方向量 + `tools/qmc_ref.py` 跨语言对拍双锚点）。本文其余部分保留作历史记录。
 
-日期：2026-09-14 · 分支：`feat/high-end-quality`（主仓 + vendor/Typhoeus submodule）
+日期：2026-09-14 · 分支：`feat/high-end-quality`（历史记录；`vendor/Typhoeus` submodule 已移除）
 
 ## 结论
 

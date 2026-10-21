@@ -792,6 +792,7 @@ export function NowPlaying(): HTMLElement {
       setFullscreen(true);
     }
     el.classList.toggle("open", open);
+    el.classList.toggle("queue-open", player.queueOpen);
     el.classList.toggle("hide-trans", !player.showTrans);
     // 封面悬浮感的开关：只在真的在放（有歌 + 未暂停）时挂 .playing，
     // 暂停/无歌收掉投影（CSS 侧过渡到透明，见 .np-cover-wrap::before）

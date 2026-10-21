@@ -79,5 +79,4 @@ modules:
         skip:
           - .git
           - ui/node_modules
-          - vendor/Typhoeus/mpris/node_modules
-          # 两个 vendor submodule 必须在 flatpak-builder 之前 init；dir source 不克隆 submodule。
+          # Sparkle submodule 必须在 flatpak-builder 之前 init；dir source 不克隆 submodule。

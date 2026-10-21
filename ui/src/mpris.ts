@@ -1,5 +1,5 @@
 // Quaver — 系统媒体控件桥（渲染层发布/订阅）
-// Linux：把 player 状态快照经 preload 桥推给 Electron 主进程（再由它喂给 mpris daemon），
+// Linux：把 player 状态快照经 preload 桥推给 Electron 主进程（再由它投影到 MPRIS），
 //        并执行 daemon 回推的控制命令。
 // win/mac：同一份快照直驱 navigator.mediaSession —— Chromium 内置了 MediaSession 到平台
 //        控件的对接（Windows = SMTC，macOS = MPNowPlayingInfoCenter + MPRemoteCommandCenter），
@@ -102,11 +102,11 @@ function fingerprint(): string {
 let started = false;
 
 /** Windows SMTC / macOS Now Playing：navigator.mediaSession 直驱（仅 win/mac Electron 壳层）。
- *  Linux 上主进程已关掉 MediaSessionService（防与 mpris daemon 抢总线），这里也不接管；
+ *  Linux 上主进程已关掉 MediaSessionService（防与进程内 MPRIS 服务抢总线），这里也不接管；
  *  浏览器 dev 模式不接管，避免 dev 页面抢系统媒体控件。返回值把快照喂给平台控件。 */
 function makeMediaSessionPush(): ((s: ReturnType<typeof snapshot>) => void) | null {
   if (!window.quaverMpris) return null;
-  if (!/Windows|Macintosh/.test(navigator.userAgent)) return null; // Linux 走 MPRIS daemon
+  if (!/Windows|Macintosh/.test(navigator.userAgent)) return null; // Linux 走主进程 MPRIS
   if (!("mediaSession" in navigator) || typeof MediaMetadata === "undefined") return null;
   const ms = navigator.mediaSession;
   try {
@@ -257,7 +257,7 @@ export function startMprisBridge(): void {
   push(false);
 }
 
-/** 与 daemon 端 trackPath 同规则（vendor/Typhoeus/mpris/src/types.ts） */
+/** 与 electron/mpris.ts 的 trackPath 同规则；verify:mpris 会盯住两边。 */
 function trackPathOf(key: string): string {
   const safe = (key || "unknown").replace(/[^A-Za-z0-9_]/g, "_").replace(/^_+|_+$/g, "") || "unknown";
   return `/org/quaver/track/${safe}`;
