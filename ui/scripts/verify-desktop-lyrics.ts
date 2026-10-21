@@ -454,6 +454,11 @@ check("档位 = 要显示的整块：单行居中开=主行+翻译（和声裁�
   /function rowsOf\(wrapper: HTMLElement, withBg: boolean\)/.test(page)
   && /const withBg = dual \|\| !getDesktopLyricsSingleCenter\(\);/.test(page)
   && /isBgWrap/.test(page) && /includes\("BgLine"\)/.test(page));
+check("水平对齐跟档位：仅「单行 + 居中开」居中；单行关居中与双行都挂 dl-align-left",
+  /const centerLyrics = getDesktopLyricsMode\(\) === "single" && getDesktopLyricsSingleCenter\(\);/.test(page)
+  && /root\.classList\.toggle\("dl-align-left", !centerLyrics\)/.test(page)
+  && /#dl-root\.dl-align-left #dl-clip \.amll-lyric-player > div \{[\s\S]*?align-items: flex-start;/.test(css)
+  && /#dl-root\.dl-align-left #dl-clip \.amll-lyric-player > div > div \{[\s\S]*?text-align: left;/.test(css));
 check("超长行横向滚动：按行各自判断（主行滚时翻译不动，翻译自己太长才滚）",
   /function updateMarquee\(rows: HTMLElement\[\], wrapper: HTMLElement\): void/.test(page)
   && /for \(const row of rows\)[\s\S]{0,220}scrollRange\(aL, aR, b\.left - cur, b\.right - cur\)/.test(page)

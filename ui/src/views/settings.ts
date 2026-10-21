@@ -1213,7 +1213,7 @@ export default async function settingsView(root: HTMLElement) {
     getDesktopLyricsColorMode,
     (v) => { setDesktopLyricsColorMode(v); paintDlColorRow(); },
   );
-  // 单行居中：仅行数=单行时有意义（双行本来就铺两行，无从「裁成一行」）
+  // 单行居中：仅行数=单行时有意义（开=水平居中；关=左对齐。双行恒左对齐，没有第二开关）
   const dlCenterRow = wrap.querySelector<HTMLElement>("#dl-center-row")!;
   const paintDlCenterRow = () => { dlCenterRow.hidden = getDesktopLyricsMode() !== "single"; };
   bindOptCards<"on" | "off">(
