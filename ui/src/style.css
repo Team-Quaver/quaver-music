@@ -1328,6 +1328,17 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
   align-items: center;
   padding-bottom: 40px; /* 给播放条让位 */
 }
+/* 歌词列 · 全高：顶边离开窗口边缘，底边停在控制条上方；频谱开启时由下方规则继续抬高底边。
+   这里只拉伸网格容器，右侧封面组仍按 align-items:center 保持原来的视觉中心。 */
+.np.np-lyrics-full .np-inner {
+  position: absolute; left: 4%; right: 4%; top: clamp(20px, 5vh, 48px);
+  bottom: calc(var(--control-bar-height, 64px) + var(--control-bar-dock-gap, 10px) + 26px);
+  width: auto; height: auto; padding-bottom: 0;
+  transition: top .26s cubic-bezier(.32,.72,.24,1), bottom .26s cubic-bezier(.32,.72,.24,1);
+}
+body[data-control-bar="floating"] .np.np-lyrics-full .np-inner {
+  bottom: calc(var(--control-bar-inset) * 2 + var(--control-bar-lift) + var(--control-bar-height) + 18px);
+}
 /* 频谱完整样式按需加载；定位骨架必须常驻首屏。频谱关闭时懒加载不会发生，若节点还是
    .np 居中 grid 的普通子项，会与 .np-inner 分占两行、把整页内容挤上去，直到某次懒加载
    才突然落回。这里先让它绝对定位 + display:none，彻底脱离外层布局。 */
@@ -1361,6 +1372,9 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
 /* 翻阅（滚轮自由浏览）期间：雾化只属于跟随态的氛围 —— 翻阅是为了读别的行，
    整列去模糊提亮；回跟随（3s 静默/点击行）随原过渡平滑雾回。当前句本就清晰，不参与。 */
 .np-lyrics.browse .np-ly-line:not(.cur) { filter: none; opacity: .55; }
+/* 隐藏已播放行：只改视觉，不摘 DOM / 不改滚动高度。滚轮进入 .browse 后整列恢复可见，
+   用户仍能向上翻旧行；3 秒静默回到跟随后再收起。 */
+.np.np-hide-played .np-lyrics:not(.browse) .np-ly-line:has(~ .np-ly-line.cur) { opacity: 0; filter: blur(2px); }
 /* 当前句：清晰、加大、染色 = 进度条同源 --np-hl（由 lib/tint.ts 写入 root）。
    加大落在 .l1（行内 span）上：.np-ly-line 自身字号不动，em 行距在当前句上不跳变。 */
 .np-ly-line.cur {

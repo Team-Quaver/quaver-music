@@ -204,8 +204,19 @@ check("档位切换挂 resetCjkConverter + reloadLyric", /setChineseConvert\(v\)
 const cfgSrc = readFileSync(join(UI, "src/lib/config.ts"), "utf8");
 check("渲染层 FALLBACK 与 schema 同步（改一处要改两处）",
   ["Lyrics.ChineseConvert", "Lyrics.OnlineTtml", "Lyrics.TtmlDatabase", "Lyrics.TtmlLibrary"].every((k) => cfgSrc.includes(`"${k}"`)));
+check("正在播放页歌词列四档齐备且无说明行",
+  ["默认", "全高", "已播放行隐藏", "全高已播放行隐藏"].every((label) => views.includes(`>${label}</button>`))
+  && views.includes('id="np-lyric-layout-cards"') && defaults()["Style.LyricLayout"] === "default");
+const nowPlayingSrc = readFileSync(join(UI, "src/components/NowPlaying.ts"), "utf8");
+check("歌词列布局进渲染层 FALLBACK 与正在播放页接线",
+  cfgSrc.includes('"Style.LyricLayout"') && nowPlayingSrc.includes("npLyricFullHeight")
+  && nowPlayingSrc.includes("npLyricHidePlayed") && views.includes("setNpLyricLayout"));
 const amll = readFileSync(join(UI, "src/lyrics/amll.ts"), "utf8");
 check("TTML 解析早已在内置引擎（复用，不另开解析路）", /<tt\[\\s>\]/.test(amll) || amll.includes("parseTTML"));
+check("逐字歌词接隐藏已播放行旋钮", amll.includes("setHidePassedLines"));
+check("隐藏档当前行顶边对齐封面（行级与逐字同口径）",
+  nowPlayingSrc.includes("lyricTopAnchor") && nowPlayingSrc.includes("cover.getBoundingClientRect().top")
+  && amll.includes("LayoutAlignAnchor.Top") && amll.includes("lyricTopAnchor"));
 
 rmSync(ROOT, { recursive: true, force: true });
 console.log(`\n${fail ? "❌" : "✅"} verify-lyrics: ${pass} passed, ${fail} failed`);

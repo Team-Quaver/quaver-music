@@ -15,8 +15,8 @@ import { desktopLyricsStateSync } from "../lib/desktop-lyrics";
 import { syncInhibit } from "../lib/inhibit";
 import { applyMenuGlass } from "../lib/menu-glass";
 import { BG_BLUR_MAX, BG_BLUR_MIN, FONT_CUSTOM, FONT_LABELS, FONT_PRESETS, TINT_DEFAULT_COLOR, fontKeyOf, getAutoCheck, getBackgroundBlur, getBackgroundImage, getBackgroundMode, getChineseConvert, getCloseAction, getControlBarMode, getDecode, getPlaylistMode,
-  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsLocked, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getDesktopLyricsWeight, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMenuBlur, getOnlineTtml, getPrevBehavior, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundBlur, setBackgroundImage, setBackgroundMode, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setPlaylistMode, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsBorder, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsFontList, setDesktopLyricsFontPreset, setDesktopLyricsLocked, setDesktopLyricsShadow, setDesktopLyricsShadowBlur, setDesktopLyricsShadowOpacity, setDesktopLyricsShadowX, setDesktopLyricsShadowY, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setDesktopLyricsWeight, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricFontPreset, setMenuBlur, setOnlineTtml, setPrevBehavior, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel } from "../lib/prefs";
-import type { BackgroundMode, ChineseConvert, CloseAction, ControlBarMode, DecorMode, PlaylistMode, DlColorMode, DlMode, FadePreset, FallbackSort, PrevBehavior, ThemeMode, TintMode, UpdateChannel } from "../lib/prefs";
+  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsLocked, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getDesktopLyricsWeight, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMenuBlur, getNpLyricLayout, getOnlineTtml, getPrevBehavior, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundBlur, setBackgroundImage, setBackgroundMode, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setPlaylistMode, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsBorder, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsFontList, setDesktopLyricsFontPreset, setDesktopLyricsLocked, setDesktopLyricsShadow, setDesktopLyricsShadowBlur, setDesktopLyricsShadowOpacity, setDesktopLyricsShadowX, setDesktopLyricsShadowY, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setDesktopLyricsWeight, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricFontPreset, setMenuBlur, setNpLyricLayout, setOnlineTtml, setPrevBehavior, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel } from "../lib/prefs";
+import type { BackgroundMode, ChineseConvert, CloseAction, ControlBarMode, DecorMode, PlaylistMode, DlColorMode, DlMode, FadePreset, FallbackSort, NpLyricLayout, PrevBehavior, ThemeMode, TintMode, UpdateChannel } from "../lib/prefs";
 import { applyTint } from "../lib/tint";
 import { TTML_DB_DEFAULT_URL, isTtmlDatabaseUrl } from "../lib/ttml";
 import { buildChannel, channelLabel, describeBuild, parseVersion } from "../lib/update-core";
@@ -273,6 +273,16 @@ export default async function settingsView(root: HTMLElement) {
     </section>
     <!-- 歌词面板：繁简转换 / 在线 TTML 逐字库 / 本地 TTML 歌词库目录（[Lyrics] 段，见 electron/config.ts） -->
     <section class="set-panel" data-panel="lyrics" hidden>
+      <div class="set-group">
+        <div class="set-label">歌词列模式</div>
+        <div class="opt-cards" id="np-lyric-layout-cards">
+          <button class="opt-card" data-opt="default" type="button">默认</button>
+          <button class="opt-card" data-opt="full" type="button">全高</button>
+          <button class="opt-card" data-opt="hide-played" type="button">已播放行隐藏</button>
+          <button class="opt-card" data-opt="full-hide-played" type="button">全高已播放行隐藏</button>
+        </div>
+      </div>
+
       <div class="set-group">
         <div class="set-label">繁简转换 <span class="set-note-inline">Powered by OpenCC</span></div>
         <div class="opt-cards" id="cjk-cards">
@@ -1094,7 +1104,13 @@ export default async function settingsView(root: HTMLElement) {
     setLyricFontList, setLyricFontPreset, getLyricFontList(),
   );
 
-  // —— 歌词面板（[Lyrics]）：繁简转换 / 在线 TTML 开关 / 数据库地址 / 本地 TTML 歌词库目录 ——
+  // —— 歌词面板（[Lyrics]）：歌词列布局 / 繁简转换 / 在线 TTML 开关 / 数据库地址 / 本地 TTML 歌词库目录 ——
+  // 歌词列布局只切正在播放页的 DOM class；notifyPublic 让已展开的页面立即读到新档。
+  bindOptCards<NpLyricLayout>(
+    wrap.querySelector<HTMLElement>("#np-lyric-layout-cards")!,
+    getNpLyricLayout,
+    (v) => { setNpLyricLayout(v); player.notifyPublic(); },
+  );
   // 三项「取词计划」类开关共用一条收尾：写偏好 → resetCjkConverter（仅档位项需要）→ player.reloadLyric()。
   // 歌词管线默认只在换曲时重判顺序，而这些设置改的正是顺序 —— 不重拉当前曲就是假即时生效。
   bindOptCards<ChineseConvert>(

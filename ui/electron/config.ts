@@ -303,6 +303,12 @@ export const SCHEMA: SectionSpec[] = [
         valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0.7 && Number(v) <= 1.5,
       },
       {
+        key: "LyricLayout",
+        def: "default",
+        doc: ["正在播放页歌词列：default=默认｜full=全高｜hide-played=隐藏已播放行｜full-hide-played=全高并隐藏已播放行"],
+        valid: (v: string) => ["default", "full", "hide-played", "full-hide-played"].includes(v),
+      },
+      {
         key: "Background",
         def: "off",
         doc: [

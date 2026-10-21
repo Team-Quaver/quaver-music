@@ -447,6 +447,33 @@ export function setLyricScale(v: number) {
   cfgSetSoon({ "Style.LyricScale": String(Math.round(clamped * 100) / 100) });
 }
 
+// —— 正在播放页歌词列布局：默认 / 全高 / 隐藏已播放行 / 全高并隐藏已播放行。
+//     全高由 .np-lyrics-full 控制，并让频谱开启态自动把底边抬到可视化上方；
+//     隐藏已播放行由 .np-hide-played（行级）与 AMLL 的 setHidePassedLines（逐字）共同执行。 ——
+export type NpLyricLayout = "default" | "full" | "hide-played" | "full-hide-played";
+export const NP_LYRIC_LAYOUTS: NpLyricLayout[] = ["default", "full", "hide-played", "full-hide-played"];
+
+export function getNpLyricLayout(): NpLyricLayout {
+  const raw = cfg("Style.LyricLayout", "default").trim().toLowerCase() as NpLyricLayout;
+  return NP_LYRIC_LAYOUTS.includes(raw) ? raw : "default";
+}
+
+export function setNpLyricLayout(v: NpLyricLayout) {
+  cfgSet({ "Style.LyricLayout": NP_LYRIC_LAYOUTS.includes(v) ? v : "default" });
+}
+
+/** 全高档：歌词/逐字歌词容器铺满安全高度。 */
+export const npLyricFullHeight = () => {
+  const m = getNpLyricLayout();
+  return m === "full" || m === "full-hide-played";
+};
+
+/** 隐藏已播放行档：当前行之前的歌词不显示，但仍留在滚动容器里，滚轮翻阅不受影响。 */
+export const npLyricHidePlayed = () => {
+  const m = getNpLyricLayout();
+  return m === "hide-played" || m === "full-hide-played";
+};
+
 
 // —— 歌词设置（[Lyrics] 段）：繁简转换 / 在线 TTML 开关 / TTML 数据库地址 / 本地 TTML 歌词库目录 ——
 // 全部走 quaver.conf；渲染层只读快照（启动一次性装载），写盘即时同步主进程。判据与

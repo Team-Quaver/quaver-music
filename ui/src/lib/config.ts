@@ -21,6 +21,7 @@ const FALLBACK: ConfigSnapshot = {
   "Style.ShowTranslation": "True",
   "Style.LyricAux": "translation",
   "Style.LyricScale": "1",
+  "Style.LyricLayout": "default",
   "Style.Background": "off",
   "Style.BackgroundImage": "",
   "Style.BackgroundBlur": "70",
