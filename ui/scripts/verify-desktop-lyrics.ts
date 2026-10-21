@@ -191,7 +191,7 @@ check("越界记忆尺寸不算数（只可能来自合成器把窗拉爆后的�
 // ——— 3. 双写红线：schema 默认 ⇄ 渲染层 FALLBACK ———
 section("[DesktopLyrics] 默认值双写一致");
 const fallbackSrc = src("src/lib/config.ts");
-for (const key of ["Enabled", "Locked", "Opacity", "Backdrop", "Scale", "Font", "Border", "Shadow", "ShadowBlur", "ShadowOpacity", "ShadowX", "ShadowY", "Mode", "SingleCenter", "ColorMode", "Color", "X", "Y", "W", "H"]) {
+for (const key of ["Enabled", "Locked", "Opacity", "Backdrop", "Scale", "Weight", "Font", "Border", "Shadow", "ShadowBlur", "ShadowOpacity", "ShadowX", "ShadowY", "Mode", "SingleCenter", "ColorMode", "Color", "X", "Y", "W", "H"]) {
   const want = defaults()[`DesktopLyrics.${key}`];
   const re = new RegExp(`"DesktopLyrics\\.${key}":\\s*"${String(want).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`);
   check(`FALLBACK 含 DesktopLyrics.${key}=${JSON.stringify(want)}`, re.test(fallbackSrc));
@@ -319,6 +319,13 @@ check("覆盖层晚到 → 当前包重推（清指纹）", /lastTrackFp = "";\s
 check("命令执行全在主窗：prev 走 prevPress、延迟走 setLyricDelayMs + notifyPublic", /player\.prevPress\(\)/.test(bridge) && /setLyricDelayMs\(player\.current, v\)/.test(bridge) && /player\.notifyPublic\(\)/.test(bridge));
 check("延迟钳制口径与菜单一致（±10s、0.1s 档）", /LYRIC_DELAY_MAX_MS/.test(bridge) && /LYRIC_DELAY_STEP_MS/.test(bridge));
 check("歌词两路原文透传（档位由覆盖层现选，桥不代挑）", /lines: player\.lyrics\.map/.test(bridge) && /trans: l\.trans, roma: l\.roma/.test(bridge));
+check("曲目抬头随整包镜像：songTitle + 多歌手连接 + 播放控制条同款 150px 封面 URL",
+  /title: c \? songTitle\(c\) : ""/.test(bridge)
+  && /artist: \(c\?\.singer \?\? \[\]\)\.map\(\(s\) => s\?\.name\)\.filter\(Boolean\)\.join\(" \/ "\)/.test(bridge)
+  && /cover: c \? coverUrl\(c, 150\) : ""/.test(bridge)
+  && /coverUrl\(s, 150\)/.test(src("src/components/PlayerBar.ts")));
+check("标题/歌手/封面进曲目指纹（原地改元数据也能推新抬头）",
+  /\$\{t\.title\}\|\$\{t\.artist\}\|\$\{t\.cover\}/.test(bridge));
 
 // ——— 7. 覆盖层页 ———
 section("src/desktop-lyrics.ts 覆盖层页");
@@ -328,7 +335,7 @@ check("歌词内容版本进桥指纹与覆盖层重绘判据（同曲重导入�
   && /track\.lyricRevision/.test(page));
 check("渲染引擎 = 宿主内置 AMLL（复用 builtinKaraokeProvider，不复制渲染实现）", /import \{ amllPlayerByHost, builtinKaraokeProvider \} from "\.\/lyrics\/amll"/.test(page) && /builtinKaraokeProvider\.render\(clip, lines, ctx\)/.test(page));
 check("零 player 依赖（镜像窗不许再持有一个播放器）", !/from "\.\.\/player"|from "\.\/player"/.test(page) && !/import \{ player \}/.test(page));
-check("零网络（不 fetch /api：歌词随桥镜像来）", !/fetch\(/.test(page) && !/\/api\//.test(page));
+check("不调 API（无 fetch / /api：歌词与封面 URL 都随桥镜像来）", !/fetch\(/.test(page) && !/\/api\//.test(page));
 check("恒展开（覆盖层没有收起一档）", /expanded: \(\) => true/.test(page));
 check("时钟 = 快照外推 + 补偿（延迟扣减在 amll.ts 内做）", /time: \(\) => rawPosMs\(\) \+ CLOCK_COMP_MS/.test(page));
 check("歌词延迟取镜像现值（正=延后口径不动）", /lyricDelay: \(\) => sync\?\.delayMs \?\? 0/.test(page));
@@ -341,6 +348,8 @@ check("文字阴影走 Shadow* 一组，合成单层 text-shadow 到 --dl-shadow
   && /getDesktopLyricsShadowOpacity\(\)/.test(page) && /getDesktopLyricsShadowX\(\)/.test(page)
   && /getDesktopLyricsShadowY\(\)/.test(page) && /--dl-shadow/.test(page));
 check("字号走专属 [DesktopLyrics] Scale", /getDesktopLyricsScale\(\)/.test(page) && /--dl-font-size/.test(page));
+check("字重走专属 [DesktopLyrics] Weight：--dl-font-weight 同时供 font-weight 与 wght 轴",
+  /getDesktopLyricsWeight\(\)/.test(page) && /--dl-font-weight/.test(page));
 check("缩放把手走窗口操作通道（挪窗交给 CSD 拖拽区，不走 IPC）",
   /windowOp\(\{ op: "resize-by", dx, dy \}\)/.test(page) && /windowOp\(\{ op: "close" \}\)/.test(page)
   && !/"move-by"/.test(page) && !/setPosition\(/.test(page));
@@ -359,6 +368,10 @@ check("字号基准两处同源：core 的 DL_FONT_BASE_PX ⇄ 覆盖层 applySt
   && /export const DL_FONT_BASE_PX = 24;/.test(src("electron/desktop-lyrics-core.ts")));
 const pageHtml = src("desktop-lyrics.html");
 check("页面壳存在且入口为外链模块（CSP script-src 无 inline）", /<script type="module" src="\/src\/desktop-lyrics\.ts"><\/script>/.test(pageHtml) && !/<script>(?!<)/.test(pageHtml.replace(/<script [^>]*><\/script>/g, "")));
+check("控制条左侧有曲目抬头（小封面 + 歌名 - 歌手），文本节点由 JS 回填",
+  /id="dl-track-info"/.test(pageHtml) && /id="dl-cover"/.test(pageHtml)
+  && /id="dl-track-meta"/.test(pageHtml) && /const label = title && artist \? `\$\{title\} - \$\{artist\}`/.test(page)
+  && /trackMeta\.textContent = label/.test(page));
 check("CSP 样式允许注入（style-src 'unsafe-inline' 覆盖内联 style 属性，勿改 script 姿态）", /style-src 'self' 'unsafe-inline'/.test(src("electron/csp.ts")));
 check("vite PAGES 收录 desktop-lyrics", /const PAGES = \[[^\]]*"desktop-lyrics"/.test(src("vite.config.ts")));
 const css = src("src/desktop-lyrics.css");
@@ -388,9 +401,18 @@ check("歌词层透明度吃 --dl-opacity，且挂在内容而不是整层 #dl-r
     /#dl-root:hover #dl-tools \{[\s\S]{0,200}?opacity: 1;/.test(css)
     && /#dl-root:hover #dl-progress \{ opacity: 1; \}/.test(css)
     && /#dl-root:hover #dl-resize \{ opacity: 1; \}/.test(css));
-  check("控制条贴窗体下缘（紧凑带里 hover 控件压在下边，不常驻在歌词正中）",
-    /#dl-tools \{[\s\S]*?bottom: 6px;/.test(css));
+  check("控制条浮窗贴窗体顶部（不再压在下缘）",
+    /#dl-tools \{[\s\S]*?top: 6px;[\s\S]*?bottom: auto;/.test(css));
 }
+check("控制条顶部左侧：小封面固定尺寸、曲目文本可省略但不挤掉按钮",
+  /#dl-track-info \{[\s\S]*?display: flex;[\s\S]*?flex: 0 1 190px;[\s\S]*?min-width: 0;/.test(css)
+  && /\.dl-cover \{[\s\S]*?width: 26px;[\s\S]*?height: 26px;/.test(css)
+  && /\.dl-track-meta \{[\s\S]*?overflow: hidden;[\s\S]*?text-overflow: ellipsis;/.test(css)
+  && /#dl-tools button \{[\s\S]*?flex: none;/.test(css));
+check("字重双通道：静态字体走 font-weight，可变字体走 font-variation-settings 的 wght 轴",
+  /font-weight: var\(--dl-font-weight, 400\)/.test(css)
+  && /font-variation-settings: "wght" var\(--dl-font-weight, 400\)/.test(css)
+  && /font-synthesis-weight: auto/.test(css));
 check("窗体背板 = 铺满**整扇窗**的一层（inset:0 的 #dl-board，不是只包歌词条带的窄条）",
   /#dl-board \{[\s\S]*?position: fixed;[\s\S]*?inset: 0;[\s\S]*?background: rgb\(0 0 0 \/ var\(--dl-win-alpha, 0\)\);/.test(css)
   && /<div id="dl-board"><\/div>/.test(src("desktop-lyrics.html")));
@@ -459,6 +481,9 @@ check("一行到底：nowrap + 藏 core 的平衡 <br> + 行盒 fit-content 居�
 check("控制条字号 A−/A+：命令走 scale 档，写 [DesktopLyrics] Scale 与设置页滑条同源",
   /sendCmd\(\{ cmd: "scale", dir: -1 \}\)/.test(page) && /sendCmd\(\{ cmd: "scale", dir: 1 \}\)/.test(page)
   && /case "scale"/.test(bridge) && /setDesktopLyricsScale\(next\)/.test(bridge));
+check("控制条字重单键循环标准档：命令走 weight，写 [DesktopLyrics] Weight 同源",
+  /id="dl-weight-val"/.test(pageHtml) && /sendCmd\(\{ cmd: "weight", op: "cycle" \}\)/.test(page)
+  && /case "weight"/.test(bridge) && /setDesktopLyricsWeight\(next\)/.test(bridge));
 check("动态窗口只写 inset 数值；首次直接落位 + 迟滞防过渡帧",
   /setWindow\(top, h\)/.test(page)
   && /if \(stripApplied < 0\) \{/.test(page)
@@ -577,6 +602,9 @@ check("prefs 门面对象齐全（Mode/ColorMode/Color getter+setter）",
   /getDesktopLyricsMode, setDesktopLyricsMode/.test(src("src/lib/prefs.ts")) || (/export function getDesktopLyricsMode\(\)/.test(src("src/lib/prefs.ts")) && /export function setDesktopLyricsColor\(v: string\)/.test(src("src/lib/prefs.ts"))));
 check("开关只写配置（生效走主进程 syncFromConf 单路）", /setDesktopLyrics\(v === "on"\)/.test(views) && /setDesktopLyricsLocked\(v === "on"\)/.test(views));
 check("字号滑条 50..200%", /min="50" max="200"/.test(views) && /setDesktopLyricsScale\(Number\(dlScale\.value\) \/ 100\)/.test(views));
+check("字重滑条 100..900（10 一档），绑定独立 setDesktopLyricsWeight",
+  /id="dl-weight" type="range" min="100" max="900" step="10"/.test(views)
+  && /setDesktopLyricsWeight\(Number\(dlWeight\.value\)\)/.test(views));
 check("桌面歌词字体独立绑定 [DesktopLyrics] Font（不调用 applyFonts）",
   /setDesktopLyricsFontList, setDesktopLyricsFontPreset, getDesktopLyricsFontList\(\)/.test(views)
   && !/setDesktopLyricsFontList[\s\S]{0,160}applyFonts/.test(views));

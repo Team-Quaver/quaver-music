@@ -283,6 +283,17 @@ P.setDesktopLyricsFontList('"LXGW WenKai", serif');
 eq("桌面歌词手填字体独立生效", P.getDesktopLyricsFont(), "custom");
 eq("手填仍不污染正在播放页字体", P.getLyricFontList(), P.FONT_PRESETS.sans.css);
 
+// —— 桌面歌词字重：100..900，可变/静态字体共用同一个偏好值 ——
+eq("桌面歌词字重默认 400", P.getDesktopLyricsWeight(), 400);
+P.setDesktopLyricsWeight(637);
+eq("桌面歌词字重接受任意整数", P.getDesktopLyricsWeight(), 637);
+P.setDesktopLyricsWeight(99);
+eq("字重下限夹到 100", P.getDesktopLyricsWeight(), 100);
+P.setDesktopLyricsWeight(1000);
+eq("字重上限夹到 900", P.getDesktopLyricsWeight(), 900);
+await settle();
+eq("字重独立落盘", conf()["DesktopLyrics.Weight"], "900");
+
 // —— 桌面歌词描边：0..4px，0 合法，坏值回落 1 ——
 eq("桌面歌词描边默认 1px", P.getDesktopLyricsBorder(), 1);
 P.setDesktopLyricsBorder(9);

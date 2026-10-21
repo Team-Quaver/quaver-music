@@ -15,7 +15,7 @@ import { desktopLyricsStateSync } from "../lib/desktop-lyrics";
 import { syncInhibit } from "../lib/inhibit";
 import { applyMenuGlass } from "../lib/menu-glass";
 import { BG_BLUR_MAX, BG_BLUR_MIN, FONT_CUSTOM, FONT_LABELS, FONT_PRESETS, TINT_DEFAULT_COLOR, fontKeyOf, getAutoCheck, getBackgroundBlur, getBackgroundImage, getBackgroundMode, getChineseConvert, getCloseAction, getControlBarMode, getDecode, getPlaylistMode,
-  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsLocked, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMenuBlur, getOnlineTtml, getPrevBehavior, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundBlur, setBackgroundImage, setBackgroundMode, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setPlaylistMode, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsBorder, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsFontList, setDesktopLyricsFontPreset, setDesktopLyricsLocked, setDesktopLyricsShadow, setDesktopLyricsShadowBlur, setDesktopLyricsShadowOpacity, setDesktopLyricsShadowX, setDesktopLyricsShadowY, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricFontPreset, setMenuBlur, setOnlineTtml, setPrevBehavior, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel } from "../lib/prefs";
+  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsLocked, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getDesktopLyricsWeight, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMenuBlur, getOnlineTtml, getPrevBehavior, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundBlur, setBackgroundImage, setBackgroundMode, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setPlaylistMode, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsBorder, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsFontList, setDesktopLyricsFontPreset, setDesktopLyricsLocked, setDesktopLyricsShadow, setDesktopLyricsShadowBlur, setDesktopLyricsShadowOpacity, setDesktopLyricsShadowX, setDesktopLyricsShadowY, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setDesktopLyricsWeight, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricFontPreset, setMenuBlur, setOnlineTtml, setPrevBehavior, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel } from "../lib/prefs";
 import type { BackgroundMode, ChineseConvert, CloseAction, ControlBarMode, DecorMode, PlaylistMode, DlColorMode, DlMode, FadePreset, FallbackSort, PrevBehavior, ThemeMode, TintMode, UpdateChannel } from "../lib/prefs";
 import { applyTint } from "../lib/tint";
 import { TTML_DB_DEFAULT_URL, isTtmlDatabaseUrl } from "../lib/ttml";
@@ -332,6 +332,12 @@ export default async function settingsView(root: HTMLElement) {
             <input id="dl-font-list" type="text" spellcheck="false" autocomplete="off"
               aria-label="桌面歌词字体家族列表"
               placeholder="留空代表使用默认字体" />
+          </div>
+        </div>
+        <div class="set-row"><span class="set-row__label">字重</span>
+          <div class="set-row__ctrl">
+            <input class="set-blur set-blur--flat" id="dl-weight" type="range" min="100" max="900" step="10" aria-label="桌面歌词字重" />
+            <span class="bg-blur-val" id="dl-weight-val"></span>
           </div>
         </div>
         <div class="set-row"><span class="set-row__label">字号</span>
@@ -1236,6 +1242,19 @@ export default async function settingsView(root: HTMLElement) {
     const raw = dlColorHex.value.trim();
     setDesktopLyricsColor(raw.startsWith("#") ? raw : `#${raw}`);
     paintDlColorRow(); // 认不下的 HEX 由 prefs 回落现值 —— 输入框永远回显「当前生效值」
+  };
+  // 字重：100..900（滑条 10 一档）。可变字体由 wght 连续轴消费；静态字体由 font-weight 选最近字面。
+  const dlWeight = wrap.querySelector<HTMLInputElement>("#dl-weight")!;
+  const dlWeightVal = wrap.querySelector<HTMLElement>("#dl-weight-val")!;
+  const paintDlWeight = () => {
+    const weight = getDesktopLyricsWeight();
+    dlWeight.value = String(weight);
+    dlWeightVal.textContent = String(weight);
+  };
+  paintDlWeight();
+  dlWeight.oninput = () => {
+    setDesktopLyricsWeight(Number(dlWeight.value));
+    dlWeightVal.textContent = dlWeight.value;
   };
   const dlScale = wrap.querySelector<HTMLInputElement>("#dl-scale")!;
   const dlScaleVal = wrap.querySelector<HTMLElement>("#dl-scale-val")!;

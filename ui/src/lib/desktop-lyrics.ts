@@ -3,8 +3,8 @@
 // 桌面歌词窗（desktop-lyrics.html，主进程托管的透明覆盖层）**不持有播放器**：它是主窗
 // player 状态的一面镜子。本模块把镜像的两条数据流推到主进程（由 electron/desktop-lyrics.ts
 // 转发进覆盖层窗）：
-//   • track —— 曲目 + 歌词整包：换曲 / 歌词状态迁移 / 解析结果形状变化时重推（指纹判重）。
-//     推的是 player 现成的**解析产物**（karaoke 逐字行 + lines 行级兜底），覆盖层不再拉网络、
+//   • track —— 曲目 + 歌词整包：换曲 / 曲名歌手封面变化 / 歌词状态迁移 / 解析结果形状变化时重推（指纹判重）。
+//     推的是 player 现成的**解析产物**（karaoke 逐字行 + lines 行级兜底），覆盖层不再拉歌词 API、
 //     不再重复解析管线 —— 繁简转换、TTML 库、QRC 振假名这些前处理天然与「正在播放页」一致。
 //   • sync —— 播放钟快照（裸播放头毫秒，4Hz 随 notify）+ 当前曲歌词延迟 + 可用性位。
 //     覆盖层用「快照位置 + 本地单调钟」外推逐帧时间，与主进程 MPRIS 的外推同构。
@@ -19,11 +19,14 @@
 //   sync.posMs = player.time * 1000（裸播放头，不含补偿不含延迟）；
 //   覆盖层 ctx.time() = posMs + 外推 + CLOCK_COMP_MS；歌词时钟 = ctx.time() − lyricDelay()。
 import { player } from "../player";
-import { coverUrl } from "./api";
+import { coverUrl, songTitle } from "./api";
 import { extractCoverColor, toUiColors } from "./color";
 import { currentAccent, refreshAccent, watchAccent } from "./accent";
 import { getLyricDelayMs, setLyricDelayMs, LYRIC_DELAY_MAX_MS, LYRIC_DELAY_STEP_MS } from "./lyric-delay";
-import { getDesktopLyricsScale, setDesktopLyricsScale, DL_SCALE_MAX, DL_SCALE_MIN } from "./prefs";
+import {
+  getDesktopLyricsScale, setDesktopLyricsScale, DL_SCALE_MAX, DL_SCALE_MIN,
+  getDesktopLyricsWeight, setDesktopLyricsWeight,
+} from "./prefs";
 import type { SparkleKaraokeLine } from "@quaver/sparkle";
 
 // 契约在 ./desktop-lyrics-protocol.ts：本模块**用**它也**替两侧转发**它（老 import 路径不破）。
@@ -55,6 +58,11 @@ function trackPayload(): DlTrackPayload {
     v: 1,
     key: currentKey(),
     mid: c ? String(c.mid ?? "") : "",
+    title: c ? songTitle(c) : "",
+    artist: (c?.singer ?? []).map((s) => s?.name).filter(Boolean).join(" / "),
+    // 与播放控制条同尺寸同 URL：QQ 封面 CDN 不保证任意尺寸都存在（96 会 404），
+    // 150 是 PlayerBar 正在用的标准档，顺带复用同一份图片缓存。
+    cover: c ? coverUrl(c, 150) : "",
     lyricState: player.lyricState,
     lyricRevision: player.lyricRevision,
     durationSec: Math.round((c?.interval ?? player.duration) || 0),
@@ -97,7 +105,7 @@ function syncPayload(): DlSyncPayload {
 
 /** 曲目指纹：换曲 / 歌词内容版本 / 状态迁移 / 解析结果形状变化才重推整包（歌词可达百 KB 级，别跟着 4Hz 走）。 */
 function trackFp(t: DlTrackPayload): string {
-  return `${t.key}|${t.lyricState}|${t.lyricRevision}|${t.karaoke.length}|${t.lines.length}`;
+  return `${t.key}|${t.title}|${t.artist}|${t.cover}|${t.lyricState}|${t.lyricRevision}|${t.karaoke.length}|${t.lines.length}`;
 }
 
 function pushAll(): void {
@@ -165,6 +173,15 @@ function handleCmd(msg: unknown): void {
       const step = cmd.dir === -1 ? -0.1 : 0.1;
       const next = Math.min(DL_SCALE_MAX, Math.max(DL_SCALE_MIN, Math.round((cur + step) * 10) / 10));
       if (next !== cur) setDesktopLyricsScale(next);
+      break;
+    }
+    case "weight": {
+      // 与字号同一套：控件只发意图，主窗写 [DesktopLyrics] Weight，配置广播回覆盖层落地。
+      // 顶部控制条只放一个紧凑档位键；设置页滑条才能连续调到任意 10 的倍数。
+      const cur = getDesktopLyricsWeight();
+      const steps = [300, 400, 500, 600, 700, 800, 900];
+      const next = steps.find((v) => v > cur) ?? steps[0]!;
+      if (next !== cur) setDesktopLyricsWeight(next);
       break;
     }
     default:

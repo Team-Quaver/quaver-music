@@ -70,6 +70,7 @@ const FALLBACK: ConfigSnapshot = {
   "DesktopLyrics.Opacity": "1",
   "DesktopLyrics.Backdrop": "0",
   "DesktopLyrics.Scale": "1",
+  "DesktopLyrics.Weight": "400",
   "DesktopLyrics.Font": "Source Han Serif",
   "DesktopLyrics.Border": "1",
   "DesktopLyrics.Shadow": "True",

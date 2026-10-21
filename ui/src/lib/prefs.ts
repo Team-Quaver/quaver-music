@@ -617,6 +617,25 @@ export function setDesktopLyricsScale(v: number) {
   cfgSetSoon({ "DesktopLyrics.Scale": String(Math.round(clamped * 100) / 100) });
 }
 
+export const DL_WEIGHT_MIN = 100;
+export const DL_WEIGHT_MAX = 900;
+export const DL_WEIGHT_DEFAULT = 400;
+
+/** 桌面歌词字重 100..900（CSS 的合法常规区间）。可变字体由 CSS 的 wght 轴连续映射；
+ *  静态字重字体由 font-weight 选择最近字面，缺少目标字面时允许浏览器字重合成。 */
+export function getDesktopLyricsWeight(): number {
+  const raw = String(cfg("DesktopLyrics.Weight", String(DL_WEIGHT_DEFAULT))).trim();
+  if (!raw) return DL_WEIGHT_DEFAULT;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return DL_WEIGHT_DEFAULT;
+  return Math.min(DL_WEIGHT_MAX, Math.max(DL_WEIGHT_MIN, Math.round(n)));
+}
+export function setDesktopLyricsWeight(v: number) {
+  const n = Number(v);
+  const clamped = Number.isFinite(n) ? Math.min(DL_WEIGHT_MAX, Math.max(DL_WEIGHT_MIN, Math.round(n))) : DL_WEIGHT_DEFAULT;
+  cfgSetSoon({ "DesktopLyrics.Weight": String(clamped) });
+}
+
 /** 桌面歌词字体列表：独立于正在播放页的 Style.DefaultLyricsFonts，输入口径与全局字体相同。 */
 export const getDesktopLyricsFontList = () => cfg("DesktopLyrics.Font", "Source Han Serif");
 export const getDesktopLyricsFont = () => fontKeyOf(getDesktopLyricsFontList());

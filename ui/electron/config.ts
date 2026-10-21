@@ -605,6 +605,15 @@ export const SCHEMA: SectionSpec[] = [
         valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0.5 && Number(v) <= 2,
       },
       {
+        key: "Weight",
+        def: "400",
+        doc: [
+          "桌面歌词字重：100..900，400=常规。可变字体直接走 wght 轴；静态字重字体由 font-weight 选择最接近的字面，",
+          "缺少目标字面时按浏览器规则做字重合成。滑条按 10 一档，手改配置可写任意整数。",
+        ],
+        valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number.isInteger(Number(v)) && Number(v) >= 100 && Number(v) <= 900,
+      },
+      {
         key: "Font",
         def: "Source Han Serif",
         doc: [

@@ -80,7 +80,7 @@ check("模板随读取落地", (readValues(), existsSync(FILE)));
 check("模板含全部段", ["[Style]", "[Window]", "[Playing]", "[Quality]", "[Lyrics]", "[DesktopLyrics]", "[Security]", "[Update]"].every((s) => template().includes(s)));
 check("模板注释来自 schema", template().includes("可选 dark,light,follow-system"));
 eq("默认值与模板占位一致", (() => { const v = readValues().values; return v["Style.Style"] === "dark" && v["Playing.Backend"] === "MPV" && v["Quality.DefaultQuality"] === "Auto" && v["Quality.FallbackToQMAtmos"] === "False"; })(), true);
-eq("schema 默认值表条数", Object.keys(defaults()).length, 71); // [DesktopLyrics] 20 键（Enabled/Locked/Opacity/Backdrop/Scale/Font/Border/Shadow/ShadowBlur/ShadowOpacity/ShadowX/ShadowY/Mode/SingleCenter/ColorMode/Color + X/Y/W/H 记忆坐标）；[Lyrics] 4 键（ChineseConvert 繁简档/OnlineTtml 在线逐字开关/TtmlDatabase 地址模板/TtmlLibrary 本地库目录）；LyricAux 为歌词辅助行（关闭/翻译/音译，两路同位置且各按档位回落）；LyricScale 为行级歌词缩放；Background/BackgroundImage/BackgroundBlur 为默认主题背景（模式/自定义图/模糊强度）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；ControlBar 为控制条停靠形态；PlaylistMode 为歌单显示模式（菜单栏/歌单集合页）；MenuBlur 为浮层菜单毛玻璃开关；Spectrum/SpectrumMode 为正在播放页真实音频频谱开关与形态；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
+eq("schema 默认值表条数", Object.keys(defaults()).length, 72); // [DesktopLyrics] 21 键（Enabled/Locked/Opacity/Backdrop/Scale/Weight/Font/Border/Shadow/ShadowBlur/ShadowOpacity/ShadowX/ShadowY/Mode/SingleCenter/ColorMode/Color + X/Y/W/H 记忆坐标）；[Lyrics] 4 键（ChineseConvert 繁简档/OnlineTtml 在线逐字开关/TtmlDatabase 地址模板/TtmlLibrary 本地库目录）；LyricAux 为歌词辅助行（关闭/翻译/音译，两路同位置且各按档位回落）；LyricScale 为行级歌词缩放；Background/BackgroundImage/BackgroundBlur 为默认主题背景（模式/自定义图/模糊强度）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；ControlBar 为控制条停靠形态；PlaylistMode 为歌单显示模式（菜单栏/歌单集合页）；MenuBlur 为浮层菜单毛玻璃开关；Spectrum/SpectrumMode 为正在播放页真实音频频谱开关与形态；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
 check("模板含热键两段", ["[Hotkeys.Global]", "[Hotkeys.Focus]"].every((s) => template().includes(s)));
 eq("全局热键默认 Ctrl+Alt+P", defaults()["Hotkeys.Global.Toggle"], "Ctrl+Alt+P");
 eq("焦点退出默认 Ctrl+Q", defaults()["Hotkeys.Focus.Quit"], "Ctrl+Q");
@@ -106,6 +106,7 @@ eq("桌面歌词默认关", defaults()["DesktopLyrics.Enabled"], "False");
 eq("桌面歌词歌词层默认完全不透明", defaults()["DesktopLyrics.Opacity"], "1");
 eq("桌面歌词窗体默认无背板（全透明，只有字）", defaults()["DesktopLyrics.Backdrop"], "0");
 eq("桌面歌词字号默认 1", defaults()["DesktopLyrics.Scale"], "1");
+eq("桌面歌词字重默认 400", defaults()["DesktopLyrics.Weight"], "400");
 eq("桌面歌词字体独立默认宋体", defaults()["DesktopLyrics.Font"], "Source Han Serif");
 eq("桌面歌词描边默认 1px", defaults()["DesktopLyrics.Border"], "1");
 eq("桌面歌词阴影默认开", defaults()["DesktopLyrics.Shadow"], "True");
@@ -123,6 +124,9 @@ eq("桌面歌词自定义色接受 HEX", writeValues({ "DesktopLyrics.Color": "#
 eq("桌面歌词坐标默认未记忆", defaults()["DesktopLyrics.X"], "");
 eq("桌面歌词拒绝瞎写的字号", writeValues({ "DesktopLyrics.Scale": "9" }), []);
 eq("桌面歌词接受合法字号", writeValues({ "DesktopLyrics.Scale": "1.3" }).length, 1);
+eq("桌面歌词字重拒绝越界", writeValues({ "DesktopLyrics.Weight": "950" }), []);
+eq("桌面歌词字重拒绝小数", writeValues({ "DesktopLyrics.Weight": "450.5" }), []);
+eq("桌面歌词字重接受任意整数", writeValues({ "DesktopLyrics.Weight": "637" }).length, 1);
 eq("桌面歌词字体拒绝 CSS 注入", writeValues({ "DesktopLyrics.Font": "x; } body{display:none" }), []);
 eq("桌面歌词字体接受独立字体列表", writeValues({ "DesktopLyrics.Font": "\"LXGW WenKai\", serif" }).length, 1);
 eq("桌面歌词描边拒绝越界", writeValues({ "DesktopLyrics.Border": "9" }), []);

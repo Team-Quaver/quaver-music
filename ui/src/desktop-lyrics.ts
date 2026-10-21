@@ -12,8 +12,9 @@
 // 喂的是对的数）。行点击跳转（点行 seek）按产品决定关闭：覆盖层只读，见 ctx.seek。
 //
 // 字体：家族走独立的 [DesktopLyrics] Font，与正在播放页的 Style.DefaultLyricsFonts 解绑；
-// 字号倍率走 [DesktopLyrics] Scale、文字描边走 Border、阴影走 Shadow/ShadowBlur/ShadowOpacity/
-// ShadowX/ShadowY、歌词层不透明度走 Opacity、窗体不透明度（背板）走 Backdrop（都经配置广播实时跟随）。
+// 字号倍率走 [DesktopLyrics] Scale、字重走 Weight、文字描边走 Border、阴影走 Shadow/ShadowBlur/
+// ShadowOpacity/ShadowX/ShadowY、歌词层不透明度走 Opacity、窗体不透明度（背板）走 Backdrop
+// （都经配置广播实时跟随）。字重同时写 font-weight 与 wght 轴，静态/可变字体各取所需。
 // 阴影用单层 text-shadow 而非整块 filter:drop-shadow，强度可调到 0；描边与阴影互不替代。
 // 歌词层另有一道「悬停地板」：鼠标停在覆盖层上（= 可拖动那个状态）时内容至少 0.3，
 // 设置高于 0.3 就照设置来 —— 见 prefs 的 DL_HOVER_OPACITY_FLOOR，值由 applyStyle 算成
@@ -29,11 +30,12 @@
 // 交互分层：
 //   • 拖动任意歌词区 = 挪窗（CSD 拖拽区，由窗口管理器做交互移动）；
 //   • 右下角把手 = 缩放（无对应的 CSS 能力，走指针位移 → 主进程；高度那条钉死的轴要连提示一起改）；
-//   • 悬停浮现控制条：⏮ ⏯ ⏭ ｜ 字号 A−/A+ ｜ 延迟 −/读数(点=归零)/＋ ｜ 关窗；
+//   • 顶部悬停控制条：左侧小封面 + 歌名 - 歌手，右侧 ⏮ ⏯ ⏭ ｜ A−/A+ B400 ｜
+//     延迟 −/读数(点=归零)/＋ ｜ 关窗；
 //   • 底部细进度条：点击 seek。
 import "./desktop-lyrics.css";
 import { loadConfig } from "./lib/config";
-import { fontCssOf, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsHoverOpacity, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsSingleCenter, getLyricAux } from "./lib/prefs";
+import { fontCssOf, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsHoverOpacity, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsSingleCenter, getDesktopLyricsWeight, getLyricAux } from "./lib/prefs";
 import { fmtLyricDelay, LYRIC_DELAY_MAX_MS, LYRIC_DELAY_STEP_MS } from "./lib/lyric-delay";
 import { alignFor, bandFor, scrollRange, sequenceOverlappingLines } from "./lib/desktop-lyrics-layout";
 import { CLOCK_COMP_MS, type DlCmd, type DlLine, type DlStateSnapshot, type DlSyncPayload, type DlTrackPayload } from "./lib/desktop-lyrics-protocol";
@@ -48,11 +50,18 @@ const docEl = document.documentElement;
 const root = document.getElementById("dl-root") as HTMLDivElement;
 const clip = document.getElementById("dl-clip") as HTMLDivElement;
 const empty = document.getElementById("dl-empty") as HTMLDivElement;
+const trackInfo = document.getElementById("dl-track-info") as HTMLDivElement;
+const trackSep = document.getElementById("dl-track-sep") as HTMLSpanElement;
+const trackMeta = document.getElementById("dl-track-meta") as HTMLSpanElement;
+const coverImg = document.getElementById("dl-cover") as HTMLImageElement;
+const coverFallback = document.getElementById("dl-cover-fallback") as HTMLSpanElement;
+let failedCover = "";
 const prevBtn = document.getElementById("dl-prev") as HTMLButtonElement;
 const playBtn = document.getElementById("dl-play") as HTMLButtonElement;
 const nextBtn = document.getElementById("dl-next") as HTMLButtonElement;
 const fontDec = document.getElementById("dl-font-dec") as HTMLButtonElement;
 const fontInc = document.getElementById("dl-font-inc") as HTMLButtonElement;
+const weightVal = document.getElementById("dl-weight-val") as HTMLButtonElement;
 const delayDec = document.getElementById("dl-delay-dec") as HTMLButtonElement;
 const delayVal = document.getElementById("dl-delay-val") as HTMLButtonElement;
 const delayInc = document.getElementById("dl-delay-inc") as HTMLButtonElement;
@@ -80,6 +89,11 @@ closeBtn.innerHTML = ICON.close;
 delayDec.innerHTML = ICON.minus;
 delayInc.innerHTML = ICON.plus;
 lockBtn.innerHTML = ICON.lock;
+coverImg.addEventListener("error", () => {
+  failedCover = coverImg.getAttribute("src") ?? "";
+  coverImg.hidden = true;
+  coverFallback.hidden = false;
+});
 
 // Crotchet 调试模式（QUAVER_CROTCHET=1）：未捕获异常/拒绝也进主日志流水线（preload console 桥在，
 // console.error 本身已可达；这里补上 window.onerror 与 unhandledrejection 两条漏网鱼）
@@ -174,6 +188,36 @@ function paintEmpty(): void {
         : "暂无歌词";
 }
 
+/** 顶部控制条的曲目抬头：小封面 +「歌名 - 歌手」。字段随 track 整包到达，文本只走 textContent。 */
+function syncTrackInfo(): void {
+  const hasTrack = !!track?.key;
+  trackInfo.hidden = !hasTrack;
+  trackSep.hidden = !hasTrack;
+  if (!hasTrack) {
+    trackMeta.textContent = "";
+    trackMeta.removeAttribute("title");
+    coverImg.removeAttribute("src");
+    coverImg.hidden = true;
+    coverFallback.hidden = true;
+    failedCover = "";
+    return;
+  }
+  const title = String(track?.title ?? "").trim();
+  const artist = String(track?.artist ?? "").trim();
+  const label = title && artist ? `${title} - ${artist}` : title || artist || "未知曲目";
+  trackMeta.textContent = label;
+  trackMeta.title = label;
+  const cover = String(track?.cover ?? "").trim();
+  const broken = !!cover && cover === failedCover;
+  coverImg.hidden = !cover || broken;
+  coverFallback.hidden = !!cover && !broken;
+  if (cover && !broken) {
+    if (coverImg.getAttribute("src") !== cover) coverImg.src = cover;
+  } else {
+    coverImg.removeAttribute("src");
+  }
+}
+
 function reRender(force = false): void {
   paintEmpty();
   const fp = track
@@ -217,7 +261,8 @@ function syncTools(): void {
 }
 
 /** 染色混色公式与 .np-kara-host（正在播放页逐字歌词）同源：accent 55% 洗白进 #fff。
- *  取色源（封面 accent / 系统 systemAccent）由主窗桥随曲目镜像带来 —— 本窗恒零网络。 */
+ *  取色源（封面 accent / 系统 systemAccent）由主窗桥随曲目镜像带来 —— 本窗不调 API；
+ *  控制条封面只是镜像里给的缩略图 URL。 */
 const mixInk = (hex: string | null | undefined): string =>
   hex ? `color-mix(in srgb, ${hex} 55%, #fff)` : "#fff";
 
@@ -550,6 +595,11 @@ function applyStyle(): void {
   else root.style.removeProperty("--dl-font");
   const scale = getDesktopLyricsScale();
   root.style.setProperty("--dl-font-size", `${Math.round(24 * scale)}px`);
+  const weight = getDesktopLyricsWeight();
+  root.style.setProperty("--dl-font-weight", String(weight));
+  weightVal.textContent = `B${weight}`;
+  weightVal.title = `字重 ${weight}（点击切换 300/400/500/600/700/800/900）`;
+  weightVal.setAttribute("aria-label", `当前字重 ${weight}，点击切换`);
   root.style.setProperty("--dl-border", `${getDesktopLyricsBorder()}px`);
   // 单层 text-shadow：便宜、可关、参数全由设置页控制；0 不透明度直接撤掉变量。
   const shadowOpacity = getDesktopLyricsShadowOpacity();
@@ -583,6 +633,7 @@ if (bridge) {
     // 染色字段（accent/systemAccent）与歌词同包到货：整包重推（取色迟到补刀）时指纹未变
     // 不重渲染，但颜色必须重算 —— 否则「封面染色」档永远停在上一首的色
     root.style.setProperty("--dl-ink", lyricInk());
+    syncTrackInfo();
     syncTools();
     for (const cb of [...notifyCbs]) cb();
   });
@@ -610,6 +661,7 @@ if (bridge) {
 prevBtn.onclick = () => sendCmd({ cmd: "prev" });
 fontDec.onclick = () => sendCmd({ cmd: "scale", dir: -1 });
 fontInc.onclick = () => sendCmd({ cmd: "scale", dir: 1 });
+weightVal.onclick = () => sendCmd({ cmd: "weight", op: "cycle" });
 playBtn.onclick = () => sendCmd({ cmd: "playpause" });
 nextBtn.onclick = () => sendCmd({ cmd: "next" });
 delayDec.onclick = () => sendCmd({ cmd: "delay", op: "step", dir: -1 });
@@ -670,6 +722,7 @@ grip.addEventListener("pointerdown", (e) => {
 applyStyle();
 syncInteractionMode();
 paintEmpty();
+syncTrackInfo();
 syncTools();
 
 // 窗体尺寸（用户拖右下角把手 / 档位变化后主进程贴高）/字体迟到都会改文字盒 → 立刻重估条带、锚位与滚动量
@@ -680,7 +733,7 @@ void document.fonts?.ready.then(() => tightenStrip(true));
 // 无桥页（纯浏览器开的 desktop-lyrics.html）没有实时镜像抢写状态，缝恒开 —— 排版量测就用这条确定性路。
 if ((window as any).quaverCrotchet || !bridge) {
   (window as any).__dl = {
-    injectTrack: (p: unknown) => { track = p as DlTrackPayload; reRender(true); syncTools(); for (const cb of [...notifyCbs]) cb(); },
+    injectTrack: (p: unknown) => { track = p as DlTrackPayload; reRender(true); syncTrackInfo(); syncTools(); for (const cb of [...notifyCbs]) cb(); },
     // 与 bridge.onSync 的生产路径逐行对齐（含 tightenStrip 的 4Hz 驱动），量测才有代表性
     injectSync: (p: unknown) => { sync = p as DlSyncPayload; syncAt = performance.now(); syncTools(); tightenStrip(); for (const cb of [...notifyCbs]) cb(); },
     applyStyle,

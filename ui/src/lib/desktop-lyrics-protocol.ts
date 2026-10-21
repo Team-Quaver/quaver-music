@@ -23,6 +23,11 @@ export interface DlTrackPayload {
   v: 1;
   key: string;
   mid: string;
+  /** 控制条左侧曲目信息。歌名走 songTitle（含版本后缀），歌手以 " / " 连接多人。 */
+  title: string;
+  artist: string;
+  /** 控制条小封面 URL（与播放控制条同为 coverUrl(..., 150)）；空串 = 显示占位。 */
+  cover: string;
   lyricState: "idle" | "loading" | "ok" | "none";
   /** 歌词内容版本（player.lyricRevision）：状态同为 ok 的重导入也要让覆盖层重建 DOM */
   lyricRevision: number;
@@ -32,7 +37,7 @@ export interface DlTrackPayload {
   /** 行级兜底（player.lyrics）；karaoke 为空时覆盖层自行整形为「整行单音节」 */
   lines: DlLine[];
   /** 封面染色（toUiColors 的 accent 档，与正在播放页歌词 --cvg-accent 同源同派生）；取不到 null。
-   *  「桌面歌词·颜色=封面染色」用它 —— 覆盖层零网络，取色永远发生在主窗这一侧。 */
+   *  「桌面歌词·颜色=封面染色」用它 —— 覆盖层不请求取色，解码永远发生在主窗这一侧。 */
   accent: string | null;
   /** 系统强调色（lib/accent.ts 现值；探测失败 null → 覆盖层回落白字） */
   systemAccent: string | null;
@@ -66,7 +71,9 @@ export type DlCmd =
   | { cmd: "seek"; ms: number }
   | { cmd: "delay"; op: "step" | "zero"; dir?: 1 | -1 }
   /** 字号倍率 ±0.1 一档（0.5..2）：写 [DesktopLyrics] Scale 偏好，广播回覆盖层即时生效 */
-  | { cmd: "scale"; dir?: 1 | -1 };
+  | { cmd: "scale"; dir?: 1 | -1 }
+  /** 控制条单键循环标准字重（300/400/…/900）：写 [DesktopLyrics] Weight 偏好 */
+  | { cmd: "weight"; op: "cycle" };
 
 declare global {
   interface Window {

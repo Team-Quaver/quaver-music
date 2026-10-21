@@ -22,12 +22,21 @@
       <div id="dl-stage"><div id="dl-clip"></div></div>
       <div id="dl-empty" hidden>等待播放</div>
       <div id="dl-tools">
+        <div id="dl-track-info" class="dl-track-info" hidden>
+          <span class="dl-cover" aria-hidden="true">
+            <span id="dl-cover-fallback" class="dl-cover-fallback">♪</span>
+            <img id="dl-cover" alt="" draggable="false" hidden />
+          </span>
+          <span id="dl-track-meta" class="dl-track-meta"></span>
+        </div>
+        <span id="dl-track-sep" class="dl-sep" hidden></span>
         <button id="dl-prev" type="button" title="上一曲" aria-label="上一曲"></button>
         <button id="dl-play" type="button" title="播放/暂停" aria-label="播放或暂停"></button>
         <button id="dl-next" type="button" title="下一曲" aria-label="下一曲"></button>
         <span class="dl-sep"></span>
         <button id="dl-font-dec" type="button" title="歌词字号缩小" aria-label="字号缩小">A−</button>
         <button id="dl-font-inc" type="button" title="歌词字号放大" aria-label="字号放大">A+</button>
+        <button id="dl-weight-val" type="button" title="字重（点击切换档位）" aria-label="切换字重">B400</button>
         <span class="dl-sep"></span>
         <button id="dl-delay-dec" type="button" title="歌词提前 0.1s" aria-label="歌词提前">−</button>
         <button id="dl-delay-val" type="button" title="点击归零">0.0s</button>
