@@ -30,7 +30,7 @@ import {
   type StreamInfo,
 } from "../lib/streaminfo";
 import { icons } from "../lib/icons";
-import { getLyricScale, setLyricScale, LYRIC_SCALE_MAX, LYRIC_SCALE_MIN, LYRIC_SCALE_STEP, LYRIC_AUX_MODES, type LyricAuxMode } from "../lib/prefs";
+import { getLyricScale, setLyricScale, LYRIC_SCALE_MAX, LYRIC_SCALE_MIN, LYRIC_SCALE_STEP, LYRIC_AUX_MODES, npLyricFullHeight, npLyricHidePlayed, type LyricAuxMode } from "../lib/prefs";
 import { getLyricDelayMs, setLyricDelayMs, fmtLyricDelay, LYRIC_DELAY_STEP_MS, LYRIC_DELAY_MAX_MS } from "../lib/lyric-delay";
 import { isFullscreen, setFullscreen, onFullscreenChange } from "../lib/fullscreen";
 import type { SparkleKaraokeProvider, SparkleNpSpectrumRenderCtx } from "@quaver/sparkle";
@@ -250,6 +250,22 @@ export function NowPlaying(): HTMLElement {
   // 翻译档优先翻译、本行没翻译则回落音译；音译档反之。取路规则见 src/lyric.ts 的 pickAux
   // （行级与逐字共用同一份）—— 行级视图在这里重建 DOM，逐字由内置引擎重建行表。
   // 开合是 class 驱动的缩放动画（.np-menu，锚在按钮圆心上）；跳转类动作先播收拢动画再走 hash。
+  /** 设置页的歌词列档位落到本页 class；每次 notify 重读，档位切换无需重建歌词。 */
+  const syncLyricLayout = () => {
+    el.classList.toggle("np-lyrics-full", npLyricFullHeight());
+    el.classList.toggle("np-hide-played", npLyricHidePlayed());
+  };
+  syncLyricLayout();
+
+  /** 隐藏已播放行时的当前行锚位 = 封面顶边相对歌词容器顶边的比例。 */
+  const lyricTopAnchor = (): number | null => {
+    if (!npLyricHidePlayed()) return null;
+    const host = karaHost.getBoundingClientRect();
+    if (host.height <= 0) return null;
+    const top = cover.getBoundingClientRect().top - host.top;
+    return Math.max(0, Math.min(1, top / host.height));
+  };
+
   const moreBtn = $("np-more");
   const moreMenu = $("np-menu");
   let auxButtons = new Map<LyricAuxMode, HTMLButtonElement>();
@@ -580,6 +596,11 @@ export function NowPlaying(): HTMLElement {
     karaProvider = null;
     karaHost.innerHTML = ""; // 容器内容整个交给 provider，清理时兜底清空
   }
+  // 隐藏已播放行时，普通滚轮进入临时浏览态：先把已播放行放出来，停手 3 秒再收回。
+  // 只调整隐藏开关，不接管 AMLL 自己的滚动引擎，所以鼠标滚轮/触控板手势仍按原逻辑工作。
+  const LYRIC_BROWSE_MS = 3000;
+  let karaBrowsingUntil = 0;
+
   function buildKara() {
     disposeKara();
     const provider = sparkleKaraokeProvider();
@@ -594,6 +615,8 @@ export function NowPlaying(): HTMLElement {
       // 按歌曲的「歌词延迟」（毫秒，正=延后）：现读透传，渲染方自己扣减（契约见 SDK
       // SparkleKaraokeRenderCtx.lyricDelay 注释；存储与符号口径见 lib/lyric-delay.ts）
       lyricDelay: () => getLyricDelayMs(player.current),
+      hidePassedLines: () => npLyricHidePlayed() && Date.now() >= karaBrowsingUntil,
+      lyricTopAnchor,
       seek: (ms) => { player.seek(ms / 1000); setBrowse(false); },
       onNotify: (cb) => player.on(cb),
     }) ?? null;
@@ -614,10 +637,19 @@ export function NowPlaying(): HTMLElement {
     browseTimer = window.setTimeout(() => {
       setBrowse(false);
       followCurrent(); // 回到跟随态：立刻把当前句滚回中心
-    }, 3000);
+    }, LYRIC_BROWSE_MS);
   };
   lyrics.addEventListener("wheel", (e) => { if (!e.ctrlKey) enterBrowse(); }, { passive: true });
   lyrics.addEventListener("pointerdown", enterBrowse, { passive: true });
+  // 逐字歌词的滚轮由 AMLL 自己接管；这里只推迟“隐藏已播放行”的恢复，不拦截事件。
+  karaHost.addEventListener("wheel", (e) => {
+    if (!e.ctrlKey) karaBrowsingUntil = Date.now() + LYRIC_BROWSE_MS;
+  }, { passive: true });
+  // 窗口/频谱改变歌词列高度时，隐藏档的“当前行贴封面顶边”也要重新量一次。
+  window.addEventListener("resize", () => {
+    if (!npLyricHidePlayed() || !el.classList.contains("open") || browsing || lastIdx < 0) return;
+    requestAnimationFrame(followCurrent);
+  });
 
   // —— LRC 字号/行距缩放（--np-ly-scale）：字号与行距（em 排版）随同一系数缩放，改的是
   //    font-size 而非 transform，任何档位文字都锐利。⋮ 菜单「歌词大小」−/+ 与歌词上
@@ -680,7 +712,15 @@ export function NowPlaying(): HTMLElement {
 
   function followCurrent() {
     const line = lineEls[lastIdx];
-    if (line) lyrics.scrollTo({ top: line.offsetTop + line.offsetHeight / 2 - lyrics.clientHeight / 2, behavior: "smooth" });
+    if (!line) return;
+    const lr = lyrics.getBoundingClientRect();
+    const lineRect = line.getBoundingClientRect();
+    // 隐藏已播放行时，当前行顶边与封面顶边同高；其余档位保持原来的居中跟随。
+    const anchorTop = npLyricHidePlayed()
+      ? cover.getBoundingClientRect().top - lr.top
+      : (lyrics.clientHeight - lineRect.height) / 2;
+    const top = lyrics.scrollTop + lineRect.top - lr.top - anchorTop;
+    lyrics.scrollTo({ top, behavior: "smooth" });
   }
 
   function buildLyricDom(s: Song | undefined) {
@@ -773,6 +813,8 @@ export function NowPlaying(): HTMLElement {
   player.on(() => {
     const s = player.current;
     const open = player.expanded;
+    const hidePlayedChanged = el.classList.contains("np-hide-played") !== npLyricHidePlayed();
+    syncLyricLayout();
     // 画廊模式联动。放在早退之前：无歌收起也要能退出全屏。
     //  - 展开迁移：画廊开着 → 进全屏；收起 → 画廊会话结束，本页带的全屏随之退出
     //  - 无展开迁移但 gallery 刚被播放条置真（本页已开着）→ 立即进全屏
@@ -871,6 +913,8 @@ export function NowPlaying(): HTMLElement {
         if (idx >= 0 && lineEls[idx]) lineEls[idx].classList.add("cur");
         lastIdx = idx;
         if (!browsing && idx >= 0) followCurrent();
+      } else if (hidePlayedChanged && !browsing && lastIdx >= 0) {
+        followCurrent();
       }
     }
   });

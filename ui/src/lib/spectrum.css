@@ -4,6 +4,18 @@
 .np .np-inner { transition: padding-bottom .26s cubic-bezier(.32,.72,.24,1); }
 .np.spectrum-on .np-inner { padding-bottom: calc(clamp(56px, 8.5vh, 96px) + 50px); }
 .np.spectrum-on.spectrum-closing .np-inner { padding-bottom: 40px; }
+/* 全高歌词列：底边直接抬到频谱上方（height:auto 的 top/bottom 几何），不再用 padding 让位。 */
+.np.np-lyrics-full.spectrum-on .np-inner,
+.np.np-lyrics-full.spectrum-on.spectrum-closing .np-inner {
+  padding-bottom: 0;
+  bottom: calc(var(--control-bar-height, 64px) + var(--control-bar-dock-gap, 10px)
+    + clamp(56px, 8.5vh, 96px) + 42px);
+}
+body[data-control-bar="floating"] .np.np-lyrics-full.spectrum-on .np-inner,
+body[data-control-bar="floating"] .np.np-lyrics-full.spectrum-on.spectrum-closing .np-inner {
+  bottom: calc(var(--control-bar-inset) * 2 + var(--control-bar-lift) + var(--control-bar-height)
+    + clamp(56px, 8.5vh, 96px) + 36px);
+}
 /* 真实音频频谱：浮在播放控制条正上方。播放条在停靠态占 frame 末行、悬浮态为 fixed，
    两套几何分别对齐；--control-bar-* 由主题/控制条模式接管时这里跟着走。 */
 .np-spectrum {

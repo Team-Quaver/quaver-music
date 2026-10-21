@@ -416,6 +416,56 @@ await step("行级辅助行：与逐字同规则（翻译档优先翻译、音�
   await page.evaluate(() => { const p = window.__player; p.setLyricAuxMode("off"); p.notifyPublic(); });
   await page.waitForFunction(() => !document.querySelector("#np-lyrics .np-ly-line .l2"), { timeout: 8000 });
 });
+
+await step("歌词列模式：全高拉伸、频谱避让、隐藏已播放行且滚轮可翻阅", async () => {
+  const setMode = (mode: string) => page.evaluate((m) => {
+    window.__cfg.set({ "Style.LyricLayout": m });
+    window.__player.notifyPublic();
+  }, mode);
+  const geom = () => page.evaluate(() => {
+    const np = document.querySelector<HTMLElement>(".np")!;
+    const inner = document.querySelector<HTMLElement>(".np-inner")!.getBoundingClientRect();
+    const spectrum = document.querySelector<HTMLElement>(".np-spectrum")!.getBoundingClientRect();
+    return { className: np.className, top: inner.top, bottom: inner.bottom, height: inner.height, spectrumTop: spectrum.top };
+  });
+  await setMode("default"); await sleep(350);
+  const normal = await geom();
+  await setMode("full"); await sleep(350);
+  const full = await geom();
+  if (!full.className.includes("np-lyrics-full") || full.height < normal.height + 80) {
+    throw new Error(`全高档未拉伸歌词列: ${JSON.stringify({ normal, full })}`);
+  }
+  await page.evaluate(async () => {
+    const { spectrumFacade } = await import("/src/lib/spectrum-controller.ts");
+    spectrumFacade.setEnabled(true);
+  });
+  await page.waitForFunction(() => document.querySelector(".np")?.classList.contains("spectrum-on"), { timeout: 5000 });
+  await sleep(400);
+  const withSpectrum = await geom();
+  if (withSpectrum.bottom > withSpectrum.spectrumTop - 8) {
+    throw new Error(`全高歌词列压到频谱: ${JSON.stringify(withSpectrum)}`);
+  }
+  await page.evaluate(async () => {
+    const { spectrumFacade } = await import("/src/lib/spectrum-controller.ts");
+    spectrumFacade.setEnabled(false);
+  });
+  await setMode("hide-played"); await sleep(350);
+  await page.evaluate(() => {
+    const lines = [...document.querySelectorAll<HTMLElement>("#np-lyrics .np-ly-line")];
+    lines.forEach((line, i) => line.classList.toggle("cur", i === 1));
+  });
+  await sleep(400);
+  const before = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("#np-lyrics .np-ly-line")]
+    .map((line) => Number(getComputedStyle(line).opacity)));
+  if (before[0] > 0.02 || before[1] < 0.98) throw new Error(`已播放行未隐藏: ${JSON.stringify(before)}`);
+  await page.evaluate(() => document.querySelector("#np-lyrics")!
+    .dispatchEvent(new WheelEvent("wheel", { deltaY: 80, bubbles: true })));
+  await sleep(400);
+  const after = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("#np-lyrics .np-ly-line")]
+    .map((line) => Number(getComputedStyle(line).opacity)));
+  if (after[0] < 0.5) throw new Error(`滚轮浏览未恢复已播放行: ${JSON.stringify(after)}`);
+  await setMode("default"); await sleep(350);
+});
 await step("画廊按钮：开 = 展开并全屏、按钮点亮", async () => {
   await page.evaluate(() => { const p = window.__player; p.expanded = false; p.gallery = false; p.notifyPublic(); });
   await sleep(450);

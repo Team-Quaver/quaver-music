@@ -31,7 +31,7 @@
 // AMLL 的 parseQrc 只认纯文本 QRC（行首 [st,dur]），所以 XML 信封要先抽 Lyrics 属性
 // 并解码 HTML 实体；QRC 本身不带翻译，翻译（普通 LRC）按行起始时间就近对齐。
 import { parseLrc, parseQrc, parseTTML, type LyricLine as AmlLyricLine } from "@applemusic-like-lyrics/lyric";
-import { LyricPlayer, type LyricLine as CoreLyricLine } from "@applemusic-like-lyrics/core";
+import { LayoutAlignAnchor, LayoutReason, LyricPlayer, type LyricLine as CoreLyricLine } from "@applemusic-like-lyrics/core";
 import "@applemusic-like-lyrics/core/style.css";
 import type { SparkleKaraokeLine, SparkleKaraokeProvider, SparkleKaraokeRenderCtx } from "@quaver/sparkle";
 import type { LyricAuxMode } from "../lib/prefs";
@@ -263,10 +263,35 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
   player.setEnableBlur(true);   // 非当前行距离模糊，对齐行级视图的模糊语言
   player.setEnableScale(true);
 
+  // 隐藏已播放行：由宿主按设置透传；滚轮浏览时宿主会临时关掉，行不会从布局里消失。
+  let hidePassed = ctx.hidePassedLines?.() ?? false;
+  player.setHidePassedLines(hidePassed);
+
+  // 隐藏已播放行时，当前行顶边对齐封面顶边。锚位由宿主按实际几何算出（0..1）；
+  // 缺省 / null 时保持 AMLL 原本的居中锚定，桌面歌词窗等其它宿主不受影响。
+  let alignTop: number | null = null;
+  const applyTopAnchor = () => {
+    const want = ctx.lyricTopAnchor?.();
+    const next = typeof want === "number" && Number.isFinite(want)
+      ? Math.max(0, Math.min(1, want)) : null;
+    if (next === null && alignTop === null) return;
+    if (next !== null && alignTop !== null && Math.abs(next - alignTop) < 0.002) return;
+    alignTop = next;
+    if (next === null) {
+      player.setAlignAnchor(LayoutAlignAnchor.Center);
+      player.setAlignPosition(0.35);
+    } else {
+      player.setAlignAnchor(LayoutAlignAnchor.Top);
+      player.setAlignPosition(next);
+    }
+    player.calcLayout(LayoutReason.ConfigChange);
+  };
+
   // 按歌曲「歌词延迟」（ctx 透传，宿主必给；旧宿主语义下缺省 0 = 不调整）
   const delayMs = () => ctx.lyricDelay?.() ?? 0;
   let shownMode = ctx.lyricAux();
   player.setLyricLines(toCoreLines(lines, shownMode), ctx.time() - delayMs());
+  applyTopAnchor();
 
   // —— 时钟去抖 ——
   // 引擎传输的 position 是外推时钟（~4Hz 快照重同步），重同步瞬间可能回跳几十毫秒；
@@ -317,6 +342,11 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
       shownMode = wantMode;
       player.setLyricLines(toCoreLines(lines, shownMode), feedTime());
     }
+    const wantHide = ctx.hidePassedLines?.() ?? false;
+    if (wantHide !== hidePassed) {
+      hidePassed = wantHide;
+      player.setHidePassedLines(wantHide);
+    }
     applyPlayState();
     player.setCurrentTime(feedTime());
     player.update(dt);
@@ -328,9 +358,19 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
     if (ctx.expanded() && !running) { running = true; lastFrame = 0; raf = window.requestAnimationFrame(tick); }
   }
   syncRunning();
-  const offNotify = ctx.onNotify(syncRunning);
+  const onHostNotify = () => {
+    syncRunning();
+    applyTopAnchor();
+  };
+  const offNotify = ctx.onNotify(onHostNotify);
+  const anchorObserver = typeof ResizeObserver === "function"
+    ? new ResizeObserver(() => applyTopAnchor()) : null;
+  anchorObserver?.observe(host);
+  const cover = host.closest(".np")?.querySelector<HTMLElement>(".np-cover");
+  if (cover) anchorObserver?.observe(cover);
 
   return () => {
+    anchorObserver?.disconnect();
     amllPlayerByHost.delete(host);
     offNotify();
     if (raf) window.cancelAnimationFrame(raf);
