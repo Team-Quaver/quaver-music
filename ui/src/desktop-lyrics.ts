@@ -20,7 +20,8 @@
 // --dl-hover-opacity（悬停控件不跟随，恒满值）。
 //
 // 版面：可见条带（clip-path）恒居中于视口，当前行**整块文字**（主行 + 翻译/音译）的实测
-// 中心钉在视口中心；超长行一行到底、那一行自己横向滚（翻译/音译各判各的）。内核公式在
+// 中心钉在视口中心；水平方向只有「单行 + 单行居中=开」居中，单行关居中与双行恒左对齐。
+// 超长行一行到底、那一行自己横向滚（翻译/音译各判各的）。内核公式在
 // ./lib/desktop-lyrics-layout.ts，DOM 量测在下面的「排版内核」一节。
 //
 // 窗体形态：未锁定时是纯 CSD —— 整层是拖拽区（-webkit-app-region: drag，见 desktop-lyrics.css），
@@ -550,6 +551,10 @@ function applyStyle(): void {
   else root.style.removeProperty("--dl-font");
   const scale = getDesktopLyricsScale();
   root.style.setProperty("--dl-font-size", `${Math.round(24 * scale)}px`);
+  // 水平对齐：只有「单行 + 单行居中=开」才居中；单行关居中与双行都是左对齐。
+  // 双行设置项里没有第二个对齐开关，默认左对齐是既定行为，不能被通用居中规则吃掉。
+  const centerLyrics = getDesktopLyricsMode() === "single" && getDesktopLyricsSingleCenter();
+  root.classList.toggle("dl-align-left", !centerLyrics);
   root.style.setProperty("--dl-border", `${getDesktopLyricsBorder()}px`);
   // 单层 text-shadow：便宜、可关、参数全由设置页控制；0 不透明度直接撤掉变量。
   const shadowOpacity = getDesktopLyricsShadowOpacity();

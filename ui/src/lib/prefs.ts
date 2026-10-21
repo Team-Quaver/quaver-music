@@ -571,8 +571,9 @@ export function setDesktopLyricsMode(v: DlMode) {
 }
 
 
-/** 单行居中档（默认开）：开 = 条带只装当前句（主行 + 翻译/音译，和声行裁掉）；关 = 连和声
- *  行一起装进条带。两档的条带都恒居中于视口、文字块整体居中（见 src/desktop-lyrics.ts）。 */
+/** 单行居中档（默认开）：开 = 当前句水平居中，条带只装当前句（主行 + 翻译/音译，和声行裁掉）；
+ *  关 = 水平左对齐，并连和声行一起装进条带。双行档没有第二个对齐开关，恒为左对齐。
+ *  竖直方向仍由条带把整块文字钉在视口中心，见 src/desktop-lyrics.ts。 */
 export function getDesktopLyricsSingleCenter(): boolean {
   return !/^(false|0|no)$/i.test(cfg("DesktopLyrics.SingleCenter", "True"));
 }

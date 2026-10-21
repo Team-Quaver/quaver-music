@@ -152,15 +152,14 @@ body {
   contain: layout style;
 }
 
-/* —— 桌面歌词专属排版：单行到底 + 水平居中 ——
+/* —— 桌面歌词专属排版：单行到底 + 单行居中 / 双行左对齐 ——
  * AMLL 默认允许长行折行（还会插 <br> 做「平衡断行」），主行盒 100% 宽 + contain:paint
- * 会把溢出裁在右缘 —— 桌面歌词要的是「一行到底、各自居中」：
+ * 会把溢出裁在右缘 —— 桌面歌词要的是「一行到底、对齐跟随档位」：
  *   ① nowrap + 藏掉 core 插的平衡 <br>（br 换行对 nowrap 免疫，必须显式吃掉）；
- *   ② 行盒从满宽改 fit-content 并由 flex 居中 —— 整块（取最宽的那一行）居中；
- *   ③ 块内每行 text-align:center —— 翻译/音译比主行短时**自己居中**（不跟着主行的左缘
- *      跑到天边），比主行长时也不被主行的宽度带走；对唱行的靠右在覆盖层里一并归中
- *      （桌面上没有「谁唱哪边」的语义）；
+ *   ② 行盒从满宽改 fit-content；单行居中开时由 flex 居中，否则贴内容盒左缘；
+ *   ③ 块内每行继承同一水平对齐 —— 翻译/音译与主行同起同止，不会主行居左、辅助行居中；
  *   ④ 超长行不折、不裁死：交给上面 .dl-scrolling 的横向滚动（各滚各的）。
+ * 单行关居中与双行都走 .dl-align-left（双行没有第二个对齐开关，默认就是左对齐）。
  * 这几条只作用于本视口 —— 主窗正在播放页的 Apple 式左对齐不受影响。 */
 #dl-clip .amll-lyric-player > div {
   white-space: nowrap;
@@ -171,6 +170,12 @@ body {
   min-width: 0;
   max-width: none;
   text-align: center;
+}
+#dl-root.dl-align-left #dl-clip .amll-lyric-player > div {
+  align-items: flex-start;
+}
+#dl-root.dl-align-left #dl-clip .amll-lyric-player > div > div {
+  text-align: left;
 }
 #dl-clip br {
   display: none;
