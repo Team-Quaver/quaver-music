@@ -17,6 +17,7 @@ const views = viewsSource();
 // 后端断言对 Go sidecar（vendor/Typhoeus-go）：Python 实现已退役
 const appGo = readFileSync(join(root, "..", "vendor", "Typhoeus-go", "server", "app.go"), "utf8");
 const discoveryGo = readFileSync(join(root, "..", "vendor", "Typhoeus-go", "server", "handlers_discovery.go"), "utf8");
+const styleCss = read("src/style.css");
 
 let fails = 0;
 let checks = 0;
@@ -49,9 +50,17 @@ ok("假实现已删干净：不再用「我喜欢」凑数 / 不再有日期种�
   && !has(noComments(views), "接口未开放"));
 ok("输出: 行渲染带专辑列 + 双击播整列（与歌单页同一套语义）",
   re(code, /renderSongRows\(box, songs, \{ showAlbum: true, onPlay: \(s, i, all\) => player\.playList\(all, i\) \}\)/));
-ok("说明文案: 服务端那句编辑语（info.desc）覆盖占位说明",
-  re(code, /if \(\s*note && d\??\.info\??\.desc\) note\.textContent = d\??\.info\??\.desc;/)
-  && has(view, "listPage(root"));
+ok("布局: 与歌单页同一套信息头 + 吸顶条 + 播放全部",
+  re(code, /mountHead\(root,[\s\S]{0,220}name: "每日 30 首"/)
+  && re(code, /mountStickyBar\(root, \{ artHtml: cover, name: "每日 30 首" \}/)
+  && re(code, /playAllButton\(\(\) => songs\)/));
+ok("封面: Accent 渐变的日历图标，日期只取本地当天的 dd",
+  has(views, "const dailyCover = (day: string)")
+  && re(code, /new Date\(\)/) && re(code, /getDate\(\)\)\.padStart\(2, "0"\)/)
+  && has(views, 'class="daily-cover__calendar"') && has(views, 'class="daily-cover__day"')
+  && re(styleCss, /\.daily-cover\s*\{[^}]*linear-gradient\(145deg,[^}]*var\(--cvg-accent/));
+ok("说明文案: 服务端那句编辑语（info.desc）进入歌单式信息头",
+  re(code, /desc = d\.info\?\.desc \?\? ""/) && re(code, /mountHead\(root,[\s\S]{0,220}desc: desc \|\|/));
 ok("空态: 列表为空给可读提示（没生成 / 未登录），不是白屏",
   re(code, /if \(!songs\.length\) \{[\s\S]{0,160}今天的 30 首还没生成/));
 ok("失败态: 报错文案带「需要先登录」引导", has(code, "需要先登录"));

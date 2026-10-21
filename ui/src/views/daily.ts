@@ -4,29 +4,63 @@ import { renderSongRows } from "../lib/songs";
 import { player } from "../player";
 import type { Song } from "../player";
 import type { DailyResp } from "./_shared";
-import { errText, listPage } from "./_shared";
+import { errText, h, mountHead, mountStickyBar, playAllButton } from "./_shared";
+
+const dailyCover = (day: string) => `
+  <div class="daily-cover" role="img" aria-label="今日 ${day} 日">
+    <svg class="daily-cover__calendar" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+      <rect x="6" y="10" width="52" height="48" rx="10" stroke="currentColor" stroke-width="2.4"/>
+      <path d="M6.5 22.5h51M20 5.5v9M44 5.5v9" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+    </svg>
+    <span class="daily-cover__day">${day}</span>
+  </div>`;
+
 export default async function dailyView(root: HTMLElement) {
-  // 真的「每日30首」：它是**系统虚拟歌单**（dirid 固定 202，与「我喜欢」201 同一族），
-  // 每天由服务端重生成 30 首，disstid 每天都变 —— 所以后端按 dirid 取（见 /recommend/daily），
-  // 前端只管拿详情，结构与普通歌单完全一致（info/songs/total/hasmore）。
-  // 以前这页是假的：拿「我喜欢」按日期种子随机凑 30 首（官方接口未开放时的占位），现已接真接口。
-  const { rows: box, off: offHead } = listPage(root, "每日 30 首", "QQ 音乐「每日30首」：每天按你的口味重算 30 首");
-  const note = root.querySelector<HTMLElement>(".page-note");
+  // 真的「每日30首」：系统虚拟歌单（dirid 202），每天由服务端重生成 30 首。
+  // 页面沿用歌单页的信息头 + 吸顶条，让这个系统歌单和普通歌单保持同一套视觉语言。
+  const now = new Date();
+  const day = String(now.getDate()).padStart(2, "0");
+  const cover = dailyCover(day);
+  let songs: Song[] = [];
+  let desc = "";
   try {
     const d = (await api<DailyResp>("/recommend/daily?page=1&num=100")) ?? {}; // 30 首一把拿全，不用翻页
-    const songs: Song[] = d.songs ?? [];
-    // 服务端那句编辑语（「甄选私人好品味：今日份的 X、Y、Z…」）比我们自己编的说明好看
-    if (note && d.info?.desc) note.textContent = d.info.desc;
-    if (!songs.length) {
-      box.innerHTML = `<div class="muted">今天的 30 首还没生成，稍后再来（也确认下是否已登录）</div>`;
-      return;
-    }
-    box.innerHTML = "";
-    renderSongRows(box, songs, { showAlbum: true, onPlay: (s, i, all) => player.playList(all, i) });
+    songs = d.songs ?? [];
+    desc = d.info?.desc ?? "";
   } catch (e) {
-    box.innerHTML = `<div class="muted">${errText(e)} — 需要先登录</div>`;
+    root.innerHTML = "";
+    const head = mountHead(root, {
+      artHtml: cover,
+      name: "每日 30 首",
+      meta: "",
+      desc: "今天的推荐暂时没有拿到。请确认登录状态后再试。",
+    });
+    head.querySelector<HTMLElement>(".pl-meta")?.remove();
+    root.append(h("div", "rows muted", `${errText(e)} — 需要先登录`));
+    return;
   }
-  return offHead; // 吸顶跟踪退订
+
+  root.innerHTML = "";
+  const head = mountHead(root, {
+    artHtml: cover,
+    name: "每日 30 首",
+    meta: "",
+    desc: desc || "每天按你的口味，重新挑选 30 首。",
+  });
+  // 每日 30 首的信息头不再重复曲目数；歌单封面本身已经说明了日期。
+  head.querySelector<HTMLElement>(".pl-meta")?.remove();
+  const sticky = mountStickyBar(root, { artHtml: cover, name: "每日 30 首" });
+  const playAll = playAllButton(() => songs);
+  sticky.right.append(playAll.el);
+  const box = h("div", "rows");
+  root.append(box);
+
+  if (!songs.length) {
+    box.innerHTML = `<div class="muted">今天的 30 首还没生成，稍后再来（也确认下是否已登录）</div>`;
+    return sticky.off;
+  }
+  renderSongRows(box, songs, { showAlbum: true, onPlay: (s, i, all) => player.playList(all, i) });
+  return sticky.off;
 }
 
 /** 两次预载列表是否同一批曲（同序同 mid）：一样就不重画，避免打断滚动 */
