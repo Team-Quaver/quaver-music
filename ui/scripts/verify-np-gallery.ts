@@ -257,13 +257,13 @@ await step("kara 模式：AMLL 挂载、行级隐藏、左缘渐变蒙版仍在"
     });
     const arm = () => {
       p.lyricState = "ok";
-      // 行级与逐字两路辅助行都给数据：第 1 行翻译/音译都有、第 2 行只有音译 ——
-      // 据此验证「优先所选那一路，本行缺则回落另一路」，以及辅助行只有一个、绝不在词上方。
+      // 行级与逐字两路辅助行都给数据：第 1 行翻译/音译都有、第 2 行翻译是 `//` 占位 ——
+      // 据此验证占位行被跳过、「优先所选那一路，本行缺则回落另一路」，以及辅助行只有一个。
       p.lyrics = [{ t: 0, text: "第一行", trans: "第一行（译）", roma: "di yi hang" },
         { t: 3, text: "第二行", roma: "di er hang" }];
       p.karaoke = [
         line(0, 3000, [["你好", 0, 1500], ["世界", 1500, 1500]], "你好世界（译）", "ni hao shi jie"),
-        line(3000, 3000, [["第二行", 0, 3000]], "", "di er hang"),
+        line(3000, 3000, [["第二行", 0, 3000]], "//", "di er hang"),
       ];
       p.notifyPublic();
     };
@@ -317,6 +317,7 @@ await step("kara 辅助行：翻译档优先翻译、音译档优先音译，缺
   let two = st.rows.find((r) => r.main.includes("第二行"));
   if (!one || one.subs.join() !== "你好世界（译）") throw new Error("翻译档第 1 行应显翻译 " + JSON.stringify(st.rows));
   if (!two || two.subs.join() !== "di er hang") throw new Error("翻译档第 2 行无翻译应回落音译 " + JSON.stringify(st.rows));
+  if (st.rows.some((r) => r.subs.some((s) => /^\/+$/.test(s)))) throw new Error("辅助行占位 // 被上屏 " + JSON.stringify(st.rows));
 
   await setMode("romanization");
   await waitRows("ni hao shi jie");

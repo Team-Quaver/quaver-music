@@ -336,13 +336,13 @@ export default async function settingsView(root: HTMLElement) {
         </div>
         <div class="set-row"><span class="set-row__label">字号</span>
           <div class="set-row__ctrl">
-            <input class="set-blur" id="dl-scale" type="range" min="50" max="200" step="5" aria-label="桌面歌词字号" />
+            <input class="set-blur set-blur--flat" id="dl-scale" type="range" min="50" max="200" step="5" aria-label="桌面歌词字号" />
             <span class="bg-blur-val" id="dl-scale-val"></span>
           </div>
         </div>
         <div class="set-row"><span class="set-row__label">描边宽度</span>
           <div class="set-row__ctrl">
-            <input class="set-blur" id="dl-border" type="range" min="0" max="4" step="0.5" aria-label="桌面歌词文字描边宽度" />
+            <input class="set-blur set-blur--flat" id="dl-border" type="range" min="0" max="4" step="0.5" aria-label="桌面歌词文字描边宽度" />
             <span class="bg-blur-val" id="dl-border-val"></span>
           </div>
         </div>
@@ -354,37 +354,37 @@ export default async function settingsView(root: HTMLElement) {
         </div>
         <div class="set-row"><span class="set-row__label">阴影模糊</span>
           <div class="set-row__ctrl">
-            <input class="set-blur" id="dl-shadow-blur" type="range" min="0" max="32" step="1" aria-label="桌面歌词阴影模糊半径" />
+            <input class="set-blur set-blur--flat" id="dl-shadow-blur" type="range" min="0" max="32" step="1" aria-label="桌面歌词阴影模糊半径" />
             <span class="bg-blur-val" id="dl-shadow-blur-val"></span>
           </div>
         </div>
         <div class="set-row"><span class="set-row__label">阴影不透明度</span>
           <div class="set-row__ctrl">
-            <input class="set-blur" id="dl-shadow-opacity" type="range" min="0" max="100" step="5" aria-label="桌面歌词阴影不透明度" />
+            <input class="set-blur set-blur--flat" id="dl-shadow-opacity" type="range" min="0" max="100" step="5" aria-label="桌面歌词阴影不透明度" />
             <span class="bg-blur-val" id="dl-shadow-opacity-val"></span>
           </div>
         </div>
         <div class="set-row"><span class="set-row__label">阴影水平偏移</span>
           <div class="set-row__ctrl">
-            <input class="set-blur" id="dl-shadow-x" type="range" min="-12" max="12" step="1" aria-label="桌面歌词阴影水平偏移" />
+            <input class="set-blur set-blur--flat" id="dl-shadow-x" type="range" min="-12" max="12" step="1" aria-label="桌面歌词阴影水平偏移" />
             <span class="bg-blur-val" id="dl-shadow-x-val"></span>
           </div>
         </div>
         <div class="set-row"><span class="set-row__label">阴影垂直偏移</span>
           <div class="set-row__ctrl">
-            <input class="set-blur" id="dl-shadow-y" type="range" min="-12" max="12" step="1" aria-label="桌面歌词阴影垂直偏移" />
+            <input class="set-blur set-blur--flat" id="dl-shadow-y" type="range" min="-12" max="12" step="1" aria-label="桌面歌词阴影垂直偏移" />
             <span class="bg-blur-val" id="dl-shadow-y-val"></span>
           </div>
         </div>
         <div class="set-row"><span class="set-row__label">歌词不透明度</span>
           <div class="set-row__ctrl">
-            <input class="set-blur" id="dl-opacity" type="range" min="10" max="100" step="5" aria-label="桌面歌词歌词不透明度" />
+            <input class="set-blur set-blur--flat" id="dl-opacity" type="range" min="10" max="100" step="5" aria-label="桌面歌词歌词不透明度" />
             <span class="bg-blur-val" id="dl-opacity-val"></span>
           </div>
         </div>
         <div class="set-row"><span class="set-row__label">窗体不透明度</span>
           <div class="set-row__ctrl">
-            <input class="set-blur" id="dl-backdrop" type="range" min="0" max="100" step="5" aria-label="桌面歌词窗体不透明度（整扇窗的背板）" />
+            <input class="set-blur set-blur--flat" id="dl-backdrop" type="range" min="0" max="100" step="5" aria-label="桌面歌词窗体不透明度（整扇窗的背板）" />
             <span class="bg-blur-val" id="dl-backdrop-val"></span>
           </div>
         </div>

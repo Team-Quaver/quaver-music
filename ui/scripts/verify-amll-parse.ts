@@ -33,6 +33,9 @@ const MAIN_QRC = "[0,3000]你(0,750)好(750,750)世(1500,750)界(2250,750)\n[300
 const ROMA_QRC = "[0,3000]ni(0,700) hao(700,800) shi(1500,700) jie(2250,700)";
 const ROMA_LRC = "[00:00.00]ni hao shi jie\n[00:03.00]di er hang";
 const TRANS_LRC = "[00:00.00]你好世界（译）";
+const PLACEHOLDER_TRANS_LRC = "[00:00.00]//\n[00:03.00]第二行（译）";
+const PLACEHOLDER_ROMA_LRC = "[00:00.00]ni hao shi jie\n[00:03.00]//";
+const PLACEHOLDER_BOTH_LRC = "[00:00.00]//\n[00:03.00]//";
 // 日文逐字 + 振假名（QQ《怪物》那种形状：正文只有一行 [st,dur]，词时间是**绝对毫秒**，
 // 注音标签另起一行 [kana:...]，元数据行 [ti:]/[offset:] 混在里面）。
 // 可注音字符只有汉字（貴 / 下 / 文 / 学）：「の」是平假名、不占配额。
@@ -75,6 +78,8 @@ const run = await page.evaluate(async (spec: any) => {
     romanOnly: shape(provider.parse(spec.mainQrc, "", spec.romaQrc)),
     bare: shape(provider.parse(spec.mainQrc, "", "")),
     plainLrc: shape(provider.parse("[00:00.00]第一行\n[00:03.00]第二行", spec.transLrc, spec.romaLrc)),
+    placeholderAux: shape(provider.parse(spec.mainQrc, spec.placeholderTransLrc, spec.placeholderRomaLrc)),
+    placeholderBare: shape(provider.parse(spec.mainQrc, spec.placeholderBothLrc, spec.placeholderBothLrc)),
     // —— QRCKana ——
     kanaHead: shape(provider.parse(`${spec.jpKana}\n${spec.jpQrc}`, "", "")),
     kanaTail: shape(provider.parse(`${spec.jpQrc}\n${spec.jpKana}`, "", "")),
@@ -89,6 +94,8 @@ const run = await page.evaluate(async (spec: any) => {
 }, {
   moduleUrl: MODULE,
   mainQrc: MAIN_QRC, romaQrc: ROMA_QRC, romaLrc: ROMA_LRC, transLrc: TRANS_LRC,
+  placeholderTransLrc: PLACEHOLDER_TRANS_LRC, placeholderRomaLrc: PLACEHOLDER_ROMA_LRC,
+  placeholderBothLrc: PLACEHOLDER_BOTH_LRC,
   envelopeMain: envelope(MAIN_QRC), envelopeRoma: envelope(ROMA_QRC),
   quotedEnvelope: QUOTED_ENVELOPE,
   jpQrc: JP_QRC, jpKana: JP_KANA, envelopeKana: envelope(`${JP_KANA}\n${JP_QRC}`),
@@ -131,6 +138,16 @@ check("LRC 行级同样按时间就近挂辅助行（第 1 行翻译+音译）",
   JSON.stringify(run.plainLrc[0]));
 check("LRC 第 2 行只给音译 → 翻译空、音译有",
   run.plainLrc[1].trans === "" && run.plainLrc[1].roman === "di er hang", JSON.stringify(run.plainLrc[1]));
+
+section("辅助源里的 // 是占位，不挂到歌词行上");
+check("第 1 行翻译为 // → 翻译空、音译保留",
+  run.placeholderAux[0]?.trans === "" && String(run.placeholderAux[0]?.roman).replace(/\s+/g, " ").trim() === "ni hao shi jie",
+  JSON.stringify(run.placeholderAux[0]));
+check("第 2 行音译为 // → 音译空、翻译保留",
+  run.placeholderAux[1]?.roman === "" && run.placeholderAux[1]?.trans === "第二行（译）",
+  JSON.stringify(run.placeholderAux[1]));
+check("两路都是 // → 两行辅助文本全空（渲染层整行收起）",
+  run.placeholderBare.every((l: any) => l.trans === "" && l.roman === ""), JSON.stringify(run.placeholderBare));
 
 section("QRCKana：[kana: ...] 标签 → 词上方振假名（ruby），且标签本身不进歌词");
 check("正文仍是两行逐字（注音行与 [ti:]/[offset:] 都没被当成一句歌词）",
