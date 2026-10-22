@@ -515,6 +515,16 @@ export const SCHEMA: SectionSpec[] = [
         ],
         valid: (v: string) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
       },
+      {
+        key: "ReportListenTime",
+        def: "True",
+        doc: [
+          "向 QQ 音乐上报真实听歌时长（音响力物理流水）：True=开启（**默认**）｜False=关闭。",
+          "只统计播放器真正出声的时间，暂停/缓冲/系统休眠不计；每满 60 秒分片上报，",
+          "切歌、停止或退出时补报不足一分钟的尾段。需要登录，本地/NAS 曲目不上报",
+        ],
+        valid: (v: string) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
+      },
     ],
   },
   {

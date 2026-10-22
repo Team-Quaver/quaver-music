@@ -417,6 +417,15 @@ export function setInhibitSleep(v: boolean) {
   cfgSet({ "Playing.InhibitSleep": v ? "True" : "False" });
 }
 
+// 听歌时长上报（[Playing] ReportListenTime，默认开）：只统计真实出声时间，
+// 满 60 秒经 sidecar 提交到 QQ 音乐音响力；关闭立即停止累计并丢弃未发送尾段。
+export function getReportListenTime(): boolean {
+  return !/^(false|0|no)$/i.test(cfg("Playing.ReportListenTime", "True"));
+}
+export function setReportListenTime(v: boolean) {
+  cfgSet({ "Playing.ReportListenTime": v ? "True" : "False" });
+}
+
 // —— 歌词辅助行：关闭 / 翻译 / 音译。翻译与音译是替换关系，且都在歌词**下方**那一行 ——
 //    翻译档：优先翻译，本行没翻译则回落音译；音译档：优先音译，本行没音译则回落翻译。
 //    规则只有 src/lyric.ts 的 pickAux 一份：行级视图与内置歌词引擎（src/lyrics/amll.ts）都

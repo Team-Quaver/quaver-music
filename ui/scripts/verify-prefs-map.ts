@@ -129,6 +129,8 @@ P.setPrevBehavior("previous"); eq("previous → PrevReplay=False", conf()["Playi
 P.setPrevBehavior("replay");   eq("replay → True", conf()["Playing.PrevReplay"], "True");
 P.setInhibitSleep(false); eq("睡眠禁止关 → InhibitSleep=False", conf()["Playing.InhibitSleep"], "False");
 P.setInhibitSleep(true);  eq("睡眠禁止开 → True", conf()["Playing.InhibitSleep"], "True");
+P.setReportListenTime(false); eq("听歌时长上报关 → ReportListenTime=False", conf()["Playing.ReportListenTime"], "False");
+P.setReportListenTime(true);  eq("听歌时长上报开 → True", conf()["Playing.ReportListenTime"], "True");
 P.setDesktopLyricsLocked(true);  eq("桌面歌词固定 → Locked=True", conf()["DesktopLyrics.Locked"], "True");
 eq("桌面歌词固定读回", P.getDesktopLyricsLocked(), true);
 P.setDesktopLyricsLocked(false); eq("桌面歌词解除固定 → Locked=False", conf()["DesktopLyrics.Locked"], "False");
@@ -236,7 +238,7 @@ check("写盘键名齐全（Section.Key 风格）", [
   "Style.Style", "Style.DefaultUIFonts", "Style.DefaultLyricsFonts",
   "Style.Background", "Style.BackgroundImage", "Style.BackgroundBlur", "Style.MenuBlur",
   "Window.Decor", "Window.CloseAction",
-  "Playing.Backend", "Playing.AudioDevice", "Playing.Fade", "Playing.PrevReplay", "Playing.InhibitSleep",
+  "Playing.Backend", "Playing.AudioDevice", "Playing.Fade", "Playing.PrevReplay", "Playing.InhibitSleep", "Playing.ReportListenTime",
   "Quality.DefaultQuality", "Quality.FallbackToQMAtmos",
   "Update.AutoCheck", "Update.Channel", "Update.LastNotified",
 ].every((k) => keys.includes(k)), keys.join(","));

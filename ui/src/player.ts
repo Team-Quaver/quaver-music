@@ -11,6 +11,7 @@ import {
   getShowTrans, setShowTrans, getLyricAux, setLyricAux, type LyricAuxMode,
   getPrevBehavior,
   getOnlineTtml, getTtmlDatabase, getTtmlLibrary,
+  getReportListenTime,
   type DecodeBackend, type FadePreset,
 } from "./lib/prefs";
 import { cjkConvert } from "./lib/cjk-convert";
@@ -23,6 +24,7 @@ import { coerceLyricToLrc, parseLrc, type LyricLine } from "./lyric";
 import type {SparkleKaraokeLine, SparkleKaraokeProvider} from "@quaver/sparkle";
 import { onSparkleChange, sparkleKaraokeProvider, sparkleStreamSources } from "./sparkle/registry";
 import { isLocalSong, localSongStreamUrl, loadLocalLibrary, onLocalLibraryChange, trackById, type LocalSongFingerprint } from "./lib/local.ts";
+import type { ListenReportTarget, ListenTimeReporter } from "./lib/listen-report";
 
 export type Song = {
   mid: string;
@@ -33,7 +35,7 @@ export type Song = {
   title?: string;
   /** 歌曲说明（如「《小时代》电影主题曲」），可为空 */
   subtitle?: string;
-  singer?: { name: string; mid?: string; pmid?: string }[];
+  singer?: { id?: number; name: string; mid?: string; pmid?: string }[];
   album?: { mid?: string; pmid?: string; name?: string };
   interval?: number;
   _key?: string;
@@ -173,6 +175,9 @@ class Player {
   private sessionTimer: number | null = null;
   /** 后端选择完成（首播若发生在启动检查完成前，startCurrent 会等它） */
   private backendInit: Promise<void>;
+  /** 真实出声时长上报器：首次播放 QQ 曲目时懒加载，避免把协议/计时器塞进首屏。 */
+  private listenReporter: ListenTimeReporter | null = null;
+  private listenReporterInit: Promise<ListenTimeReporter> | null = null;
 
   constructor() {
     this.bindTransport(this.transport);
@@ -186,12 +191,16 @@ class Player {
     void this.backendInit.then(() => this.restoreSession());
     // 关窗/切后台立刻落一次存档，别把最后一段进度丢在节流窗口里
     window.addEventListener("pagehide", () => this.saveSessionNow());
+    window.addEventListener("pagehide", () => this.listenReporter?.flush(true));
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") this.saveSessionNow();
     });
     // 主进程拆窗重建（CSD/SSD 切换）前派发：立刻落一次存档 —— destroy() 不保证触发
     // pagehide，而重建后的新页面要靠这份存档对齐队列/指针去接管 mpv 正在放的歌
-    window.addEventListener("quaver:flush-session", () => this.saveSessionNow());
+    window.addEventListener("quaver:flush-session", () => {
+      this.saveSessionNow();
+      this.listenReporter?.flush(true);
+    });
     // 歌词提供器是异步注册的（内置 AMLL 由 initSparkle 动态 import，晚于首帧）：首曲歌词
     // 可能在 provider 到位前就按纯 LRC 拉完了 → provider 出现时对当前曲补拉一次
     // （fetchLyric 自带竞态守卫）
@@ -216,6 +225,7 @@ class Player {
   private onTransportEvent(e: TransportEvent) {
     switch (e.type) {
       case "time":
+        this.listenReporter?.pulse();
         this.notify();
         break;
       case "duration":
@@ -224,12 +234,15 @@ class Player {
         break;
       case "play":
       case "pause":
+        this.listenReporter?.setPlaying(e.type === "play" && !this.transport.paused);
         this.notify();
         break;
       case "waiting": // 起播后仍需缓冲（网络卡顿）→ 保持加载指示
+        this.listenReporter?.setPlaying(false);
         if (this.current) { this.loading = true; this.notify(); }
         break;
       case "playing": // playing = 真的出声了（起播/缓冲恢复）
+        this.listenReporter?.setPlaying(true);
         if (this.loading) { this.loading = false; this.error = ""; this.notify(); }
         this.failStreak = 0; // 出声即成功：自动跳曲的连续失败计数清零
         break;
@@ -237,9 +250,12 @@ class Player {
         if (this.loading && !this.transport.paused) { this.loading = false; this.notify(); }
         break;
       case "ended":
+        this.listenReporter?.setPlaying(false);
+        this.listenReporter?.flush();
         this.onEnded();
         break;
       case "error": {
+        this.listenReporter?.setPlaying(false);
         // src 加载/解码失败（token 过期、上游断流、mpv 退出）→ 在播/正常起播态自动回退音质，
         // 回退链穷尽（最低档仍失败）→ 直接下一曲，别把队列卡死在一首坏流上。
         // 非自动播放轮（还原挂流失败）与用户暂停态不自动动：留错误态，点播放键重试。
@@ -368,6 +384,7 @@ class Player {
     const at = this.transport.position;
     const wasPlaying = !this.transport.paused;
     const hadStream = !!this.transport.src || this.loading;
+    this.listenReporter?.setPlaying(false);
     try { this.transport.stop(); } catch { /* noop */ }
     this.pendingSeek = 0;
     this.bindTransport(t);
@@ -782,12 +799,65 @@ class Player {
 
   /** 立即打断当前取链/缓冲并跳转（双击新歌用：旧流的排队 play promise 一并作废） */
   private interrupt() {
+    this.listenReporter?.stopTarget();
     this.playSeq++;
     this.loading = false;
     this.error = "";
     this.pendingSeek = 0;
     this.streamUrl = "";
     try { this.transport.stop(); } catch { /* noop */ }
+  }
+
+  /** 当前流对应的听歌时长上报目标；本地/NAS 曲目和异常 URL 一律返回 null。 */
+  private listenTargetOf(s: Song, url: string): ListenReportTarget | null {
+    const prefix = "/api/stream/";
+    if (isLocalSong(s) || !s.id || !url.startsWith(prefix)) return null;
+    const streamToken = url.slice(prefix.length).split(/[?#]/, 1)[0] ?? "";
+    if (!streamToken) return null;
+    const singer = s.singer?.[0];
+    const file = (s as Song & { file?: { media_mid?: string } }).file;
+    const interval = Number(s.interval || this.transport.duration || 0);
+    if (!(interval > 0)) return null;
+    return {
+      mid: s.mid,
+      mediaMid: String(file?.media_mid ?? ""),
+      songId: Number(s.id),
+      audioTimeMs: Math.round(interval * 1000),
+      songType: Number(s.type ?? 1),
+      singerId: Number(singer?.id ?? 0),
+      coSinger: String(singer?.name ?? ""),
+      streamToken,
+    };
+  }
+
+  /** 首次播放 QQ 曲目才加载上报器；初始化完成时若已切歌，旧目标直接丢弃。 */
+  private initListenReporter(song: Song, url: string): void {
+    const target = this.listenTargetOf(song, url);
+    if (!target) return;
+    void this.ensureListenReporter().then((reporter) => {
+      if (this.current !== song || this.streamUrl !== url) return;
+      reporter.setTarget(target);
+      reporter.setPlaying(!this.loading && !this.transport.paused && this.transport.src === url);
+    }).catch(() => { /* 上报是旁路能力：加载失败不能影响播放 */ });
+  }
+
+  private ensureListenReporter(): Promise<ListenTimeReporter> {
+    if (this.listenReporter) return Promise.resolve(this.listenReporter);
+    if (!this.listenReporterInit) {
+      this.listenReporterInit = import("./lib/listen-report").then(({ ListenTimeReporter }) => {
+        this.listenReporter = new ListenTimeReporter({
+          enabled: getReportListenTime,
+          send: (body, keepalive) => api("/sound-power/report", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+            keepalive,
+          }),
+        });
+        return this.listenReporter;
+      });
+    }
+    return this.listenReporterInit;
   }
 
   private async startCurrent(resumeTo = 0, autoplay = true, overrideTier?: string) {
@@ -813,6 +883,7 @@ class Player {
       const r = await this.getStream(s, overrideTier); // 命中单击预取的链接 → 直接跳过取链；降级重试带指定档
       if (seq !== this.playSeq || this.current !== s) return;
       this.streamUrl = r.url;
+      this.initListenReporter(s, r.url);
       setLastStream({ tier: r.tier, label: r.label, degraded: r.degraded });
       await this.transport.load(r.url, { paused: !autoplay }); // web: 赋 src；engine: loadfile replace
       if (resumeTo > 1) this.pendingSeek = resumeTo; // 换音质/换后端：时长就绪后从旧进度续播
