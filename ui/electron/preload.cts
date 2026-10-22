@@ -165,13 +165,18 @@ contextBridge.exposeInMainWorld("quaverUpdate", {
     }),
 });
 
-// 音频引擎（mpv 后端）：invoke 走请求/应答（handle 返回值可序列化），事件为主进程主动推。
+// 音频引擎（MPV 直出 / MPV 解码 + renderer 兼容输出）：invoke 走请求/应答，事件由主进程主动推。
 // 渲染层 Transport 抽象（src/lib/transport.ts）据此实现 EngineTransport；
 // 浏览器 dev（无 preload）下 window.quaverAudio 不存在 → 自动落到 <audio> WebTransport。
 contextBridge.exposeInMainWorld("quaverAudio", {
   invoke: (cmd: unknown) => ipcRenderer.invoke("quaver:audio", cmd),
-  onEvent: (cb: (ev: unknown) => void) =>
-    ipcRenderer.on("quaver:audio-event", (_e: Electron.IpcRendererEvent, ev: unknown) => {
+  onEvent: (cb: (ev: unknown) => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, ev: unknown) => {
       try { cb(ev); } catch (err) { console.warn("audio engine event failed", err); }
-    }),
+    };
+
+    ipcRenderer.on("quaver:audio-event", listener);
+
+    return () => { ipcRenderer.removeListener("quaver:audio-event", listener); };
+  },
 });

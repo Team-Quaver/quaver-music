@@ -146,9 +146,8 @@ function rawPosMs(): number {
 }
 
 const ctx = {
-  // 与主窗 NowPlaying 组装 render ctx 处同口径：(player.time + 0.2) * 1000 → 这里
-  // 外推等价物 = rawPosMs() + CLOCK_COMP_MS。歌词时钟 = time() − lyricDelay()（在 amll.ts 内做）。
-  time: () => rawPosMs() + CLOCK_COMP_MS,
+  // 与主窗 NowPlaying 同口径：posMs 是裸播放头，clockCompMs 由主窗按后端下发。
+  time: () => rawPosMs() + (sync?.clockCompMs ?? CLOCK_COMP_MS),
   paused: () => !(sync?.playing ?? false),
   expanded: () => true, // 覆盖层没有「收起」一档：窗口在=恒展开
   showTrans: () => getLyricAux() !== "off",

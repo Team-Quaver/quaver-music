@@ -2,8 +2,8 @@
 //
 // 数据源分两条：
 //   web    —— 直接给播放器自己的 <audio> 建 MediaElementAudioSourceNode，不复制流；
-//   engine —— mpv 在独立进程里出声，渲染层拿不到它的 PCM。这里用同一个 streamUrl
-//             建一个静音 <audio> 镜像，同样走 WebAudio AnalyserNode。镜像不接扬声器
+//   engine —— 原生直出时 mpv 在独立进程里出声；原生兼容时 PCM 虽经过 renderer，
+//             但频谱管线仍复用同一个 streamUrl 的静音镜像，避免和播放时钟耦合。镜像不接扬声器
 //             （AnalyserNode → 0 增益 → destination），只用于取真实解码后的 FFT/波形；
 //             位置/暂停/seek 跟随 player，换曲即换源。
 //

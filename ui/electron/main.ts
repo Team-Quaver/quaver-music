@@ -32,6 +32,7 @@ import { trayTitleLine } from "./tray-title.ts";
 import { dismissSplash, loadSplash } from "./splash.ts";
 // 应用页面的 CSP：主进程给本机 origin 的响应统一贴头（策略文本与理由见 csp.ts 模块头）
 import { installAppCsp } from "./csp.ts";
+import { installStreamGuard } from "./stream-guard.ts";
 // Linux 桌面集成（<app_id>.desktop 身份文件 + hicolor 图标）：各桌面/门户按 app_id 反查
 // 桌面文件取图标，AppImage 裸跑没人代劳，打包态必须自己装（模块头有完整链路说明）；
 // 开发态不自装、只清掉历史开发态条目（removeDevManagedDesktopEntry），免得污染启动器
@@ -775,6 +776,10 @@ async function createWindow() {
   // CSP 必须在 loadURL 之前挂好（webRequest 是会话级的，晚挂 = 首帧没头 = 白刷一条
   // Electron 安全警告）；重建窗口走 cachedUrl 会再挂一次，同一 origin 覆盖成同一条策略。
   installAppCsp(session.defaultSession, appOrigin, log);
+  // 播放流闸门：与 CSP 同层同法（webRequest，loadURL 之前挂好）。开发者模式保留，
+  // 但网络面板里的 /api/stream 地址复制出去 / 控制台 fetch 不再能拖走整曲（判定表与
+  // 边界说明见 stream-guard.ts；后端第二层限速在 vendor/Typhoeus-go/server/stream_guard.go）。
+  installStreamGuard(session.defaultSession, appOrigin, log);
   win.webContents.on("will-navigate", (e, navUrl) => {
     try { if (new URL(navUrl).origin === appOrigin) return; } catch {}
 

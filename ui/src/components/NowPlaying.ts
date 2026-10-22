@@ -726,7 +726,7 @@ export function NowPlaying(): HTMLElement {
     if (!provider) return;
     karaProvider = provider;
     karaCleanup = provider.render(karaHost, player.karaoke, {
-      time: () => (player.time + 0.2) * 1000, // +0.2s 与行级高亮同一处时间补偿
+      time: () => (player.time + player.lyricComp) * 1000, // 补偿按后端区分，见 player.lyricComp
       paused: () => player.paused,
       expanded: () => player.expanded,
       showTrans: () => player.showTrans,
@@ -1078,8 +1078,8 @@ export function NowPlaying(): HTMLElement {
 
     // 高亮当前歌词行 + 滚动居中（翻阅模式暂停自动跟随；3s 静默或点击行号恢复；逐字模式由渲染器接管）
     if (lineEls.length) {
-      // 歌词时钟 = 播放钟 + 0.2s 补偿 − 用户按曲延迟（与内置 AMLL 从 ctx 扣的口径一致）
-      const t = player.time + 0.2 - getLyricDelayMs(player.current) / 1000;
+      // 歌词时钟 = 播放钟 + 后端补偿 − 用户按曲延迟（与内置 AMLL 从 ctx 扣的口径一致）
+      const t = player.time + player.lyricComp - getLyricDelayMs(player.current) / 1000;
       let idx = -1;
 
       for (let i = 0; i < player.lyrics.length; i++) {

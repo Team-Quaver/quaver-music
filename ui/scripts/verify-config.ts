@@ -383,6 +383,8 @@ writeValues({ "Playing.Fade": "long" });
 
 eq("Backend 接受 Chromium", (writeValues({ "Playing.Backend": "Chromium" }), readValues().values["Playing.Backend"]), "Chromium");
 
+eq("Backend 接受 MPVCompat", (writeValues({ "Playing.Backend": "MPVCompat" }), readValues().values["Playing.Backend"]), "MPVCompat");
+
 eq("空字体值合法（表示不覆盖）", (writeValues({ "Style.DefaultUIFonts": "" }), readValues().values["Style.DefaultUIFonts"]), "");eq("字体值拒绝 CSS 注入", writeValues({ "Style.DefaultUIFonts": "x; } body{display:none" }), []);
 
 eq("字体值拒绝 url()", writeValues({ "Style.DefaultLyricsFonts": "url(http://evil)" }), []);

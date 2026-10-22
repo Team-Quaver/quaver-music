@@ -508,13 +508,13 @@ export const SCHEMA: SectionSpec[] = [
       {
         key: "Backend",
         def: "MPV",
-        doc: ["默认 MPV，可选 Chromium"],
-        valid: (v: string) => ["MPV", "Chromium", "Blink"].includes(v), // Blink 是旧值，读入时归一为 Chromium
+        doc: ["默认 MPV；MPVCompat=原生兼容（MPV 解码 + renderer 出声）；Chromium=浏览器"],
+        valid: (v: string) => ["MPV", "MPVCompat", "Chromium", "Blink"].includes(v), // Blink 是旧值
       },
       {
         key: "AudioDevice",
         def: "auto",
-        doc: ["音频输出设备（仅 MPV）：auto=系统默认；其余填 mpv audio-device 名（pipewire/pulse/alsa/…）"],
+        doc: ["音频输出设备（仅原生直出）：auto=系统默认；其余填 mpv audio-device 名（pipewire/pulse/alsa/…）"],
         valid: (v: string) => v.length > 0,
       },
       {

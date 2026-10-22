@@ -160,6 +160,8 @@ P.setDecode("Blink");   eq("Blink → Chromium", conf()["Playing.Backend"], "Chr
 
 P.setDecode("MPV");     eq("MPV → MPV", conf()["Playing.Backend"], "MPV");
 
+P.setDecode("MPVCompat"); eq("MPVCompat → 原生兼容", conf()["Playing.Backend"], "MPVCompat");
+
 P.setFallbackSort("rank");  eq("rank → FallbackToQMAtmos=True", conf()["Quality.FallbackToQMAtmos"], "True");
 
 P.setFallbackSort("no-atmos"); eq("no-atmos → False", conf()["Quality.FallbackToQMAtmos"], "False");
@@ -533,6 +535,10 @@ eq("Chromium → Blink", P.getDecode(), "Blink");
 await reload({ "Playing.Backend": "Blink" });
 
 eq("旧值 Blink 仍认（向后兼容）", P.getDecode(), "Blink");
+
+await reload({ "Playing.Backend": "MPVCompat" });
+
+eq("MPVCompat → 原生兼容", P.getDecode(), "MPVCompat");
 
 await reload({ "Playing.Backend": "mpv" });
 

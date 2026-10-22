@@ -39,6 +39,7 @@ export interface MpvEvent {
   data?: MpvValue;
   reason?: string;
   file_error?: string;
+  playlist_entry_id?: number;
   code?: number | null;
   [key: string]: MpvValue | undefined;
 }
@@ -48,6 +49,7 @@ export interface MpvIpcOpts {
   volume?: number;      // 0..1，映射 mpv volume 0..100
   muted?: boolean;
   audioDevice?: string; // mpv audio-device（"auto" = 系统默认）
+  pcmFile?: string;     // 原生兼容模式：--ao=pcm 写到这里（命名管道/FIFO）
   extraArgs?: string[]; // 追加参数（测试用 --ao=null 等）
 }
 
@@ -62,6 +64,7 @@ export class MpvIpc {
   volume: number;
   muted: boolean;
   audioDevice: string;
+  pcmFile: string;
   extraArgs: string[];
   child: ChildProcess | null;
   sock: Socket | null;
@@ -83,6 +86,7 @@ export class MpvIpc {
     this.volume = opts.volume ?? 0.8;
     this.muted = !!opts.muted;
     this.audioDevice = opts.audioDevice || "auto";
+    this.pcmFile = opts.pcmFile || "";
     this.extraArgs = opts.extraArgs ?? [];
     this.child = null;
     this.sock = null;
@@ -135,7 +139,19 @@ export class MpvIpc {
       "--ytdl=no",                  // 别让 ytdl_hook 碰 http URL
       `--volume=${Math.round(Math.min(1, Math.max(0, this.volume)) * 100)}`,
       `--mute=${this.muted ? "yes" : "no"}`,
-      `--audio-device=${this.audioDevice}`,
+      // 原生直出：mpv 自己开设备。原生兼容：mpv 只写 float32 PCM，设备由 renderer 开。
+      // 兼容模式下 audio-device 无意义；48k/stereo/float 是 renderer PCM 管线与
+      // 语音/录屏捕获的共同地板，避免每条流各自协商格式。
+      ...(this.pcmFile
+        ? [
+          "--ao=pcm",
+          `--ao-pcm-file=${this.pcmFile}`,
+          "--ao-pcm-waveheader=no",
+          "--audio-samplerate=48000",
+          "--audio-channels=stereo",
+          "--audio-format=float",
+        ]
+        : ["--audio-exclusive=no", `--audio-device=${this.audioDevice}`]),
       ...this.extraArgs,
     ];
 

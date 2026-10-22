@@ -53,6 +53,27 @@ pnpm run lint            # anti-slop（vendored Oxlint 插件，配置在 .oxlin
 - `/api/*` 由 `src/relay.ts`（vite 插件中间件，dev 与 preview 都挂）转发 sidecar :3200 —— 纯透传 +
   封面取色代理；凭证只在主进程与 sidecar 之间流转（**永不进渲染层、也永不落明文**，见下节）。
 
+## 播放流版权闸门（DevTools 保留，下载路径封死）
+
+用户报告：设置 → 通用 → 调试 → 「开发者模式」开 DevTools 后，网络面板复制
+`/api/stream/<token>`（新标签页 / Copy as cURL / 控制台 fetch）即可整曲拖走——加密档在后端
+已解密成明文再出流，这直接击穿「只流媒体、不下载」立场。修法两层，**开发者的 Console/
+Elements 不受影响**：
+
+- 第一层 `ui/electron/stream-guard.ts`（主进程 webRequest，CSP 同层同法）：按 `resourceType`
+  白名单收口——`media`（`<audio>` 元素）放行；`xmlhttprequest` 只放行**单段闭合 ≤64KiB 的
+  Range 探测**（正在播放页音质浮窗取容器头）；地址栏/新标签页/另存为一律 cancel。
+  `/api/song/urls`、`/api/song/<id>/url`（返回带 vkey 裸链的旧端点，渲染层零使用）对整页拉黑。
+- 第二层 `vendor/Typhoeus-go/server/stream_guard.go`（后端兜底，本机 curl/直连 sidecar 端口
+  伪造头也绕不开）：`Sec-Fetch-Dest` 分类同上，且 **mid 粒度令牌桶限速 ≈3× 实时码率**
+  （resolve 带 `duration_ms` 提示；16MiB 突发覆盖起播预缓冲与 seek）。「下完一首 ≈ 听完
+  一首」，一键批量抓曲失去意义；重复 resolve 换 token 刷不出额度（桶按 mid 跨 token 共享）。
+- token 生命周期同步收紧：滑动空闲 30min + 绝对 3h（旧值 2h 滑动让复制走的地址长期有效）。
+- 中继（`native-server.ts` / `relay.ts`）负责透传 `Sec-Fetch-Dest/Mode`，dev 与打包态同权。
+- 诚实边界：本地播放的字节终归交给本地播放器，逐帧录制不在客户端威胁模型内；闸门针对的是
+  「顺手整曲下载」的形态。验证：`node scripts/verify-stream-guard.ts`（已进 `verify:static`）
+  与 `go test ./server/`（stream_guard_test.go）。
+
 ## 启动闪屏（splash）
 
 主窗**先建、后等后端**：`createWindow` 一建窗就装载闪屏页（`data:` URL，零依赖、秒出画面），

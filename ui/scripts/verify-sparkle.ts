@@ -551,7 +551,7 @@ ok("sdk: 歌词延迟透传给插件（两条 ctx 都有 lyricDelay，符号与�
 
 ok("delay: 按歌曲的延迟存 localStorage（一歌一项的本地数据，不进 quaver.conf；键 mid，钳 ±10s 对齐 0.1s）", has(src.lyricDelay, "quaver.lyricDelay.v1") && has(src.lyricDelay, "LYRIC_DELAY_MAX_MS = 10_000") && has(src.lyricDelay, "localStorage.setItem(LS_KEY") && !has(src.lyricDelay, "cfgSet"));
 
-ok("delay: 宿主三条消费路同口径透传（kara ctx / np-view ctx / 行级比对与点击），菜单行 −/+ 与点数值归零", has(src.np, "lyricDelay: () => getLyricDelayMs(player.current)") && has(src.npView, "lyricDelay: () => getLyricDelayMs(player.current)") && has(src.np, "player.time + 0.2 - getLyricDelayMs(player.current) / 1000") && has(src.np, "player.seek(line.t + getLyricDelayMs(player.current) / 1000)") && has(src.np, '"np-menu-delay"') && has(src.np, "stepLyricDelay") && has(src.style, ".np-menu:has(.np-menu-delay)"));
+ok("delay: 宿主三条消费路同口径透传（kara ctx / np-view ctx / 行级比对与点击），菜单行 −/+ 与点数值归零", has(src.np, "lyricDelay: () => getLyricDelayMs(player.current)") && has(src.npView, "lyricDelay: () => getLyricDelayMs(player.current)") && has(src.np, "player.time + player.lyricComp - getLyricDelayMs(player.current) / 1000") && has(src.np, "player.seek(line.t + getLyricDelayMs(player.current) / 1000)") && has(src.np, '"np-menu-delay"') && has(src.np, "stepLyricDelay") && has(src.style, ".np-menu:has(.np-menu-delay)"));
 
 ok("amll: 延迟扣在驱动时钟里且变化重锚（0.1s 步进不能被 250ms 回跳钳平吞掉）；行点击把延迟加回真实播放位", has(src.amll, "const raw = ctx.time() - d;") && has(src.amll, "if (d !== lastDelay) { lastDelay = d; lastFedMs = raw; return raw; }") && has(src.amll, "ctx.seek(Math.max(0, ms + delayMs()))"));
 

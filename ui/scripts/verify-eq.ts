@@ -208,7 +208,9 @@ check("设置 → 播放有打开 EQ 浮窗按钮", /id="open-equalizer"/.test(s
 
 check("EQ 浮窗是懒加载块（设置/播放条不静态 import）", !/^import .*EqualizerDialog/m.test(bar) && !/^import .*EqualizerDialog/m.test(settings));
 
-check("浮窗只在 MPV 可编辑", /const isMpv = \(\) => player\.backend === "mpv"/.test(dialog) && /const ok = isMpv\(\)/.test(dialog));
+check("浮窗在原生直出 / 原生兼容都可编辑",
+  /const isMpv = \(\) => player\.backend === "mpv" \|\| player\.backend === "mpv-compat"/.test(dialog)
+  && /const ok = isMpv\(\)/.test(dialog));
 
 check("点空白添加、拖动节点、双击/右键删除、滚轮调 Q", /state\.bands\.push\(\{ id, freq: p\.freq/.test(dialog) && /pointermove/.test(dialog) && /dblclick/.test(dialog) && /contextmenu/.test(dialog) && /addEventListener\("wheel"/.test(dialog));
 
@@ -250,7 +252,7 @@ check("整窗 CSS 走懒加载（首屏 style.css 不再含 eq-float 大段）",
 
 check("配置 schema 有 Playing.Equalizer", /key: "Equalizer"/.test(config));
 
-check("设置项只为 MPV 承诺", /仅 MPV · 实时预览/.test(settings));
+check("设置项为原生 / 兼容承诺", /原生 \/ 兼容 · 实时预览/.test(settings));
 
 check("设置页与浮窗标题不再出现 Quark EQ 品牌字样", !/Quark EQ/.test(settings) && /<span class="eq-title"><b>EQ<\/b>/.test(dialog) && !/<span class="eq-title"><b>Quark EQ/.test(dialog));
 

@@ -400,8 +400,10 @@ section("src/lib/desktop-lyrics.ts 桥（契约在 desktop-lyrics-protocol.ts）
 const bridge = src("src/lib/desktop-lyrics.ts");
 const proto = src("src/lib/desktop-lyrics-protocol.ts");
 
-check("时钟补偿 200ms 与 NowPlaying 组 ctx 的 +0.2 同值", proto.includes("CLOCK_COMP_MS = 200")
-  && /\(player\.time \+ 0\.2\) \* 1000/.test(src("src/components/NowPlaying.ts")));
+check("时钟补偿按后端下发（native/web 200ms，兼容模式 0）",
+  proto.includes("CLOCK_COMP_MS = 200")
+  && /get lyricComp\(\) \{ return this\.backend === "mpv-compat" \? 0 : 0\.2; \}/.test(src("src/player.ts"))
+  && /\(player\.time \+ player\.lyricComp\) \* 1000/.test(src("src/components/NowPlaying.ts")));
 
 check("posMs 是裸播放头（不含补偿不含延迟）", /posMs: Math\.max\(0, \(player\.time \|\| 0\) \* 1000\)/.test(bridge));
 
@@ -443,7 +445,7 @@ check("不调 API（无 fetch / /api：歌词与封面 URL 都随桥镜像来）
 
 check("恒展开（覆盖层没有收起一档）", /expanded: \(\) => true/.test(page));
 
-check("时钟 = 快照外推 + 补偿（延迟扣减在 amll.ts 内做）", /time: \(\) => rawPosMs\(\) \+ CLOCK_COMP_MS/.test(page));
+check("时钟 = 快照外推 + 后端补偿（延迟扣减在 amll.ts 内做）", /time: \(\) => rawPosMs\(\) \+ \(sync\?\.clockCompMs \?\? CLOCK_COMP_MS\)/.test(page));
 
 check("歌词延迟取镜像现值（正=延后口径不动）", /lyricDelay: \(\) => sync\?\.delayMs \?\? 0/.test(page));
 

@@ -12,6 +12,12 @@
 //
 // 「开发者模式」按钮 = 开 DevTools。F12 不绑定：插件宿主里 DevTools 是能把任意代码敲进
 // 渲染层的口子，只走这个显式、看得见入口的按钮（主进程日志会记一行）。
+//
+// 版权边界：DevTools 的网络面板曾能把 /api/stream/<token> 直接拖成整曲文件。现在
+// 开发者模式保留，但播放流加了两层闸门 —— 主进程 webRequest 按资源类型收口
+// （electron/stream-guard.ts）+ sidecar 分类与 mid 粒度限速（vendor/Typhoeus-go
+// server/stream_guard.go）。面板里的地址「看着能拷、拷了不能用」——但这是护栏的默认
+// 素养，不打扰：开面板不弹任何提示，入口的悬停 tooltip 里说明即可。
 import { copyText, escHtml } from "../lib/api";
 import { toast } from "./SongMenu";
 
@@ -83,7 +89,7 @@ export function showDebugDialog(): void {
       <label class="dbg-auto"><input type="checkbox" data-auto checked /> 每 5s 自动采样</label>
       <button class="ghost-btn" data-act="copy" type="button">复制报告</button>
       <span class="upd-spacer"></span>
-      <button class="ghost-btn" data-act="devtools" type="button">开发者模式</button>
+      <button class="ghost-btn" data-act="devtools" type="button" title="DevTools 保留可用；播放流已按「仅应用内播放器可取 + 实时限速」加固">开发者模式</button>
       <button class="upd-primary" data-act="close" type="button">关闭</button>
     </div>
   </div>`;

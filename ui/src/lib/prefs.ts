@@ -385,23 +385,29 @@ export function setDecor(m: DecorMode) {
   if (bridge?.setDecor) bridge.setDecor(m); // Electron：主进程改 frame 并重建窗口
 }
 
-// —— 解码后端：MPV=原生引擎（默认，Electron 壳层经主进程 mpv 播放）；
-//    Chromium=浏览器 <audio>（兜底/对照用，配置文件里写 Chromium，内部标识沿用 Blink）。
+// —— 播放模式：
+//    MPV        = 原生直出（默认，mpv 自己打开音频设备）
+//    MPVCompat  = 原生（兼容）：mpv 解码，PCM 交给 renderer WebAudio 出声
+//    Blink      = 浏览器 <audio>（兜底/对照，配置文件里写 Chromium）
 //    偏好只决定启动选择；引擎不可用时播放器自动落 Blink 并在设置页提示。 ——
-export type DecodeBackend = "MPV" | "Blink";
+export type DecodeBackend = "MPV" | "MPVCompat" | "Blink";
 
 export function getDecode(): DecodeBackend {
   const v = cfg("Playing.Backend");
 
-  return v === "Chromium" || v === "Blink" ? "Blink" : "MPV";
+  if (v === "Chromium" || v === "Blink") return "Blink";
+
+  if (v === "MPVCompat") return "MPVCompat";
+
+  return "MPV";
 }
 
 export function setDecode(v: DecodeBackend) {
-  cfgSet({ "Playing.Backend": v === "Blink" ? "Chromium" : "MPV" });
+  cfgSet({ "Playing.Backend": v === "Blink" ? "Chromium" : v });
 }
 
-// —— 音频输出设备（MPV 后端）：mpv audio-device 名（"auto" = 系统默认）。
-//    引擎拉起/重拉后据此应用；Blink 后端不消费此偏好。 ——
+// —— 音频输出设备（仅原生直出）：mpv audio-device 名（"auto" = 系统默认）。
+//    引擎拉起/重拉后据此应用；原生兼容与 Blink 后端都不消费此偏好。 ——
 export function getAudioDevice(): string {
   return cfg("Playing.AudioDevice") || "auto";
 }
@@ -410,7 +416,7 @@ export function setAudioDevice(id: string) {
   cfgSet({ "Playing.AudioDevice": id || "auto" });
 }
 
-// —— 淡入淡出（仅 MPV 后端）：起播淡入 / 暂停与切歌淡出。时长交给引擎做振幅包络。 ——
+// —— 淡入淡出（仅原生后端）：起播淡入 / 暂停与切歌淡出。直出走 MPV 包络，兼容走 renderer GainNode。 ——
 export type FadePreset = "off" | "short" | "normal" | "long";
 
 export const FADE_PRESETS: Record<FadePreset, { inMs: number; outMs: number }> = {
@@ -451,7 +457,7 @@ export function setMuted(m: boolean) {
   cfgSet({ "Playing.Muted": m ? "True" : "False" });
 }
 
-// —— Quark EQ（仅 MPV）：整段 JSON 存在 [Playing] Equalizer。
+// —— Quark EQ（仅原生后端）：直出走 MPV af，兼容走 renderer BiquadFilter；整段 JSON 存在 [Playing] Equalizer。
 //    读写都经过共享 normalize：手改配置的坏字段/越界值不会把 mpv 的 af 串搞坏。
 //    拖节点是高频写 → cfgSetSoon 合并落盘；播放器侧另有一条实时下发链，不等磁盘。 ——
 export function getEqualizerState(): EqState {

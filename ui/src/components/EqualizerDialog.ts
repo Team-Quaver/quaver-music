@@ -82,7 +82,7 @@ function mount(): void {
         </svg>
       </span>
       <span class="eq-title"><b>EQ</b><small>GRAPHICS EQ · 10 BAND</small></span>
-      <span class="eq-only">MPV ONLY</span>
+      <span class="eq-only">NATIVE / COMPAT</span>
       <span class="eq-head-space"></span>
       <button class="eq-power" id="eq-power" type="button" aria-pressed="true">
         <span class="eq-power-dot"></span><span class="eq-power-label">EQ ON</span>
@@ -91,8 +91,8 @@ function mount(): void {
     </header>
 
     <div class="eq-unavailable" id="eq-unavailable" hidden>
-      <b>当前不是 MPV 播放模式</b>
-      <span>EQ 只作用于原生 MPV 引擎。请在「设置 → 播放 → 播放引擎」切到 MPV 后再调。</span>
+      <b>当前不是原生播放模式</b>
+      <span>EQ 只作用于原生引擎。请在「设置 → 播放 → 播放引擎」切到原生直出或原生（兼容）后再调。</span>
     </div>
 
     <div class="eq-body" id="eq-body">
@@ -207,10 +207,10 @@ function mount(): void {
   let drag: { id: string; moved: boolean } | null = null;
   let applyTimer = 0;
   let importMode: EqImportMode = "auto";
-  let backendWasMpv = player.backend === "mpv";
+  let backendWasMpv = player.backend === "mpv" || player.backend === "mpv-compat";
   let destroyed = false;
 
-  const isMpv = () => player.backend === "mpv";
+  const isMpv = () => player.backend === "mpv" || player.backend === "mpv-compat";
   const selected = () => state.bands.find((b) => b.id === selectedId) ?? null;
 
   let sayTimer = 0;
@@ -241,7 +241,7 @@ function mount(): void {
     const active = isMpv() && state.enabled;
     power.classList.toggle("on", active);
     power.setAttribute("aria-pressed", active ? "true" : "false");
-    powerLabel.textContent = !isMpv() ? "MPV ONLY" : state.enabled ? "EQ ON" : "BYPASS";
+    powerLabel.textContent = !isMpv() ? "ENGINE ONLY" : state.enabled ? "EQ ON" : "BYPASS";
     count.textContent = `${state.bands.length} / ${EQ_MAX_BANDS} BANDS`;
     svg.classList.toggle("bypassed", !active);
   };
@@ -806,7 +806,7 @@ function mount(): void {
   head.addEventListener("lostpointercapture", () => stopWinDrag());
 
   const offPlayer = player.on(() => {
-    const now = player.backend === "mpv";
+    const now = player.backend === "mpv" || player.backend === "mpv-compat";
 
     if (now !== backendWasMpv) syncAvailability();
     else host.classList.toggle("is-unavailable", !now);

@@ -42,7 +42,7 @@ export function PlayerBar(): HTMLElement {
           <button class="pb-btn pb-ghost" id="pb-mute2" aria-label="静音"></button>
           <input class="pb-vol" id="pb-vol" type="range" min="0" max="100" step="1" value="80" aria-label="音量" />
           <span class="pb-volnum" id="pb-volnum">80%</span>
-          <button class="pb-eq-shortcut" id="pb-eq-shortcut" type="button" title="打开 Quark EQ（仅 MPV）" aria-label="打开 Quark EQ">
+          <button class="pb-eq-shortcut" id="pb-eq-shortcut" type="button" title="打开 Quark EQ（原生 / 兼容）" aria-label="打开 Quark EQ">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M3 15h3l2-7 3 11 3-15 2 11h5"/>
             </svg>
