@@ -10,6 +10,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { platform } from "node:process";
+import { runInNewContext } from "node:vm";
 import {
   formatOsVersion, machOMinOs, osVersionGt, parseOsVersion,
 } from "../electron/audio/macho.ts";
@@ -177,6 +178,8 @@ check("找不运行时把随包失败原因一并说清（别只说「未找到 
 const ipcSrc = readFileSync(join(UI, "electron", "audio", "mpv-ipc.ts"), "utf8");
 const pipeSrc = readFileSync(join(UI, "electron", "audio", "pcm-pipe.ts"), "utf8");
 const sinkSrc = readFileSync(join(UI, "src", "lib", "pcm-sink.ts"), "utf8");
+const transportSrc = readFileSync(join(UI, "src", "lib", "transport.ts"), "utf8");
+const playerSrc = readFileSync(join(UI, "src", "player.ts"), "utf8");
 
 check("原生兼容接入 mpv --ao=pcm（不走 mpv 自己的音频设备）",
   /--ao=pcm/.test(ipcSrc) && /--ao-pcm-file=/.test(ipcSrc) && /--audio-format=float/.test(ipcSrc));
@@ -195,7 +198,7 @@ check("pcm-progress 回推 state（不能只信 mpv 不动的 time-pos）",
 check("pcm 硬预读窗口防止 mpv 先写完整首进 idle", /PCM_MAX_AHEAD_SEC/.test(engineSrc) && /drainPcm\(/.test(engineSrc));
 
 check("pcm 音量走 renderer GainNode（不让 mpv 预写缓冲区造成半拍延迟）",
-  /pcm-gain/.test(engineSrc) && /setGain\(/.test(sinkSrc) && /this\.pcm\?\.setGain/.test(readFileSync(join(UI, "src", "lib", "transport.ts"), "utf8")));
+  /pcm-gain/.test(engineSrc) && /setGain\(/.test(sinkSrc) && /this\.pcm\?\.setGain/.test(transportSrc));
 
 check("pcm EQ 走 renderer BiquadFilter（不让 mpv af 慢一个预写缓冲）",
   /pcm-eq/.test(engineSrc) && /setEq\(/.test(sinkSrc) && /rebuildFilters/.test(sinkSrc));
@@ -206,10 +209,102 @@ check("pcm 换歌/换音质也重开 MPV，避免上一首 FIFO 尾巴混入",
   /mode === "pcm" && this\.lastUrl[\s\S]{0,160}this\.stopMpv\(\)/.test(engineSrc));
 
 check("pcm 块 50ms，降低 AudioBuffer/IPC 调度频率", /PCM_RATE \/ 20/.test(engineSrc));
+
 check("pcm renderer 使用单个 AudioWorklet ring buffer（不再按块建 source node）",
   /AudioWorkletNode/.test(sinkSrc) && /quaver-pcm/.test(readFileSync(join(UI, "public", "pcm-worklet.js"), "utf8")));
 
-const transportSrc = readFileSync(join(UI, "src", "lib", "transport.ts"), "utf8");
+check("兼容模式暂停不 suspend AudioContext（避免 WASAPI 重激活卡顿）",
+  !/ctx\??\.suspend\(/.test(sinkSrc) && /type: "pause"/.test(sinkSrc) && /type: "resume"/.test(sinkSrc));
+
+// 真跑一遍 worklet 内核：暂停必须输出静音但冻结消费，恢复从原帧继续。
+{
+  let WorkletProcessor: any;
+  const status = [];
+
+  class FakeAudioWorkletProcessor {
+    constructor() {
+      this.port = {
+        onmessage: null,
+        postMessage: (msg) => status.push(msg),
+      };
+    }
+  }
+
+  runInNewContext(readFileSync(join(UI, "public", "pcm-worklet.js"), "utf8"), {
+    AudioWorkletProcessor: FakeAudioWorkletProcessor,
+    registerProcessor: (_name, cls) => { WorkletProcessor = cls; },
+    Float32Array,
+    Math,
+  });
+
+  const proc = new WorkletProcessor();
+  const pcm = new Float32Array(512 * 2).fill(0.25);
+
+  const render = () => {
+    const left = new Float32Array(128);
+    const right = new Float32Array(128);
+    proc.process([], [[left, right]]);
+
+    return { left, right };
+  };
+
+  proc.port.onmessage({ data: { type: "pcm", data: pcm.buffer } });
+  const first = render();
+  const beforePause = { played: proc.playedFrames, available: proc.availableFrames };
+  proc.port.onmessage({ data: { type: "pause" } });
+  const paused = render();
+  const afterPause = { played: proc.playedFrames, available: proc.availableFrames };
+  proc.port.onmessage({ data: { type: "resume" } });
+  const resumed = render();
+
+  check("worklet 暂停输出静音且不消费环形队列",
+    first.left[0] === 0.25 && paused.left[0] === 0 && paused.right[0] === 0
+      && afterPause.available === beforePause.available && afterPause.played === beforePause.played);
+  check("worklet 恢复从暂停前的下一帧继续",
+    resumed.left[0] === 0.25 && proc.availableFrames === beforePause.available - 128 && proc.playedFrames === beforePause.played + 128);
+}
+
+check("PCM 数据/EOF 按 epoch 丢弃旧会话尾巴",
+  /case "pcm"[\s\S]{0,100}Number\(ev\.epoch\) !== this\.pcmEpoch/.test(transportSrc)
+    && /case "pcm-eof"[\s\S]{0,100}Number\(ev\.epoch\) !== this\.pcmEpoch/.test(transportSrc));
+
+check("窗口重建/后端热切时 renderer 接上主进程 PCM epoch",
+  /const epoch = Number\(r\?\.epoch\)/.test(transportSrc) && /epoch: this\.pcmEpoch/.test(engineSrc));
+
+check("切歌创建新 sink，旧 sink 独立淡出后再销毁（跨曲交叉）",
+  /retirePcm\(old\)/.test(transportSrc) && /fadingPcms/.test(transportSrc)
+    && /sink\.fadeOut\(ms\)/.test(transportSrc) && /Math\.max\(fade\.inMs, fade\.outMs\)/.test(transportSrc));
+
+check("淡出后的旧 sink 关闭 AudioContext，不堆积音频会话",
+  /setTimeout\(\(\) => \{[\s\S]{0,80}sink\.destroy\(\)/.test(transportSrc)
+    && /for \(const \[sink, timer\] of this\.fadingPcms\)[\s\S]{0,120}sink\.destroy\(\)/.test(transportSrc));
+
+check("PCM EOF 先发 ending，让下一首在尾音排空前起播",
+  /onEnding\?:/.test(sinkSrc) && /type: "ending"/.test(transportSrc) && /case "ending"/.test(playerSrc));
+
+check("PCM 切歌不在取链前停旧曲（由 load 做交叉淡化）",
+  /this\.interrupt\(!\(this\.transport\.kind === "engine" && this\.transport\.mode === "pcm"\)\)/.test(playerSrc)
+    && /private interrupt\(stopOutput = true\)/.test(playerSrc) && /if \(stopOutput\)/.test(playerSrc));
+
+check("PCM 起播后预取下一首，EOF 交叉淡化不等取链 RTT",
+  /prefetchNextForCrossfade\(\)/.test(playerSrc)
+    && /this\.transport\.mode !== "pcm"[\s\S]{0,400}prefetchSong\(this\.queue\[i\]\)/.test(playerSrc));
+
+check("并发 load 用 epoch 防旧请求反杀新会话",
+  /if \(epoch < this\.pcmEpoch\) return \{ ok: true, stale: true \}/.test(engineSrc)
+    && /await mpv\.setProp\("pause", paused\);[\s\S]{0,80}epoch !== this\.pcmEpoch/.test(engineSrc));
+
+const doPauseSrc = engineSrc.slice(engineSrc.indexOf("doPause()"), engineSrc.indexOf("findBin()"));
+const pcmPauseStart = doPauseSrc.indexOf('this.mode === "pcm"');
+const pcmPauseSrc = doPauseSrc.slice(pcmPauseStart, doPauseSrc.indexOf("return;", pcmPauseStart));
+
+check("PCM 暂停只停读管道，不向 mpv 发 pause（避免 AO 线程阻塞）",
+  /pcmPipe\?\.pause\(\)/.test(pcmPauseSrc) && !/setProp\("pause"/.test(pcmPauseSrc));
+
+check("PCM 恢复先查 mpv pause，只在挂流暂停时解除（不会永远不出声）",
+  /const mpvPaused = await mpv\.getProp\("pause"\)/.test(engineSrc)
+    && /if \(mpvPaused\) await mpv\.setProp\("pause", false\)/.test(engineSrc));
+
 check("pcm stop 等淡出结束再销毁 sink（load 可取消旧 stop timer）",
   /pcmStopTimer/.test(transportSrc) && /fadeOutMs \+ 40/.test(transportSrc) && /this\.pcmStopTimer = null/.test(transportSrc));
 

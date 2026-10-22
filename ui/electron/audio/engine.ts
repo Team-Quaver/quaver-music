@@ -3,7 +3,8 @@
 // 渲染层经 preload 桥（quaverAudio.invoke / quaverAudio.onEvent）驱动；MPRIS 快照仍由渲染层
 // 合成推送（daemon 协议不动），位置源在两条传输下都收敛到 player.time —— 同一时刻只有一个位置来源。
 //
-// 生命周期：mpv 惰性拉起（boot/load/device 等需要它的命令触发），idle 常驻换曲不重启；
+// 生命周期：mpv 惰性拉起（boot/load/device 等需要它的命令触发）；native 换曲不重启，
+// PCM 兼容模式为了丢掉无帧边界的管道尾巴会重开会话；
 // 崩溃后引擎标记 dead 并复位，下一次命令自动重拉（重试语义交给播放器的错误态，不无限自愈）。
 import { app, ipcMain, type BrowserWindow } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -309,10 +310,10 @@ export class AudioEngine {
    *  mpv 未运行时不做事：目标值会在 spawn 时随参数落地。 */
   applyVolume(): void {
     if (this.mode === "pcm") {
-      // PCM 模式下 mpv 已经预写了最多 0.75s 音频，改 mpv volume 会慢半拍。
+      // PCM 模式下 mpv 已经预写了最多 1s 音频，改 mpv volume 会慢半拍。
       // 音量/静音/淡入淡出直接在 renderer 的 GainNode 上生效，捕获端拿到的也是处理后的声音。
       const gain = this.st.muted ? 0 : this.st.volume * this.fadeLevel;
-      this.send({ t: "pcm-gain", value: Math.max(0, Math.min(1, gain)) });
+      this.send({ t: "pcm-gain", epoch: this.pcmEpoch, value: Math.max(0, Math.min(1, gain)) });
 
       return;
     }
@@ -328,7 +329,7 @@ export class AudioEngine {
     if (this.mode === "pcm") {
       // PCM 已经预写成块；af 只影响后续解码，会慢一个缓冲。兼容模式改由
       // renderer 的 BiquadFilter 链即时处理，捕获端拿到的也是 EQ 后声音。
-      this.send({ t: "pcm-eq", state: this.eq });
+      this.send({ t: "pcm-eq", epoch: this.pcmEpoch, state: this.eq });
 
       return;
     }
@@ -399,10 +400,16 @@ export class AudioEngine {
     const mpv = this.mpv;
     this.st.paused = true;
     this.pushState(true);
-    this.rampTo(0, this.fade.outMs, () => {
-      this.pcmPipe?.pause();
-      void mpv.setProp("pause", true).catch(() => {});
-    });
+
+    if (this.mode === "pcm") {
+      // 兼容模式不要让 mpv 参与 pause：它的 AO 线程正卡在 FIFO 写端，
+      // pause 命令偶尔要等几秒。停止读管道本身就会把背压传回 mpv。
+      this.rampTo(0, this.fade.outMs, () => this.pcmPipe?.pause());
+
+      return;
+    }
+
+    this.rampTo(0, this.fade.outMs, () => { void mpv.setProp("pause", true).catch(() => {}); });
   }
 
   findBin() {
@@ -714,6 +721,7 @@ export class AudioEngine {
   }
 
   private async doRestartPcmAt(sec: number, epoch: number): Promise<void> {
+    if (epoch < this.pcmEpoch) return; // 更新的 load/seek 已经接手
     const url = this.lastUrl;
 
     if (!url) return;
@@ -736,6 +744,8 @@ export class AudioEngine {
 
     const mpv = await this.ensureStarted();
 
+    if (epoch !== this.pcmEpoch) return; // 等 mpv 期间又切歌/跳转：别让旧 seek 写回状态
+
     this.st = { ...this.st, pos: at, dur, paused: wasPaused, buffering: true, idle: false };
     this.pcmBase = at;
     this.pcmPos = at;
@@ -744,8 +754,13 @@ export class AudioEngine {
     this.pcmEnding = false;
     this.pcmEofSent = false;
     this.pcmLastDataAt = Date.now();
-    await mpv.setProp("pause", wasPaused);
+
+    if (this.mode !== "pcm") await mpv.setProp("pause", wasPaused);
+
     const loaded = await mpv.command(["loadfile", url, "replace", -1, `start=${at}`]);
+
+    if (epoch !== this.pcmEpoch) return;
+
     this.currentEntryId = this.entryIdOf(loaded);
 
     if (wasPaused) this.pcmPipe?.pause();
@@ -795,7 +810,7 @@ export class AudioEngine {
           this.st = { ...this.st, pos: 0, dur: 0, paused: true, buffering: false, idle: true };
         }
 
-        return { ok: true, mode: this.mode, captureCompatible: this.mode === "pcm" };
+        return { ok: true, mode: this.mode, captureCompatible: this.mode === "pcm", epoch: this.pcmEpoch };
       }
 
       case "pcm-ready": {
@@ -881,6 +896,11 @@ export class AudioEngine {
 
         if (!url) return { ok: false, error: "missing url" };
 
+        const epoch = Number(cmd.epoch) || this.pcmEpoch + 1;
+
+        if (epoch < this.pcmEpoch) return { ok: true, stale: true };
+        this.pcmEpoch = epoch;
+
         // PCM 管道没有帧边界；换歌/换音质时旧 FIFO 里可能还有上一首的尾巴。
         // 主动换 MPV 会话，确保新 epoch 的第一个字节不会混进旧数据。
         if (this.mode === "pcm" && this.lastUrl) {
@@ -889,6 +909,9 @@ export class AudioEngine {
         }
 
         const mpv = await this.ensureStarted();
+
+        if (epoch !== this.pcmEpoch) return { ok: true, stale: true };
+
         // 包络压到 0：新流出声即从静音起步（file-loaded 后再淡入）。
         // 已经在淡出就沿用剩余时长继续降；null = 作废「淡出后 stop」——切歌时那个 stop 会把新歌掐掉。
         this.rampTo(0, this.fadeTarget === 0 ? this.fade.outMs : 0, null);
@@ -896,7 +919,6 @@ export class AudioEngine {
         // 显式置位还有个副作用是必发 property-change —— 上一次 stop/eof 留下的 pause 分歧靠它收敛。
         const paused = !!cmd.paused;
         const startAt = Math.max(0, Number(cmd.startAt) || 0);
-        this.pcmEpoch = Number(cmd.epoch) || this.pcmEpoch + 1;
         this.st.paused = paused;
         this.st.buffering = true; // loadfile 被接受 → 到 file-loaded 之间算缓冲
         this.st.idle = false;
@@ -913,9 +935,13 @@ export class AudioEngine {
         this.pushState(true);
         await mpv.setProp("pause", paused);
 
+        if (epoch !== this.pcmEpoch) return { ok: true, stale: true };
+
         const loaded = await mpv.command(startAt > 0
           ? ["loadfile", url, "replace", -1, `start=${startAt}`]
           : ["loadfile", url, "replace"]);
+
+        if (epoch !== this.pcmEpoch) return { ok: true, stale: true };
 
         this.currentEntryId = this.entryIdOf(loaded);
         this.lastUrl = url;
@@ -929,7 +955,16 @@ export class AudioEngine {
         this.pcmPipe?.resume();
         this.drainPcm();
         this.pushState(true);
-        await mpv.setProp("pause", false);
+
+        if (this.mode !== "pcm") await mpv.setProp("pause", false);
+        else {
+          // 用户暂停时我们刻意不动 mpv 的 pause；但「挂流不自动播」/seek 重拉
+          // 会把它置真。恢复播放只在确实 paused 时解一次，避免向卡在 FIFO 写端的
+          // AO 线程重复发命令。
+          const mpvPaused = await mpv.getProp("pause").catch(() => false);
+
+          if (mpvPaused) await mpv.setProp("pause", false);
+        }
         // eof 后 mpv 回 idle 会卸载文件：按上一次 URL 重挂（单曲循环/播完再点播放）。
         // 判据实查 mpv（不信缓存的 idle 态）：渲染层的 ended→play 往返可能快过 idle-active 事件落库。
         const idleNow = await mpv.getProp("idle-active").catch(() => this.st.idle);

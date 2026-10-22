@@ -5,6 +5,7 @@
 import { api, postJson, coverUrl, resolveStreamUrl, effectiveQuality, getSessionQuality, setSessionQuality, getLastStream, setLastStream, writeSongType, type StreamResult } from "./lib/api";
 import {
   getDecode, setDecode, getAudioDevice, setAudioDevice, setFade, FADE_PRESETS,
+  getFadeMs,
   getEqualizerState, setEqualizerState,
   getVolume as getVolumeConf, setVolume as setVolumeConf,
   getMuted as getMutedConf, setMuted as setMutedConf,
@@ -261,7 +262,14 @@ class Player {
         if (this.loading && !this.transport.paused) { this.loading = false; this.notify(); }
 
         break;
+      case "ending":
+        // PCM 已收到 EOF，但本地还有一段尾音：此刻先起下一首，旧尾在新曲头下淡出。
+        // 单曲循环和无限电台仍走完整 ended；前者要原地重播，后者可能要等下一轮取歌。
+        if (this.mode === "one" || this.radioOn || this.loading || this.transport.paused) break;
+        this.onEnded();
+        break;
       case "ended":
+        if (this.loading) break; // 跨曲已经提前起播；旧 sink 的迟到 ended 不再跳一首
         this.listenReporter?.setPlaying(false);
         this.listenReporter?.flush();
         this.onEnded();
@@ -914,7 +922,7 @@ class Player {
   }
 
   /** 立即打断当前取链/缓冲并跳转（双击新歌用：旧流的排队 play promise 一并作废） */
-  private interrupt() {
+  private interrupt(stopOutput = true) {
     this.listenReporter?.stopTarget();
     this.playSeq++;
     this.loading = false;
@@ -922,7 +930,7 @@ class Player {
     this.pendingSeek = 0;
     this.streamUrl = "";
 
-    try { this.transport.stop(); } catch { /* noop */ }
+    if (stopOutput) { try { this.transport.stop(); } catch { /* noop */ } }
   }
 
   /** 当前流对应的听歌时长上报目标；本地/NAS 曲目和异常 URL 一律返回 null。 */
@@ -987,7 +995,9 @@ class Player {
 
   private async startCurrent(resumeTo = 0, autoplay = true, overrideTier?: string) {
     const s = this.current;
-    this.interrupt();
+    // PCM 兼容模式切歌时先让旧曲继续出声，等新流链就绪后由 transport.load
+    // 做交叉淡化。其它后端保持原来的硬打断语义。
+    this.interrupt(!(this.transport.kind === "engine" && this.transport.mode === "pcm"));
 
     // 降级尝试记录按曲归属：换到别的歌就重置（每首都有完整的一次回退机会）
     if (s && s.mid !== this.fallbackMid) { this.fallbackMid = s.mid; this.fallbackTried.clear(); }
@@ -1039,8 +1049,11 @@ class Player {
       if (seq !== this.playSeq) return;
       this.loading = false;
       this.error = "";
+      this.prefetchNextForCrossfade();
     } catch (e: any) {
       if (seq === this.playSeq && this.current === s) {
+        // 取链失败：旧曲不能一直垫着，收掉后再走降级/跳曲。
+        if (this.transport.kind === "engine" && this.transport.mode === "pcm") this.transport.stop();
         this.loading = false;
         const msg = String(e?.message ?? e);
         this.error = msg;
@@ -1128,6 +1141,20 @@ class Player {
     const p = this.resolveWithSources(song, q);
     p.catch(() => { if (this.prefetch.get(key) === p) this.prefetch.delete(key); });
     this.prefetch.set(key, p);
+  }
+
+  /** PCM 跨曲的隐藏前置：当前曲稳定起播后，提前协商下一首的流。
+   *  EOF 的 ending 事件只留出本地约 0.5~1s 尾音；取链 RTT 若到那时才开始，
+   *  交叉淡化仍会被网络打进空档。只保留下一首一份预取，不扩成整队列缓存。 */
+  private prefetchNextForCrossfade() {
+    if (this.transport.kind !== "engine" || this.transport.mode !== "pcm") return;
+
+    if (this.radioOn || this.mode === "one" || getFadeMs().outMs <= 0) return;
+
+    const i = this.stepInOrder(1);
+
+    if (i < 0) return;
+    this.prefetchSong(this.queue[i]);
   }
 
   /** 取流收口：先过 Sparkle 插件播放源链（注册序 FIFO，抛错/null 放行下一环），全落空走官方 resolve */

@@ -240,7 +240,7 @@ export default async function settingsView(root: HTMLElement) {
       </div>
 
       <div class="set-group">
-        <div class="set-label">淡入淡出 <span class="set-note-inline">仅原生引擎生效</span></div>
+        <div class="set-label">淡入淡出 <span class="set-note-inline">原生 / 兼容 · 兼容模式跨曲交叉</span></div>
         <div class="opt-cards" id="fade-cards">
           <button class="opt-card" data-opt="off" type="button">0s</button>
           <button class="opt-card" data-opt="short" type="button">0.15s</button>

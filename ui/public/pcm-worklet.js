@@ -4,7 +4,7 @@
 // 连续输出。相比每秒创建几十个 AudioBufferSourceNode，这里一个 worklet 节点到底，
 // 避免频繁分配/调度造成的卡顿。
 const CHANNELS = 2;
-const CAPACITY_FRAMES = 96000; // 2s @ 48k，远大于主进程 0.6s 预读窗口
+const CAPACITY_FRAMES = 96000; // 2s @ 48k，远大于主进程 1s 预读窗口
 
 class QuaverPcmProcessor extends AudioWorkletProcessor {
   constructor() {
@@ -16,6 +16,7 @@ class QuaverPcmProcessor extends AudioWorkletProcessor {
     this.playedFrames = 0;
     this.blocks = 0;
     this.underrun = false;
+    this.paused = false;
     this.port.onmessage = (event) => this.onMessage(event.data);
   }
 
@@ -29,6 +30,21 @@ class QuaverPcmProcessor extends AudioWorkletProcessor {
       this.playedFrames = 0;
       this.blocks = 0;
       this.underrun = false;
+      this.postStatus();
+
+      return;
+    }
+
+    if (msg.type === "pause") {
+      this.paused = true;
+      this.underrun = false;
+      this.postStatus();
+
+      return;
+    }
+
+    if (msg.type === "resume") {
+      this.paused = false;
       this.postStatus();
 
       return;
@@ -70,6 +86,22 @@ class QuaverPcmProcessor extends AudioWorkletProcessor {
 
     let consumed = 0;
     let under = false;
+
+    // 暂停时保持设备时钟运行，只输出零并冻结队列。不要 suspend AudioContext：
+    // WASAPI 重新激活的延迟会把一次暂停/恢复拖成几秒。
+    if (this.paused) {
+      left.fill(0);
+      right.fill(0);
+      this.underrun = false;
+      this.blocks++;
+
+      if (this.blocks >= 8) {
+        this.blocks = 0;
+        this.postStatus();
+      }
+
+      return true;
+    }
 
     for (let i = 0; i < left.length; i++) {
       if (this.availableFrames <= 0) {

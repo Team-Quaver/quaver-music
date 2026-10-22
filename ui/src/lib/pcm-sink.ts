@@ -34,6 +34,8 @@ type WorkletStatus = {
 export interface PcmSinkOpts {
   /** 最后一块 PCM 播完（且收到 pcm-eof）时回调。 */
   onEnded: () => void;
+  /** 收到 EOF、但队列里还有声音时先回调一次，给跨曲淡出留出重叠窗口。 */
+  onEnding?: () => void;
 }
 
 export class PcmSink {
@@ -54,6 +56,7 @@ export class PcmSink {
   private underrun = false;
   private started = false;
   private eof = false;
+  private ending = false;
   private ended = false;
   private suspended = false;
   private disposed = false;
@@ -67,7 +70,7 @@ export class PcmSink {
     if (this.disposed) return null;
 
     if (this.ctx) {
-      if (!this.suspended && this.ctx.state === "suspended") void this.ctx.resume().catch(() => {});
+      if (this.ctx.state === "suspended") void this.ctx.resume().catch(() => {});
 
       return this.ctx;
     }
@@ -94,8 +97,7 @@ export class PcmSink {
     this.rebuildFilters();
     void this.initWorklet(ctx);
 
-    if (this.suspended) void ctx.suspend().catch(() => {});
-    else if (ctx.state === "suspended") void ctx.resume().catch(() => {});
+    if (ctx.state === "suspended") void ctx.resume().catch(() => {});
 
     return ctx;
   }
@@ -113,6 +115,9 @@ export class PcmSink {
       });
 
       node.port.onmessage = (event) => this.onWorkletStatus(event.data);
+
+      if (this.suspended) node.port.postMessage({ type: "pause" });
+
       node.connect(this.input!);
       this.worklet = node;
       this.flushPending();
@@ -157,6 +162,25 @@ export class PcmSink {
     if (this.gain) this.gain.gain.value = this.gainValue;
   }
 
+  /** 跨曲/停止用：旧 sink 独立跑一条 GainNode 下降曲线，不跟新 sink 的 pcm-gain 混在一起。 */
+  fadeOut(ms: number) {
+    const ctx = this.ctx;
+    const gain = this.gain;
+
+    if (!ctx || !gain) {
+      this.setGain(0);
+
+      return;
+    }
+
+    const now = ctx.currentTime;
+    const end = now + Math.max(0, ms) / 1000;
+
+    gain.gain.cancelScheduledValues(now);
+    gain.gain.setValueAtTime(gain.gain.value, now);
+    gain.gain.linearRampToValueAtTime(0, end);
+  }
+
   /** 兼容模式的 EQ 在 renderer 处理，避免 mpv af 慢一个预写缓冲。 */
   setEq(state: EqState) {
     this.eq = state;
@@ -175,14 +199,16 @@ export class PcmSink {
     this.underrun = false;
     this.started = false;
     this.eof = false;
+    this.ending = false;
     this.ended = false;
     this.worklet?.port.postMessage({ type: "reset" });
   }
 
   pause() {
-    if (this.eofPending()) return;
+    // 不 suspend AudioContext：Windows WASAPI 重新激活可能吞掉几百毫秒甚至数秒。
+    // worklet 在暂停时输出静音但不消费环形队列，恢复时从原帧继续。
     this.suspended = true;
-    void this.ctx?.suspend().catch(() => {});
+    this.worklet?.port.postMessage({ type: "pause" });
   }
 
   eofPending(): boolean {
@@ -190,9 +216,9 @@ export class PcmSink {
   }
 
   resume() {
-    this.eof = false;
     this.suspended = false;
     void this.ctx?.resume().catch(() => {});
+    this.worklet?.port.postMessage({ type: "resume" });
   }
 
   stop() {
@@ -201,6 +227,12 @@ export class PcmSink {
 
   markEof() {
     this.eof = true;
+
+    if (!this.ending) {
+      this.ending = true;
+      this.opts.onEnding?.();
+    }
+
     this.maybeEnded();
   }
 
