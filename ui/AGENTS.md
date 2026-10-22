@@ -32,7 +32,13 @@ pnpm run dev -- --port 5173 --strictPort --host 127.0.0.1
 ```sh
 pnpm run typecheck       # 渲染层，必须 0 错（build 闸门）
 pnpm run typecheck:node  # Node 侧，迁移中：尚未清零，不作闸门
+pnpm run lint            # anti-slop（vendored Oxlint 插件，配置在 .oxlintrc.json）
 ```
+
+**anti-slop 代码口味闸门**：`tools/oxlint/anti-slop/` 是 vendored 规则仓（上游快照与本地定制见其
+`UPSTREAM.md`）。`pnpm run lint:fix` 只做空行补白（require-readable-spacing 有同物理行豁免，紧凑单行
+`if (c) { a; return; }` 不会被劈开）；其余规则（`SAFETY:` 断言注释、unknown 收口、flatMap 合并两趟遍历等）
+要**真改**：不许用新断言/抑制注释洗过 lint。改被 `verify-*` 正则盯住的源码前后各跑一遍 `verify:static`（陷阱见下）。
 
 **verify 脚本的自毁陷阱**：不少断言是**读源码文本做正则**（`readFileSync("electron/config.ts")`
 再 `.test()`）。给被测源码加类型标注会静默打坏这类断言（真实踩过：`valid: (v) =>` 改成

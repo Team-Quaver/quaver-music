@@ -33,6 +33,7 @@ const listeners = new Set<() => void>();
 /** 订阅收藏歌单变更（增删后触发，侧栏/歌单页据此重绘）。返回退订函数。 */
 export function onFavSonglistsChange(fn: () => void): () => void {
   listeners.add(fn);
+
   return () => { listeners.delete(fn); };
 }
 
@@ -51,24 +52,31 @@ export const isFavSonglist = (id: string | number): boolean =>
 /** 拉取收藏的歌单（默认走缓存；force=true 强制回源）。失败抛错且不清空已有缓存。 */
 export async function loadFavSonglists(force = false): Promise<FavPlaylist[]> {
   if (items && !force) return items;
+
   if (inflight) return inflight;
   inflight = (async () => {
     const all: FavPlaylist[] = [];
+
     for (let page = 1; page <= MAX_PAGES; page++) {
       const d: any = await api(`/user/fav-songlists?page=${page}&num=${PAGE_SIZE}`);
       const batch: FavPlaylist[] = d?.playlists ?? [];
       all.push(...batch);
+
       if (!batch.length || !d?.hasmore) break;
     }
+
     return all;
   })();
+
   try {
     const next = await inflight;
     // 前台轮询会反复 force 回源：内容没变就别广播，否则侧栏/集合页会被每 30s 重画一次，
     // 右键菜单与被滚动的列表都会被打断。
     const prev = items;
+
     const changed = !prev || prev.length !== next.length || next.some((x, i) => {
       const y = prev[i];
+
       return !y
         || String(x.id) !== String(y.id)
         || x.title !== y.title
@@ -77,8 +85,11 @@ export async function loadFavSonglists(force = false): Promise<FavPlaylist[]> {
         || x.nickname !== y.nickname
         || Number(x.order_time ?? 0) !== Number(y.order_time ?? 0);
     });
+
     items = next;
+
     if (changed) emit();
+
     return items;
   } finally {
     inflight = null;
@@ -88,7 +99,9 @@ export async function loadFavSonglists(force = false): Promise<FavPlaylist[]> {
 /** 收藏/取消收藏一个歌单。返回操作后的收藏态；服务端失败会回滚并抛出。 */
 export async function toggleFavSonglist(target: FavPlaylist): Promise<boolean> {
   const id = target.id;
+
   if (id === undefined || id === null || id === "") throw new Error("缺少歌单 id");
+
   // 首次调用前先建立基线：否则「已收藏」会被误判成「未收藏」而重复收藏
   if (items === null) await loadFavSonglists().catch(() => { items = items ?? []; });
 
@@ -103,6 +116,7 @@ export async function toggleFavSonglist(target: FavPlaylist): Promise<boolean> {
     await api(`/songlist/${encodeURIComponent(String(id))}/like`, { method: had ? "DELETE" : "POST" });
     // 回源校准真实顺序/计数（侧栏按上游 order_time 排）；失败不打断当前交互
     void loadFavSonglists(true).catch(() => {});
+
     return !had;
   } catch (e) {
     items = snapshot;
@@ -116,11 +130,13 @@ let myMusicid: number | null = null;
 
 export async function getMyMusicid(): Promise<number | null> {
   if (myMusicid !== null) return myMusicid;
+
   try {
     const st: any = await api("/login/status");
     myMusicid = st?.logged_in ? Number(st?.credential?.musicid ?? 0) || null : null;
   } catch {
     myMusicid = null;
   }
+
   return myMusicid;
 }

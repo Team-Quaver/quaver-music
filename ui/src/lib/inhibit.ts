@@ -20,10 +20,12 @@ import { getInhibitSleep } from "./prefs";
 const HEARTBEAT_MS = 30_000;
 
 type InhibitMode = "sleep" | "idle";
+
 const MODES: InhibitMode[] = ["sleep", "idle"];
 
 let started = false;
 const lastRequested: Record<InhibitMode, boolean | null> = { sleep: null, idle: null };
+
 const requestQueues: Record<InhibitMode, Promise<void>> = {
   sleep: Promise.resolve(),
   idle: Promise.resolve(),
@@ -32,11 +34,13 @@ const requestQueues: Record<InhibitMode, Promise<void>> = {
 /** sleep：开关开 & 有曲目 & 正在播（loading 中还不算「出声」，等 play 事件再持有）。 */
 function desired(mode: InhibitMode): boolean {
   if (mode === "idle") return player.gallery && player.expanded;
+
   return getInhibitSleep() && !!player.current && player.playing;
 }
 
 function push(mode: InhibitMode, force = false): void {
   const want = desired(mode);
+
   if (!force && want === lastRequested[mode]) return;
   lastRequested[mode] = want;
   requestQueues[mode] = requestQueues[mode]
@@ -53,11 +57,13 @@ export function startInhibitBridge(): void {
   started = true;
   player.on(() => { for (const mode of MODES) push(mode); });
   setInterval(() => { for (const mode of MODES) push(mode, true); }, HEARTBEAT_MS);
+
   for (const mode of MODES) push(mode, true); // 首次同步：把启动时的两种状态先对齐
 }
 
 /** 设置开关或画廊状态变更后立即对齐（不等下一次播放状态变化）。 */
 export function syncInhibit(): void {
   if (!started) return;
+
   for (const mode of MODES) push(mode, true);
 }

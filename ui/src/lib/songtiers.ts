@@ -35,13 +35,17 @@ export function missingTiersOf(qualities: readonly string[], file: any): Set<str
   const sn = Array.isArray(file.size_new) ? file.size_new : null;
   const hide = new Set<string>();
   let seen = false; // 至少认识一个 size 字段才下结论
+
   for (const q of qualities) {
     const idx = SIZE_NEW_INDEX[q];
     const v: unknown = idx === undefined ? file[SIZE_FIELD[q] ?? ""] : sn?.[idx];
+
     if (typeof v !== "number") continue;
     seen = true;
+
     if (v <= 0) hide.add(q);
   }
+
   return seen ? hide : null;
 }
 

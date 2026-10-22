@@ -37,16 +37,20 @@ export const EQ_GAIN_LIMIT = 24;
 export const EQ_PREAMP_LIMIT = 24;
 export const EQ_MIN_Q = 0.1;
 export const EQ_MAX_Q = 18;
+
 /** 图形 EQ 的硬上限：最多 10 个节点；默认一个都没有，点击曲线才添加。 */
 export const EQ_MAX_BANDS = 10;
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
 const round = (v: number, digits: number) => {
   const k = 10 ** digits;
+
   return Math.round(v * k) / k;
 };
+
 const freqNum = (v: number) => round(clamp(Number.isFinite(v) ? v : 1000, EQ_MIN_FREQ, EQ_MAX_FREQ), 2);
 const gainNum = (v: number) => round(clamp(Number.isFinite(v) ? v : 0, -EQ_GAIN_LIMIT, EQ_GAIN_LIMIT), 1);
 const qNum = (v: number) => round(clamp(Number.isFinite(v) ? v : 1, EQ_MIN_Q, EQ_MAX_Q), 2);
@@ -75,12 +79,16 @@ export function normalizeEqState(input: unknown): EqState {
   const rawBands: readonly unknown[] = hasBands ? bandValue : [];
   const ids = new Set<string>();
   const bands: EqBand[] = [];
+
   for (let i = 0; i < rawBands.length && bands.length < EQ_MAX_BANDS; i++) {
     const b = rawBands[i];
+
     if (!isRecord(b)) continue;
     const freq = freqNum(isNumber(b.freq) ? b.freq : 1000);
     let id = isString(b.id) && /^[A-Za-z0-9_-]{1,48}$/.test(b.id) ? b.id : `b${i + 1}`;
+
     if (ids.has(id)) id = `b${i + 1}`;
+
     if (ids.has(id)) id = `x${i + 1}`;
     ids.add(id);
     const type: EqBandType = isEqBandType(b.type) ? b.type : "bell";
@@ -93,10 +101,14 @@ export function normalizeEqState(input: unknown): EqState {
       type,
     });
   }
+
   bands.sort((a, b) => a.freq - b.freq || a.id.localeCompare(b.id));
+
   const enabled = raw.enabled === true || raw.enabled === 1 || raw.enabled === "true"
     || raw.enabled === "yes";
+
   const preamp = isNumber(raw.preamp) ? raw.preamp : 0;
+
   return {
     enabled,
     preamp: round(clamp(preamp, -EQ_PREAMP_LIMIT, EQ_PREAMP_LIMIT), 1),
@@ -110,19 +122,27 @@ const fmt = (v: number) => String(round(v, 2));
 /** 生成 mpv `af` 属性值。普通 band 增益为 0 时省略；LP/HP 没有增益，按截止频率常驻。 */
 export function eqFilterString(input: EqState): string {
   const s = normalizeEqState(input);
+
   if (!s.enabled) return "";
   const chain: string[] = [];
+
   if (Math.abs(s.preamp) >= 0.05) chain.push(`volume=${fmt(s.preamp)}dB`);
+
   for (const b of s.bands) {
     const width = `f=${fmt(b.freq)}:width_type=q:width=${fmt(b.q)}`;
+
     if (b.type === "lowPass") { chain.push(`lowpass=${width}`); continue; }
+
     if (b.type === "highPass") { chain.push(`highpass=${width}`); continue; }
+
     if (Math.abs(b.gain) < 0.05) continue;
     const common = `${width}:g=${fmt(b.gain)}`;
+
     if (b.type === "lowShelf") chain.push(`bass=${common}`);
     else if (b.type === "highShelf") chain.push(`treble=${common}`);
     else chain.push(`equalizer=${common}`);
   }
+
   return chain.length ? `lavfi=[${chain.join(",")}]` : "";
 }
 

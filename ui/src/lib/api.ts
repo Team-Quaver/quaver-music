@@ -1,7 +1,9 @@
 // Quaver — 浏览器侧 API 封装（全部走同源 /api 中继 → Typhoeus-Go sidecar）
 // 响应信封：{code:0,msg:"ok",data:...}；错误 {code:-1,msg:...} + HTTP 状态。
 import { escHtml } from "./html.ts";
+
 export { escHtml } from "./html.ts";
+
 import { vipBadgeHtml } from "./vip.ts";
 import { getFallbackSort } from "./prefs";
 import { cfg, cfgSet } from "./config";
@@ -16,14 +18,17 @@ export class ApiError extends Error {
 export const api = async <T = any>(path: string, init?: RequestInit): Promise<T> => {
   const r = await fetch("/api" + path, init);
   let j: any = null;
+
   try {
     j = await r.json();
   } catch {
     throw new ApiError(r.status, `HTTP ${r.status} ${path}`);
   }
+
   if (!r.ok || (typeof j?.code === "number" && j.code !== 0)) {
     throw new ApiError(r.status, j?.msg ?? `HTTP ${r.status} ${path}`);
   }
+
   return j.data as T;
 };
 
@@ -52,6 +57,7 @@ export const stripEm = (s: unknown) => String(s ?? "").replace(/<\/?em>/gi, "");
 export function songTitle(s: any): string {
   const name = stripEm(s?.name).trim();
   const title = stripEm(s?.title).trim();
+
   return title || name;
 }
 
@@ -67,9 +73,11 @@ export async function copyText(text: string): Promise<boolean> {
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);
+
       return true;
     }
   } catch { /* 继续走回落 */ }
+
   try {
     const ta = document.createElement("textarea");
     ta.value = text;
@@ -79,6 +87,7 @@ export async function copyText(text: string): Promise<boolean> {
     ta.select();
     const ok = document.execCommand("copy");
     ta.remove();
+
     return ok;
   } catch {
     return false;
@@ -89,9 +98,11 @@ export async function copyText(text: string): Promise<boolean> {
 // 挂在旧图上 —— <img>/背景（no-store 救了网络层，救不了内存）、tint 的取色缓存、
 // tint 自身的 coverPic 空转判据。导入成功即 bump，URL 带 ?v= 自然穿透全部缓存。
 const localCoverVer = new Map<string, number>();
+
 export function bumpLocalCover(id: string): void {
   localCoverVer.set(id, (localCoverVer.get(id) ?? 0) + 1);
 }
+
 export const localCoverPath = (id: string) =>
   `/api/local/cover/${id}` + (localCoverVer.get(id) ? `?v=${localCoverVer.get(id)}` : "");
 
@@ -101,6 +112,7 @@ export const coverUrl = (s: any, size = 300) => {
   if (s?.local) return s.local.hasCover ? localCoverPath(s.local.id) : "";
   const pmid: string = s.album?.pmid ?? "";
   const base = pmid ? pmid.split("_")[0] : (s.album?.mid ?? "");
+
   return base ? `https://y.gtimg.cn/music/photo_new/T002R${size}x${size}M000${base}.jpg` : "";
 };
 
@@ -110,6 +122,7 @@ export const upPic = (u?: string) => (u ?? "").replace(/^http:/, "https:");
 export const fmtTime = (sec: number) => {
   if (!isFinite(sec)) return "0:00";
   const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+
   return `${m}:${String(s).padStart(2, "0")}`;
 };
 
@@ -119,7 +132,9 @@ export const fmtTime = (sec: number) => {
 export function identityBadges(me: any, vip: any): string {
   const badges: string[] = [];
   badges.push(vipBadgeHtml(vip));
+
   if (me?.base_info?.is_singer) badges.push(`<i class="badge blue">音乐人</i>`);
+
   return badges.join("");
 }
 
@@ -140,6 +155,7 @@ export const QUALITIES = {
   atmos71: "臻品全景声 7.1",
   master: "臻品母带",
 } as const;
+
 export type Quality = keyof typeof QUALITIES;
 
 // 默认音质存在 quaver.conf 的 [Quality] DefaultQuality（Auto｜96ogg｜128｜192ogg｜320｜320ogg｜flac｜640ogg｜atmos2｜atmos51｜atmos71｜master）
@@ -147,8 +163,10 @@ export type Quality = keyof typeof QUALITIES;
 // 设置页列表是动态的（/stream/tiers all_tiers），点了一个表里没有的档，syncQ 回读会被白名单弹回「自动」。
 export function getQuality(): Quality | "auto" {
   const q = cfg("Quality.DefaultQuality", "Auto");
+
   return q && q !== "Auto" && q in QUALITIES ? (q as Quality) : "auto";
 }
+
 export function setQuality(q: Quality | "auto") {
   cfgSet({ "Quality.DefaultQuality": q === "auto" ? "Auto" : q });
 }
@@ -158,6 +176,7 @@ export function setQuality(q: Quality | "auto") {
 let sessionQuality: Quality | "auto" | null = null;
 export const getSessionQuality = () => sessionQuality;
 export const setSessionQuality = (q: Quality | "auto" | null) => { sessionQuality = q; };
+
 /** 当前生效档位：播放条会话选择 > 设置页默认 */
 export const effectiveQuality = (): Quality | "auto" => sessionQuality ?? getQuality();
 
@@ -177,19 +196,25 @@ export function songMissingTiers(song: any): Set<Quality> | null {
 
 // —— Typhoeus 播放流：resolve 协商（会员门控 403 / 加密档 451 / 回退降级 degraded）→ token 中继 ——
 interface StreamResolved { token: string; path: string; tier: string; tier_label: string; degraded: boolean; mime: string; size: number }
+
 interface StreamTierView { id: string; label: string; rank: number; hi_res: boolean; locked?: boolean; requires?: number }
+
 interface StreamTiers { membership: number; membership_label: string; tiers: StreamTierView[]; all_tiers: StreamTierView[]; max: string | null }
 
 let tiersCache: StreamTiers | null = null;
+
 export async function getStreamTiers(force = false): Promise<StreamTiers> {
   if (!tiersCache || force) tiersCache = await api<StreamTiers>("/stream/tiers");
+
   return tiersCache;
 }
+
 export const invalidateStreamTiers = () => (tiersCache = null);
 
 // 最近一次「已应用」协商结果（播放条音质徽章数据源；由 player 在真正挂到 audio.src 时写入，
 // 预加载命中但未播放的不算）
 export interface LastStream { tier: string; label: string; degraded: boolean }
+
 let lastStream: LastStream | null = null;
 export const getLastStream = () => lastStream;
 export const setLastStream = (s: LastStream | null) => { lastStream = s; };
@@ -210,6 +235,7 @@ async function postResolve(body: { mid: string; media_mid: string; tier: string;
     if (e instanceof DOMException && (e.name === "TimeoutError" || e.name === "AbortError")) {
       throw new ApiError(408, "取链超时（上游无响应），请重试或换音质");
     }
+
     throw e;
   }
 }
@@ -219,18 +245,23 @@ async function postResolve(body: { mid: string; media_mid: string; tier: string;
 export async function resolveStreamUrl(song: any, quality: Quality | "auto" = effectiveQuality()): Promise<StreamResult> {
   const mediaId: string = song.file?.media_mid ?? song.media_mid ?? song.mid;
   let tier = quality as string;
+
   if (tier === "auto") tier = (await getStreamTiers()).max ?? "128";
   // 回退排序开关（设置页）：默认不把「臻品全景声（5.1 / 7.1）」当作优先降档落点（压到链尾兜底）
   const deprioritize = getFallbackSort() === "no-atmos" ? ["atmos51", "atmos71"] : [];
+
   try {
     const r = await postResolve({ mid: song.mid, media_mid: mediaId, tier, auto: true, deprioritize });
+
     return { url: "/api" + r.path, tier: r.tier, label: r.tier_label, degraded: r.degraded };
   } catch (e: any) {
     // 目标档本身取不到（会员/加密在 auto 模式已被后端裁剪，走到这里多为无源/网络）→ 兜底标准档
     if (tier !== "128") {
       const r = await postResolve({ mid: song.mid, media_mid: mediaId, tier: "128", auto: true, deprioritize });
+
       return { url: "/api" + r.path, tier: "128", label: "标准音质", degraded: true };
     }
+
     throw e;
   }
 }

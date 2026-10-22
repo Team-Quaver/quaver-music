@@ -13,6 +13,7 @@ export function showLocalPluginDialog(onConfirm: () => void): void {
   // Crotchet 调试模式（QUAVER_CROTCHET=1）：跳过 5 秒警告守门，直接进入文件选择。
   // 开关由主进程经 config-sync 下发（见 electron/preload.cts），浏览器 dev 恒为 false。
   if ((window as any).quaverCrotchet) { onConfirm(); return; }
+
   if (layer) return;
 
   layer = document.createElement("div");
@@ -35,20 +36,25 @@ export function showLocalPluginDialog(onConfirm: () => void): void {
 
   // 5 秒强制阅读期：倒计时结束才解锁「确认」
   let left = 5;
+
   const timer = window.setInterval(() => {
     left -= 1;
+
     if (left <= 0) {
       window.clearInterval(timer);
       confirmBtn.disabled = false;
       confirmBtn.textContent = "确认";
+
       return;
     }
+
     confirmBtn.textContent = `确认（${left}s）`;
   }, 1000);
 
   // 离场动画门闩与 UpdateDialog 同一套：挂 .leaving 等 animationend 摘节点；
   // 动画被禁用（reduced-motion）时 animationend 永不触发，靠超时兜底。
   let closing = false;
+
   const close = () => {
     if (closing) return;
     closing = true;
@@ -56,13 +62,16 @@ export function showLocalPluginDialog(onConfirm: () => void): void {
     window.removeEventListener("keydown", onKey);
     const el = layer;
     layer = null;
+
     if (!el) return;
     const fin = () => el.remove();
     el.addEventListener("animationend", fin, { once: true });
     window.setTimeout(fin, 240);
     el.classList.add("leaving");
   };
+
   const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+
   window.addEventListener("keydown", onKey);
   layer.addEventListener("mousedown", (e) => { if (e.target === layer) close(); });
 

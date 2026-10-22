@@ -41,6 +41,7 @@ export function syncRowHearts(root: ParentNode = document) {
 // 收藏态一变（预载灌满 / 播放条取消 / 别处点赞）→ 已渲染的行原地跟随，不必等切视图。
 // 按版本号去重：player.notify 每次 timeupdate 都会来，不能在这空刷几百行。
 let paintedLoveVersion = -1;
+
 player.on(() => {
   if (player.loveVersion === paintedLoveVersion) return;
   paintedLoveVersion = player.loveVersion;
@@ -49,6 +50,7 @@ player.on(() => {
 
 function linkTo(kind: "singer" | "album", o: any, label: string): string {
   if (!o?.mid) return esc(label); // 无 mid（如部分合唱署名）：退化成纯文本，不给死链
+
   return `<a class="meta-link" data-link="${kind}:${esc(o.mid)}:${esc(o.name ?? label)}" title="${esc(label)}">${esc(label)}</a>`;
 }
 
@@ -63,6 +65,7 @@ function artistLinks(singers: any[] | undefined): string {
 export function renumberRows(box: HTMLElement) {
   [...box.querySelectorAll<HTMLElement>(".row[data-songkey]")].forEach((row, i) => {
     const idx = row.querySelector<HTMLElement>(".idx");
+
     if (idx) idx.textContent = String(i + 1);
   });
 }
@@ -72,6 +75,7 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
   // 为每次插入登记样式失效（长列表下累积成反复的重算样式 / 布局）；fragment 只在末尾产生一次。
   const frag = document.createDocumentFragment();
   const showCover = hooks.showCover !== false;
+
   for (const [i, s] of songs.entries()) {
     s._key = s.mid ?? String(s.id ?? Math.random());
     const row = document.createElement("div");
@@ -79,14 +83,18 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
     row.dataset.songkey = s._key;
     row.title = "双击播放 · 右键更多";
     const pic = showCover ? coverUrl(s, 150) : "";
+
     const artistLine = hooks.showArtist === false ? "" :
       `<span class="ra">${(s.singer ?? []).length ? artistLinks(s.singer) : ""}</span>`;
+
     const albumLine = hooks.showAlbum ? `<span class="ral">${s.album?.name ? linkTo("album", s.album, s.album.name) : ""}</span>` : "";
     const loved = player.loved.has(s.mid);
     const isLocal = !!s.local;
+
     // 本地曲目：红心无意义（QQ 收藏概念）；时长未知（NAS 未解析到容器头）画「–」而不是假 0:00
     const loveBtn = hooks.hideLove || isLocal ? "" :
       `<button class="row-love${loved ? " on" : ""}" data-love aria-label="收藏" aria-pressed="${loved}" title="${loved ? "取消收藏" : "收藏"}">${loved ? "♥" : "♡"}</button>`;
+
     const durText = isLocal && !(s.interval > 0) ? "–" : fmtTime(s.interval);
     // 标题 = title（主名 + 版本后缀）；subtitle 是独立的一句话说明，跟在标题后做次级文本
     const sub = songSubtitle(s);
@@ -108,7 +116,13 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
       // 序号/列表以**当时的 DOM**为准（右键菜单同规矩）：行被删过之后，闭包里的 i 与 songs
       // 都是旧的，照着播会跳到错位的那首而不是双击的这首
       const rows = [...box.querySelectorAll<HTMLElement>(".row[data-songkey]")];
-      const all = rows.map((el) => keyMap.get(el.dataset.songkey!)).filter((x) => !!x);
+
+      const all = rows.flatMap((el) => {
+        const song = keyMap.get(el.dataset.songkey!);
+
+        return song ? [song] : [];
+      });
+
       hooks.onPlay?.(s, rows.indexOf(row), all);
     });
     // 触屏/快速点按场景兜底：单击封面 = 选中 + 预加载（不直接起播，防误触；双击起播）
@@ -119,12 +133,14 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
       const done = player.toggleLove(s); // 先乐观改态并广播（同步段），再等在线写接口
       paintLove(btn, player.loved.has(s.mid));
       const fin = await done;            // 终态：写失败已回滚
+
       if (fin !== null) paintLove(btn, fin);
       hooks.onLove?.(s, fin ?? player.loved.has(s.mid));
     });
     // 歌手/专辑跳转（事件委托到行；拼 hash 进对应视图）
     row.addEventListener("click", (e) => {
       const a = (e.target as HTMLElement).closest<HTMLElement>("[data-link]");
+
       if (!a) return;
       e.stopPropagation();
       const v = a.dataset.link!;
@@ -148,6 +164,7 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
     }));
     frag.append(row);
   }
+
   box.replaceChildren(frag);
   // 双击重取列表要用：行渲染时按 songkey 建的映射（_key 在上面循环里已落到每个对象上）
   const keyMap = new Map(songs.map((x) => [String(x._key ?? x.mid ?? ""), x]));
@@ -157,13 +174,17 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
 export async function loadLiked(box: HTMLElement, hooks: RowHooks = {}, limit = 300): Promise<any[]> {
   box.innerHTML = `<div class="muted">加载中…</div>`;
   const all: any[] = [];
+
   for (let page = 1; (page - 1) * 30 < limit; page++) {
     const r: any = await api(`/user/liked?page=${page}&num=30`);
     const batch = r?.songs ?? [];
     all.push(...batch);
+
     if (!r?.hasmore || batch.length === 0) break;
   }
+
   box.innerHTML = "";
   renderSongRows(box, all, hooks);
+
   return all;
 }

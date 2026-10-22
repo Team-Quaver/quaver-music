@@ -18,12 +18,16 @@
 /** 标题行的显示列宽上限。40 列 ≈ 13px 字号下约 520px —— 原生菜单的常见上限；
  *  也就是中文标题 20 字 / 拉丁标题 40 字，再长就该省略了（托盘菜单只是瞥一眼的地方）。 */
 export const TRAY_TITLE_MAX_COLS = 40;
+
 /** 截断标记：单字符、占一列（用「…」不用「...」，省两列且是中文排版的正确省略号）。 */
 export const TRAY_TITLE_ELLIPSIS = "…";
+
 /** 歌名与歌手之间的分隔（与界面同款）。 */
 export const TRAY_TRACK_SEP = " - ";
+
 /** 多位歌手之间的连接（与界面同款）。 */
 export const TRAY_ARTIST_SEP = " / ";
+
 /** 没有曲目可显示时的占位（渲染层快照缺位，如窗口未起/拆窗间隙）。 */
 export const TRAY_IDLE_LABEL = "未在播放";
 
@@ -34,8 +38,11 @@ export const TRAY_IDLE_LABEL = "未在播放";
  */
 export function charCols(ch: string): 0 | 1 | 2 {
   const cp = ch.codePointAt(0);
+
   if (cp === undefined) return 0;
+
   if (cp < 0x20 || cp === 0x7f) return 0; // 控制字符（oneLine 已清过，这里是兜底）
+
   if (
     cp >= 0x1100 &&
     (cp <= 0x115f ||                          // 谚文字母
@@ -50,13 +57,16 @@ export function charCols(ch: string): 0 | 1 | 2 {
   ) {
     return 2;
   }
+
   return 1;
 }
 
 /** 字符串的显示列宽（汉字/全角/emoji 记 2，其余记 1）。按码点走，不劈开代理对。 */
 export function displayCols(text: unknown): number {
   let n = 0;
+
   for (const ch of String(text ?? "")) n += charCols(ch);
+
   return n;
 }
 
@@ -69,18 +79,24 @@ export function displayCols(text: unknown): number {
  */
 export function clampCols(text: unknown, maxCols: number = TRAY_TITLE_MAX_COLS): string {
   const s = String(text ?? "");
+
   if (maxCols <= 0) return "";
+
   if (displayCols(s) <= maxCols) return s;
+
   if (maxCols <= displayCols(TRAY_TITLE_ELLIPSIS)) return TRAY_TITLE_ELLIPSIS;
   const budget = maxCols - displayCols(TRAY_TITLE_ELLIPSIS);
   let used = 0;
   let out = "";
+
   for (const ch of s) {
     const w = charCols(ch);
+
     if (used + w > budget) break;
     out += ch;
     used += w;
   }
+
   // 断在分隔符中间时留个「名 -…」很难看，把悬空的分隔符/空白一起吃掉
   return out.replace(/[\s\-/]+$/, "") + TRAY_TITLE_ELLIPSIS;
 }
@@ -100,8 +116,10 @@ export interface TrayTrack {
  */
 export function trayTitleLine(track: TrayTrack | null | undefined, maxCols: number = TRAY_TITLE_MAX_COLS): string {
   const name = oneLine(track?.name);
+
   if (!name) return TRAY_IDLE_LABEL; // 没有曲目（或快照缺位）→ 占位，与从前一致
   const artists = (Array.isArray(track?.artists) ? track.artists : []).map(oneLine).filter(Boolean);
   const full = artists.length ? name + TRAY_TRACK_SEP + artists.join(TRAY_ARTIST_SEP) : name;
+
   return clampCols(full, maxCols);
 }

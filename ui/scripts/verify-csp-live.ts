@@ -18,6 +18,7 @@ import { APP_CSP } from "../electron/csp.ts";
 const UI = import.meta.dirname.replace(/\/scripts$/, "");
 const DIST = join(UI, "dist");
 const CHROME = process.env.QUAVER_CHROME || "/usr/bin/google-chrome";
+
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".mjs": "text/javascript",
   ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json",
@@ -26,6 +27,7 @@ const MIME: Record<string, string> = {
 
 let pass = 0, fail = 0;
 const section = (t: string) => console.log(`\n=== ${t} ===`);
+
 function check(name: string, cond: boolean, detail = "") {
   if (cond) { pass++; console.log(`  ✅ ${name}`); }
   else { fail++; console.log(`  ❌ ${name}${detail ? ` — ${detail}` : ""}`); }
@@ -40,32 +42,47 @@ if (!existsSync(join(DIST, "index.html"))) {
 const server = createServer((req, res) => {
   res.setHeader("Content-Security-Policy", APP_CSP);
   const path = decodeURIComponent((req.url ?? "/").split("?")[0].split("#")[0]);
+
   if (path.startsWith("/api/")) { res.writeHead(404, { "content-type": "application/json" }); res.end("{}"); return; }
+
   const file = normalize(join(DIST, path === "/" ? "index.html" : path));
+
   if (!file.startsWith(DIST) || !existsSync(file) || !/\.(html|js|mjs|css|svg|json|png|ico|woff2)$/.test(extname(file))) {
     res.writeHead(404); res.end("not found"); return;
   }
+
   res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });
   res.end(readFileSync(file));
 });
+
 await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+
 const port = (server.address() as { port: number }).port;
 const BASE = `http://127.0.0.1:${port}`;
 
 section("响应头");
+
 const head = await fetch(`${BASE}/index.html`);
+
 check("静态服务确实带着策略", head.headers.get("content-security-policy") === APP_CSP);
+
 check("策略里没有 unsafe-eval（Electron 就是看这个报警）", !/unsafe-eval/i.test(APP_CSP));
 
 const browser = await puppeteer.launch({
   executablePath: CHROME, headless: true,
   args: ["--no-sandbox", "--disable-gpu", "--autoplay-policy=no-user-gesture-required"],
 });
+
 const page = await browser.newPage();
+
 await page.setViewport({ width: 1200, height: 760 });
+
 const consoleLines: string[] = [];
+
 page.on("console", (m) => consoleLines.push(`${m.type()}:${m.text()}`));
+
 page.on("pageerror", (e) => consoleLines.push(`pageerror:${String(e)}`));
+
 /** 只认 CSP 的措辞：其它报错（这里 /api 故意 404）不该算到策略头上 */
 const violations = () => consoleLines.filter((l) => /refused to|violates the following|Content Security Policy/i.test(l));
 
@@ -87,13 +104,15 @@ try {
   section("正向对照：内联脚本与内联事件属性确实执行不了");
   await page.evaluate(() => {
     document.body.insertAdjacentHTML("beforeend", `<img src="data:," onerror="window.__cspInlineHit = 1" alt=""/>`);
-    document.body.insertAdjacentHTML("beforeend", `<script>window.__cspInlineScript = 1;<\/script>`);
+    document.body.insertAdjacentHTML("beforeend", `<script>window.__cspInlineScript = 1;</script>`);
   });
   await new Promise((r) => setTimeout(r, 600));
+
   const probe = await page.evaluate(() => ({
     handler: (window as any).__cspInlineHit === 1,
     script: (window as any).__cspInlineScript === 1,
   }));
+
   check("内联事件属性（onerror=）被拦", !probe.handler);
   check("内联 <script> 被拦", !probe.script);
   // Chromium 会把同类拦截合并上报（内联脚本 + 内联事件属性可能只留一行），所以门槛是「至少一条」：
@@ -101,6 +120,7 @@ try {
   check("拦截在控制台留有违规记录（证明策略到达了页面）", violations().length >= 1, `violations=${violations().length}`);
 
   section("薄跳转层：外链 redirect.js 在同一策略下照常工作");
+
   for (const [legacy, want] of [["/login.html", "#/login"], ["/settings.html?x=1", "#/settings?x=1"], ["/playlist.html?tid=123", "#/playlist?id=123"]] as const) {
     await page.goto(BASE + legacy, { waitUntil: "domcontentloaded" });
     await page.waitForFunction((frag: string) => location.href.includes(frag), { timeout: 4000 }, want).catch(() => {});
@@ -113,4 +133,5 @@ try {
 }
 
 console.log(`\n${fail === 0 ? "✅" : "❌"} verify-csp-live: ${pass} 通过 / ${fail} 失败`);
+
 process.exit(fail === 0 ? 0 : 1);

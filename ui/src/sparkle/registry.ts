@@ -34,35 +34,49 @@ export interface SparklePluginRecord {
 }
 
 interface NavEntry extends SparkleNavItem { pluginId: string }
+
 interface SonglistGroupEntry { pluginId: string; group: SparkleSonglistGroup }
+
 interface SettingsSectionEntry {
   pluginId: string;
   section: SparkleSettingsSection;
   /** 设置页面板 render 后回填的清理函数（面板销毁 / 插件停用时调用） */
   cleanup?: (() => void) | null;
 }
+
 interface ThemeEntry extends SparkleTheme { pluginId: string }
+
 /** 常驻样式层：插件启用即生效，与主题包选择无关（层序由 order 定） */
 export interface StyleLayerEntry { pluginId: string; layer: SparkleStyleLayer; key: string }
+
 interface ThemePackEntry { pluginId: string; pack: SparkleThemePack }
+
 interface NpWidgetEntry { pluginId: string; widget: SparkleNpWidget; cleanup: (() => void) | null }
+
 interface NpViewEntry { pluginId: string; view: SparkleNpView }
+
 interface NpSpectrumModeEntry { pluginId: string; mode: SparkleNpSpectrumMode }
+
 interface MenuItemEntry {
   pluginId: string;
   item: SparkleMenuItem | ((ctx: SparkleSongMenuCtx) => SparkleMenuItem);
 }
+
 /** 侧栏歌单右键菜单 / 正在播放页 ⋮ 菜单的追加项（与 song 那份同型，只是 ctx 不同） */
 interface PlaylistMenuItemEntry {
   pluginId: string;
   item: SparkleMenuItem | ((ctx: SparklePlaylistMenuCtx) => SparkleMenuItem);
 }
+
 interface NpMenuItemEntry {
   pluginId: string;
   item: SparkleMenuItem | ((ctx: SparkleNpMenuCtx) => SparkleMenuItem);
 }
+
 interface StreamSourceEntry { pluginId: string; source: SparkleStreamSource }
+
 interface KaraokeProviderEntry { pluginId: string; provider: SparkleKaraokeProvider }
+
 interface ViewEntry { pluginId: string; path: string; view: SparkleView }
 
 const navItems: NavEntry[] = [];
@@ -88,10 +102,13 @@ export const sparkActiveIds = () => [...records.keys()];
 
 /** 注册表变化订阅（设置页面板据此重画插件设置区） */
 const changeListeners = new Set<() => void>();
+
 export const onSparkleChange = (cb: () => void) => {
   changeListeners.add(cb);
+
   return () => changeListeners.delete(cb);
 };
+
 const emitChange = () => { for (const cb of [...changeListeners]) { try { cb(); } catch { /* 面板已死 */ } } };
 
 const teardownOf = (pluginId: string) => records.get(pluginId)?.teardown
@@ -101,6 +118,7 @@ const teardownOf = (pluginId: string) => records.get(pluginId)?.teardown
 
 export function sparkRegisterView(pluginId: string, path: string, view: SparkleView) {
   const p = path.startsWith("/") ? path : "/" + path;
+
   if (pluginViews.has(p)) throw new Error(`路由 ${p} 已被注册`);
   pluginViews.set(p, { pluginId, path: p, view });
   teardownOf(pluginId).push(() => pluginViews.delete(p));
@@ -112,6 +130,7 @@ export function sparkRegisterNav(pluginId: string, item: SparkleNavItem) {
   navItems.push(entry);
   teardownOf(pluginId).push(() => {
     const at = navItems.indexOf(entry);
+
     if (at >= 0) navItems.splice(at, 1);
   });
   emitChange();
@@ -122,6 +141,7 @@ export function sparkRegisterSonglistGroup(pluginId: string, group: SparkleSongl
   songlistGroups.push(entry);
   teardownOf(pluginId).push(() => {
     const at = songlistGroups.indexOf(entry);
+
     if (at >= 0) songlistGroups.splice(at, 1);
   });
   emitChange();
@@ -132,6 +152,7 @@ export function sparkRegisterSettingsSection(pluginId: string, section: SparkleS
   settingsSections.push(entry);
   teardownOf(pluginId).push(() => {
     const at = settingsSections.indexOf(entry);
+
     if (at >= 0) settingsSections.splice(at, 1);
     entry.cleanup?.();
   });
@@ -143,6 +164,7 @@ export function sparkRegisterTheme(pluginId: string, theme: SparkleTheme) {
   themes.push(entry);
   teardownOf(pluginId).push(() => {
     const at = themes.indexOf(entry);
+
     if (at >= 0) themes.splice(at, 1);
   });
   emitChange();
@@ -167,9 +189,11 @@ export function sparkRegisterStyleLayer(pluginId: string, layer: SparkleStyleLay
   styleLayers.push(entry);
   teardownOf(pluginId).push(() => {
     const at = styleLayers.indexOf(entry);
+
     if (at >= 0) styleLayers.splice(at, 1);
   });
   emitChange();
+
   return key;
 }
 
@@ -178,6 +202,7 @@ export function sparkRegisterThemePack(pluginId: string, pack: SparkleThemePack)
   themePacks.push(entry);
   teardownOf(pluginId).push(() => {
     const at = themePacks.indexOf(entry);
+
     if (at >= 0) themePacks.splice(at, 1);
   });
   emitChange();
@@ -186,9 +211,11 @@ export function sparkRegisterThemePack(pluginId: string, pack: SparkleThemePack)
 /** 按 key 摘掉一张样式层的登记（插件运行中主动反注册用；停用路径走 teardown） */
 export function sparkUnregisterStyleLayer(key: string): boolean {
   const at = styleLayers.findIndex((e) => e.key === key);
+
   if (at < 0) return false;
   styleLayers.splice(at, 1);
   emitChange();
+
   return true;
 }
 
@@ -197,6 +224,7 @@ export function sparkRegisterNpWidget(pluginId: string, widget: SparkleNpWidget,
   npWidgets.push(entry);
   teardownOf(pluginId).push(() => {
     const at = npWidgets.indexOf(entry);
+
     if (at >= 0) npWidgets.splice(at, 1);
     entry.cleanup?.();
     entry.cleanup = null;
@@ -210,6 +238,7 @@ export function sparkRegisterNpView(pluginId: string, view: SparkleNpView) {
   npViews.push(entry);
   teardownOf(pluginId).push(() => {
     const at = npViews.indexOf(entry);
+
     if (at >= 0) npViews.splice(at, 1);
   });
   emitChange();
@@ -217,15 +246,20 @@ export function sparkRegisterNpView(pluginId: string, view: SparkleNpView) {
 
 export function sparkRegisterNpSpectrumMode(pluginId: string, mode: SparkleNpSpectrumMode) {
   const id = String(mode?.id ?? "").trim().toLowerCase();
+
   if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(id)) throw new Error(`频谱模式 id 不合法：${mode?.id ?? ""}`);
+
   if (!mode.label?.trim()) throw new Error(`频谱模式 ${id} 缺少 label`);
+
   if (["bars", "mirror", "wave"].includes(id) || npSpectrumModes.some((e) => e.mode.id === id)) {
     throw new Error(`频谱模式 id 已被占用：${id}`);
   }
+
   const entry: NpSpectrumModeEntry = { pluginId, mode: { ...mode, id, label: mode.label.trim() } };
   npSpectrumModes.push(entry);
   teardownOf(pluginId).push(() => {
     const at = npSpectrumModes.indexOf(entry);
+
     if (at >= 0) npSpectrumModes.splice(at, 1);
   });
   emitChange();
@@ -236,6 +270,7 @@ export function sparkRegisterSongMenuItem(pluginId: string, item: MenuItemEntry[
   menuItems.push(entry);
   teardownOf(pluginId).push(() => {
     const at = menuItems.indexOf(entry);
+
     if (at >= 0) menuItems.splice(at, 1);
   });
   emitChange();
@@ -246,6 +281,7 @@ export function sparkRegisterPlaylistMenuItem(pluginId: string, item: PlaylistMe
   playlistMenuItems.push(entry);
   teardownOf(pluginId).push(() => {
     const at = playlistMenuItems.indexOf(entry);
+
     if (at >= 0) playlistMenuItems.splice(at, 1);
   });
   emitChange();
@@ -256,6 +292,7 @@ export function sparkRegisterNpMenuItem(pluginId: string, item: NpMenuItemEntry[
   npMenuItems.push(entry);
   teardownOf(pluginId).push(() => {
     const at = npMenuItems.indexOf(entry);
+
     if (at >= 0) npMenuItems.splice(at, 1);
   });
   emitChange();
@@ -266,6 +303,7 @@ export function sparkRegisterStreamSource(pluginId: string, source: SparkleStrea
   streamSources.push(entry);
   teardownOf(pluginId).push(() => {
     const at = streamSources.indexOf(entry);
+
     if (at >= 0) streamSources.splice(at, 1);
   });
   emitChange();
@@ -276,20 +314,24 @@ export function sparkRegisterKaraokeProvider(pluginId: string, provider: Sparkle
   karaokeProviders.push(entry); // 先注册先得：宿主只消费 sparkleKaraokeProvider() 的第一个
   teardownOf(pluginId).push(() => {
     const at = karaokeProviders.indexOf(entry);
+
     if (at >= 0) karaokeProviders.splice(at, 1);
   });
   emitChange();
 }
 
 export function sparkRecordInit(record: SparklePluginRecord) { records.set(record.pluginId, record); }
+
 export function sparkRecordDrop(pluginId: string) { records.delete(pluginId); }
 
 // —— 宿主接入点读取（shell / player / SongMenu / views 消费） ——
 
 export const sparkleViewAt = (path: string): SparkleView | null => pluginViews.get(path)?.view ?? null;
+
 /** 某插件注册过的全部路由（disable 时判断当前页是否要跳走） */
 export const sparklePluginRoutes = (pluginId: string): string[] =>
-  [...pluginViews.entries()].filter(([, e]) => e.pluginId === pluginId).map(([p]) => p);
+  [...pluginViews.entries()].flatMap(([p, e]) => (e.pluginId === pluginId ? [p] : []));
+
 export const sparkleNavItems = (): SparkleNavItem[] => navItems;
 export const sparkleSonglistGroups = (): SparkleSonglistGroup[] => songlistGroups.map((e) => e.group);
 export const sparkleSettingsSections = (): SettingsSectionEntry[] => settingsSections;
@@ -304,20 +346,27 @@ export const sparkleThemes = (): ThemeEntry[] => themes;
  *  `typeof document` 兜底：本模块会被 scripts/verify-sparkle.ts 在 node 里直接 import。 */
 export function sparkleActiveTheme(): SparkleTheme | null {
   const id = typeof document === "undefined" ? "" : (document.documentElement.dataset.sparkleTheme ?? "");
+
   if (!id) return null;
+
   return themes.find((t) => t.id === id) ?? null;
 }
+
 /** 已登记的常驻样式层（style-layer.ts 订阅本表并注入 <style>） */
 export const sparkleStyleLayers = (): StyleLayerEntry[] => styleLayers;
+
 /** 已登记的主题包（按注册序） */
 export const sparkleThemePacks = (): ThemePackEntry[] => themePacks;
 export const sparkleNpWidgets = (): NpWidgetEntry[] => npWidgets;
+
 /** 正在播放页接管视图（首个注册者；无 = 宿主走默认 np 布局）。
  *  enabled() 由消费方（np-view.ts）每次 notify 重读，不在这里判。 */
 export const sparkleNpView = (): SparkleNpView | null => npViews[0]?.view ?? null;
+
 /** 正在播放页频谱形态：内置三种由渲染层提供，这里只列 Sparkle 插件注册的。 */
 export const sparkleNpSpectrumModes = (): SparkleNpSpectrumMode[] => npSpectrumModes.map((e) => e.mode);
 export const sparkleStreamSources = (): SparkleStreamSource[] => streamSources.map((e) => e.source);
+
 /** 宿主内置的歌词引擎（AMLL）作为兜底提供器存在注册表里，而不是「一个摘不掉的插件」：
  *  src/lyrics/builtin.ts 在启动时把它交进来。本模块因此**不 import** 歌词引擎本体 ——
  *  registry 必须保持零 ui 依赖（verify-sparkle 在 node 里直接 import 它）。 */
@@ -344,6 +393,7 @@ function collectMenuItems<C>(
   ctx: C,
 ): SparkleMenuItem[] {
   const out: SparkleMenuItem[] = [];
+
   for (const e of entries) {
     try {
       out.push(typeof e.item === "function" ? (e.item as (c: C) => SparkleMenuItem)(ctx) : e.item);
@@ -351,6 +401,7 @@ function collectMenuItems<C>(
       console.warn(`[sparkle:${e.pluginId}] 菜单项生成失败`, err);
     }
   }
+
   return out;
 }
 

@@ -15,6 +15,7 @@ import { createRequire } from "node:module";
 const requireFromHere = createRequire(import.meta.url);
 
 export type MprisStatus = "Playing" | "Paused" | "Stopped";
+
 export type MprisLoop = "None" | "Track" | "Playlist";
 
 export interface MprisTrack {
@@ -111,6 +112,7 @@ function monotonicMs(): number {
 
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
+
   return Math.max(0, Math.min(1, value));
 }
 
@@ -122,6 +124,7 @@ function normalizeLoop(value: string, fallback: MprisLoop): MprisLoop {
 export function trackPath(track: { key?: string; mid?: string }): string {
   const raw = track.key || track.mid || "unknown";
   const safe = raw.replace(/[^A-Za-z0-9_]/g, "_").replace(/^_+|_+$/g, "") || "unknown";
+
   return `/org/quaver/track/${safe}`;
 }
 
@@ -133,8 +136,11 @@ export function extrapolatePositionUs(
   durationUs: number,
 ): number {
   let pos = Math.max(0, Number.isFinite(baseUs) ? baseUs : 0);
+
   if (playing && Number.isFinite(elapsedMs) && elapsedMs > 0) pos += elapsedMs * 1000;
+
   if (durationUs > 0) pos = Math.min(pos, durationUs);
+
   return Math.max(0, Math.floor(pos));
 }
 
@@ -144,11 +150,16 @@ function trackMetadata(track: MprisTrack, durationUs?: number): MprisMetadata {
     "xesam:title": track.name || "未知歌曲",
     "xesam:artist": track.artists.length ? track.artists : ["未知歌手"],
   };
+
   const lengthUs = Math.floor((track.durationSec || 0) * 1e6);
+
   if (lengthUs > 0) metadata["mpris:length"] = lengthUs;
   else if (durationUs && durationUs > 0) metadata["mpris:length"] = durationUs;
+
   if (track.album) metadata["xesam:album"] = track.album;
+
   if (track.artUrl) metadata["mpris:artUrl"] = track.artUrl;
+
   return metadata;
 }
 
@@ -167,6 +178,7 @@ export function createMprisBridge({
   if (platform !== "linux") return null;
 
   let player: MprisPlayerInstance;
+
   try {
     const makePlayer = factory ?? loadFactory();
     player = makePlayer({
@@ -179,6 +191,7 @@ export function createMprisBridge({
     });
   } catch (e) {
     log("[mpris] service init failed（在 ui/ 跑 pnpm install）:", String(e));
+
     return null;
   }
 
@@ -252,20 +265,28 @@ export function createMprisBridge({
   const applyState = (raw: unknown): void => {
     if (!raw || typeof raw !== "object") return;
     const state = raw as Partial<MprisState>;
+
     if (state.t !== "state" || state.v !== PROTOCOL_VERSION) {
       log("[mpris] ignored incompatible state:", String(state.v ?? "?"));
+
       return;
     }
+
     if (!state.can || !Array.isArray(state.queue)) {
       log("[mpris] ignored incomplete state");
+
       return;
     }
+
     if (state.status !== "Playing" && state.status !== "Paused" && state.status !== "Stopped") {
       log("[mpris] ignored invalid status:", String(state.status));
+
       return;
     }
+
     if (state.loop !== "None" && state.loop !== "Track" && state.loop !== "Playlist") {
       log("[mpris] ignored invalid loop:", String(state.loop));
+
       return;
     }
 
@@ -278,21 +299,26 @@ export function createMprisBridge({
       lastStatus = state.status;
       player.playbackStatus = state.status;
     }
+
     if (state.loop !== lastLoop) {
       lastLoop = state.loop;
       player.loopStatus = state.loop;
     }
+
     if (state.shuffle !== lastShuffle) {
       lastShuffle = !!state.shuffle;
       player.shuffle = !!state.shuffle;
     }
+
     const volume = clamp01(Number(state.volume));
+
     if (Math.abs(volume - lastVolume) > 0.004) {
       lastVolume = volume;
       player.volume = volume;
     }
 
     const canSig = `${state.can.next}|${state.can.prev}|${state.can.play}|${state.can.pause}|${state.can.seek}|${state.can.control}`;
+
     if (canSig !== lastCanSig) {
       lastCanSig = canSig;
       player.canGoNext = !!state.can.next;
@@ -304,6 +330,7 @@ export function createMprisBridge({
     }
 
     const trackKey = state.track ? trackPath(state.track) : "";
+
     if (trackKey !== lastTrackKey) {
       lastTrackKey = trackKey;
       player.metadata = state.track
@@ -312,8 +339,10 @@ export function createMprisBridge({
     }
 
     const queueSig = state.queue.map((track) => trackPath(track)).join(",") + "#" + trackKey;
+
     if (queueSig !== lastQueueSig) {
       lastQueueSig = queueSig;
+
       try {
         player.tracks = state.queue.map((track) => trackMetadata(track));
       } catch (e) {
@@ -331,6 +360,7 @@ export function createMprisBridge({
   };
 
   log("[mpris] service initialized on", MPRIS_PATH);
+
   return {
     applyState,
     destroy() {

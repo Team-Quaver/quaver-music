@@ -21,6 +21,7 @@ import {
 import { setLastNotified } from "../lib/prefs";
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
@@ -39,6 +40,7 @@ export function showUpdateDialog(info: UpdateInfo): void {
   // 商店托管：这份应用由商店分发（picked 恒空），弹窗降级为「等商店推送」的纯提醒
   const store = info.store;
   const storeName = store ? STORE_NAMES[store] : "";
+
   const storeNote = store
     ? `本应用通过${esc(storeName)}${store === "spark" ? "（APM 琥珀容器）" : "（玲珑容器）"}安装，更新走商店审核链路，应用内下载/安装不适用于这种运行方式。请等待${esc(storeName)}推送 ${esc(info.decision.targetLabel)}。`
     : "";
@@ -48,15 +50,18 @@ export function showUpdateDialog(info: UpdateInfo): void {
   const nightly = info.channel === "nightly";
   const beta = info.channel === "beta";
   const channelName = channelLabel(info.channel);
+
   // 换渠道（设置里选的渠道 ≠ 当前构建所属渠道）与同渠道升级是两种事：前者说「切换」，
   // 标题/按钮照此措辞 —— 版本号可能不升反降，别写成「发现新版本」骗人。
   // Beta 有版本号（v1.5.0-beta.1），措辞跟 Stable 走、只换「Beta 版」字样；Nightly 没有版本号，认渠道。
   const titleHtml = info.switching
     ? (nightly ? `切换到 <b>Nightly</b> 构建` : `切换到${beta ? " Beta 版" : "正式版"} <b>${esc(info.decision.latestDisplay)}</b>`)
     : (nightly ? `发现新的 <b>Nightly</b> 构建` : `发现新版本 <b>${esc(info.decision.latestDisplay)}</b>`);
+
   const metaText = `当前 ${esc(describeBuild(info.current))} → ${esc(info.decision.targetLabel)}`
     + (asset ? ` · ${fmtSize(asset.size)}` : "")
     + (dateText ? ` · ${nightly ? "构建于" : "发布于"} ${dateText}` : "");
+
   // 换渠道的关系说明：回退要说清「版本号会变小」，同版号要说清「只是换一份构建」
   const switchNote = !info.switching ? ""
     : info.decision.relation === "downgrade"
@@ -64,6 +69,7 @@ export function showUpdateDialog(info: UpdateInfo): void {
       : info.decision.relation === "same"
         ? `版本号与当前相同，只是换成 ${nightly ? "Nightly 滚动" : beta ? "Beta 测试" : "Stable 正式"}构建。`
         : "";
+
   const mainLabel = info.switching ? "立即切换" : "立即更新";
   const skipLabel = info.switching ? "暂不切换" : "跳过此版本";
   const dangerNote = info.switching && info.decision.relation === "downgrade";
@@ -106,24 +112,31 @@ export function showUpdateDialog(info: UpdateInfo): void {
   // 离场动画：加 .leaving 等过渡播完再摘节点；动画被禁用（reduced-motion）时
   // animationend 永不触发，靠超时兜底 —— 跟 views/_shared.ts 的 exitMe 同一套门闩。
   let closing = false;
+
   const close = () => {
     if (closing) return;
     closing = true;
+
     if (handle) { handle.cancel(); handle = null; }
+
     window.removeEventListener("keydown", onKey);
     const el = layer;
     layer = null;
+
     if (!el) return;
     const fin = () => el.remove();
     el.addEventListener("animationend", fin, { once: true });
     window.setTimeout(fin, 240);
     el.classList.add("leaving");
   };
+
   const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+
   window.addEventListener("keydown", onKey);
   layer.addEventListener("mousedown", (e) => { if (e.target === layer) close(); });
 
   skipBtn.onclick = () => { setLastNotified(info.decision.key); close(); };
+
   laterBtn.onclick = close;
 
   // —— 主按钮状态机 ——
@@ -156,11 +169,13 @@ export function showUpdateDialog(info: UpdateInfo): void {
       barText.textContent = total ? `${pct}%（${fmtSize(received)} / ${fmtSize(total)}）` : fmtSize(received);
     });
     setMain("取消", false, () => { handle?.cancel(); });
+
     try {
       const { path, deduped } = await handle.promise;
       handle = null;
       const step = await finalizeInstall(info, path, deduped);
       bar.hidden = true;
+
       if (step.type === "appimage-replaced") {
         notes.hidden = true;
         laterBtn.hidden = false;
@@ -189,6 +204,7 @@ export function showUpdateDialog(info: UpdateInfo): void {
         laterBtn.textContent = "稍后";
         openDirBtn.hidden = false;
         openDirBtn.onclick = () => { void openPath(dir).catch((e: unknown) => toast(`无法打开目录：${errText(e)}`, "err")); };
+
         setMain("打开安装包", true, () => {
           void openPath(step.path)
             .then(() => close())
@@ -204,6 +220,7 @@ export function showUpdateDialog(info: UpdateInfo): void {
       }
     } catch (e) {
       handle = null;
+
       // 主动取消是用户操作，不是失败：静默回到确认态
       if (!/已取消/.test(errText(e))) toast(`更新失败：${errText(e)}`, "err");
       // 回到确认态允许重试；notes/进度条复位

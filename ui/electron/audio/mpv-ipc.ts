@@ -16,9 +16,19 @@ import { join } from "node:path";
 /** socket 就绪轮询上限：mpv 冷启动通常 <100ms，5s 足够兜极端机器 */
 const SOCK_WAIT_MS = 5000;
 
+/**
+ * mpv JSON IPC 线协议的值域（get/set/命令数据都只能是这几种 JSON 值）。
+ * 边界口径：JSON.parse 出来的东西在这里收口成命名类型，下游不再见裸 unknown。
+ */
+export type MpvValue = null | boolean | number | string | undefined | MpvValue[] | MpvObject;
+
+export interface MpvObject {
+  [key: string]: MpvValue;
+}
+
 /** 一条在飞命令的应答口（command() 里建，收到 request_id 应答时兑现）。 */
 interface PendingReq {
-  resolve: (v: unknown) => void;
+  resolve: (v: MpvValue) => void;
   reject: (e: Error) => void;
 }
 
@@ -26,11 +36,11 @@ interface PendingReq {
 export interface MpvEvent {
   event?: string;
   id?: number;
-  data?: unknown;
+  data?: MpvValue;
   reason?: string;
   file_error?: string;
   code?: number | null;
-  [key: string]: unknown;
+  [key: string]: MpvValue | undefined;
 }
 
 export interface MpvIpcOpts {
@@ -92,6 +102,7 @@ export class MpvIpc {
     // Windows 命名管道（不在文件系统里，就绪 = connect 第一次成功）。
     const isWin = process.platform === "win32";
     let connectTarget;
+
     if (isWin) {
       // 命名管道名带 pid+随机段：多实例不互踩。sockDir 保持 null，cleanup() 天然跳过。
       const name = `quaver-mpv-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
@@ -127,6 +138,7 @@ export class MpvIpc {
       `--audio-device=${this.audioDevice}`,
       ...this.extraArgs,
     ];
+
     this.log("[audio] spawning mpv:", this.bin, this.argv.length > 1 ? "(bundled runtime)" : "");
     const child = spawn(this.bin, [...this.argv.slice(1), ...args], { stdio: ["ignore", "ignore", "pipe"] });
     this.child = child;
@@ -138,13 +150,17 @@ export class MpvIpc {
 
     // 等 IPC 端点就绪；期间进程死了要立刻知道
     const deadline = Date.now() + SOCK_WAIT_MS;
+
     if (isWin) {
       // 管道不可 stat → 用重试 connect 当就绪探针（成功即复用该连接）
       await new Promise<Socket>((resolve, reject) => {
         let done = false;   // 连上之后 socket 的后续 error 不许再触发重连
+
         const tryConn = () => {
           if (done) return;
+
           if (child.exitCode !== null) return reject(new Error(`mpv exited early: ${child.exitCode}`));
+
           if (Date.now() > deadline) return reject(new Error("mpv IPC 管道超时未就绪"));
           const s = connect(connectTarget, () => { done = true; resolve(s); });
           s.on("error", () => {
@@ -153,15 +169,19 @@ export class MpvIpc {
             setTimeout(tryConn, 50);
           });
         };
+
         tryConn();
       }).then((s) => { this.sock = s; });
     } else {
       while (!existsSync(connectTarget)) {
         if (child.exitCode !== null) throw new Error(`mpv exited early: ${child.exitCode}`);
+
         if (Date.now() > deadline) {
           try { child.kill(); } catch {}
+
           throw new Error("mpv IPC socket 超时未就绪");
         }
+
         await Promise.race([exited, new Promise((r) => setTimeout(r, 50))]);
       }
 
@@ -171,8 +191,10 @@ export class MpvIpc {
         this.sock = s;
       });
     }
+
     // 上面两个分支（win 命名管道 / unix socket 文件）都得把 socket 建好；缺一个就不该继续
     const sock = this.sock;
+
     if (!sock) throw new Error("mpv IPC socket 未建立");
     sock.setEncoding("utf8");
     sock.on("data", (chunk) => this.onData(chunk));
@@ -181,7 +203,9 @@ export class MpvIpc {
     child.once("exit", (code) => {
       this.dead = true;
       this.rejectAll(new Error(`mpv exited: ${code}`));
+
       try { this.sock?.destroy(); } catch {}
+
       this.eventCb?.({ event: "__exit__", code });
       this.exitCb?.(code);
       this.cleanup(); // socket 目录随进程退出回收
@@ -189,6 +213,7 @@ export class MpvIpc {
 
     // 主动摸一把 get_version：既验证协议通了，也拿到版本串给设置页展示
     this.mpvVersion = String(await this.command(["get_property", "mpv-version"]));
+
     return this;
   }
 
@@ -197,15 +222,20 @@ export class MpvIpc {
   onData(chunk: string | Buffer): void {
     this.buf += typeof chunk === "string" ? chunk : chunk.toString();
     let i;
+
     while ((i = this.buf.indexOf("\n")) >= 0) {
       const line = this.buf.slice(0, i).trim();
       this.buf = this.buf.slice(i + 1);
+
       if (!line) continue;
       let msg;
+
       try { msg = JSON.parse(line); } catch { continue; }
+
       if (msg.request_id !== undefined && this.pending.has(msg.request_id)) {
         const p = this.pending.get(msg.request_id)!; // has() 已确认在表里
         this.pending.delete(msg.request_id);
+
         if (msg.error === "success") p.resolve(msg.data);
         else p.reject(new Error(`mpv: ${msg.error}`));
       } else if (msg.event) {
@@ -225,19 +255,23 @@ export class MpvIpc {
   }
 
   /** 发一条命令，返回 data（error 非 success 时 reject）。dead 时 reject。 */
-  command(args: unknown[], timeoutMs = 8000): Promise<unknown> {
+  command(args: MpvValue[], timeoutMs = 8000): Promise<MpvValue> {
     const sock = this.sock; // 本地收口：可写性判过之后，后面闭包里不再重读可变属性
+
     if (this.dead || !sock?.writable) return Promise.reject(new Error("mpv not running"));
     const id = ++this.reqId;
-    return new Promise((resolve, reject) => {
+
+    return new Promise<MpvValue>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`mpv command timeout: ${args[0]}`));
       }, timeoutMs);
+
       this.pending.set(id, {
         resolve: (v) => { clearTimeout(timer); resolve(v); },
         reject: (e) => { clearTimeout(timer); reject(e); },
       });
+
       try {
         sock.write(JSON.stringify({ command: args, request_id: id }) + "\n");
       } catch (e) {
@@ -248,17 +282,21 @@ export class MpvIpc {
     });
   }
 
-  observe(id: number, prop: string): Promise<unknown> { return this.command(["observe_property", id, prop]); }
-  getProp(prop: string): Promise<unknown> { return this.command(["get_property", prop]); }
-  setProp(prop: string, value: unknown): Promise<unknown> { return this.command(["set_property", prop, value]); }
+  observe(id: number, prop: string): Promise<MpvValue> { return this.command(["observe_property", id, prop]); }
+  getProp(prop: string): Promise<MpvValue> { return this.command(["get_property", prop]); }
+  setProp(prop: string, value: MpvValue): Promise<MpvValue> { return this.command(["set_property", prop, value]); }
 
   /** 温和退出：裸写 quit（不走 command()——dead 标志会挡）+ SIGTERM 直杀（不依赖 socket
    *  flush：主进程可能在 quit 字节刷出前就退出，信号是内核直接递的不怕），2s 后仍在就 SIGKILL。 */
   kill(): void {
     const c = this.child;
+
     if (!c) return;
+
     try { this.sock?.write(JSON.stringify({ command: ["quit"] }) + "\n"); } catch {}
+
     try { c.kill("SIGTERM"); } catch {}
+
     setTimeout(() => { try { c.kill("SIGKILL"); } catch {} }, 2000).unref?.();
   }
 

@@ -30,6 +30,7 @@ export const TTML_PLATFORM_DIRS: Record<string, string> = {
 /** 地址模板判据：http(s) 绝对地址、必须含 %s（%p 可选）、无空白/引号/尖括号/反斜杠/井号/竖线、≤512。 */
 export function isTtmlDatabaseUrl(v: string): boolean {
   const s = String(v ?? "").trim();
+
   return s.length > 0 && s.length <= 512 && s.includes("%s") && /^https?:\/\/[^\s"'<>\\#|]+$/.test(s);
 }
 
@@ -37,9 +38,12 @@ export function isTtmlDatabaseUrl(v: string): boolean {
 export function expandTtmlUrl(tpl: string, platform: string, id: string): string | null {
   const t = String(tpl ?? "").trim();
   const sid = String(id ?? "").trim();
+
   if (!isTtmlDatabaseUrl(t) || !sid) return null;
   const dir = TTML_PLATFORM_DIRS[String(platform ?? "").toLowerCase()] ?? "";
+
   if (t.includes("%p") && !dir) return null; // 模板要求平台目录但没有这个平台：别拿空目录打请求
+
   return t.replaceAll("%p", dir).replaceAll("%s", encodeURIComponent(sid));
 }
 
@@ -57,16 +61,22 @@ const MISS_TTL_MS = 10 * 60 * 1000;
 /** 这个地址刚查过且没有（404/非 TTML）——TTL 内不再打第二遍。 */
 export function ttmlMissCached(url: string): boolean {
   const at = miss.get(url);
+
   if (at === undefined) return false;
+
   if (Date.now() - at > MISS_TTL_MS) { miss.delete(url); return false; }
+
   return true;
 }
+
 export function ttmlMissRemember(url: string): void {
   // 粗防呆：表胖了就整表倒一遍 TTL（会话内换不了几个库地址，不值得做 LRU）
   if (miss.size > 2048) {
     const cut = Date.now() - MISS_TTL_MS;
+
     for (const [k, v] of miss) if (v < cut) miss.delete(k);
   }
+
   miss.set(url, Date.now());
 }
 
@@ -74,9 +84,12 @@ export function ttmlMissRemember(url: string): void {
 export async function fetchTtml(url: string, timeoutMs = 6000): Promise<string | null> {
   try {
     const r = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+
     if (!r.ok) return null;
     const text = await r.text();
+
     if (!text || text.length > TTML_TEXT_CAP) return null;
+
     return looksLikeTtml(text) ? text : null;
   } catch {
     return null;

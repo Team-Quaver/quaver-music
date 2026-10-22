@@ -32,16 +32,20 @@ import { playlistModePolicyOf } from "../sparkle/theme-playlist-mode";
 import { TINT_PRESET_COVER, TINT_PRESET_SYSTEM, resolvePresetColor, sparkSetTintChoice, sparkTintChoice, tintPolicyOf } from "../sparkle/theme-tint";
 import type { SparkleTintPreset } from "@quaver/sparkle";
 import { errText, h, watchBackendChange } from "./_shared";
+
 // —— 设置页（对齐设计稿：外观设置 / 播放设置 / 调试 三区；不触碰侧栏与播放条） ——
 export default async function settingsView(root: HTMLElement) {
   const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
+
   const fontOptions = Object.entries(FONT_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")
     + `<option value="${FONT_CUSTOM}">个性化</option>`;
+
   const decodeRow = (name: string, label: string, disabled = false) =>
     `<label><input type="radio" name="decode" value="${name}"${disabled ? " disabled" : ""}/>${label}${disabled ? ` <span class="muted soon">敬请期待</span>` : ""}</label>`;
 
   root.classList.add("settings-page"); // 让设置页内部自己滚动（见 style.css 的 .settings-page）
   root.append(h("h1", "page-title", "设置"));
+
   // 分区标签：只切显隐，不重渲染（各面板绑定一次常驻有效）
   const tabs = h("div", "set-tabs", `
     <button class="set-tab is-active" data-tab="appearance" type="button">外观</button>
@@ -50,6 +54,7 @@ export default async function settingsView(root: HTMLElement) {
     <button class="set-tab" data-tab="hotkeys" type="button">热键</button>
     <button class="set-tab" data-tab="general" type="button">通用</button>
     <button class="set-tab" data-tab="plugins" type="button">花火插件</button>`);
+
   root.append(tabs);
   const wrap = h("div", "set-view");
   wrap.innerHTML = `
@@ -528,6 +533,7 @@ export default async function settingsView(root: HTMLElement) {
   // preset 是「Sparkle 主题自带的高亮方案」那组（见 #tint-spark-cards）
   const syncSel = (box: HTMLElement, attr: "opt" | "q" | "preset", active: string) =>
     box.querySelectorAll<HTMLElement>("[data-" + attr + "]").forEach((b) => b.classList.toggle("sel", b.dataset[attr] === active));
+
   /** 说明行只承载当前状态 / 主题接管备注：没有内容时整行收起。 */
   const setHint = (el: HTMLElement, text: string) => {
     el.textContent = text;
@@ -566,16 +572,20 @@ export default async function settingsView(root: HTMLElement) {
     bgBlur.style.setProperty("--v", `${Math.round(((px - BG_BLUR_MIN) / (BG_BLUR_MAX - BG_BLUR_MIN)) * 100)}%`);
     bgBlurVal.textContent = px === 0 ? "不模糊" : `${px}px`;
   };
+
   /** 图片一行：文件名 + 文件还在不在（被挪走/删掉要提示重选，不静默当没事）。 */
   const paintBgFile = (info?: { path?: string; exists?: boolean; error?: string }) => {
     const path = info?.path ?? getBackgroundImage();
+
     if (!path) { bgFile.textContent = "尚未选择图片"; bgFile.title = ""; bgFile.classList.remove("bad"); return; }
+
     const name = path.split(/[\\/]/).pop() || path;
     const bad = info?.exists === false;
     bgFile.textContent = bad ? `${name}（${info?.error ?? "不可用"}）` : name;
     bgFile.title = path; // 完整路径挂 title：行内只放文件名，长路径不撑破布局
     bgFile.classList.toggle("bad", bad);
   };
+
   const paintBgMode = () => {
     const mode = getBackgroundMode();
     const locked = bgPolicy().mode === "off"; // 主题接管背景：这一组整体不可调（见 paintBgPolicy）
@@ -587,21 +597,27 @@ export default async function settingsView(root: HTMLElement) {
     bgFile.hidden = !isCustom;
     bgBlur.disabled = locked || mode === "off"; // 背景都关了（或不由宿主管），模糊强度无从谈起
   };
+
   /** 原生选图：成功（路径已落盘 + 界面重画）返回 true；取消/失败返回 false。 */
   const pickBgImage = async (): Promise<boolean> => {
     if (!bgBridge?.pick) return false;
     bgPick.disabled = true;
+
     try {
       const r = await bgBridge.pick();
+
       if (!r?.ok) { paintBgFile({ path: getBackgroundImage(), exists: false, error: r?.error ?? "选择失败" }); return false; }
+
       if (r.canceled) return false;
       // 主进程已经写盘；这里同步渲染层的内存快照（值相同，落盘侧是一次幂等重写）
       setBackgroundImage(r.path ?? "");
       applyBackground();
       paintBgFile({ path: getBackgroundImage(), exists: true });
+
       return true;
     } catch (e) {
       paintBgFile({ path: getBackgroundImage(), exists: false, error: errText(e) });
+
       return false;
     } finally {
       bgPick.disabled = false;
@@ -611,9 +627,11 @@ export default async function settingsView(root: HTMLElement) {
   bgCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
     b.onclick = async () => {
       const next = b.dataset.opt as BackgroundMode;
+
       // 选「自定义」但还没有图：这一档点下去的意图就是去选图，直接弹对话框；
       // 取消就停在原来的档位（不切到一个「自定义但没有图」的空状态）
       if (next === "custom" && !getBackgroundImage() && !(await pickBgImage())) { paintBgMode(); return; }
+
       setBackgroundMode(next);
       applyBackground();
       paintBgMode();
@@ -625,6 +643,7 @@ export default async function settingsView(root: HTMLElement) {
     applyBackground();
     paintBgMode();
   };
+
   bgBlur.addEventListener("input", () => {
     setBackgroundBlur(Number(bgBlur.value));
     paintBlur();
@@ -633,6 +652,7 @@ export default async function settingsView(root: HTMLElement) {
 
   /** 浏览器 dev 没有选图桥时只保留一句功能提示；桌面端不显示通用描述。 */
   const bgHintBase = bgBridge?.pick ? "" : "浏览器里无法选择本地图片，请在桌面端设置。";
+
   /** 整组的主刷新：主题接管背景时三档留在原位但禁用并写明原因（整组消失会让人找不到）。
    *  面板初次挂载 / 切换主题 / 插件启停都要重跑一遍。 */
   const paintBgPolicy = () => {
@@ -647,6 +667,7 @@ export default async function settingsView(root: HTMLElement) {
   paintBlur();
   paintBgPolicy();
   paintBgFile();
+
   // 文件还在不在要问主进程（渲染层看不到磁盘）：不在就提示重选
   if (bgBridge?.info) void bgBridge.info().then((r) => { if (r?.ok) paintBgFile(r); }).catch(() => {});
 
@@ -668,6 +689,7 @@ export default async function settingsView(root: HTMLElement) {
   tintChip.append(chipSw);
 
   type ColorMode = "hsl" | "cmyk" | "rgb";
+
   /** 每个模式的通道定义：k 用于读写输入框，label + suffix 只影响显示。 */
   const CHANNELS: Record<ColorMode, { k: string; label: string; min: number; max: number; suffix: string }[]> = {
     hsl: [
@@ -699,19 +721,27 @@ export default async function settingsView(root: HTMLElement) {
   /** 当前色在某个模式下的通道取值（整数，直接进输入框）。 */
   const channelValues = (m: ColorMode): number[] => {
     if (m === "rgb") return [tintRgb.r, tintRgb.g, tintRgb.b];
+
     if (m === "hsl") {
       const { h, s, l } = rgb2hsl(tintRgb);
+
       return [Math.round(h), pctInt(s), pctInt(l)];
     }
+
     const { c, m: mg, y, k } = rgb2cmyk(tintRgb);
+
     return [pctInt(c), pctInt(mg), pctInt(y), pctInt(k)];
   };
+
   /** 把某模式的通道值组装回 RGB。 */
   const rgbFromChannels = (m: ColorMode, v: number[]): RGB => {
     if (m === "rgb") return { r: v[0], g: v[1], b: v[2] };
+
     if (m === "hsl") return hsl2rgb(v[0], unit01(v[1] / 100), unit01(v[2] / 100));
+
     return cmyk2rgb({ c: unit01(v[0] / 100), m: unit01(v[1] / 100), y: unit01(v[2] / 100), k: unit01(v[3] / 100) });
   };
+
   const fieldOf = (k: string) => tintFields.querySelector<HTMLInputElement>(`[data-k="${k}"]`);
 
   /** 各显示位（色块 / HEX 码 / 色相条 / HEX 框）跟着真相走。 */
@@ -721,16 +751,20 @@ export default async function settingsView(root: HTMLElement) {
     chipSw.style.background = hex;
     tintCode.textContent = hex;
     tintHue.value = String(Math.round(hueOverride ?? rgb2hsl(tintRgb).h));
+
     if (document.activeElement !== tintHex) tintHex.value = hex;
   };
+
   /** 通道输入框回填：正在编辑的那个不动（否则会打断输入 / 把半截值抹掉）。 */
   const refreshFields = () => {
     const vals = channelValues(colorMode);
     CHANNELS[colorMode].forEach((ch, i) => {
       const el = fieldOf(ch.k);
+
       if (el && document.activeElement !== el) el.value = String(vals[i]);
     });
   };
+
   /** 写色：真相 → 落盘 + 即时生效（写 CSS 变量）→ 刷新显示位。 */
   const commitColor = (next: RGB) => {
     tintRgb = { r: Math.round(next.r), g: Math.round(next.g), b: Math.round(next.b) };
@@ -739,6 +773,7 @@ export default async function settingsView(root: HTMLElement) {
     paintColor();
     refreshFields();
   };
+
   /** 重建当前模式的通道输入行（只在切模式时调；输入过程中不重建，免得丢焦点）。 */
   const renderFields = () => {
     const vals = channelValues(colorMode);
@@ -756,12 +791,16 @@ export default async function settingsView(root: HTMLElement) {
   });
   tintFields.addEventListener("input", () => {
     const cur = channelValues(colorMode);
+
     const vals = CHANNELS[colorMode].map((ch, i) => {
       const raw = (fieldOf(ch.k)?.value ?? "").trim();
+
       if (raw === "") return cur[i]; // 清空中的框按原值算，不瞬间掉到下限
       const n = Number(raw);
+
       return Number.isFinite(n) ? Math.max(ch.min, Math.min(ch.max, Math.round(n))) : cur[i];
     });
+
     commitColor(rgbFromChannels(colorMode, vals));
   });
   // 离开输入框时校正越界值（R 里敲 300 会被夹到 255，但框里还显示着 300）
@@ -776,6 +815,7 @@ export default async function settingsView(root: HTMLElement) {
   });
   tintHex.addEventListener("input", () => {
     const c = parseHex(tintHex.value);
+
     if (c) commitColor(c); // 半截输入（如 "#19"）不是合法字面量，先不改色
   });
 
@@ -792,6 +832,7 @@ export default async function settingsView(root: HTMLElement) {
    *  accentProbed 防自旋：拉不到也只拉一次 —— 「重画 → 又拉 → 又重画」会把设置页变成请求风暴；
    *  后续的跟随由 lib/accent.ts 的轮询（哨兵方案/系统档激活时才开）负责。 */
   let accentProbed = false;
+
   const probeAccentOnce = () => {
     if (accentProbed || currentAccent()?.color) return;
     accentProbed = true;
@@ -802,23 +843,27 @@ export default async function settingsView(root: HTMLElement) {
    *  "system" / "cover" 哨兵）。系统哨兵没读到前用斜纹占位；封面哨兵用另一道斜纹表示动态取色。 */
   const renderSparkTintCards = (presets: readonly SparkleTintPreset[], themeId: string) => {
     tintSparkCards.innerHTML = "";
+
     for (const p of presets) {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "opt-card";
       b.dataset.preset = p.id;
       const hex = resolvePresetColor(p.color, currentAccent()?.color ?? null);
+
       const sw = p.color === TINT_PRESET_SYSTEM
         ? (hex ? `<span class="sw" style="background:${hex}"></span>` : `<span class="sw sw-accent"></span>`)
         : p.color === TINT_PRESET_COVER
           ? `<span class="sw sw-cover"></span>`
           : `<span class="sw" style="background:${p.color}"></span>`;
+
       b.innerHTML = `${sw}${escHtml(p.label)}`;
       b.onclick = () => {
         sparkSetTintChoice(themeId, p.id);
         applyTint();       // 换了方案立刻重写 CSS 变量
         paintTintPolicy(); // 同步选中态
       };
+
       tintSparkCards.append(b);
     }
   };
@@ -829,14 +874,17 @@ export default async function settingsView(root: HTMLElement) {
     tintPop.hidden = !popOpen;
     tintChip.setAttribute("aria-expanded", String(popOpen));
   };
+
   const paintTintMode = () => {
     const mode = getTintMode();
     syncSel(tintCards, "opt", mode);
     // 色块只在「宿主管高亮色 + 自定义档」出现；离开该档时选择器一并收起
     tintChip.hidden = tintPolicy().mode !== "host" || mode !== "custom";
     setPopOpen(popOpen);
+
     // 「系统强调色」档：把读到的来源/色值直接说给用户听（读不到也说明白为什么 + 怎么办）。
     if (tintPolicy().mode !== "host") return;
+
     if (mode === "system") {
       const a = currentAccent();
       setHint(tintHint, a?.color
@@ -859,12 +907,15 @@ export default async function settingsView(root: HTMLElement) {
     tintCards.hidden = presets;             // 有替代方案时三档直接退场
     tintSparkCards.hidden = !presets;
     tintCards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = locked; });
+
     if (presets) {
       renderSparkTintCards(policy.presets, policy.themeId ?? "");
       syncSel(tintSparkCards, "preset", sparkTintChoice(policy.themeId) ?? policy.presets[0]?.id ?? "");
+
       // 方案里有哨兵（color:"system"）且系统强调色还没到：补拉一次，回来重画方案卡的色块
       if (policy.presets.some((p) => p.color === TINT_PRESET_SYSTEM)) probeAccentOnce();
     }
+
     setHint(tintHint, locked
       ? `由花火面具「${themeName}」接管高亮颜色。`
       : presets
@@ -878,11 +929,13 @@ export default async function settingsView(root: HTMLElement) {
       const next = b.dataset.opt as TintMode;
       setTintMode(next);
       applyTint(); // 档位换了要立刻重写 CSS 变量（封面档还会去取当前曲封面）
+
       if (next === "custom") popOpen = true; // 点「自定义颜色」→ 就地弹出选择器
       paintTintMode();
     };
   });
   tintChip.onclick = () => { setPopOpen(!popOpen); };
+
   tintFold.onclick = () => { setPopOpen(false); };
 
   renderFields();
@@ -895,18 +948,21 @@ export default async function settingsView(root: HTMLElement) {
   const menuGlassCards = wrap.querySelector<HTMLElement>("#menu-glass-cards")!;
   const menuGlassHint = wrap.querySelector<HTMLElement>("#menu-glass-hint")!;
   const menuGlassPolicy = () => menuGlassPolicyOf(activeSparkTheme());
+
   const paintMenuGlass = () => {
     syncSel(menuGlassCards, "opt", getMenuBlur() ? "on" : "off");
     setHint(menuGlassHint, menuGlassPolicy().mode === "off"
       ? `由花火面具「${activeSparkTheme()?.name ?? ""}」接管模糊效果。`
       : "");
   };
+
   /** 整组的主刷新：主题接管时这组留在原位但禁用（整组消失会让人找不到）。 */
   const paintMenuGlassPolicy = () => {
     const locked = menuGlassPolicy().mode === "off";
     menuGlassCards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = locked; });
     paintMenuGlass();
   };
+
   menuGlassCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
     b.onclick = () => {
       setMenuBlur(b.dataset.opt === "on");
@@ -921,16 +977,19 @@ export default async function settingsView(root: HTMLElement) {
   // 激活经 host 持久化并即时生效，停用激活主题所属插件时 host 自动回落默认。
   const sparkleThemeGroup = wrap.querySelector<HTMLElement>("#sparkle-theme-group")!;
   const sparkleThemeCards = wrap.querySelector<HTMLElement>("#sparkle-theme-cards")!;
+
   const syncSparkleThemeSel = () => {
     const activeId = sparkActiveThemeId();
     // 持久化的 id 可能指向已消失的主题（如插件被禁用后残留）：UI 只认仍注册着的
     const active = sparkleThemes().some((t) => t.id === activeId) ? (activeId ?? "") : "";
     syncSel(sparkleThemeCards, "opt", active);
   };
+
   // 播放控制条：底部停靠（默认）/ Content View 内悬浮。主题声明 controlBar 时是最终态，
   // 这里整组禁用并显示实际生效值；宿主态由 setControlBarMode + applyControlBar 即时同步。
   const controlBarCards = wrap.querySelector<HTMLElement>("#control-bar-cards")!;
   const controlBarHint = wrap.querySelector<HTMLElement>("#control-bar-hint")!;
+
   const paintControlBarPolicy = () => {
     const policy = controlBarPolicyOf(activeSparkTheme());
     const locked = policy.mode !== "host";
@@ -941,6 +1000,7 @@ export default async function settingsView(root: HTMLElement) {
       ? `由花火面具「${activeSparkTheme()?.name ?? ""}」接管播放控制。`
       : "");
   };
+
   controlBarCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
     b.onclick = () => {
       setControlBarMode(b.dataset.opt as ControlBarMode);
@@ -952,6 +1012,7 @@ export default async function settingsView(root: HTMLElement) {
   // 并显示实际生效值；宿主态由 setPlaylistMode + applyPlaylistModeKind 即时同步。
   const playlistModeCards = wrap.querySelector<HTMLElement>("#playlist-mode-cards")!;
   const playlistModeHint = wrap.querySelector<HTMLElement>("#playlist-mode-hint")!;
+
   const paintPlaylistModePolicy = () => {
     const policy = playlistModePolicyOf(activeSparkTheme());
     const locked = policy.mode !== "host";
@@ -962,6 +1023,7 @@ export default async function settingsView(root: HTMLElement) {
       ? `由花火面具「${activeSparkTheme()?.name ?? ""}」接管菜单栏模式。`
       : "");
   };
+
   playlistModeCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
     b.onclick = () => {
       setPlaylistMode(b.dataset.opt as PlaylistMode);
@@ -969,10 +1031,12 @@ export default async function settingsView(root: HTMLElement) {
     };
   });
   paintPlaylistModePolicy();
+
   const renderSparkleThemes = () => {
     const themes = sparkleThemes();
     sparkleThemeGroup.hidden = themes.length === 0;
     sparkleThemeCards.innerHTML = "";
+
     const mkCard = (id: string, label: string) => {
       const b = document.createElement("button");
       b.type = "button";
@@ -988,9 +1052,12 @@ export default async function settingsView(root: HTMLElement) {
         paintControlBarPolicy(); // 控制条停靠形态归谁同理
         paintPlaylistModePolicy(); // 歌单显示模式归谁同理
       };
+
       return b;
     };
+
     sparkleThemeCards.append(mkCard("", "Quaver Design"));
+
     for (const t of themes) sparkleThemeCards.append(mkCard(t.id, t.name));
     syncSparkleThemeSel();
     paintTintPolicy(); // 主题列表变了（插件启停）→ 高亮色那组的可用性也要跟着重算
@@ -999,6 +1066,7 @@ export default async function settingsView(root: HTMLElement) {
     paintControlBarPolicy(); // 控制条停靠那组同理
     paintPlaylistModePolicy(); // 歌单显示模式那组同理
   };
+
   renderSparkleThemes();
   const offSparkleThemes = onSparkleChange(renderSparkleThemes);
   // 窗口装饰：CSD（右上角自绘按钮簇）/ SSD（系统标题栏）。Electron 桥重建窗口；浏览器仅隐藏按钮簇。
@@ -1033,6 +1101,7 @@ export default async function settingsView(root: HTMLElement) {
   let buildVer = __APP_VERSION__;
   const channelCards = wrap.querySelector<HTMLElement>("#upd-channel-cards")!;
   const channelNote = wrap.querySelector<HTMLElement>("#upd-channel-note")!;
+
   const syncChannel = () => {
     const sel = getUpdateChannel();
     const built = buildChannel(buildVer);
@@ -1042,12 +1111,14 @@ export default async function settingsView(root: HTMLElement) {
       ? `当前运行 ${describeBuild(buildVer)}`
       : `当前运行 ${describeBuild(buildVer)} · 已选 ${channelLabel(sel)}，点下方「检查更新」完成切换`;
   };
+
   channelCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
     b.onclick = () => {
       const next = b.dataset.opt as UpdateChannel;
       const was = getUpdateChannel();
       setUpdateChannel(next);
       syncChannel();
+
       // 明确点了「另一个渠道」= 要换一份构建：立刻查一次并按切换语义弹提醒
       // （失败也不打扰 —— 状态行与渠道说明都在，用户可再点「检查更新」）
       if (next !== was && next !== buildChannel(buildVer)) {
@@ -1063,8 +1134,10 @@ export default async function settingsView(root: HTMLElement) {
   checkBtn.onclick = async () => {
     checkBtn.disabled = true;
     updStatus.textContent = "检查中…";
+
     try {
       const r = await checkAndPrompt(getUpdateChannel());
+
       if (r.status === "error") updStatus.textContent = `检查失败：${r.error}`;
       else if (r.status === "up-to-date") updStatus.textContent = `${channelLabel(r.channel)} 渠道已是最新`;
       else if (r.info.switching) updStatus.textContent = `可切换到 ${r.info.decision.targetLabel}${r.info.skipped ? "（你已暂不切换）" : ""}`;
@@ -1076,12 +1149,14 @@ export default async function settingsView(root: HTMLElement) {
       checkBtn.disabled = false;
     }
   };
+
   // 当前构建版本以打包态的 app.getVersion() 为准（构建期注入的 __APP_VERSION__ 在 dev 下
   // 落在 git tag 上，不是「正在跑的这份」）。拿到后刷新渠道说明；状态行正忙就让位给检查结果。
   void getPlatformInfo().then((pf) => {
     if (!pf?.version || !parseVersion(pf.version)) return;
     buildVer = pf.version;
     syncChannel();
+
     if (!checkBtn.disabled) updStatus.textContent = `当前 ${describeBuild(buildVer)}`;
   });
   // 淡入淡出预设：持久化 + 立即下发时长（引擎侧做振幅包络；Blink 后端无此项）
@@ -1107,15 +1182,19 @@ export default async function settingsView(root: HTMLElement) {
       input.value = FONT_PRESETS[sel.value]?.css ?? "";
       pickPreset(sel.value);
     };
+
     input.oninput = () => { applyList(input.value); sel.value = fontKeyOf(input.value); };
+
     // 失焦时把输入框回写成规范化结果，跟落进配置的值保持一致（多余空格、半截分号都在这里清掉）
     input.onchange = () => {
       const norm = normalizeFontList(input.value);
+
       if (norm !== input.value) input.value = norm;
       applyList(norm);
       sel.value = fontKeyOf(norm);
     };
   };
+
   bindFont(
     wrap.querySelector<HTMLSelectElement>("#font-ui")!,
     wrap.querySelector<HTMLInputElement>("#font-ui-list")!,
@@ -1148,52 +1227,70 @@ export default async function settingsView(root: HTMLElement) {
   );
   const ttmlUrlInput = wrap.querySelector<HTMLInputElement>("#ttml-db-url")!;
   const ttmlUrlNote = wrap.querySelector<HTMLElement>("#ttml-db-note")!;
+
   /** 输入框永远显示「当前生效值」（getTtmlDatabase 已把坏值回落默认）；note 只放一次性反馈。 */
   const paintTtmlUrl = (note = "") => {
     ttmlUrlInput.value = getTtmlDatabase();
     setHint(ttmlUrlNote, note);
   };
+
   paintTtmlUrl();
+
   const commitTtmlUrl = () => {
     const v = ttmlUrlInput.value.trim();
+
     if (!v || v === getTtmlDatabase()) { paintTtmlUrl(); return; } // 留空 = 不改，回显当前生效值
+
     if (!isTtmlDatabaseUrl(v)) {
       paintTtmlUrl("地址模板要 http(s) 开头、含 %s 占位符，且不能有空格/引号——已回落到当前生效值。");
+
       return;
     }
+
     setTtmlDatabase(v);
     paintTtmlUrl();
     player.reloadLyric();
   };
+
   // 失焦提交（change）；回车 = 主动离开输入框，交给 blur 触发同一份提交口径（校验回落只留一处）
   ttmlUrlInput.onchange = commitTtmlUrl;
   ttmlUrlInput.onkeydown = (e) => { if (e.key === "Enter") ttmlUrlInput.blur(); };
+
   wrap.querySelector<HTMLButtonElement>("#ttml-db-default")!.onclick = () => {
     setTtmlDatabase(TTML_DB_DEFAULT_URL);
     paintTtmlUrl("已恢复默认模板。");
     player.reloadLyric();
   };
+
   // 本地 TTML 歌词库目录：原生选目录走「本地音乐」页同一座桥（quaver:local pick-folder），
   // 浏览器 dev 没有桥 → 按钮禁用并注明；清除 = 目录置空 = 功能整档关闭（非空即启用，不设独立开关）。
   const libInput = wrap.querySelector<HTMLInputElement>("#ttml-lib-path")!;
   const libPick = wrap.querySelector<HTMLButtonElement>("#ttml-lib-pick")!;
   const libClear = wrap.querySelector<HTMLButtonElement>("#ttml-lib-clear")!;
+
   const paintLib = () => {
     libInput.value = getTtmlLibrary();
     libClear.disabled = !getTtmlLibrary();
   };
+
   paintLib();
+
   if (!window.quaverLocal) {
     libPick.disabled = true;
     libPick.title = "浏览器 dev 没有原生选目录，请在桌面端设置";
   }
+
   libPick.onclick = async () => {
     const bridge = window.quaverLocal;
+
     if (!bridge) return;
     libPick.disabled = true;
+
     try {
       const r = await bridge.pickFolder();
+
       if (!r.ok) { toast(r.error ?? "选择目录失败", "err"); return; }
+
       if (r.canceled || !r.path) return;
       setTtmlLibrary(r.path);
       paintLib();
@@ -1202,6 +1299,7 @@ export default async function settingsView(root: HTMLElement) {
       libPick.disabled = false;
     }
   };
+
   libClear.onclick = () => { setTtmlLibrary(""); paintLib(); player.reloadLyric(); };
 
   // —— 桌面歌词（[DesktopLyrics]）——
@@ -1255,6 +1353,7 @@ export default async function settingsView(root: HTMLElement) {
   // 单行居中：仅行数=单行时有意义（开=水平居中；关=左对齐。双行恒左对齐，没有第二开关）
   const dlCenterRow = wrap.querySelector<HTMLElement>("#dl-center-row")!;
   const paintDlCenterRow = () => { dlCenterRow.hidden = getDesktopLyricsMode() !== "single"; };
+
   bindOptCards<"on" | "off">(
     wrap.querySelector<HTMLElement>("#dl-center-cards")!,
     () => (getDesktopLyricsSingleCenter() ? "on" : "off"),
@@ -1266,60 +1365,73 @@ export default async function settingsView(root: HTMLElement) {
   const dlColorRow = wrap.querySelector<HTMLElement>("#dl-color-row")!;
   const dlColorInput = wrap.querySelector<HTMLInputElement>("#dl-color")!;
   const dlColorHex = wrap.querySelector<HTMLInputElement>("#dl-color-hex")!;
+
   function paintDlColorRow() {
     dlColorRow.hidden = getDesktopLyricsColorMode() !== "custom";
     const hex = getDesktopLyricsColor();
     dlColorInput.value = hex;
     dlColorHex.value = hex;
   }
+
   paintDlColorRow();
   dlColorInput.oninput = () => {
     setDesktopLyricsColor(dlColorInput.value);
     dlColorHex.value = getDesktopLyricsColor();
   };
+
   dlColorHex.onchange = () => {
     const raw = dlColorHex.value.trim();
     setDesktopLyricsColor(raw.startsWith("#") ? raw : `#${raw}`);
     paintDlColorRow(); // 认不下的 HEX 由 prefs 回落现值 —— 输入框永远回显「当前生效值」
   };
+
   // 字重：100..900（滑条 10 一档）。可变字体由 wght 连续轴消费；静态字体由 font-weight 选最近字面。
   const dlWeight = wrap.querySelector<HTMLInputElement>("#dl-weight")!;
   const dlWeightVal = wrap.querySelector<HTMLElement>("#dl-weight-val")!;
+
   const paintDlWeight = () => {
     const weight = getDesktopLyricsWeight();
     dlWeight.value = String(weight);
     dlWeightVal.textContent = String(weight);
   };
+
   paintDlWeight();
   dlWeight.oninput = () => {
     setDesktopLyricsWeight(Number(dlWeight.value));
     dlWeightVal.textContent = dlWeight.value;
   };
+
   const dlScale = wrap.querySelector<HTMLInputElement>("#dl-scale")!;
   const dlScaleVal = wrap.querySelector<HTMLElement>("#dl-scale-val")!;
+
   const paintDlScale = () => {
     const pct = Math.round(getDesktopLyricsScale() * 100);
     dlScale.value = String(pct);
     dlScaleVal.textContent = `${pct}%`;
   };
+
   paintDlScale();
   dlScale.oninput = () => {
     setDesktopLyricsScale(Number(dlScale.value) / 100);
     dlScaleVal.textContent = `${dlScale.value}%`;
   };
+
   // 文字描边（px）：0..4。旧版 drop-shadow 已移除，轮廓只走这条；0 = 无描边。
   const dlBorder = wrap.querySelector<HTMLInputElement>("#dl-border")!;
   const dlBorderVal = wrap.querySelector<HTMLElement>("#dl-border-val")!;
+
   const paintDlBorder = () => {
     const px = getDesktopLyricsBorder();
     dlBorder.value = String(px);
     dlBorderVal.textContent = `${px.toFixed(1)} px`;
   };
+
   paintDlBorder();
   dlBorder.oninput = () => {
     setDesktopLyricsBorder(Number(dlBorder.value));
     dlBorderVal.textContent = `${Number(dlBorder.value).toFixed(1)} px`;
   };
+
   // 阴影参数：单层 text-shadow，四项都可独立调；总开关关掉时这些值仍保留，下次开启即恢复。
   const bindDlNumber = (
     sel: string,
@@ -1330,11 +1442,13 @@ export default async function settingsView(root: HTMLElement) {
   ) => {
     const input = wrap.querySelector<HTMLInputElement>(sel)!;
     const label = wrap.querySelector<HTMLElement>(`${sel}-val`)!;
+
     const paint = () => {
       const v = get();
       input.value = String(v * scale);
       label.textContent = format(v);
     };
+
     paint();
     input.oninput = () => {
       const v = Number(input.value) / scale;
@@ -1342,6 +1456,7 @@ export default async function settingsView(root: HTMLElement) {
       label.textContent = format(v);
     };
   };
+
   bindDlNumber("#dl-shadow-blur", getDesktopLyricsShadowBlur, setDesktopLyricsShadowBlur, (v) => `${Math.round(v)} px`);
   bindDlNumber("#dl-shadow-opacity", getDesktopLyricsShadowOpacity, setDesktopLyricsShadowOpacity, (v) => `${Math.round(v * 100)}%`, 100);
   bindDlNumber("#dl-shadow-x", getDesktopLyricsShadowX, setDesktopLyricsShadowX, (v) => `${Math.round(v)} px`);
@@ -1349,25 +1464,30 @@ export default async function settingsView(root: HTMLElement) {
   // 歌词层不透明度：0.1..1（滑条 10..100%）—— 调的是**字**（内容淡出；悬停控件与背板各管各的）。
   const dlOpacity = wrap.querySelector<HTMLInputElement>("#dl-opacity")!;
   const dlOpacityVal = wrap.querySelector<HTMLElement>("#dl-opacity-val")!;
+
   const paintDlOpacity = () => {
     const pct = Math.round(getDesktopLyricsOpacity() * 100);
     dlOpacity.value = String(pct);
     dlOpacityVal.textContent = `${pct}%`;
   };
+
   paintDlOpacity();
   dlOpacity.oninput = () => {
     setDesktopLyricsOpacity(Number(dlOpacity.value) / 100);
     dlOpacityVal.textContent = `${dlOpacity.value}%`;
   };
+
   // 窗体不透明度（背板）：0..1（滑条 0..100%，默认 0）—— 调的是**整扇窗**那块底，字不受影响。
   // 几何/取色都在覆盖层自己算，这里只写偏好（写盘即广播）。
   const dlBackdrop = wrap.querySelector<HTMLInputElement>("#dl-backdrop")!;
   const dlBackdropVal = wrap.querySelector<HTMLElement>("#dl-backdrop-val")!;
+
   const paintDlBackdrop = () => {
     const pct = Math.round(getDesktopLyricsBackdrop() * 100);
     dlBackdrop.value = String(pct);
     dlBackdropVal.textContent = `${pct}%`;
   };
+
   paintDlBackdrop();
   dlBackdrop.oninput = () => {
     setDesktopLyricsBackdrop(Number(dlBackdrop.value) / 100);
@@ -1380,6 +1500,7 @@ export default async function settingsView(root: HTMLElement) {
   const confHint = wrap.querySelector<HTMLElement>("#conf-hint")!;
   const openBtn = wrap.querySelector<HTMLButtonElement>("#open-conf")!;
   const resetBtn = wrap.querySelector<HTMLButtonElement>("#reset-conf")!;
+
   if (conf.bridged) {
     confPath.value = conf.path;
     confHint.textContent = conf.writable
@@ -1391,7 +1512,9 @@ export default async function settingsView(root: HTMLElement) {
     openBtn.disabled = true;
     resetBtn.disabled = true;
   }
+
   openBtn.onclick = () => { void revealConfig(); };
+
   resetBtn.onclick = async () => {
     if (!confirm("用模板重建 quaver.conf？主题 / 字体 / 播放 / 音质等设置会回到默认值，登录凭证不受影响。")) return;
     await resetConfig();
@@ -1424,11 +1547,14 @@ export default async function settingsView(root: HTMLElement) {
     devSel.disabled = true;
     devSel.onchange = null;
     const r = await player.listAudioDevices();
+
     if (!r) {
       devSel.innerHTML = `<option>系统默认</option>`;
       devHint.textContent = "浏览器 <audio> 后端：跟随系统输出设备；切换到 MPV 引擎后可在此直选设备。";
+
       return;
     }
+
     devSel.innerHTML = `<option value="auto">系统默认</option>`
       + r.devices.map((d) => `<option value="${escHtml(d.id)}">${escHtml(d.desc)}</option>`).join("");
     devSel.disabled = false;
@@ -1442,6 +1568,7 @@ export default async function settingsView(root: HTMLElement) {
   };
 
   async function paintAll() { await paintBackend(); await paintDevices(); }
+
   void paintAll();
   // 引擎传输热切换（启动探测/设置页切换）后刷新设备列表——只在后端真正变化时，别跟着 4Hz notify 空转。
   // 订阅只留最新一份（watchBackendChange 会退订上一份）：设置页可反复进出，旧订阅若不退订，
@@ -1459,6 +1586,7 @@ export default async function settingsView(root: HTMLElement) {
   const qBox = wrap.querySelector<HTMLElement>("#quality-grid")!;
   const qNote = wrap.querySelector<HTMLElement>("#q-member-note")!;
   const syncQ = () => syncSel(qBox, "q", getQuality());
+
   const bindQ = () => {
     qBox.querySelectorAll<HTMLButtonElement>("[data-q]").forEach((b) => {
       if (!b.disabled) b.onclick = () => {
@@ -1469,9 +1597,11 @@ export default async function settingsView(root: HTMLElement) {
       };
     });
   };
+
   bindQ(); syncQ();
   getStreamTiers(true).then((t) => {
     qNote.textContent = `（当前：${t.membership_label}${t.membership ? "" : "，高档位需会员"}）`;
+
     for (const tier of t.all_tiers) {
       const btn = document.createElement("button");
       btn.className = "opt-card q";
@@ -1479,9 +1609,11 @@ export default async function settingsView(root: HTMLElement) {
       btn.type = "button";
       btn.innerHTML = tier.label + (tier.hi_res ? ' <span class="muted soon">Hi-Res</span>' : "")
         + (tier.locked ? ' <span class="q-lock">🔒会员</span>' : "");
+
       if (tier.locked) btn.disabled = true;
       qBox.append(btn);
     }
+
     bindQ(); syncQ();
   }).catch(() => { qNote.textContent = "（音质服务不可用）"; });
 
@@ -1498,6 +1630,7 @@ export default async function settingsView(root: HTMLElement) {
   // 热键面板：录制态残留监听由其 cleanup 收尾
   const hotkeysPanel = wrap.querySelector<HTMLElement>('[data-panel="hotkeys"]')!;
   const offHotkeys = mountHotkeysPanel(hotkeysPanel);
+
   return () => { offSparkle(); offSparkleThemes(); offHotkeys(); };
 }
 

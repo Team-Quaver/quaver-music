@@ -58,12 +58,14 @@ export function showCreditsDialog(): void {
     const el = layer;
     window.removeEventListener("keydown", onKey);
     layer = null;
+
     if (!el) return;
     const fin = () => el.remove();
     el.addEventListener("animationend", fin, { once: true });
     window.setTimeout(fin, 240);
     el.classList.add("leaving");
   };
+
   const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
 
   layer.querySelector<HTMLElement>("[data-act=close]")!.onclick = close;
@@ -81,10 +83,13 @@ export function showCreditsDialog(): void {
       const repo = btn.dataset.repo ?? "";
       const url = `https://github.com/${repo}`;
       const bridge = window.quaverCredits;
+
       if (!bridge) {
         window.open(url, "_blank", "noopener,noreferrer");
+
         return;
       }
+
       void bridge.open(url).then((r) => {
         if (!r?.ok) toast(`无法打开 GitHub：${r?.error ?? "未知错误"}`, "err");
       }).catch((e: unknown) => toast(`无法打开 GitHub：${errText(e)}`, "err"));

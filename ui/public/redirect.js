@@ -7,9 +7,11 @@
 (function () {
   var tag = document.currentScript;
   var route = (tag && tag.getAttribute("data-route")) || "";
+
   if (!route) return; // 没有路由名就别乱跳（宁可停在原页，也不要跳去一个猜的页面）
   var q = new URLSearchParams(location.search);
   var hash;
+
   if (route === "playlist") {
     // 旧 ?tid=&name= 深链映射到 SPA 路由 #/playlist?id=&name=
     var id = q.get("id") || q.get("tid") || q.get("dir") || "";
@@ -18,5 +20,6 @@
   } else {
     hash = "#/" + route + (location.search || "");
   }
+
   location.replace("/index.html" + hash);
 })();

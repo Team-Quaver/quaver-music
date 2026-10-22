@@ -16,15 +16,21 @@ const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 /** 已安装插件的静态文件（/api/sparkle/plugin/<id>/<file>）。与 src/relay.ts 的 serveSparkle 同构。 */
 function serveSparkle(sub, res, pluginsRoot) {
   const m = /^\/sparkle\/plugin\/([a-z0-9][a-z0-9-]*)\/(.+)$/.exec(sub);
+
   if (!m || !pluginsRoot) {
     res.statusCode = 404;
+
     return res.end(JSON.stringify({ code: -1, msg: "sparkle: bad path" }));
   }
+
   const [, id, file] = m;
+
   if (!SPARKLE_ID_RE.test(id)) {
     res.statusCode = 403;
+
     return res.end(JSON.stringify({ code: -1, msg: "sparkle: bad id" }));
   }
+
   const dir = normalize(join(pluginsRoot, id));
   const target = normalize(join(dir, file));
   // 跨平台：Windows 的 normalize() 产出反斜杠路径，`target.startsWith(dir + "/")` 永不成立
@@ -32,17 +38,23 @@ function serveSparkle(sub, res, pluginsRoot) {
   // 改用 relative() 判「target 是否确实落在 dir 之内」，Windows/POSIX 同一套语义。
   // 末尾分隔符一并挡掉：file 指向目录时 readFileSync 会抛 EISDIR（未捕获 = 主进程崩）。
   const rel = relative(dir, target);
+
   if (!rel || rel.startsWith("..") || isAbsolute(rel) || /[\\/]$/.test(file) || file.includes("..")) {
     res.statusCode = 403;
+
     return res.end(JSON.stringify({ code: -1, msg: "sparkle: bad file" }));
   }
+
   if (!existsSync(target)) {
     res.statusCode = 404;
+
     return res.end(JSON.stringify({ code: -1, msg: "sparkle: not found" }));
   }
+
   const type = file.endsWith(".js") || file.endsWith(".mjs") ? "text/javascript"
     : file.endsWith(".json") ? "application/json"
     : file.endsWith(".css") ? "text/css" : "application/octet-stream";
+
   res.statusCode = 200;
   res.setHeader("content-type", type);
   res.setHeader("cache-control", "no-store");
@@ -70,9 +82,12 @@ const SIDECAR = process.env.QUAVER_API ?? "http://127.0.0.1:3200";
 // 流中继的可预期中断：客户端切歌/seek/关页面 → AbortError；上游（sidecar/CDN）半路断流
 // → undici 的 TypeError: terminated / premature close。都不是异常，只是常态。
 const EXPECTED_ABORT_CODES = new Set(["ABORT_ERR", "ERR_STREAM_PREMATURE_CLOSE", "ERR_STREAM_DESTROYED"]);
+
 function isExpectedAbort(e) {
   if (!e) return true;
+
   if (e.name === "AbortError" || (e.code && EXPECTED_ABORT_CODES.has(e.code))) return true;
+
   return /terminated|premature close|aborted|socket hang up/i.test(String(e.message ?? e));
 }
 
@@ -96,27 +111,36 @@ const IMG_PATHS = ["/music/photo_new/", "/music_cover/", "/music/a_"];
 async function proxyImage(u, res) {
   if (!u) {
     res.statusCode = 400;
+
     return res.end("missing u");
   }
+
   let target;
+
   try {
     target = new URL(u);
   } catch {
     res.statusCode = 400;
+
     return res.end("bad url");
   }
+
   const ok =
     (target.protocol === "https:" || target.protocol === "http:") &&
     IMG_HOSTS.has(target.hostname) &&
     IMG_PATHS.some((p) => target.pathname.startsWith(p));
+
   if (!ok) {
     res.statusCode = 403;
+
     return res.end("host not allowed");
   }
+
   try {
     const upstream = await fetch(target, {
       headers: { referer: "https://y.qq.com/", "user-agent": "Mozilla/5.0" },
     });
+
     const buf = Buffer.from(await upstream.arrayBuffer());
     res.statusCode = upstream.status;
     res.setHeader("content-type", upstream.headers.get("content-type") ?? "image/jpeg");
@@ -131,8 +155,10 @@ async function proxyImage(u, res) {
 function serveLog(res, logFile, tail) {
   if (!logFile || !existsSync(logFile)) {
     res.statusCode = 404;
+
     return res.end(JSON.stringify({ code: -1, msg: "log 文件不存在" }));
   }
+
   const size = statSync(logFile).size;
   const buf = readFileSync(logFile);
   const text = size > 2_000_000 ? buf.subarray(size - 2_000_000).toString("utf8") : buf.toString("utf8");
@@ -145,6 +171,7 @@ function serveLog(res, logFile, tail) {
 
 function readBody(req) {
   if (req.method === "GET" || req.method === "HEAD") return Promise.resolve(undefined);
+
   return new Promise((res, rej) => {
     const chunks = [];
     req.on("data", (c) => chunks.push(c));
@@ -169,8 +196,11 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
     // —— /api/*：中继 ——
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
       const sub = url.pathname.slice(4); // 剥掉 "/api"
+
       if (sub === "/img") return proxyImage(url.searchParams.get("u"), res);
+
       if (sub === "/log") return serveLog(res, logFile, parseInt(url.searchParams.get("tail") ?? "800", 10) || 800);
+
       // 自定义背景图（设置→外观→背景）：路径只认 quaver.conf 里那一条。
       // dev/preview 在 src/relay.ts 有同构实现（同一个 backgroundResponse）。
       if (sub === "/bg") {
@@ -178,8 +208,10 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
         res.statusCode = r.status;
         res.setHeader("content-type", r.type);
         res.setHeader("cache-control", "no-store"); // 换图后同 URL 也要拿到新的
+
         return res.end(r.body);
       }
+
       // 系统强调色（设置→外观→高亮颜色「系统强调色」档）：探测逻辑全在 electron/accent.ts，
       // 这里只回一个小 JSON —— 候选路径写死在那边，不接受任何 query/参数。
       // dev/preview 在 src/relay.ts 有同构实现（同一个 accentPayload）。
@@ -188,10 +220,13 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
         res.statusCode = 200;
         res.setHeader("content-type", "application/json");
         res.setHeader("cache-control", "no-store");
+
         return res.end(JSON.stringify(r));
       }
+
       // Sparkle 已安装插件的文件服务（必须在 sidecar 转发之前截住）
       if (sub.startsWith("/sparkle/")) return serveSparkle(sub, res, pluginsRoot);
+
       // 本地/NAS 曲库（/api/local/...，与 relay.ts 同构挂载，真相在 local/library.ts）
       if (sub === "/local" || sub.startsWith("/local/")) return void (await handleLocalApi(req, res, sub.slice(1)));
 
@@ -201,8 +236,10 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
 
       const headers = new Headers();
       const ct = req.headers["content-type"];
+
       if (ct) headers.set("content-type", ct);
       const range = req.headers["range"];
+
       if (range) headers.set("range", range); // 播放流 Range 中继必须透传
 
       // 客户端断线（切歌 removeAttribute(src)+load()、seek、关页面）→ 立刻掐掉上游 fetch。
@@ -210,6 +247,7 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
       // TypeError: terminated —— 那正是主进程弹框的根因。abort 由 res 的 close 驱动。
       const ac = new AbortController();
       const onClientGone = () => { if (!res.writableFinished) ac.abort(); };
+
       res.once("close", onClientGone);
 
       try {
@@ -220,6 +258,7 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
           redirect: "manual",
           signal: ac.signal,
         });
+
         // 播放流（/api/stream/<token>）：流式管道，绝不整段缓冲（边下边播 + 省内存）
         if (/^\/stream\/[^/]+$/.test(sub) && upstream.body) {
           res.statusCode = upstream.status;
@@ -228,8 +267,10 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
             res.appendHeader(k, v);
           });
           await pipeStream(upstream.body, res, ac.signal);
+
           return;
         }
+
         res.statusCode = upstream.status;
         upstream.headers.forEach((v, k) => {
           // hop-by-hop 与内容编码头交给运行时重算，透传会双重编码
@@ -245,22 +286,30 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
       } finally {
         res.off("close", onClientGone);
       }
+
       return;
     }
 
     // —— 静态 dist/（MPA：无扩展名的路径补 .html）——
     let path = decodeURIComponent(url.pathname);
+
     if (path === "/") path = "/index.html";
     let file = join(DIST, path);
+
     if (!existsSync(file) && !extname(file)) file = join(DIST, path + ".html");
+
     if (!existsSync(file) || !normalize(file).startsWith(DIST)) {
       if (!existsSync(join(DIST, "index.html"))) {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+
         return res.end(MISSING_DIST_PAGE);
       }
+
       res.statusCode = 404;
+
       return res.end("not found");
     }
+
     const type = MIME[extname(file)] ?? "application/octet-stream";
     const size = statSync(file).size;
     res.writeHead(200, { "content-type": type, "content-length": String(size) });
@@ -273,6 +322,7 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
   };
 
   let server = createServer(handler);
+
   try {
     await listen(server, port, host);
   } catch (e) {
@@ -280,11 +330,15 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
     // 固定端口的意义是 origin 稳定，但**起不来比 origin 变严重得多**，所以这里绝不硬失败。
     if (port === 0 || e?.code !== "EADDRINUSE") throw e;
     console.warn(`[quaver] 端口 ${port} 被占用，回落随机端口（本次渲染层 origin 会变）`);
+
     try { server.close(); } catch {}
+
     server = createServer(handler);
     await listen(server, 0, host);
   }
+
   const actual = server.address().port;
+
   return { server, url: `http://${host}:${actual}/`, close: () => server.close() };
 }
 
@@ -293,6 +347,7 @@ function listen(server, port, host) {
   return new Promise((resolve, reject) => {
     const onErr = (e) => { server.off("listening", onOk); reject(e); };
     const onOk = () => { server.off("error", onErr); resolve(); };
+
     server.once("error", onErr);
     server.once("listening", onOk);
     server.listen(port, host);

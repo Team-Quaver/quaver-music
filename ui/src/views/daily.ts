@@ -23,30 +23,36 @@ export default async function dailyView(root: HTMLElement) {
   const cover = dailyCover(day);
   let songs: Song[] = [];
   let desc = "";
+
   try {
     const d = (await api<DailyResp>("/recommend/daily?page=1&num=100")) ?? {}; // 30 首一把拿全，不用翻页
     songs = d.songs ?? [];
     desc = d.info?.desc ?? "";
   } catch (e) {
     root.innerHTML = "";
+
     const head = mountHead(root, {
       artHtml: cover,
       name: "每日 30 首",
       meta: "",
       desc: "今天的推荐暂时没有拿到。请确认登录状态后再试。",
     });
+
     head.querySelector<HTMLElement>(".pl-meta")?.remove();
     root.append(h("div", "rows muted", `${errText(e)} — 需要先登录`));
+
     return;
   }
 
   root.innerHTML = "";
+
   const head = mountHead(root, {
     artHtml: cover,
     name: "每日 30 首",
     meta: "",
     desc: desc || "每天按你的口味，重新挑选 30 首。",
   });
+
   // 每日 30 首的信息头不再重复曲目数；歌单封面本身已经说明了日期。
   head.querySelector<HTMLElement>(".pl-meta")?.remove();
   const sticky = mountStickyBar(root, { artHtml: cover, name: "每日 30 首" });
@@ -57,9 +63,12 @@ export default async function dailyView(root: HTMLElement) {
 
   if (!songs.length) {
     box.innerHTML = `<div class="muted">今天的 30 首还没生成，稍后再来（也确认下是否已登录）</div>`;
+
     return sticky.off;
   }
+
   renderSongRows(box, songs, { showAlbum: true, onPlay: (s, i, all) => player.playList(all, i) });
+
   return sticky.off;
 }
 

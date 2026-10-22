@@ -36,8 +36,11 @@ export function cjkConvertRelevant(text: string): boolean {
 
 function ensure(mode: string): Promise<Converter | null> {
   if (mode === "off") return Promise.resolve(null);
+
   if (cached && cachedMode === mode) return Promise.resolve(cached);
+
   if (pending && pending.mode === mode) return pending.p;
+
   const loader = (async (): Promise<Converter | null> => {
     try {
       if (mode === "traditional") {
@@ -47,17 +50,23 @@ function ensure(mode: string): Promise<Converter | null> {
         const { Converter } = await import("opencc-js/t2cn");
         cached = Converter({ from: "t", to: "cn" });
       }
+
       cachedMode = mode;
+
       return cached;
     } catch (e) {
       console.warn("quaver: 繁简词典加载失败，本曲按原文显示", e);
+
       return null;
     }
   })();
+
   pending = { mode, p: loader };
   // 落定后只撤「仍在途的就是这一个」：等待间可能已 reset/换档挂上新的，不能误清
   const settle = () => { if (pending && pending.p === loader) pending = null; };
+
   void loader.then(settle, settle);
+
   return loader;
 }
 
@@ -65,9 +74,12 @@ function ensure(mode: string): Promise<Converter | null> {
 export async function cjkConvert(text: string): Promise<string> {
   if (!text) return text;
   const mode = getChineseConvert();
+
   if (mode === "off" || !cjkConvertRelevant(text)) return text;
   const fn = await ensure(mode);
+
   // 双保险：await 期间档位可能又切走了，按当前值说话
   if (!fn || getChineseConvert() !== mode) return text;
+
   return fn(text);
 }

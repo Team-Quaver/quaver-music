@@ -14,6 +14,7 @@ import type { Mode, Song } from "../player";
 import { SONG_TIER_SIZE_KEYS } from "./songtiers";
 
 const KEY = "quaver.session.v1";
+
 /** 队列存档上限：超长队列只留指针附近的一段，避免单条记录撑爆配额 */
 const MAX_QUEUE = 500;
 
@@ -50,11 +51,14 @@ function slim(s: Song): Song | null {
   if (!s?.mid) return null;
   const f = (s as any).file;
   const mediaMid = f?.media_mid;
+
   let file = f
     ? Object.fromEntries(SONG_TIER_SIZE_KEYS.filter((k) => f[k] !== undefined).map((k) => [k, f[k]]))
     : undefined;
+
   if (mediaMid) (file ??= {}).media_mid = mediaMid;
   const keepFile = file && Object.keys(file).length ? file : undefined;
+
   return {
     mid: s.mid,
     id: s.id,
@@ -86,17 +90,22 @@ export function saveSession(snap: {
     let index = snap.index;
     let kept = queue;
     let from = 0;
+
     if (queue.length > MAX_QUEUE) {
       const half = Math.floor(MAX_QUEUE / 2);
       from = Math.max(0, Math.min(index - half, queue.length - MAX_QUEUE));
       kept = queue.slice(from, from + MAX_QUEUE);
       index -= from;
     }
+
     const radio = snap.radio === true;
+
     const rawRadioEnd = Number.isFinite(snap.radioEnd) && Number(snap.radioEnd) >= 0
       ? Number(snap.radioEnd) - from
       : kept.length - 1;
+
     const radioEnd = radio && kept.length ? Math.max(0, Math.min(rawRadioEnd, kept.length - 1)) : -1;
+
     const payload: SessionSnapshot = {
       queue: kept,
       index: kept.length ? Math.max(0, Math.min(index, kept.length - 1)) : -1,
@@ -109,6 +118,7 @@ export function saveSession(snap: {
       lastStream: snap.lastStream ?? null,
       at: Date.now(),
     };
+
     localStorage.setItem(KEY, JSON.stringify(payload));
   } catch { /* 配额/隐私模式：本次会话不存档，不影响播放 */ }
 }
@@ -116,20 +126,26 @@ export function saveSession(snap: {
 export function loadSession(): SessionSnapshot | null {
   try {
     const raw = localStorage.getItem(KEY);
+
     if (!raw) return null;
     const d = JSON.parse(raw) as SessionSnapshot;
+
     if (!Array.isArray(d?.queue)) return null;
     const radio = d.radio === true;
     const queue = d.queue.filter((s) => s && typeof s.mid === "string" && s.mid);
+
     // 普通空队列没有可恢复内容；电台态例外：首轮还在路上就退出时，至少把电台会话保留下来。
     if (!queue.length && !radio) return null;
     // 旧存档可能是已移除的「off（顺序播放）」：一律落回列表循环
     const mode: Mode = d.mode === "one" ? "one" : "all";
     const ls = d.lastStream;
+
     const rawRadioEnd = Number.isFinite(d.radioEnd) && Number(d.radioEnd) >= 0
       ? Number(d.radioEnd)
       : queue.length - 1;
+
     const radioEnd = radio && queue.length ? Math.max(0, Math.min(rawRadioEnd, queue.length - 1)) : -1;
+
     return {
       queue,
       index: queue.length

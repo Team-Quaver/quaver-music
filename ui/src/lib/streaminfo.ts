@@ -30,13 +30,18 @@ export interface StreamInfo {
 
 export function parseStreamHead(head: Uint8Array, totalSize: number, durationSec: number): StreamInfo | null {
   if (head.length >= 4 && str(head, 0, 4) === "fLaC") return parseFlac(head, totalSize);
+
   if (head.length >= 4 && str(head, 0, 4) === "OggS") return parseOgg(head, totalSize, durationSec);
+
   // MP3：裸帧或带 ID3v2（首块里已能看到帧头就直接解）
   if (head.length >= 4 && str(head, 0, 3) === "ID3") {
     const off = mp3FrameOffset(head);
+
     if (off != null && off + 4 <= head.length) return parseMp3Frame(head, off, totalSize, durationSec);
+
     return null; // 帧头不在首块里：probeStreamInfo 会按标签终点再取一段
   }
+
   return parseMp3Frame(head, 0, totalSize, durationSec);
 }
 
@@ -46,6 +51,7 @@ export function mp3FrameOffset(head: Uint8Array): number | null {
   if (head.length < 10 || str(head, 0, 3) !== "ID3") return null;
   const size = ((head[6] & 0x7f) << 21) | ((head[7] & 0x7f) << 14) | ((head[8] & 0x7f) << 7) | (head[9] & 0x7f);
   const footer = !!(head[5] & 0x10);
+
   return 10 + size + (footer ? 10 : 0);
 }
 
@@ -58,14 +64,20 @@ function parseFlac(b: Uint8Array, totalSize: number): StreamInfo | null {
   const sampleRate = (b[s] << 12) | (b[s + 1] << 4) | (b[s + 2] >> 4);
   const channels = ((b[s + 2] >> 1) & 0x7) + 1;
   const bitDepth = (((b[s + 2] & 1) << 4) | (b[s + 3] >> 4)) + 1;
+
   if (sampleRate < 8000 || sampleRate > 655350 || bitDepth < 4 || bitDepth > 32) return null;
+
   const totalSamples = (b[s + 3] & 0x0f) * 0x100000000
     + (b[s + 4] << 24 | b[s + 5] << 16 | b[s + 6] << 8 | b[s + 7]);
+
   const duration = sampleRate > 0 ? totalSamples / sampleRate : 0;
   const info: StreamInfo = { codec: "FLAC", sampleRate, bitDepth, channels };
+
   if (duration > 0) info.duration = duration;
   const bitrate = avgBitrate(totalSize, duration);
+
   if (bitrate) { info.bitrate = bitrate; info.bitrateApprox = true; }
+
   return info;
 }
 
@@ -81,34 +93,46 @@ function parseFlac(b: Uint8Array, totalSize: number): StreamInfo | null {
  * 也不要掉进「流信息不可用」的死胡同（未知封装不该让整个面板变空）。 */
 function parseOgg(b: Uint8Array, totalSize: number, durationSec: number): StreamInfo | null {
   const limit = Math.min(b.length - 8, 200);
+
   for (let i = 27; i < limit; i++) {
     if (str(b, i, 8) === "OpusHead") {
       // Opus 解码输出恒为 48 kHz（头里的 input samplerate 是原始录音率，不是播放采样率）
       const channels = b[i + 9];
+
       if (channels < 1) return null;
       const info: StreamInfo = { codec: "Opus", sampleRate: 48000, channels };
       const bitrate = avgBitrate(totalSize, durationSec);
+
       if (bitrate) { info.bitrate = bitrate; info.bitrateApprox = true; }
+
       return info;
     }
+
     if (b[i] === 1 && str(b, i + 1, 6) === "vorbis") {
       const channels = b[i + 11];
       const sampleRate = le32(b, i + 12);
       const nominal = le32(b, i + 20); // 标称码率（有符号，<=0 视为缺）
+
       if (channels < 1 || sampleRate < 8000 || sampleRate > 655350) return null;
       const info: StreamInfo = { codec: "Vorbis", sampleRate, channels };
+
       if (nominal > 0) info.bitrate = nominal / 1000;
       else {
         const bitrate = avgBitrate(totalSize, durationSec);
+
         if (bitrate) { info.bitrate = bitrate; info.bitrateApprox = true; }
       }
+
       return info;
     }
   }
+
   // 是 Ogg 但不是已知的 Vorbis/Opus（如腾讯自研封装）：只报容器，不猜编码
   const info: StreamInfo = { codec: "Ogg" };
   const bitrate = avgBitrate(totalSize, durationSec);
+
   if (bitrate) { info.bitrate = bitrate; info.bitrateApprox = true; }
+
   return info;
 }
 
@@ -120,6 +144,7 @@ function parseMp3Frame(b: Uint8Array, off: number, totalSize: number, durationSe
   const brIdx = (b[off + 2] >> 4) & 0x0f; // 0=free 15=坏
   const srIdx = (b[off + 2] >> 2) & 3; // 3=保留
   const mode = (b[off + 3] >> 6) & 3; // 3=单声道，其余按 2 声道算
+
   if (verBits === 1 || layerBits === 0 || brIdx === 0 || brIdx === 15 || srIdx === 3) return null;
   const mpeg = verBits === 3 ? 1 : verBits === 2 ? 2 : 25;
   const sampleRates: Record<number, number[]> = { 1: [44100, 48000, 32000], 2: [22050, 24000, 16000], 25: [11025, 12000, 8000] };
@@ -127,22 +152,28 @@ function parseMp3Frame(b: Uint8Array, off: number, totalSize: number, durationSe
   const channels = mode === 3 ? 1 : 2;
   const codec = layerBits === 1 ? "MP3" : `MPEG${mpeg === 25 ? "2.5" : mpeg} L${4 - layerBits}`;
   const info: StreamInfo = { codec, sampleRate, channels };
+
   if (layerBits === 1) {
     // Layer III 位率表（kbps）：MPEG1 与 MPEG2/2.5 两张
     const kbps = (mpeg === 1 ? [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320]
       : [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160])[brIdx];
+
     if (kbps) info.bitrate = kbps;
   }
+
   if (!info.bitrate) {
     const bitrate = avgBitrate(totalSize, durationSec);
+
     if (bitrate) { info.bitrate = bitrate; info.bitrateApprox = true; }
   }
+
   return info;
 }
 
 /** 平均码率（kbps）：总长与时长都已知才算（总长来自 Range 探测响应的 Content-Range）。 */
 function avgBitrate(totalSize: number, durationSec: number): number | null {
   if (totalSize <= 0 || durationSec <= 0) return null;
+
   return (totalSize * 8) / durationSec / 1000;
 }
 
@@ -157,59 +188,77 @@ export function cachedStreamInfo(url: string): Promise<StreamInfo | null> | unde
 
 export function probeStreamInfo(url: string, opts?: { duration?: number }): Promise<StreamInfo | null> {
   const hit = cache.get(url);
+
   if (hit) return hit;
+
   const p = doProbe(url, opts?.duration ?? 0).catch(() => null).then((info) => {
     if (cache.size > CACHE_MAX) cache.clear(); // 收尾换掉 Promise 本体，后续命中不再发请求
     cache.set(url, Promise.resolve(info));
+
     return info;
   });
+
   cache.set(url, p);
+
   return p;
 }
 
 async function doProbe(url: string, durationSec: number): Promise<StreamInfo | null> {
   const first = await fetchHead(url, 0, 4095);
+
   if (!first) return null;
   const info = parseStreamHead(first.bytes, first.total, durationSec);
+
   if (info) return info;
   // MP3 带 ID3v2：帧头藏在标签后（标签可到几百 KB，首页看不到）→ 按标签终点再取一小段
   const off = mp3FrameOffset(first.bytes);
+
   if (off == null || off <= 0 || off > 4_000_000) return null;
   const second = await fetchHead(url, off, off + 255);
+
   if (!second) return null;
+
   return parseStreamHead(second.bytes, second.total, durationSec);
 }
 
 /** 取 [start,end] 闭区间字节；total 从 Content-Range（回落 Content-Length）解析。 */
 async function fetchHead(url: string, start: number, end: number): Promise<{ bytes: Uint8Array; total: number } | null> {
   const r = await fetch(url, { headers: { Range: `bytes=${start}-${end}` }, signal: AbortSignal.timeout(8000) });
+
   if (!r.ok) return null;
   const cr = /bytes\s+\d+-\d+\/(\d+)/.exec(r.headers.get("content-range") ?? "");
   const cl = /(\d+)/.exec(r.headers.get("content-length") ?? "");
   const total = cr ? Number(cr[1]) : cl ? Number(cl[1]) : 0;
   const reader = r.body?.getReader();
+
   if (!reader) return null;
   const cap = end - start + 1;
   const chunks: Uint8Array[] = [];
   let got = 0;
+
   try {
     for (;;) {
       const { done, value } = await reader.read();
+
       if (done || !value) break;
       chunks.push(value);
       got += value.length;
+
       if (got >= cap) { void reader.cancel().catch(() => {}); break; } // 只要头几个字节，后面立刻弃
     }
   } finally {
     try { void reader.cancel().catch(() => {}); } catch { /* 已关 */ }
   }
+
   const bytes = new Uint8Array(Math.min(got, cap));
   let at = 0;
+
   for (const c of chunks) {
     if (at >= bytes.length) break;
     bytes.set(c.subarray(0, bytes.length - at), at);
     at += c.length;
   }
+
   return { bytes, total };
 }
 
@@ -234,7 +283,9 @@ export const fmtChannels = (ch?: number) =>
 
 function str(b: Uint8Array, at: number, n: number): string {
   let s = "";
+
   for (let i = 0; i < n && at + i < b.length; i++) s += String.fromCharCode(b[at + i]);
+
   return s;
 }
 

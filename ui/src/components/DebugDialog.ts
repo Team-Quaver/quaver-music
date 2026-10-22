@@ -18,6 +18,7 @@ import { toast } from "./SongMenu";
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 type ProcRow = { pid: number; tag: string; rssKB: number; peakKB: number; privKB?: number | null; cpu: number; ext?: boolean };
+
 type Metrics = {
   ok: boolean;
   app: { version: string; packaged: boolean; platform: string; arch: string; electron: string; chrome: string; node: string; configDir: string };
@@ -31,14 +32,24 @@ type Metrics = {
 const REFRESH_MS = 5000;
 const mb = (kb: number): string => (kb >= 1024 ? (kb / 1024).toFixed(0) + " MB" : kb + " KB");
 
+/** Chromium 私有的性能量测扩展（lib.dom 不声明；非 Chromium 运行时字段缺席，读侧都有回退）。 */
+interface ChromePerformance extends Performance {
+  memory?: { usedJSHeapSize: number };
+}
+
 /** 渲染层侧的量（没有主进程桥时也能出这几行，浏览器 dev 同理）。 */
 function rendererSide() {
-  const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
+  // SAFETY: Chrome 系宿主提供 performance.memory；非 Chromium 走可选链回退
+  const mem = (performance as ChromePerformance).memory;
+  // SAFETY: resource 条目的 PerformanceEntry 均带 decodedBodySize，即 PerformanceResourceTiming
   const res = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
+
   const sum = (re: RegExp) => {
     const a = res.filter((r) => re.test(r.name));
+
     return { kb: Math.round(a.reduce((s, r) => s + (r.decodedBodySize || 0), 0) / 1024), n: a.length };
   };
+
   return {
     heapMB: mem ? +(mem.usedJSHeapSize / 1048576).toFixed(1) : null,
     js: sum(/\.js(\?|$)/), css: sum(/\.css(\?|$)/),
@@ -91,19 +102,24 @@ export function showDebugDialog(): void {
     stop();
     window.removeEventListener("keydown", onKey);
     layer = null;
+
     if (!el) return;
     const fin = () => el.remove();
     el.addEventListener("animationend", fin, { once: true });
     window.setTimeout(fin, 240);
     el.classList.add("leaving");
   };
+
   const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
 
   async function refresh(): Promise<void> {
     const r = rendererSide();
     const b = bridge();
+
     if (b) { try { last = await b.metrics(); } catch (e) { last = null; meta.textContent = "主进程自检失败：" + errText(e); } }
+
     const at = new Date().toLocaleTimeString();
+
     if (!last?.ok) {
       body.innerHTML = `<div class="dbg-grid">
         ${kv("本窗 JS 堆", r.heapMB === null ? "—" : r.heapMB + " MB")}
@@ -111,12 +127,15 @@ export function showDebugDialog(): void {
         ${kv("DOM 节点", String(r.nodes))}
       </div><p class="muted dbg-note2">浏览器 dev 没有主进程，进程表只在桌面端有。</p>`;
       meta.textContent = "渲染层读数 · " + at;
+
       return;
     }
+
     const rows: ProcRow[] = [
       ...last.procs,
       ...last.external.map((x) => ({ pid: x.pid, tag: x.tag, rssKB: x.rssKB ?? 0, peakKB: 0, privKB: x.privKB, cpu: 0, ext: true })),
     ];
+
     const rssTotal = last.totals.chromiumRSSKB + last.totals.externalRSSKB;
     body.innerHTML = `<div class="dbg-grid">
         ${kv("真实占用（Pss 求和）", last.totals.privKnown && last.totals.privKB ? mb(last.totals.privKB) : "—（本平台读不到）", "共享页按比例摊过")}
@@ -148,10 +167,14 @@ export function showDebugDialog(): void {
     const ok = await copyText(JSON.stringify({ at: new Date().toISOString(), metrics: last, renderer: rendererSide() }, null, 1));
     toast(ok ? "自检报告已复制到剪贴板" : "复制失败（浏览器可能拦了剪贴板）");
   };
+
   layer.querySelector<HTMLElement>("[data-act=devtools]")!.onclick = async () => {
     const b = bridge();
+
     if (!b) { toast("浏览器 dev 没有主进程，DevTools 只在桌面端可用"); return; }
+
     const r = await b.devtools({ op: "toggle" }).catch((e: unknown) => ({ ok: false, error: errText(e) }));
+
     if (!r?.ok) toast("打不开开发者工具：" + String(r?.error ?? "未知原因"));
   };
 

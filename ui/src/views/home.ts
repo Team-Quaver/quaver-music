@@ -20,6 +20,7 @@ export default async function homeView(root: HTMLElement) {
   const homeHead = h("div", "sticky-head home-pagehead", `
     <h1 class="page-title">首页</h1>
     <p class="muted">从歌单和新歌开始，开启今日</p>`);
+
   root.append(homeHead);
   const offHead = trackStuck(homeHead, routeScroller(root));
 
@@ -101,8 +102,10 @@ export default async function homeView(root: HTMLElement) {
 
     const art = song ? coverUrl(song, 300) : "";
     const artKey = art || "__disc";
+
     if (artKey !== radioArtKey) {
       radioArtKey = artKey;
+
       if (!art) {
         radioArt.replaceChildren(h("span", "home-radio__disc", "∞"));
       } else {
@@ -113,6 +116,7 @@ export default async function homeView(root: HTMLElement) {
         img.onerror = () => {
           if (radioArtKey === artKey) radioArt.replaceChildren(h("span", "home-radio__disc", "∞"));
         };
+
         img.src = art;
         radioArt.replaceChildren(img);
       }
@@ -127,22 +131,27 @@ export default async function homeView(root: HTMLElement) {
   };
 
   radioOpen.onclick = () => { location.hash = "#/guess"; };
+
   radioPlay.onclick = () => {
     if (!player.radioActive || !player.current) startRadio();
     else player.toggle();
   };
+
   radioNext.onclick = () => player.next();
   radioLove.onclick = () => void player.toggleLove(player.current);
 
   const quickLinks = h("div", "home-quick__links");
+
   const addQuickAction = (label: string, icon: string, run: () => void) => {
     const btn = h("button", "home-quick__item",
       `<span class="home-quick__icon" aria-hidden="true">${icon}</span><span class="home-quick__label">${label}</span>`) as HTMLButtonElement;
+
     btn.type = "button";
     btn.setAttribute("aria-label", label);
     btn.onclick = run;
     quickLinks.append(btn);
   };
+
   addQuickAction("每日 30 首", icons.calendar, () => { location.hash = "#/daily"; });
   addQuickAction("我喜欢", icons.heart, () => { location.hash = "#/liked"; });
   quick.append(radioCard, quickLinks);
@@ -198,36 +207,47 @@ export default async function homeView(root: HTMLElement) {
 
   const playlistCard = (x: SonglistCard, aiPick = false): HTMLElement | null => {
     const id = String(x.id ?? "");
+
     if (!id) return null;
     const title = String(x.title ?? "歌单");
     const href = `#/playlist?id=${encodeURIComponent(id)}&name=${encodeURIComponent(title)}`;
     const listens = compactCount(x.listennum);
+
     const sub = aiPick
       ? ["AI 生成", listens ? `${listens}次播放` : ""].filter(Boolean).join(" · ")
       : [x.creator_nick || "", listens ? `${listens}次播放` : ""].filter(Boolean).join(" · ") || "歌单";
+
     const card = navCard(href, upPic(x.picurl), title, sub,
       () => cardPlay("playlist", id, href));
+
     if (aiPick) {
       card.classList.add("ai-card");
       card.querySelector(".art")?.insertAdjacentHTML("beforeend", `<span class="ai-card__badge">AI</span>`);
     }
+
     return card;
   };
 
   const loadPlaylists = async () => {
     grid.innerHTML = `<div class="muted">加载中…</div>`;
+
     try {
       const list = (await api<RecommendSonglistResp>("/recommend/songlist?page=1&num=13"))?.songlists ?? [];
+
       if (!list.length) {
         homeStatus(grid, "暂时没有推荐歌单", "稍后回来看看", loadPlaylists);
+
         return;
       }
 
       grid.innerHTML = "";
+
       for (const x of list.slice(0, 13)) {
         const card = playlistCard(x);
+
         if (card) grid.append(card);
       }
+
       if (!grid.childElementCount) homeStatus(grid, "暂时没有推荐歌单", "稍后回来看看", loadPlaylists);
     } catch (e) {
       homeStatus(grid, "推荐歌单加载失败", errText(e) || "网络暂时不可用", loadPlaylists);
@@ -236,24 +256,31 @@ export default async function homeView(root: HTMLElement) {
 
   const toplistCard = (x: ToplistCard): HTMLElement | null => {
     const id = String(x.id ?? "");
+
     if (!id) return null;
     const title = String(x.title ?? "排行榜");
     const canBacktrack = x.history_supported !== false;
     const href = `#/toplist?id=${encodeURIComponent(id)}&name=${encodeURIComponent(title)}${canBacktrack ? "" : "&history=0"}`;
     const listens = compactCount(x.listennum);
     const cadence = x.update_tips || (Number(x.update_type) === 0 ? "每周更新" : "每日更新");
+
     const sub = [cadence, canBacktrack ? periodCaption(x.period) : "仅当前期", listens ? `${listens}次播放` : ""]
       .filter(Boolean).join(" · ");
+
     const card = navCard(href, upPic(x.picurl), title, sub,
       () => cardPlay("toplist", id, href));
+
     card.querySelector(".art")?.insertAdjacentHTML("beforeend", `<span class="ai-card__badge">榜</span>`);
+
     return card;
   };
 
   let topData: ToplistGroup[] = [];
   let selectedTopGroup = 0;
+
   const paintTopGroups = () => {
     topGroups.innerHTML = "";
+
     if (topData.length <= 1) return;
     topData.forEach((group, index) => {
       const btn = h("button", `tag${index === selectedTopGroup ? " sel" : ""}`, "") as HTMLButtonElement;
@@ -264,28 +291,38 @@ export default async function homeView(root: HTMLElement) {
         paintTopGroups();
         paintTopGroup();
       };
+
       topGroups.append(btn);
     });
   };
+
   const paintTopGroup = () => {
     topGrid.innerHTML = "";
     const list = topData[selectedTopGroup]?.toplists ?? [];
+
     for (const x of list) {
       const card = toplistCard(x);
+
       if (card) topGrid.append(card);
     }
+
     if (!topGrid.childElementCount) homeStatus(topGrid, "这个分类暂时没有榜单", "稍后回来看看", loadToplists);
   };
+
   const loadToplists = async () => {
     topGroups.innerHTML = "";
     topGrid.innerHTML = `<div class="muted">加载中…</div>`;
+
     try {
       const d = (await api<ToplistCategoryResp>("/top/category")) ?? {};
       topData = (d.groups ?? []).filter((g) => (g.toplists ?? []).length);
+
       if (!topData.length) {
         homeStatus(topGrid, "暂时没有排行榜", "稍后回来看看", loadToplists);
+
         return;
       }
+
       selectedTopGroup = Math.min(selectedTopGroup, topData.length - 1);
       paintTopGroups();
       paintTopGroup();
@@ -296,14 +333,18 @@ export default async function homeView(root: HTMLElement) {
 
   let aiNextPage = 1;
   let aiRequest = 0;
+
   const loadAISonglists = async (page = 1) => {
     const request = ++aiRequest;
     aiRefresh.disabled = true;
     aiGrid.innerHTML = `<div class="muted home-ai__loading">正在生成…</div>`;
+
     try {
       const d = (await api<AISonglistResp>(`/recommend/ai-songlist?page=${page}&num=8`)) ?? {};
+
       if (request !== aiRequest) return;
       const list = d.songlists ?? [];
+
       if (!list.length) {
         if (page > 1) {
           aiNextPage = 1;
@@ -311,18 +352,24 @@ export default async function homeView(root: HTMLElement) {
         } else {
           homeStatus(aiGrid, "AI 歌单暂时没有内容", "稍后再生成一批", () => void loadAISonglists(1));
         }
+
         return;
       }
 
       aiGrid.innerHTML = "";
+
       for (const x of list.slice(0, 8)) {
         const card = playlistCard(x, true);
+
         if (card) aiGrid.append(card);
       }
+
       if (!aiGrid.childElementCount) {
         homeStatus(aiGrid, "AI 歌单暂时没有内容", "稍后再生成一批", () => void loadAISonglists(1));
+
         return;
       }
+
       const hasMore = d.hasmore ?? Number(d.total ?? 0) > page * 8;
       aiNextPage = hasMore ? page + 1 : 1;
       aiRefresh.textContent = hasMore ? "换一批" : "再来一批";
@@ -333,18 +380,23 @@ export default async function homeView(root: HTMLElement) {
       if (request === aiRequest) aiRefresh.disabled = false;
     }
   };
+
   aiRefresh.onclick = () => void loadAISonglists(aiNextPage);
 
   const loadNewSongs = async () => {
     playNew.disabled = true;
     playNew.onclick = null;
     newRows.innerHTML = `<div class="muted">加载中…</div>`;
+
     try {
       const songs = ((await api<{ songs?: Song[] }>("/recommend/newsong?type=5"))?.songs ?? []).slice(0, 6);
+
       if (!songs.length) {
         homeStatus(newRows, "暂时没有新歌", "稍后回来看看", loadNewSongs);
+
         return;
       }
+
       playNew.disabled = false;
       playNew.onclick = () => player.playList(songs, 0);
       renderSongRows(newRows, songs, {
@@ -357,5 +409,6 @@ export default async function homeView(root: HTMLElement) {
   };
 
   await Promise.all([loadPlaylists(), loadNewSongs(), loadAISonglists(1), loadToplists()]);
+
   return () => { offQuick(); offHead(); }; // 播放器与吸顶跟踪都在路由离开时退订
 }

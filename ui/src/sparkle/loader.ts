@@ -40,22 +40,22 @@ const OFFICIAL_LOADERS: Record<string, () => Promise<{ default: SparklePlugin }>
   "die-for-you": () => import("@quaver/sparkle/plugins/die-for-you"),
 };
 
-export interface InstalledPlugin {
-  id: string;
-  dir: string;
-  manifest: { id?: string; name?: string; version?: string; minHostVersion?: string; allowBeta?: boolean; author?: string; description?: string; category?: string; main?: string };
-  installedAt: number;
-}
+/** 主进程磁盘记录（quaverSparkle 桥下发）；类型与 globals.d.ts 的桥声明同源。 */
+export type InstalledPlugin = SparkleInstalledPlugin;
 
 /** 主进程侧已安装的第三方插件（quaverSparkle 桥；浏览器 dev 无桥 → 空） */
 export async function listInstalledThirdParty(): Promise<InstalledPlugin[]> {
-  const bridge = (window as unknown as { quaverSparkle?: { list(): Promise<{ ok: boolean; plugins?: InstalledPlugin[] }> } }).quaverSparkle;
+  const bridge = window.quaverSparkle;
+
   if (!bridge) return [];
+
   try {
     const r = await bridge.list();
+
     return r?.ok ? (r.plugins ?? []) : [];
   } catch (e) {
     console.warn("[sparkle] 第三方插件列表读取失败", e);
+
     return [];
   }
 }
@@ -63,24 +63,36 @@ export async function listInstalledThirdParty(): Promise<InstalledPlugin[]> {
 /** 形状校验：像插件的东西才准进 setup（第三方目录名必须与 id 一致） */
 export function validatePlugin(p: unknown, expectId?: string): SparklePlugin | null {
   const v = p as SparklePlugin | null;
+
   if (!v || typeof v !== "object") return null;
+
   if (typeof v.id !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(v.id)) return null;
+
   if (typeof v.name !== "string" || typeof v.version !== "string") return null;
+
   if (v.minHostVersion !== undefined && !isSparkleVersionValid(v.minHostVersion)) return null;
+
   if (v.allowBeta !== undefined && typeof v.allowBeta !== "boolean") return null;
+
   if (v.kind !== "official" && v.kind !== "third-party") return null;
+
   if (typeof v.setup !== "function") return null;
+
   if (expectId && v.id !== expectId) return null;
+
   return v;
 }
 
 export async function loadOfficial(id: string): Promise<SparklePlugin> {
   const loader = OFFICIAL_LOADERS[id];
+
   if (!loader) throw new Error(`未知官方插件: ${id}`);
   const mod = await loader();
   const plugin = validatePlugin(mod?.default, id);
+
   if (!plugin) throw new Error(`官方插件 ${id} 形状不合法`);
   plugin.kind = "official";
+
   return plugin;
 }
 
@@ -104,9 +116,12 @@ export async function loadThirdParty(inst: InstalledPlugin): Promise<SparklePlug
   const url = `/api/sparkle/plugin/${encodeURIComponent(inst.id)}/${main}?v=${encodeURIComponent(v)}`;
   const mod = await import(/* @vite-ignore */ url);
   const plugin = validatePlugin(mod?.default ?? mod?.plugin, inst.id);
+
   if (!plugin) throw new Error(`第三方插件 ${inst.id} 形状不合法（default export 需为 SparklePlugin）`);
   const hostVersionError = getSparkleHostVersionError(__APP_VERSION__, plugin.minHostVersion, plugin.allowBeta);
+
   if (hostVersionError) throw new Error(hostVersionError);
   plugin.kind = "third-party";
+
   return plugin;
 }

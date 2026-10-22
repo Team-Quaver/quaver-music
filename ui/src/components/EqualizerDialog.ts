@@ -30,12 +30,15 @@ const GRID_FREQS = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
 const GRID_DB = [-24, -18, -12, -6, 0, 6, 12, 18, 24];
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
 const fmtFreq = (f: number) => f >= 1000
   ? `${(f / 1000).toFixed(f < 10000 ? 1 : 0).replace(/\.0$/, "")} kHz`
   : `${Math.round(f)} Hz`;
+
 const fmtDb = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)} dB`;
 const esc = (s: string | number | null | undefined) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const eventElement = (e: Event): Element | null => e.target instanceof Element ? e.target : null;
+
 const typeLabel = (t: EqBandType) => t === "lowShelf" ? "Low Shelf"
   : t === "highShelf" ? "High Shelf"
     : t === "lowPass" ? "Low-Pass"
@@ -56,8 +59,10 @@ export function openEqualizer(): void {
     void panel?.offsetWidth;
     panel?.classList.add("eq-attention");
     window.setTimeout(() => panel?.classList.remove("eq-attention"), 320);
+
     return;
   }
+
   mount();
 }
 
@@ -159,15 +164,18 @@ function mount(): void {
 
   const $ = <T extends Element = HTMLElement>(sel: string) => host.querySelector<T>(sel)!;
   const svg = $<SVGSVGElement>("#eq-graph");
+
   // SVG 的宽度坐标固定为 760；高度按左栏实际可用空间扩展。viewBox 与元素同比例，
   // 所以圆点/文字不会被垂直拉伸，只有 dB 轴和频谱绘图区真正长高。
   const syncViewMetrics = (): void => {
     const r = svg.getBoundingClientRect();
+
     if (r.width < 2 || r.height < 2) return;
     VIEW_H = VIEW_W * r.height / r.width;
     PLOT_H = VIEW_H - PLOT_T - PLOT_B;
     svg.setAttribute("viewBox", `0 0 ${VIEW_W} ${VIEW_H}`);
   };
+
   const spectrumCanvas = $<HTMLCanvasElement>("#eq-spectrum");
   const spectrumCtx = spectrumCanvas.getContext("2d");
   const unavailable = $("#eq-unavailable");
@@ -206,6 +214,7 @@ function mount(): void {
   const selected = () => state.bands.find((b) => b.id === selectedId) ?? null;
 
   let sayTimer = 0;
+
   const say = (text: string, error = false) => {
     message.textContent = text;
     message.classList.toggle("err", error);
@@ -216,11 +225,14 @@ function mount(): void {
   const applyNow = (immediate = false) => {
     window.clearTimeout(applyTimer);
     applyTimer = 0;
+
     if (!isMpv()) return;
+
     const send = () => {
       if (destroyed || !isMpv()) return;
       void player.setEqualizer(state);
     };
+
     if (immediate) send();
     else applyTimer = window.setTimeout(send, 40);
   };
@@ -238,11 +250,13 @@ function mount(): void {
     const b = selected();
     empty.hidden = !!b;
     bandControls.hidden = !b;
+
     if (!b) empty.textContent = state.bands.length ? "点击曲线上的节点进行编辑。" : "点击曲线添加第一个频段。";
     bandCaption.textContent = b ? typeLabel(b.type) : "点击节点";
     preamp.value = String(state.preamp);
     preampNum.value = String(state.preamp);
     preampOut.textContent = fmtDb(state.preamp);
+
     if (!b) return;
     const pass = isPassFilter(b.type);
     freqLabel.textContent = pass ? "截止频率" : "频率";
@@ -258,25 +272,30 @@ function mount(): void {
   const renderGraph = () => {
     syncViewMetrics();
     const grid: string[] = [];
+
     for (const f of GRID_FREQS) {
       const x = xForFreq(f);
       const major = f === 20 || f === 100 || f === 1000 || f === 10000 || f === 20000;
       grid.push(`<line class="eq-grid-line${major ? " major" : ""}" x1="${x.toFixed(2)}" y1="${PLOT_T}" x2="${x.toFixed(2)}" y2="${PLOT_T + PLOT_H}"/>`);
       grid.push(`<text class="eq-axis-text" x="${x.toFixed(2)}" y="${VIEW_H - 9}" text-anchor="middle">${f >= 1000 ? `${f / 1000}k` : f}</text>`);
     }
+
     for (const db of GRID_DB) {
       const y = yForDb(db);
       grid.push(`<line class="eq-grid-line${db === 0 ? " zero" : ""}" x1="${PLOT_L}" y1="${y.toFixed(2)}" x2="${PLOT_L + PLOT_W}" y2="${y.toFixed(2)}"/>`);
+
       if (db % 12 === 0 || db === 0) grid.push(`<text class="eq-axis-text" x="${PLOT_L - 8}" y="${(y + 3.5).toFixed(2)}" text-anchor="end">${db > 0 ? "+" : ""}${db}</text>`);
     }
 
     const pts: { x: number; y: number }[] = [];
     const samples = 280;
+
     for (let i = 0; i <= samples; i++) {
       const t = i / samples;
       const f = EQ_MIN_FREQ * (EQ_MAX_FREQ / EQ_MIN_FREQ) ** t;
       pts.push({ x: PLOT_L + t * PLOT_W, y: yForDb(eqResponseDb(state, f)) });
     }
+
     const line = pts.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(" ");
     const zeroY = yForDb(0).toFixed(2);
     const area = `M${PLOT_L},${zeroY} ${pts.map((p) => `L${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(" ")} L${PLOT_L + PLOT_W},${zeroY} Z`;
@@ -286,6 +305,7 @@ function mount(): void {
       const sel = b.id === selectedId;
       const pass = isPassFilter(b.type);
       const metric = pass ? typeLabel(b.type) : fmtDb(b.gain);
+
       return `<g class="eq-node${sel ? " selected" : ""}${pass ? " pass" : ""}" data-band-id="${esc(b.id)}" transform="translate(${x.toFixed(2)} ${y.toFixed(2)})" tabindex="0" role="button" aria-label="${esc(fmtFreq(b.freq))}, ${esc(metric)}, Q ${b.q}, ${typeLabel(b.type)}">
         <title>${esc(fmtFreq(b.freq))} · ${esc(metric)} · Q ${b.q}</title>
         <circle class="eq-node-hit" r="15"/><circle class="eq-node-ring" r="${sel ? 8.5 : 6.5}"/><circle class="eq-node-core" r="${sel ? 3.7 : 2.8}"/>
@@ -347,19 +367,23 @@ function mount(): void {
 
   const drawSpectrum = (frame: SparkleSpectrumFrame) => {
     const c = spectrumCtx;
+
     if (!c) return;
     syncViewMetrics();
     const now = frame.timestamp || performance.now();
     refreshPalette(now);
     const r = spectrumCanvas.getBoundingClientRect();
+
     if (r.width < 2 || r.height < 2) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const cw = Math.max(1, Math.round(r.width * dpr));
     const ch = Math.max(1, Math.round(r.height * dpr));
+
     if (spectrumCanvas.width !== cw || spectrumCanvas.height !== ch) {
       spectrumCanvas.width = cw;
       spectrumCanvas.height = ch;
     }
+
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     c.clearRect(0, 0, r.width, r.height);
     const dt = spectrumLastAt ? clamp((now - spectrumLastAt) / 1000, 0.001, 0.12) : 0.016;
@@ -371,21 +395,27 @@ function mount(): void {
     const top = PLOT_T * sy;
     const bottom = (PLOT_T + PLOT_H) * sy;
     const bins = frame.bins;
+
     if (!bins.length) { clearSpectrum(); return; }
+
     const binHz = frame.sampleRate / 2 / bins.length;
     const active = frame.active && !!player.current && !player.paused;
     const fader = player.muted ? 0 : player.volume;
     const faderDb = fader > 0 ? 20 * Math.log10(fader) : -Infinity;
+
     for (let i = 0; i < SPECTRUM_POINTS; i++) {
       const freq = EQ_MIN_FREQ * (EQ_MAX_FREQ / EQ_MIN_FREQ) ** (i / (SPECTRUM_POINTS - 1));
+
       if (!active || !(binHz > 0)) {
         spectrumLoud[i] *= Math.exp(-dt * 8);
         spectrumPeak[i] *= Math.exp(-dt * 1.8);
         continue;
       }
+
       const a = Math.max(0, Math.floor(freq * 0.92 / binHz));
       const b = Math.min(bins.length - 1, Math.ceil(freq * 1.08 / binHz));
       let amp = 0;
+
       for (let j = a; j <= b; j++) amp = Math.max(amp, bins[j] || 0);
       const sourceDb = SPECTRUM_MIN_DB + amp * (SPECTRUM_MAX_DB - SPECTRUM_MIN_DB);
       const postDb = sourceDb + spectrumEqDb[i] + faderDb;
@@ -395,11 +425,13 @@ function mount(): void {
       spectrumLoud[i] += (target - spectrumLoud[i]) * loudK;
       spectrumPeak[i] = Math.max(target, spectrumPeak[i] * Math.exp(-dt * 1.65));
     }
+
     const xAt = (i: number) => left + (i / (SPECTRUM_POINTS - 1)) * (right - left);
     const yAt = (v: number) => bottom - clamp(v, 0, 1) * (bottom - top) * 0.96;
     c.save();
     c.beginPath();
     c.moveTo(left, bottom);
+
     for (let i = 0; i < SPECTRUM_POINTS; i++) c.lineTo(xAt(i), yAt(spectrumLoud[i]));
     c.lineTo(right, bottom);
     c.closePath();
@@ -413,10 +445,13 @@ function mount(): void {
     c.strokeStyle = paletteAccent;
     c.lineWidth = 0.9;
     c.beginPath();
+
     for (let i = 0; i < SPECTRUM_POINTS; i++) {
       const x = xAt(i), y = yAt(spectrumLoud[i]);
+
       if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
     }
+
     c.stroke();
     c.globalAlpha = 0.52;
     c.strokeStyle = paletteInk;
@@ -424,10 +459,13 @@ function mount(): void {
     c.shadowColor = paletteAccent;
     c.shadowBlur = 5;
     c.beginPath();
+
     for (let i = 0; i < SPECTRUM_POINTS; i++) {
       const x = xAt(i), y = yAt(spectrumPeak[i]);
+
       if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
     }
+
     c.stroke();
     c.restore();
   };
@@ -436,6 +474,7 @@ function mount(): void {
     if (spectrumOff || !isMpv()) return;
     spectrumOff = audioSpectrum.onFrame(drawSpectrum);
   };
+
   const stopSpectrum = () => {
     spectrumOff?.();
     spectrumOff = null;
@@ -452,6 +491,7 @@ function mount(): void {
     preampNum.disabled = !ok;
     importApo.disabled = !ok;
     importGraphic.disabled = !ok;
+
     if (!ok) {
       drag = null;
       stopSpectrum();
@@ -459,8 +499,10 @@ function mount(): void {
     } else {
       host.classList.remove("is-unavailable");
       startSpectrum();
+
       if (!backendWasMpv) applyNow(true);
     }
+
     syncHead();
     backendWasMpv = ok;
   };
@@ -471,6 +513,7 @@ function mount(): void {
 
   const paintAll = () => {
     state = normalizeEqState(state);
+
     if (selectedId && !state.bands.some((b) => b.id === selectedId)) selectedId = state.bands[0]?.id ?? null;
     updateSpectrumEq();
     renderGraph();
@@ -481,6 +524,7 @@ function mount(): void {
 
   const mutate = (immediate = false) => {
     state = normalizeEqState(state);
+
     if (selectedId && !state.bands.some((b) => b.id === selectedId)) selectedId = state.bands[0]?.id ?? null;
     updateSpectrumEq();
     renderGraph();
@@ -492,8 +536,10 @@ function mount(): void {
 
   const mutateBand = (id: string, patch: Partial<EqBand>, immediate = false, enable = true) => {
     const b = state.bands.find((x) => x.id === id);
+
     if (!b) return;
     Object.assign(b, patch);
+
     if (enable) state.enabled = true;
     mutate(immediate);
   };
@@ -501,6 +547,7 @@ function mount(): void {
   const removeBand = (id: string) => {
     if (!isMpv()) return;
     const b = state.bands.find((x) => x.id === id);
+
     if (!b) return;
     state.bands = state.bands.filter((x) => x.id !== id);
     selectedId = state.bands[0]?.id ?? null;
@@ -513,6 +560,7 @@ function mount(): void {
     const r = svg.getBoundingClientRect();
     const x = (e.clientX - r.left) * VIEW_W / Math.max(1, r.width);
     const y = (e.clientY - r.top) * VIEW_H / Math.max(1, r.height);
+
     return { x, y, freq: freqForX(x), gain: dbForY(y) };
   };
 
@@ -520,16 +568,22 @@ function mount(): void {
     if (!isMpv()) return;
     e.preventDefault();
     const node = eventElement(e)?.closest<SVGGElement>("[data-band-id]");
+
     if (node?.dataset.bandId) {
       selectedId = node.dataset.bandId;
       drag = { id: selectedId, moved: false };
       svg.setPointerCapture(e.pointerId);
       paintAll();
+
       return;
     }
+
     const p = plotPoint(e);
+
     if (p.x < PLOT_L || p.x > PLOT_L + PLOT_W || p.y < PLOT_T || p.y > PLOT_T + PLOT_H) return;
+
     if (state.bands.length >= EQ_MAX_BANDS) { say(`最多 ${EQ_MAX_BANDS} 个频段`, true); return; }
+
     const id = `u${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
     state.bands.push({ id, freq: p.freq, gain: p.gain, q: 1.41, type: "bell" });
     state.enabled = true;
@@ -545,6 +599,7 @@ function mount(): void {
     drag.moved = true;
     state.enabled = true;
     const b = state.bands.find((x) => x.id === drag?.id);
+
     if (!b) return;
     b.freq = clamp(p.freq, EQ_MIN_FREQ, EQ_MAX_FREQ);
     // 高通/低通只沿频率轴移动；增益字段对它们没有意义，保持 0。
@@ -557,16 +612,19 @@ function mount(): void {
     drag = null;
     applyNow(true);
   };
+
   svg.addEventListener("pointerup", endDrag);
   svg.addEventListener("pointercancel", endDrag);
   svg.addEventListener("lostpointercapture", endDrag);
 
   svg.addEventListener("dblclick", (e) => {
     const node = eventElement(e)?.closest<SVGGElement>("[data-band-id]");
+
     if (node?.dataset.bandId) { e.preventDefault(); removeBand(node.dataset.bandId); }
   });
   svg.addEventListener("contextmenu", (e) => {
     const node = eventElement(e)?.closest<SVGGElement>("[data-band-id]");
+
     if (!node?.dataset.bandId) return;
     e.preventDefault();
     removeBand(node.dataset.bandId);
@@ -575,9 +633,11 @@ function mount(): void {
     if (!isMpv()) return;
     const node = eventElement(e)?.closest<SVGGElement>("[data-band-id]");
     const id = node?.dataset.bandId;
+
     if (!id) return;
     e.preventDefault();
     const b = state.bands.find((x) => x.id === id);
+
     if (!b) return;
     selectedId = id;
     b.q = clamp(b.q * (e.deltaY > 0 ? 0.92 : 1.08), EQ_MIN_Q, EQ_MAX_Q);
@@ -587,7 +647,9 @@ function mount(): void {
 
   presetSelect.onchange = () => {
     const preset = EQ_PRESETS.find((p) => p.id === presetSelect.value);
+
     if (!preset) { syncPreset(); return; }
+
     state = { enabled: true, preamp: state.preamp, bands: presetBands(preset) };
     selectedId = state.bands.find((b) => b.freq >= 1000)?.id ?? state.bands[0]?.id ?? null;
     mutate(true);
@@ -599,6 +661,7 @@ function mount(): void {
     state.enabled = !state.enabled;
     mutate(true);
   };
+
   preamp.addEventListener("input", () => {
     if (!isMpv()) return;
     state.preamp = Number(preamp.value);
@@ -619,10 +682,12 @@ function mount(): void {
     el.addEventListener("change", () => {
       if (!isMpv() || el.value.trim() === "") return;
       const n = Number(el.value);
+
       if (!Number.isFinite(n)) return;
       fn(n);
     });
   };
+
   commitNumeric(freq, (n) => { if (selectedId) mutateBand(selectedId, { freq: n }); });
   commitNumeric(gain, (n) => { if (selectedId) mutateBand(selectedId, { gain: n }); });
   commitNumeric(q, (n) => { if (selectedId) mutateBand(selectedId, { q: n }); });
@@ -631,12 +696,21 @@ function mount(): void {
     if (!selectedId) return;
     const current = selected();
     const nextType = type.value;
+
     if (!isEqBandType(nextType)) return;
     const enteringPass = isPassFilter(nextType) && (!current || !isPassFilter(current.type));
-    mutateBand(selectedId, isPassFilter(nextType)
-      ? { type: nextType, gain: 0, ...(enteringPass ? { q: 0.707 } : {}) }
-      : { type: nextType });
+
+    if (isPassFilter(nextType)) {
+      const patch: Partial<EqBand> = { type: nextType, gain: 0 };
+
+      if (enteringPass) patch.q = 0.707;
+
+      mutateBand(selectedId, patch);
+    } else {
+      mutateBand(selectedId, { type: nextType });
+    }
   };
+
   $("#eq-delete").addEventListener("click", () => { if (selectedId) removeBand(selectedId); });
 
   $("#eq-flat").addEventListener("click", () => {
@@ -653,15 +727,19 @@ function mount(): void {
     fileInput.value = "";
     fileInput.click();
   };
+
   importGraphic.onclick = () => {
     if (!isMpv()) return;
     importMode = "graphic";
     fileInput.value = "";
     fileInput.click();
   };
+
   fileInput.onchange = async () => {
     const file = fileInput.files?.[0];
+
     if (!file) return;
+
     try {
       const text = await file.text();
       const result = parseApoPreset(text, importMode);
@@ -669,8 +747,11 @@ function mount(): void {
       selectedId = state.bands.find((b) => b.freq >= 1000)?.id ?? state.bands[0]?.id ?? null;
       mutate(true);
       const bits: string[] = [];
+
       if (result.graphicPoints) bits.push(`${result.graphicPoints} 个 GraphicEQ 频点`);
+
       if (result.filters) bits.push(`${result.filters} 个参数滤波`);
+
       if (result.preamp) bits.push(`Preamp ${fmtDb(result.preamp)}`);
       say(`已导入 ${bits.join(" · ") || file.name}${result.warnings.length ? `；${result.warnings[0]}` : ""}`, result.warnings.length > 0);
     } catch (e) {
@@ -683,6 +764,7 @@ function mount(): void {
   // —— 浮窗拖动：只在标题栏起手；按钮/开关不参与，避免点关闭时窗口先被拖走 ——
   const head = $<HTMLElement>("[data-eq-drag]");
   let winDrag: { dx: number; dy: number; pointerId: number } | null = null;
+
   const clampPosition = () => {
     if (!panel) return;
     const r = panel.getBoundingClientRect();
@@ -692,6 +774,7 @@ function mount(): void {
     panel.style.top = `${clamp(parseFloat(panel.style.top) || r.top, 8, maxY)}px`;
     panel.style.transform = "none";
   };
+
   head.addEventListener("pointerdown", (e) => {
     if (eventElement(e)?.closest("button, input, select")) return;
     const r = host.getBoundingClientRect();
@@ -709,26 +792,32 @@ function mount(): void {
     host.style.left = `${clamp(e.clientX - winDrag.dx, 8, Math.max(8, window.innerWidth - r.width - 8))}px`;
     host.style.top = `${clamp(e.clientY - winDrag.dy, 8, Math.max(8, window.innerHeight - r.height - 8))}px`;
   });
+
   const stopWinDrag = (e?: PointerEvent) => {
     if (!winDrag) return;
+
     if (e && e.pointerId !== winDrag.pointerId) return;
     winDrag = null;
     host.classList.remove("dragging");
   };
+
   head.addEventListener("pointerup", stopWinDrag);
   head.addEventListener("pointercancel", stopWinDrag);
   head.addEventListener("lostpointercapture", () => stopWinDrag());
 
   const offPlayer = player.on(() => {
     const now = player.backend === "mpv";
+
     if (now !== backendWasMpv) syncAvailability();
     else host.classList.toggle("is-unavailable", !now);
   });
+
   const onResize = () => {
     clampPosition();
     syncViewMetrics();
     renderGraph();
   };
+
   window.addEventListener("resize", onResize);
 
   const close = () => {
@@ -736,6 +825,7 @@ function mount(): void {
     destroyed = true;
     window.clearTimeout(applyTimer);
     window.clearTimeout(sayTimer);
+
     if (isMpv()) void player.setEqualizer(state);
     stopSpectrum();
     offPlayer();
@@ -748,15 +838,19 @@ function mount(): void {
     // 只用定时收尾：子元素自己的进场动画 animationend 会冒泡，用它删层可能提前摘掉遮罩。
     window.setTimeout(() => el.remove(), 240);
   };
+
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") { e.preventDefault(); close(); return; }
+
     const t = eventElement(e);
+
     if ((e.key === "Delete" || e.key === "Backspace") && selectedId
       && !t?.closest("input, select, textarea, [contenteditable]")) {
       e.preventDefault();
       removeBand(selectedId);
     }
   };
+
   $<HTMLButtonElement>("#eq-close").onclick = close;
   // 真模态：点击遮罩空白处关闭，面板内部点击不冒泡成关闭。
   overlay.addEventListener("pointerdown", (e) => { if (e.target === overlay) close(); });

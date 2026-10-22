@@ -6,6 +6,7 @@ import { renderSongRows } from "../lib/songs";
 import type { Song } from "../player";
 import type { HotkeyResp, SearchAlbum, SearchResp, SearchSinger, SearchSonglist } from "./_shared";
 import { errText, h } from "./_shared";
+
 // —— 搜索页（顶部常驻搜索框的落点视图）：热搜词 + 分类标签（歌曲/歌手/专辑/歌单） ——
 const SEARCH_TABS = [
   { type: "0", label: "歌曲" },
@@ -30,12 +31,15 @@ export default async function searchView(root: HTMLElement, q: URLSearchParams) 
       location.hash = `#/search?keyword=${encodeURIComponent(kw)}&type=${b.dataset.type}`;
     };
   });
+
   if (!kw) {
     // 空关键词：展示热搜词，点一个即搜
     box.innerHTML = "";
+
     try {
       const keys = ((await api<HotkeyResp>("/search/hotkey"))?.vec_hotkey ?? [])
         .map((x) => x.title || x.query).filter((k): k is string => !!k);
+
       box.innerHTML = keys.length
         ? `<div class="hot-chips">${keys.map((k) => `<button class="chip" type="button">${escHtml(k)}</button>`).join("")}</div>`
         : `<div class="muted">输入关键词后回车即可搜索</div>`;
@@ -48,31 +52,43 @@ export default async function searchView(root: HTMLElement, q: URLSearchParams) 
     } catch (e) {
       box.innerHTML = `<div class="muted">${errText(e)}</div>`;
     }
+
     return;
   }
+
   const go = (page: number) => {
     location.hash = `#/search?keyword=${encodeURIComponent(kw)}&type=${tab.type}&page=${page}`;
   };
+
   const page = Math.max(1, parseInt(q.get("page") || "1", 10) || 1);
+
   try {
     const d = (await api<SearchResp>(`/search?keyword=${encodeURIComponent(kw)}&type=${tab.type}&page=${page}&num=30`)) ?? {};
     box.innerHTML = "";
+
     // 注意：响应各分类字段恒在（其余类为空数组），必须按当前 tab 显式取，不能用 ?? 链
     if (tab.type === "0") {
       const list = (d.song ?? []) as (Song & { album?: { name?: string } })[];
+
       if (!list.length) { box.innerHTML = `<div class="muted">没有找到相关内容</div>`; return; }
+
       // 高亮标签兜底剥离：后端 highlight=true，name 里可能带 <em>
       for (const s of list) {
         s.name = stripEm(s.name);
+
         for (const g of s.singer ?? []) g.name = stripEm(g.name);
+
         if (s.album) s.album.name = stripEm(s.album.name);
       }
+
       // 双击 = 立即插队播放：马上切过去播这一首（只带这一首进队列，其余搜索结果不入列）
       renderSongRows(box, list, { showAlbum: true, onPlay: (s) => playNowWithToast(s) });
     } else {
       const list: SearchSinger[] | SearchAlbum[] | SearchSonglist[] =
         tab.type === "1" ? d.singer ?? [] : tab.type === "2" ? d.album ?? [] : d.songlist ?? [];
+
       if (!list.length) { box.innerHTML = `<div class="muted">没有找到相关内容</div>`; return; }
+
       if (tab.type === "1") {
         box.classList.add("grid");
         box.innerHTML = (list as SearchSinger[]).map((x) => `<a class="card" href="#/singer?mid=${encodeURIComponent(x.mid ?? "")}&name=${encodeURIComponent(stripEm(x.name) || "歌手")}">
@@ -92,30 +108,38 @@ export default async function searchView(root: HTMLElement, q: URLSearchParams) 
           <div class="sub">${x.nickname ? stripEm(x.nickname) + " 创建" : ""}${x.songnum ? ` · ${x.songnum} 首` : ""}</div></a>`).join("");
       }
     }
+
     // —— 分页栏：上一页 / 页码（当前 ±1，两端补齐，间隔省略）/ 下一页 ——
     // 页大小与上面请求的 num=30 严格一致；total_num 缺失时以 nextpage 兜底保证能往后翻。
     const total: number = d.total_num ?? 0;
     const hasNext = !!d.nextpage && d.nextpage !== -1;
     const totalPages = Math.max(1, Math.ceil(total / 30) || 1, hasNext ? page + 1 : 1);
+
     if (page > 1 || totalPages > 1) {
       const pager = h("div", "pager");
+
       const mk = (label: string, p: number, cls: string, disabled = false) => {
         const b = h("button", cls, label) as HTMLButtonElement;
         b.type = "button";
         b.disabled = disabled;
+
         if (!disabled) b.onclick = () => go(p);
+
         return b;
       };
+
       pager.append(mk("上一页", page - 1, "pg-btn", page <= 1));
       // 页码窗口：1、末页恒显；当前页前后各留一页；断档处放省略号
       const set = new Set<number>([1, totalPages, page - 1, page, page + 1]);
       const nums = [...set].filter((n) => n >= 1 && n <= totalPages).sort((a, b) => a - b);
       let prev = 0;
+
       for (const n of nums) {
         if (prev && n - prev > 1) pager.append(h("span", "pg-dots", "…"));
         pager.append(mk(String(n), n, `pg-btn${n === page ? " sel" : ""}`));
         prev = n;
       }
+
       pager.append(mk("下一页", page + 1, "pg-btn", !hasNext && page >= totalPages));
       box.append(pager);
     }

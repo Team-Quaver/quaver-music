@@ -15,13 +15,16 @@ export type ListenReportTarget = {
 };
 
 type ReportResponse = { ok?: boolean; reason?: string };
+
 type Sender = (body: Record<string, unknown>, keepalive: boolean) => Promise<ReportResponse>;
+
 type Clock = () => number;
 
 type Job = { target: ListenReportTarget; seconds: number };
 
 const CHUNK_SECONDS = 60;
 const MIN_TAIL_SECONDS = 5; // 连点切歌时别把 1-4 秒碎片打成上报洪水
+
 // 事件循环被短暂挂起时不把整段空白算成听歌；正常 time 事件远密于此。
 const MAX_SAMPLE_SECONDS = 5;
 const RETRY_BASE_MS = 30_000;
@@ -59,11 +62,14 @@ export class ListenTimeReporter {
 
   setTarget(target: ListenReportTarget | null): void {
     this.sample();
+
     if (sameTarget(this.target, target)) return;
     this.deactivate();
+
     if (this.target && this.pending >= MIN_TAIL_SECONDS) {
       this.enqueue(this.target, this.pending);
     }
+
     this.pending = 0;
     this.target = target;
     this.drain();
@@ -74,12 +80,15 @@ export class ListenTimeReporter {
     this.playing = playing;
     const shouldRun = playing && !!this.target && this.enabled();
     this.active = shouldRun;
+
     if (!shouldRun) {
       this.lastAt = null;
       this.stopTimer();
       this.drain();
+
       return;
     }
+
     this.lastAt = this.now();
     this.startTimer();
   }
@@ -92,6 +101,7 @@ export class ListenTimeReporter {
       this.lastAt = this.now();
       this.startTimer();
     }
+
     this.sample();
     this.drain();
   }
@@ -99,9 +109,11 @@ export class ListenTimeReporter {
   /** 切歌、停止、页面退出前调用；keepalive=true 用于 pagehide。 */
   flush(keepalive = false): void {
     this.sample();
+
     if (this.target && this.pending >= MIN_TAIL_SECONDS) {
       this.enqueue(this.target, Math.floor(this.pending));
     }
+
     this.pending = 0;
     this.drain(keepalive);
   }
@@ -122,25 +134,33 @@ export class ListenTimeReporter {
 
   private sample(): void {
     const now = this.now();
+
     if (!this.enabled()) {
       this.pending = 0;
       this.queue = [];
       this.active = false;
       this.lastAt = now;
       this.stopTimer();
+
       return;
     }
+
     if (!this.active || !this.target) {
       this.lastAt = now;
+
       return;
     }
+
     if (this.lastAt === null) {
       this.lastAt = now;
+
       return;
     }
+
     const elapsed = Math.min(MAX_SAMPLE_SECONDS, Math.max(0, now - this.lastAt) / 1_000);
     this.lastAt = now;
     this.pending += elapsed;
+
     while (this.pending >= CHUNK_SECONDS) {
       this.pending -= CHUNK_SECONDS;
       this.enqueue(this.target, CHUNK_SECONDS);
@@ -149,6 +169,7 @@ export class ListenTimeReporter {
 
   private enqueue(target: ListenReportTarget, seconds: number): void {
     const whole = Math.floor(seconds);
+
     if (whole < MIN_TAIL_SECONDS || !this.enabled()) return;
     this.queue.push({ target, seconds: whole });
   }
@@ -156,6 +177,7 @@ export class ListenTimeReporter {
   private drain(keepalive = false): void {
     if (this.sending || !this.queue.length || !this.enabled()) return;
     const now = this.now();
+
     if (!keepalive && now < this.retryAt) return;
     const job = this.queue.shift()!;
     this.sending = true;
@@ -165,14 +187,17 @@ export class ListenTimeReporter {
           // 上游明确拒绝（未登录/无权限/凭证失效）不重放，避免同一段无限撞墙。
           this.failures = 0;
           this.retryAt = 0;
+
           return;
         }
+
         this.failures = 0;
         this.retryAt = 0;
       })
       .catch((err: any) => {
         if (keepalive) return;
         const status = Number(err?.status ?? 0);
+
         // 401（未登录）/403/422 这类明确拒绝重试也不会变成功；408/429 与 5xx 继续退避。
         if (status >= 400 && status < 500 && status !== 408 && status !== 429) return;
         this.failures++;
@@ -182,6 +207,7 @@ export class ListenTimeReporter {
       })
       .finally(() => {
         this.sending = false;
+
         if (this.queue.length) this.drain();
       });
   }
@@ -206,7 +232,9 @@ export class ListenTimeReporter {
 
 function sameTarget(a: ListenReportTarget | null, b: ListenReportTarget | null): boolean {
   if (a === b) return true;
+
   if (!a || !b) return false;
+
   return a.mid === b.mid && a.songId === b.songId && a.streamToken === b.streamToken;
 }
 

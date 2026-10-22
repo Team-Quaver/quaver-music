@@ -30,9 +30,12 @@ const DEFAULT_EQUALIZER = JSON.stringify(defaultEqState());
 function isEqConfigValue(v: string): boolean {
   try {
     const parsed = JSON.parse(v) as { bands?: unknown; preamp?: unknown };
+
     if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.bands)) return false;
+
     if (parsed.bands.length > EQ_MAX_BANDS) return false;
     normalizeEqState(parsed);
+
     return true;
   } catch { return false; }
 }
@@ -45,15 +48,21 @@ export type Env = NodeJS.ProcessEnv;
 /** 配置目录（跨平台）。env 可注入，便于测试与主进程显式下发给 sidecar。 */
 export function configDir(env: Env = process.env): string {
   const override = String(env.QUAVER_CONFIG_DIR ?? "").trim();
+
   if (override) return resolve(override);
+
   if (process.platform === "win32") {
     const appData = String(env.APPDATA ?? "").trim() || join(homedir(), "AppData", "Roaming");
+
     return join(appData, APP_DIR_NAME);
   }
+
   if (process.platform === "darwin") {
     return join(homedir(), "Library", "Application Support", APP_DIR_NAME);
   }
+
   const xdg = String(env.XDG_CONFIG_HOME ?? "").trim();
+
   return join(xdg || join(homedir(), ".config"), APP_DIR_NAME_POSIX);
 }
 
@@ -67,20 +76,24 @@ export const logFile = (env: Env = process.env): string => join(configDir(env), 
 export function ensureConfigDir(env: Env = process.env): string {
   const dir = configDir(env);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
+
   return dir;
 }
 
 // —— INI ——
 
 const SECTION_RE = /^\s*\[([^\]]+)]\s*$/;
+
 // key 允许到 "=" 之前；# / ; 开头的整行是注释，不参与匹配
 const KV_RE = /^\s*([^#;=\s][^=]*?)\s*=\s*(.*?)\s*$/;
+
 // 行内注释（INI 惯例）：值后面跟「空白 + #/;」开始的部分。本项目的取值域里不含这两个字符，
 // 所以按惯例切分不会有歧义；改值时原注释会跟着那一行一起保留。
 const INLINE_RE = /\s[#;]/;
 
 function splitInline(raw: string): { value: string; comment: string } {
   const i = raw.search(INLINE_RE);
+
   return i < 0 ? { value: raw, comment: "" } : { value: raw.slice(0, i).trim(), comment: raw.slice(i) };
 }
 
@@ -96,9 +109,12 @@ export class IniDoc {
 
   static parse(text: unknown): IniDoc {
     const t = String(text ?? "").replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+
     if (!t) return new IniDoc([]);
     const lines = t.split("\n");
+
     if (lines.length && lines[lines.length - 1] === "") lines.pop(); // 结尾换行不算一行
+
     return new IniDoc(lines);
   }
 
@@ -110,12 +126,17 @@ export class IniDoc {
   sectionRange(name: string): [number, number] {
     const want = String(name).toLowerCase();
     let start = -1;
+
     for (let i = 0; i < this.lines.length; i++) {
       const m = SECTION_RE.exec(this.lines[i]);
+
       if (!m) continue;
+
       if (start >= 0) return [start, i];
+
       if (m[1].trim().toLowerCase() === want) start = i;
     }
+
     return start >= 0 ? [start, this.lines.length] : [-1, -1];
   }
 
@@ -126,44 +147,59 @@ export class IniDoc {
 
   get(section: string, key: string): string | undefined {
     const [s, e] = this.sectionRange(section);
+
     if (s < 0) return undefined;
     const want = String(key).toLowerCase();
+
     for (let i = s + 1; i < e; i++) {
       const m = KV_RE.exec(this.lines[i]);
+
       if (m && m[1].toLowerCase() === want) return splitInline(m[2]).value;
     }
+
     return undefined;
   }
 
   /** 只在键已存在时改写取值，返回是否命中（用于「不主动把默认值写进用户文件」）。 */
   setExisting(section: string, key: string, value: unknown): boolean {
     const [s, e] = this.sectionRange(section);
+
     if (s < 0) return false;
     const want = String(key).toLowerCase();
+
     for (let i = s + 1; i < e; i++) {
       const m = KV_RE.exec(this.lines[i]);
+
       if (m && m[1].toLowerCase() === want) {
         const { comment } = splitInline(m[2]); // 手写在行尾的注释跟着走，别被改值抹掉
         this.lines[i] = `${m[1].trim()}=${String(value ?? "")}${comment}`;
+
         return true;
       }
     }
+
     return false;
   }
 
   /** 写值：命中就改那一行；段内没有就追加到段尾（跳过段尾空行）；段不存在就补段头。 */
   set(section: string, key: string, value: unknown): this {
     const text = String(value ?? "");
+
     if (this.setExisting(section, key, text)) return this;
     const [s, e] = this.sectionRange(section);
+
     if (s >= 0) {
       let at = e;
+
       while (at - 1 > s && this.lines[at - 1].trim() === "") at--;
       this.lines.splice(at, 0, `${key}=${text}`);
+
       return this;
     }
+
     if (this.lines.length && this.lines[this.lines.length - 1].trim() !== "") this.lines.push("");
     this.lines.push(`[${section}]`, `${key}=${text}`);
+
     return this;
   }
 
@@ -171,15 +207,20 @@ export class IniDoc {
   values(): Record<string, string> {
     const out: Record<string, string> = {};
     let cur: string | null = null;
+
     for (const line of this.lines) {
       const sm = SECTION_RE.exec(line);
+
       if (sm) {
         cur = sm[1].trim();
         continue;
       }
+
       const m = KV_RE.exec(line);
+
       if (m && cur) out[`${cur}.${m[1].trim()}`] = splitInline(m[2]).value;
     }
+
     return out;
   }
 }
@@ -197,15 +238,20 @@ const isTheme = (v: string): boolean => ["dark", "light", "follow-system"].inclu
 const HK_KEY = new RegExp(
   "^(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Left|Right|Up|Down|Space|Tab|Enter|Escape|Backspace|Delete|Insert|Home|End|PageUp|PageDown|Minus|Equal|Comma|Period)$",
 );
+
 const HK_MOD = /^(Ctrl|Alt|Shift|Super)$/;
+
 // 导出给 global-hotkeys.ts：Electron 的 globalShortcut 没有注册前的格式探测 API，
 // shortcut 模式的「格式不合法」判定与 schema 值域用同一个函数，保证两侧不漂移。
 export const isHotkey = (v: unknown): boolean => {
   const s = String(v ?? "").trim();
+
   if (!s) return true; // 空 = 停用
   const parts = s.split("+");
+
   if (parts.some((p) => p === "")) return false;
   const key = parts.pop() ?? ""; // 上面已排掉空段，此处必有键名
+
   return HK_KEY.test(key) && parts.every((m) => HK_MOD.test(m)) && new Set(parts).size === parts.length;
 };
 
@@ -232,6 +278,7 @@ const isLocalPathValue = (v: string): boolean =>
  *  渲染层 src/lib/ttml.ts 的同名判据与此**同规**（输入框即时反馈 vs 写盘拦截两个消费点，改一处要改两处）。 */
 export function isTtmlDatabaseUrlTemplate(v: string): boolean {
   const s = String(v ?? "").trim();
+
   return s.length <= 512 && s.includes("%s") && /^https?:\/\/[^\s"'<>\\#|]+$/.test(s);
 }
 
@@ -896,14 +943,18 @@ export const SCHEMA: SectionSpec[] = [
 /** 拍平为 { "Section.Key": { def, valid, doc } }。 */
 export function schemaIndex(): Record<string, KeySpec> {
   const idx: Record<string, KeySpec> = {};
+
   for (const sec of SCHEMA) for (const k of sec.keys) idx[`${sec.section}.${k.key}`] = k;
+
   return idx;
 }
 
 /** 默认值表 { "Section.Key": default }。 */
 export function defaults(): Record<string, string> {
   const out: Record<string, string> = {};
+
   for (const sec of SCHEMA) for (const k of sec.keys) out[`${sec.section}.${k.key}`] = k.def;
+
   return out;
 }
 
@@ -922,15 +973,19 @@ export function template(): string {
     "# 磁盘上不留明文；拿不到密钥管理器时只驻内存，见 [Security] 段。",
     "#",
   ];
+
   const body: string[] = [];
+
   for (const sec of SCHEMA) {
     if (body.length) body.push("");
     body.push(`[${sec.section}]`);
+
     for (const k of sec.keys) {
       if (k.doc) for (const line of k.doc) body.push(`# ${line}`);
       body.push(`${k.key}=${k.def}`);
     }
   }
+
   return head.concat(body).join("\n") + "\n";
 }
 
@@ -940,11 +995,13 @@ function writeAtomic(file: string, text: string): void {
   const dir = dirname(file);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = join(dir, `.${basename(file)}.${process.pid}.tmp`);
+
   try {
     writeFileSync(tmp, text, { encoding: "utf8", mode: 0o600 });
     renameSync(tmp, file);
   } catch (e) {
     try { unlinkSync(tmp); } catch {}
+
     throw e;
   }
 }
@@ -952,16 +1009,20 @@ function writeAtomic(file: string, text: string): void {
 /** 读配置；文件不存在时写入模板。返回 IniDoc。 */
 export function readDoc(env: Env = process.env): IniDoc {
   const file = configFile(env);
+
   if (!existsSync(file)) {
     let doc: IniDoc;
+
     try {
       writeAtomic(file, template());
       doc = IniDoc.parse(template());
     } catch {
       doc = IniDoc.parse(template()); // 只读文件系统（只读挂载/权限不足）：内存里照样能用
     }
+
     return doc;
   }
+
   try {
     return IniDoc.parse(readFileSync(file, "utf8"));
   } catch {
@@ -977,15 +1038,20 @@ export function readValues(env: Env = process.env): { values: Record<string, str
   const idx = schemaIndex();
   const values = defaults();
   const warnings: string[] = [];
+
   for (const [k, v] of Object.entries(readDoc(env).values())) {
     const spec = idx[k];
+
     if (!spec) continue; // 用户自加的键：留在文件里，但不进运行时配置
+
     if (!spec.valid(v)) {
       warnings.push(`${k}=${v} 不合法，已回落默认值 ${spec.def}`);
       continue;
     }
+
     values[k] = v;
   }
+
   return { values, warnings };
 }
 
@@ -994,20 +1060,26 @@ export function writeValues(patch: Record<string, unknown>, env: Env = process.e
   const idx = schemaIndex();
   const doc = readDoc(env);
   const written: string[] = [];
+
   for (const [k, v] of Object.entries(patch ?? {})) {
     const spec = idx[k];
+
     if (!spec) continue;
     const text = String(v ?? "");
+
     if (!spec.valid(text)) continue;
     doc.set(k.slice(0, k.indexOf(".")), k.slice(k.indexOf(".") + 1), text);
     written.push(k);
   }
+
   if (written.length) writeAtomic(configFile(env), doc.toString());
+
   return written;
 }
 
 /** 用模板重建配置文件（旧的会被整体替换）。 */
 export function resetConfig(env: Env = process.env): Record<string, string> {
   writeAtomic(configFile(env), template());
+
   return readValues(env).values;
 }

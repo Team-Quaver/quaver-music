@@ -41,11 +41,14 @@ export function presetBands(preset: EqPreset): EqBand[] {
 /** 当前曲线是否正好等于某个内置预设（UI 用它把下拉回写成对应名称，否则显示「自定义」）。 */
 export function matchPreset(bands: readonly EqBand[]): EqPreset | null {
   if (bands.length !== EQ_PRESET_FREQS.length) return null;
+
   for (const preset of EQ_PRESETS) {
     if (preset.gains.every((gain, i) => {
       const b = bands[i];
+
       return b.freq === EQ_PRESET_FREQS[i] && b.gain === gain && b.q === EQ_PRESET_Q && b.type === "bell";
     })) return preset;
   }
+
   return null;
 }

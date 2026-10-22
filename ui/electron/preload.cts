@@ -15,7 +15,9 @@ contextBridge.exposeInMainWorld("quaverCSD", {
   },
   onFullscreen: (cb: (on: boolean) => void) => {
     const listener = (_e: Electron.IpcRendererEvent, on: unknown) => { try { cb(!!on); } catch (err) { console.warn("fullscreen event failed", err); } };
+
     ipcRenderer.on("quaver:fullscreen-state", listener);
+
     return () => ipcRenderer.removeListener("quaver:fullscreen-state", listener);
   },
   // 焦点内热键 Ctrl+Q：真退出（主进程 before-quit 已置位，不会撞「缩回托盘」的 close 拦截）
@@ -86,10 +88,13 @@ contextBridge.exposeInMainWorld("quaverDesktopLyrics", {
 // 静态 import 提升让任何 await 都排在它们之后 —— 异步取配置会让启动期全落在默认值上。
 // 主进程负责平台路径解析 / 值域校验 / 原子落盘与权限，渲染层只认 "Section.Key" → 字符串。
 let configBoot: { ok: boolean; crotchet?: boolean; redflag?: boolean } = { ok: false };
+
 try { configBoot = ipcRenderer.sendSync("quaver:config-sync") || configBoot; } catch { /* 壳层没起 handler：走默认值 */ }
+
 // Crotchet 调试模式（QUAVER_CROTCHET=1）：开关随 config-sync 快照下发，渲染层据此
 // 跳过本地插件安装的 5 秒警告弹窗（主进程永远是真正的事实源，这里只是搬运）。
 contextBridge.exposeInMainWorld("quaverCrotchet", configBoot.crotchet === true);
+
 // Sparkle 安全模式（QUAVER_REDFLAG=1）：主进程读环境变量后随 config-sync 下发；渲染层的加载
 // 策略（src/sparkle/policy.ts）据此只放行预装插件。浏览器 dev 没有 preload → 恒为 false。
 contextBridge.exposeInMainWorld("quaverRedflag", configBoot.redflag === true);

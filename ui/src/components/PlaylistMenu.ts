@@ -36,11 +36,14 @@ export interface PlaylistMenuOptions {
  *  歌单可能超过一页，只拉首页会把大歌单截成「只播前 100 首」。失败抛给调用方。 */
 async function fetchPlaylistSongs(id: number | string): Promise<Song[]> {
   const songs: Song[] = [];
+
   for (let page = 1; ; page++) {
     const d = await api<{ songs?: Song[]; hasmore?: boolean }>(`/songlist/${id}/detail?page=${page}&num=100`);
     songs.push(...(d?.songs ?? []));
+
     if (!d?.hasmore || !(d?.songs ?? []).length) break;
   }
+
   return songs;
 }
 
@@ -51,6 +54,7 @@ async function fetchSongsOrComplain(fetchSongs: () => Promise<Song[]>): Promise<
     return await fetchSongs();
   } catch (e) {
     toast(`取歌失败：${e instanceof Error ? e.message : String(e)}`, "err");
+
     return null;
   }
 }
@@ -59,8 +63,11 @@ async function fetchSongsOrComplain(fetchSongs: () => Promise<Song[]>): Promise<
  *  普通歌单与系统虚拟歌单（每日 30 首 / 我喜欢）都落到这里，差别只在取歌函数。 */
 export async function playSongsNow(title: string, fetchSongs: () => Promise<Song[]>) {
   const songs = await fetchSongsOrComplain(fetchSongs);
+
   if (!songs) return; // 取歌失败已 toast
+
   if (!songs.length) { toast("歌单为空或不可见", "err"); return; }
+
   player.playList(songs, 0);
   toast(`正在播放歌单「${title}」`);
 }
@@ -69,10 +76,15 @@ export async function playSongsNow(title: string, fetchSongs: () => Promise<Song
  *  可言，enqueueNextMany 会退化成整列起播，文案跟着变。无限电台期间先拦下，连取歌都不发。 */
 export async function playSongsNext(title: string, fetchSongs: () => Promise<Song[]>) {
   if (player.radioActive) { toast("无限电台播放中，不能插队播放歌单", "err"); return; }
+
   const songs = await fetchSongsOrComplain(fetchSongs);
+
   if (!songs) return; // 取歌失败已 toast
+
   if (!songs.length) { toast("歌单为空或不可见", "err"); return; }
+
   const wasEmpty = player.index < 0 || !player.queue.length;
+
   if (player.enqueueNextMany(songs)) {
     toast(wasEmpty ? `开始播放歌单「${title}」` : `已插队：「${title}」（${songs.length} 首排在当前曲之后）`);
   }
@@ -108,6 +120,7 @@ export function openVirtualPlaylistMenu(
       run: () => playSongsNext(title, fetchSongs),
     },
   ];
+
   // Sparkle 插件追加项（SparkleMenuItem 与 MenuItem 同型；异常已在 registry 侧吞掉）
   items.push(...sparklePlaylistMenuItems({ id, title, kind: "virtual", songnum: 0 }));
   openMenuAt(x, y, items, anchor);
@@ -130,6 +143,7 @@ export function openPlaylistMenu(
       run: () => playPlaylistNext(pl),
     },
   ];
+
   if (opts.kind === "created") {
     items.push({
       label: "删除歌单",
@@ -154,6 +168,7 @@ export function openPlaylistMenu(
       },
     });
   }
+
   // Sparkle 插件追加项：ctx 按当时那个歌单现算（函数型条目据此区分「自建 / 收藏 / 虚拟」）
   items.push(...sparklePlaylistMenuItems({
     id: String(pl.id),

@@ -26,33 +26,43 @@ export function loadSplash(
   opts: { dark: boolean; iconCandidates: string[]; log: (...args: unknown[]) => void },
 ): boolean {
   let template: string;
+
   try {
     template = readFileSync(join(HERE, "splash.html"), "utf8");
   } catch (e) {
     opts.log("[quaver] splash: 模板缺失，跳过闪屏:", String(e));
+
     return false;
   }
+
   let iconSvg = "";
+
   for (const p of opts.iconCandidates) {
     try {
       const raw = readFileSync(p, "utf8");
+
       if (raw.includes("<svg")) { iconSvg = stripSplashIconMarkup(raw); break; }
     } catch {}
   }
+
   if (!iconSvg) opts.log("[quaver] splash: 图标素材未命中，仅字标降级");
   let html: string;
+
   try {
     html = buildSplashHtml(template, { iconSvg, dark: opts.dark });
   } catch (e) {
     opts.log("[quaver] splash: 模板拼装失败，跳过闪屏:", String(e));
+
     return false;
   }
+
   // data: URL：不经 http 服务、不等 sidecar，建窗即渲染。preload 会照常注入本页（contextIsolation
   // 下只是挂 window 桥，闪屏页不用），无远端代码参与，安全面与应用页同级。
   win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
   active = true;
   startedAt = Date.now();
   opts.log("[quaver] splash loaded");
+
   return true;
 }
 
@@ -61,7 +71,9 @@ export async function dismissSplash(win: BrowserWindow): Promise<void> {
   if (!active) return;
   active = false;
   const wait = Math.max(0, startedAt + SPLASH_MIN_MS - Date.now());
+
   if (wait) await new Promise((r) => setTimeout(r, wait));
+
   try {
     await win.webContents.executeJavaScript('document.body.classList.add("closing")');
   } catch {} // 页面可能已被导航换掉：淡出没赶上也无妨，导航本身就是收场

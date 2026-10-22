@@ -68,20 +68,25 @@ export default async function guessView(root: HTMLElement) {
       title.textContent = player.radioError || "未在播放";
       artist.textContent = "";
       status.textContent = busy ? "正在为你取歌…" : "等待开始";
+
       if (lastArt) { lastArt = ""; art.replaceChildren(h("span", "", "∞")); }
+
       return;
     }
 
     // 与正在播放页共用 300 档：QQ 封面常用可用尺寸就是 T002R300x300，600 会 404 成灰块。
     const pic = coverUrl(s, 300);
+
     if (pic !== lastArt) {
       lastArt = pic;
       const img = new Image();
       img.alt = "";
       img.onerror = () => { if (lastArt === pic) art.replaceChildren(h("span", "", "∞")); };
+
       img.src = pic;
       art.replaceChildren(pic ? img : h("span", "", "∞"));
     }
+
     title.textContent = songTitle(s);
     const singers = (s.singer ?? []).map((x) => x.name).filter(Boolean).join(" / ");
     const album = s.album?.name ?? "";
@@ -95,6 +100,7 @@ export default async function guessView(root: HTMLElement) {
     } catch (e) {
       if (!disposed && root.isConnected) toast(errText(e) || "猜你喜欢暂时不可用", "err");
     }
+
     if (!disposed && root.isConnected) paint();
   };
 
@@ -106,10 +112,12 @@ export default async function guessView(root: HTMLElement) {
   // 电台主舞台属于 Content View：进入本页就收起正在播放覆盖层，不抢主区域。
   player.expanded = false;
   player.notifyPublic();
+
   if (!player.radioActive) await start();
 
   const off = player.on(paint);
   paint();
+
   return () => {
     disposed = true;
     off();

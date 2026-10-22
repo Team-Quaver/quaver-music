@@ -28,12 +28,16 @@ import { CREDENTIAL_NAME, CREDENTIAL_STORE_NAME } from "./config.ts";
 
 /** 加密存档文件名（明文 credential.json 只作为升级遗留，迁完即删）。 */
 export const STORE_NAME = CREDENTIAL_STORE_NAME;
+
 /** 升级遗留的明文档名：唯一的明文来源，迁完删除。 */
 export const LEGACY_NAME = CREDENTIAL_NAME;
+
 /** sidecar stdout 上的凭证信封前缀。前缀之外的行一律当普通日志。 */
 export const HANDOFF_PREFIX = "QCRED1 ";
+
 /** [Security] CredentialStore 的取值。没有 file —— 明文不在选项里。 */
 export const STORE_MODES = ["auto", "keyring", "memory"];
+
 /** [Security] KeyringBackend 的取值（basic = 显式要求 Chromium 那套假加密，会被校验环节否决）。 */
 export const BACKENDS = ["auto", "gnome-libsecret", "kwallet6", "kwallet5", "kwallet", "basic"];
 
@@ -54,18 +58,23 @@ export function probeKeyrings(io = {}) {
     readFile = (p) => readFileSync(p, "utf8"),
     home = homedir(),
   } = io;
+
   const names = new Set();
+
   try {
     for (const entry of readDir(procDir)) {
       if (!/^\d+$/.test(entry)) continue;
+
       try {
         names.add(readFile(join(procDir, entry, "comm")).trim());
       } catch {}
     }
   } catch {}
+
   // KWallet 的钱包库（~/.local/share/kwalletd/*.kwl）/ gnome-keyring 的 keyring 目录：
   // 有目录 = 这台机器真用过这套，比「有没有装包」更接近事实。
   const has = (p) => { try { return exists(p); } catch { return false; } };
+
   return {
     kwallet6: names.has("kwalletd6"),
     kwallet5: names.has("kwalletd5"),
@@ -88,28 +97,38 @@ const LIBSECRET_DESKTOPS = [
  */
 export function pickPasswordStore({ platform = process.platform, env = process.env, backend = "auto", probe } = {}) {
   const want = normalizeBackend(backend);
+
   if (platform !== "linux") {
     return { switchValue: null, backend: want === "auto" ? platform : want, why: "非 Linux：由系统原生机制（DPAPI / 钥匙串）提供密钥" };
   }
+
   if (want !== "auto") return { switchValue: want, backend: want, why: "配置显式指定" };
 
   const desktop = String(env.XDG_CURRENT_DESKTOP ?? env.DESKTOP_SESSION ?? "").toLowerCase();
   const version = String(env.KDE_SESSION_VERSION ?? "").trim();
   const isKde = desktop.includes("kde") || desktop.includes("plasma");
   const isLibsecret = LIBSECRET_DESKTOPS.some((d) => desktop.includes(d));
+
   if (isKde) {
     const b = version === "5" ? "kwallet5" : version === "4" ? "kwallet" : "kwallet6";
+
     return { switchValue: b, backend: b, why: `KDE 会话（KDE_SESSION_VERSION=${version || "未设"}）` };
   }
+
   if (isLibsecret) return { switchValue: "gnome-libsecret", backend: "gnome-libsecret", why: `已知走 libsecret 的桌面（${desktop}）` };
 
   // 认不出的桌面（Hyprland / sway / i3 / 自建会话…）：Chromium 会直接退 basic_text，必须我们自己挑。
   const p = probe ?? probeKeyrings();
   const where = `桌面未知（${desktop || "空"}）`;
+
   if (p.kwallet6) return { switchValue: "kwallet6", backend: "kwallet6", why: `${where}，探测到 kwalletd6 在跑` };
+
   if (p.kwallet5) return { switchValue: "kwallet5", backend: "kwallet5", why: `${where}，探测到 kwalletd5 在跑` };
+
   if (p.gnomeKeyring) return { switchValue: "gnome-libsecret", backend: "gnome-libsecret", why: `${where}，探测到 gnome-keyring-daemon 在跑` };
+
   if (p.wallets) return { switchValue: "kwallet6", backend: "kwallet6", why: `${where}，但存在 KWallet 钱包库（按 KWallet6 拉起，D-Bus 激活）` };
+
   // 兜底仍给一个真后端而不是 basic：校验环节会把 basic_text 判成不可用，最差也只是退回文件模式。
   return {
     switchValue: "gnome-libsecret",
@@ -130,17 +149,20 @@ export function evaluateKeyring({ platform = process.platform, safeStorage, requ
   const memory = (reason, backend = "none") => ({ persist: "memory", backend, reason });
 
   if (want === "memory") return memory("配置指定 CredentialStore=memory（凭证只驻内存，不落盘）");
+
   if (!safeStorage) return memory("safeStorage 不可用");
 
   let usable = false;
   let backend = "none";
   let reason = "";
+
   try {
     usable = !!safeStorage.isEncryptionAvailable();
     backend = platform === "linux" ? String(safeStorage.getSelectedStorageBackend?.() ?? "unknown") : (platform === "win32" ? "dpapi" : "keychain");
   } catch (e) {
     reason = `探测异常：${String(e)}`;
   }
+
   if (!usable) reason = reason || "isEncryptionAvailable() 为 false（密钥不可得）";
   else if (platform === "linux" && backend === "basic_text") {
     usable = false;
@@ -149,10 +171,13 @@ export function evaluateKeyring({ platform = process.platform, safeStorage, requ
     usable = false;
     reason = "app ready 前调用 / 后端未知";
   }
+
   if (usable) {
     const tail = ask !== "auto" ? `（配置要求 ${ask}）` : "";
+
     return { persist: "keyring", backend, reason: `已启用系统密钥管理器（${backend}）${tail}` };
   }
+
   return memory(`${want === "keyring" ? "CredentialStore=keyring 但不可用：" : ""}${reason}`);
 }
 
@@ -165,11 +190,13 @@ function writeAtomic(file, data) {
   const dir = dirname(file);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = join(dir, `.${basename(file)}.${process.pid}.tmp`);
+
   try {
     writeFileSync(tmp, data, { mode: 0o600 });
     renameSync(tmp, file);
   } catch (e) {
     try { unlinkSync(tmp); } catch {}
+
     throw e;
   }
 }
@@ -206,18 +233,23 @@ export class CredentialStore {
   read() {
     if (!this.usable) return null;
     let blob;
+
     try {
       blob = readFileSync(this.file);
     } catch {
       return null; // 没有存档 = 未登录，不是错误
     }
+
     try {
       const json = this.safeStorage.decryptString(blob);
       const cred = JSON.parse(json);
+
       if (!isPlainObject(cred)) throw new Error("存档不是对象");
+
       return cred;
     } catch (e) {
       this.log("[quaver] 凭证存档解不开（保留文件，按未登录处理）:", String(e));
+
       return null;
     }
   }
@@ -225,24 +257,31 @@ export class CredentialStore {
   /** 写凭证（原子写 + 0600）。失败返回 false 并记账，不抛。 */
   write(cred) {
     if (!this.usable) return false;
+
     if (!isPlainObject(cred)) return false;
+
     try {
       writeAtomic(this.file, this.safeStorage.encryptString(JSON.stringify(cred)));
+
       return true;
     } catch (e) {
       this.log("[quaver] 凭证写入失败:", String(e));
+
       return false;
     }
   }
 
   clear() {
     if (!this.usable) return false;
+
     try {
       unlinkSync(this.file);
+
       return true;
     } catch (e) {
       if (e?.code === "ENOENT") return true;
       this.log("[quaver] 凭证存档删除失败:", String(e));
+
       return false;
     }
   }
@@ -250,6 +289,7 @@ export class CredentialStore {
   /** 明文 mtime / 存档 mtime（都不存在则 0）。 */
   _mtimes() {
     const at = (p) => { try { return statSync(p).mtimeMs; } catch { return 0; } };
+
     return { legacyAt: at(this.legacy), storeAt: at(this.file) };
   }
 
@@ -264,33 +304,45 @@ export class CredentialStore {
   migrateLegacy() {
     if (!this.usable) return "skipped";
     let raw;
+
     try {
       raw = readFileSync(this.legacy, "utf8");
     } catch {
       return "none";
     }
+
     const { legacyAt, storeAt } = this._mtimes();
+
     if (storeAt && legacyAt <= storeAt) return "stale";
     let cred;
+
     try {
       cred = JSON.parse(raw.trim() || "null");
+
       if (!isPlainObject(cred)) return "failed";
     } catch {
       this.log("[quaver] credential.json 不是合法 JSON，保留原文件不迁移:", this.legacy);
+
       return "failed";
     }
+
     if (!this.write(cred)) return "failed";
     const back = this.read();
+
     if (!back || JSON.stringify(back) !== JSON.stringify(cred)) {
       this.log("[quaver] 迁移回读校验失败，保留 credential.json（存档已写入，下次再校验）");
+
       return "failed";
     }
+
     try {
       unlinkSync(this.legacy);
     } catch (e) {
       this.log("[quaver] 明文删除失败（下次启动会重迁，幂等）:", String(e));
     }
+
     this.log("[quaver] 已把明文 credential.json 迁入密钥环存档并删除明文");
+
     return "migrated";
   }
 }
@@ -305,11 +357,15 @@ export function encodeHandoff(credential) {
 /** sidecar stdout 的一行 → { credential } 或 null（不是交接行的就当普通日志）。 */
 export function decodeHandoff(line) {
   const text = String(line ?? "");
+
   if (!text.startsWith(HANDOFF_PREFIX)) return null;
   const body = text.slice(HANDOFF_PREFIX.length).trim();
+
   if (body === "null") return { credential: null };
+
   try {
     const cred = JSON.parse(body);
+
     return isPlainObject(cred) ? { credential: cred } : null;
   } catch {
     return null;
@@ -320,6 +376,7 @@ export function decodeHandoff(line) {
 export function credentialSummary(cred) {
   if (!isPlainObject(cred)) return "无凭证";
   const len = (v) => (v ? String(v).length : 0);
+
   return `musicid=${cred.musicid || "-"} musickey(${len(cred.musickey)}字符) refresh_token(${len(cred.refresh_token)}字符)`;
 }
 
@@ -328,5 +385,6 @@ export function drainLines(buf, chunk) {
   const text = buf + String(chunk ?? "");
   const parts = text.split("\n");
   const rest = parts.pop() ?? "";
+
   return { lines: parts.map((l) => l.trim()).filter(Boolean), rest };
 }

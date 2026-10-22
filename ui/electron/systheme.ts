@@ -39,6 +39,7 @@ import { spawnSync } from "node:child_process";
 
 /** 监视间隔：配色切换是低频操作，1.5s 的 stat 轮询开销可忽略（读文件只在 stat 报变时才发生） */
 const WATCH_INTERVAL_MS = 1500;
+
 /** 兜底轮询间隔。为什么不能只靠文件监视：gsettings 的值落在 dconf 库里，写入未必改文件 mtime
  *  （mmap 就地写），而且有些桌面只发 D-Bus 通知 —— 单调一次值（一次字符串比较）最不亏。 */
 const BACKSTOP_POLL_MS = 10000;
@@ -47,8 +48,10 @@ const configHome = () => process.env.XDG_CONFIG_HOME || join(homedir(), ".config
 const kdeGlobalsPath = () => join(configHome(), "kdeglobals");
 const gtkIniPaths = () => [3, 4].map((v) => join(configHome(), `gtk-${v}.0`, "settings.ini"));
 const gtkCssDirs = () => [3, 4].map((v) => join(configHome(), `gtk-${v}.0`));
+
 /** dconf 用户库：gsettings 的落盘处（GIO 的 dconf 后端写这里） */
 const dconfDbPath = () => join(configHome(), "dconf", "user");
+
 /** GTK 命名色里能代表「窗口/视图底色」的几个（GTK4 的 libadwaita 命名 + GTK3 常见的 window_bg_color） */
 const GTK_BG_KEYS = ["window_bg_color", "theme_bg_color", "view_bg_color"];
 
@@ -77,29 +80,39 @@ function readText(p: string): string {
  *  行首 # / ; 是注释，值尾的行内 # 注释一并剥掉。找不到返回空串。 */
 export function iniValue(text: string, section: string, key: string): string {
   let inSection = false;
+
   for (const raw of text.split("\n")) {
     const line = raw.trim();
+
     if (!line || line[0] === "#" || line[0] === ";") continue;
+
     if (line[0] === "[") {
       inSection = line.replace(/^\[|\]$/g, "").trim().toLowerCase() === section.toLowerCase();
       continue;
     }
+
     if (!inSection) continue;
     const eq = line.indexOf("=");
+
     if (eq <= 0) continue;
+
     if (line.slice(0, eq).trim().toLowerCase() === key.toLowerCase()) {
       return line.slice(eq + 1).split("#")[0].trim();
     }
   }
+
   return "";
 }
 
 /** "239,240,241" → 是否浅色底（Rec.709 亮度取中灰为界）。格式不合法返回 null。 */
 export function isLightRGB(triple: string): boolean | null {
   const m = /^(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})$/.exec((triple || "").trim());
+
   if (!m) return null;
   const [r, g, b] = m.slice(1).map(Number);
+
   if (r > 255 || g > 255 || b > 255) return null;
+
   return 0.2126 * r + 0.7152 * g + 0.0722 * b > 127;
 }
 
@@ -107,6 +120,7 @@ export function isLightRGB(triple: string): boolean | null {
 export function kdeTheme(text: string): "dark" | "light" | null {
   const v = iniValue(text, "Colors:Window", "BackgroundNormal") || iniValue(text, "Colors:View", "BackgroundNormal");
   const light = v ? isLightRGB(v) : null;
+
   return light === null ? null : light ? "light" : "dark";
 }
 
@@ -115,7 +129,9 @@ export function kdeTheme(text: string): "dark" | "light" | null {
 export function gtkTheme(text: string): "dark" | "light" | null {
   if (/^(true|1|yes)$/i.test(iniValue(text, "Settings", "gtk-application-prefer-dark-theme"))) return "dark";
   const name = iniValue(text, "Settings", "gtk-theme-name");
+
   if (!name) return null;
+
   return /dark/i.test(name) ? "dark" : "light";
 }
 
@@ -125,9 +141,11 @@ export function gtkTheme(text: string): "dark" | "light" | null {
 /** hex "#rrggbb" → 是否浅色底（与 isLightRGB 同一把尺：Rec.709 亮度取中灰为界）。格式不合法返回 null。 */
 export function isLightHex(hex: string): boolean | null {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(hex ?? "").trim());
+
   if (!m) return null;
   const n = parseInt(m[1], 16);
   const [r, g, b] = [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
+
   return 0.2126 * r + 0.7152 * g + 0.0722 * b > 127;
 }
 
@@ -135,8 +153,11 @@ export function isLightHex(hex: string): boolean | null {
  *  只有 'prefer-dark' / 'prefer-light' 算表态；'default'（= 没偏好）返回 null 让它继续往下问。 */
 export function parseColorScheme(raw: unknown): "dark" | "light" | null {
   const v = String(raw ?? "").trim().replace(/^['"]|['"]$/g, "");
+
   if (v === "prefer-dark") return "dark";
+
   if (v === "prefer-light") return "light";
+
   return null;
 }
 
@@ -145,9 +166,12 @@ export function parseColorScheme(raw: unknown): "dark" | "light" | null {
  *  会被它卡住，表现为整个应用假死。超时按「判不出来」处理。 */
 export function gsettingsColorScheme(opts: ProbeOpts = {}): "dark" | "light" | null {
   const run = opts.run ?? spawnSync;
+
   const r = run("gsettings", ["get", "org.gnome.desktop.interface", "color-scheme"],
     { encoding: "utf8", timeout: opts.timeoutMs ?? 2000 });
+
   if (r.error) return null;
+
   return parseColorScheme(r.stdout);
 }
 
@@ -156,12 +180,16 @@ export function gsettingsColorScheme(opts: ProbeOpts = {}): "dark" | "light" | n
  *  （noctalia / matugen / pywal / Gradience…）写的就是这几个命名色。认不出返回 null。 */
 export function gtkCssTheme(text: string): "dark" | "light" | null {
   const src = String(text ?? "");
+
   for (const key of GTK_BG_KEYS) {
     const m = new RegExp(`@define-color\\s+${key}\\s+(#[0-9a-fA-F]{6})`).exec(src);
+
     if (!m) continue;
     const light = isLightHex(m[1]);
+
     if (light !== null) return light ? "light" : "dark";
   }
+
   return null;
 }
 
@@ -169,23 +197,30 @@ export function gtkCssTheme(text: string): "dark" | "light" | null {
  *  返回路径；一份都没有返回 null。 */
 export function gtkCssNewest(dirs: string[]): string | null {
   let best = null; // { mtime, path }
+
   for (const dir of dirs) {
     let names;
+
     try { names = readdirSync(dir); } catch { continue; }
+
     for (const name of names) {
       if (!name.endsWith(".css")) continue;
       const p = join(dir, name);
       let mtime;
+
       try { mtime = statSync(p).mtimeMs; } catch { continue; }
+
       if (!best || mtime > best.mtime) best = { mtime, path: p };
     }
   }
+
   return best ? best.path : null;
 }
 
 /** 那份最新 css 判出来的深浅（认不出返回 null）。 */
 export function gtkCssThemeFromDirs(dirs: string[]): "dark" | "light" | null {
   const p = gtkCssNewest(dirs);
+
   return p ? gtkCssTheme(readText(p)) : null;
 }
 
@@ -193,22 +228,30 @@ export function gtkCssThemeFromDirs(dirs: string[]): "dark" | "light" | null {
  *  opts 全为测试注入用（默认走真实路径、真实 gsettings 与 XDG_CURRENT_DESKTOP）。 */
 export function readSystemTheme(opts: ProbeOpts = {}): "dark" | "light" | null {
   const desktop = opts.desktop ?? process.env.XDG_CURRENT_DESKTOP ?? "";
+
   // 1) KDE 会话：kdeglobals 的窗口底色（只在 KDE 会话下认账 —— 别的桌面残留一份旧 KDE 配置会把结果带偏）
   if (/(^|[^a-z])(kde|plasma)([^a-z]|$)/i.test(desktop)) {
     const kde = kdeTheme(readText(opts.kdeGlobals ?? kdeGlobalsPath()));
+
     if (kde) return kde;
   }
+
   // 2) gsettings color-scheme（GNOME / 多数现代桌面 / 不少 rice 都会写它）
   const gsettings = gsettingsColorScheme(opts);
+
   if (gsettings) return gsettings;
   // 3) 主题生成器写的 GTK 配色 css（Hyprland 这类没系统级 API 的桌面上，这份产物才是外壳真底色）
   const css = gtkCssThemeFromDirs(opts.gtkCssDirs ?? gtkCssDirs());
+
   if (css) return css;
+
   // 4) GTK settings.ini：与 Chromium 自己的判断同源，但会被钉死，只能垫底
   for (const f of opts.gtkInis ?? gtkIniPaths()) {
     const gtk = gtkTheme(readText(f));
+
     if (gtk) return gtk;
   }
+
   return null;
 }
 
@@ -222,16 +265,21 @@ export function watchSystemTheme(onChange: (theme: "dark" | "light" | null) => v
     ...gtkCssFiles(opts),
     opts.dconfDb ?? dconfDbPath(),
   ];
+
   let last = readSystemTheme(opts);
+
   const tick = () => {
     const now = readSystemTheme(opts);
+
     if (now === last) return;
     last = now;
     onChange(now);
   };
+
   for (const f of files) watchFile(f, { interval: WATCH_INTERVAL_MS }, tick);
   const timer = setInterval(tick, opts.pollMs ?? BACKSTOP_POLL_MS);
   timer.unref?.(); // 兜底轮询不许拽住事件循环（不挡应用退出）
+
   return () => {
     for (const f of files) unwatchFile(f, tick);
     clearInterval(timer);
@@ -241,11 +289,13 @@ export function watchSystemTheme(onChange: (theme: "dark" | "light" | null) => v
 /** 现有 GTK 配置目录里的全部 css（监视用；新出现的 css 由兜底轮询兜住） */
 function gtkCssFiles(opts: ProbeOpts): string[] {
   const out = [];
+
   for (const dir of opts.gtkCssDirs ?? gtkCssDirs()) {
     try {
       for (const name of readdirSync(dir)) if (name.endsWith(".css")) out.push(join(dir, name));
     } catch { /* 目录不存在 → 这个来源没有 */ }
   }
+
   return out;
 }
 
@@ -271,7 +321,9 @@ export function readMacShellTheme(opts: ProbeOpts = {}): "dark" | "light" | null
   const run = opts.run ?? spawnSync;
   // 与 gsettings 同理必须带 timeout：spawnSync 挂住 = 主进程假死
   const r = run("defaults", ["read", "-g", "AppleInterfaceStyle"], { encoding: "utf8", timeout: opts.timeoutMs ?? 2000 });
+
   if (r.error) return null;                   // 拉不起 defaults → 判不出来，别硬说成浅色
+
   return parseAppleInterfaceStyle(r.stdout);  // 退出码 1 = 键不存在 = 浅色，是有效答案
 }
 
@@ -281,13 +333,17 @@ export function readMacShellTheme(opts: ProbeOpts = {}): "dark" | "light" | null
 export function watchMacShellTheme(onChange: (theme: "dark" | "light") => void, opts: ProbeOpts = {}): () => void {
   const file = opts.globalPrefs ?? globalPrefsPath();
   let last = readMacShellTheme(opts);
+
   const tick = () => {
     const now = readMacShellTheme(opts);
+
     if (now === null || now === last) return;
     last = now;
     onChange(now);
   };
+
   watchFile(file, { interval: WATCH_INTERVAL_MS }, tick);
+
   return () => unwatchFile(file, tick);
 }
 
@@ -305,6 +361,7 @@ export function watchMacShellTheme(onChange: (theme: "dark" | "light") => void, 
 //   SystemUsesLightTheme → 任务栏 / 通知区域（**托盘就挂它上面，这才是判据**）
 //   AppsUseLightTheme    → 应用窗口底色（不是外壳，拿它判托盘就是上面那个坑的另一种写法）
 const WIN_PERSONALIZE_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
+
 /** 轮询间隔。注册表没有 mtime 可盯（watchSystemTheme 那套文件监视在这儿没有对应物），
  *  只能定时问一次 reg.exe —— 一次只读查询几毫秒，2s 一次的开销可以忽略。
  *  与 nativeTheme 的 updated 事件并存：那条路免费且立即，这条路是「Chromium 没发事件时」的兜底。 */
@@ -314,7 +371,9 @@ const WIN_WATCH_INTERVAL_MS = 2000;
  *  只看 SystemUsesLightTheme（任务栏/通知区域 = 托盘所在的那层）；0x0 = 深色外壳，0x1 = 浅色外壳。 */
 export function parseWindowsPersonalize(output: unknown): "dark" | "light" | null {
   const m = /systemuseslighttheme\s+REG_DWORD\s+0x([0-9a-fA-F]+)/i.exec(String(output ?? ""));
+
   if (!m) return null;
+
   return parseInt(m[1], 16) === 0 ? "dark" : "light";
 }
 
@@ -327,10 +386,13 @@ export function parseWindowsPersonalize(output: unknown): "dark" | "light" | nul
 export function readWindowsShellTheme(opts: ProbeOpts = {}): "dark" | "light" | null {
   if ((opts.platform ?? process.platform) !== "win32") return null;
   const run = opts.run ?? spawnSync;
+
   // 与 gsettings 同理必须带 timeout：spawnSync 挂住 = 主进程假死（这个还是 2s 一次的轮询）
   const r = run("reg.exe", ["query", opts.personalizeKey ?? WIN_PERSONALIZE_KEY],
     { encoding: "utf8", timeout: opts.timeoutMs ?? 2000 });
+
   if (r.error) return null;
+
   return parseWindowsPersonalize(r.stdout) ?? "light";
 }
 
@@ -339,15 +401,20 @@ export function readWindowsShellTheme(opts: ProbeOpts = {}): "dark" | "light" | 
  *  这里反过来：Windows 是唯一有意义的平台）。 */
 export function watchWindowsShellTheme(onChange: (theme: "dark" | "light") => void, opts: ProbeOpts = {}): () => void {
   if ((opts.platform ?? process.platform) !== "win32") return () => {};
+
   let last = readWindowsShellTheme(opts);
+
   const tick = () => {
     const now = readWindowsShellTheme(opts);
+
     if (now === null || now === last) return;
     last = now;
     onChange(now);
   };
+
   const timer = setInterval(tick, opts.pollMs ?? WIN_WATCH_INTERVAL_MS);
   timer.unref?.(); // 兜底轮询不许拽住事件循环（不挡应用退出）
+
   return () => clearInterval(timer);
 }
 
@@ -363,8 +430,10 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   show("GTK 配色 css →", cssNewest ? `${gtkCssTheme(readText(cssNewest)) ?? "认不出底色"}  [${cssNewest}]` : null);
   show("GTK settings.ini →", gtkIniPaths().map((p) => gtkTheme(readText(p))).find(Boolean) ?? null);
   const mac = process.platform === "darwin" ? readMacShellTheme() : null;
+
   if (process.platform === "darwin") show("macOS 菜单栏 →", mac);
   const win = process.platform === "win32" ? readWindowsShellTheme() : null;
+
   if (process.platform === "win32") show("Windows 系统模式 →", win);
   const verdict = readSystemTheme();
   console.log(`→ 结论                 ${verdict ?? "null（交回 Electron 自己的判断）"}`);

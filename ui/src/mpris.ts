@@ -19,6 +19,7 @@ import { coverUrl, songTitle } from "./lib/api";
 // MPRIS 的 artwork 是报给**外部**播放器的 URL：同源相对路径（本地曲目的 /api/local/cover/…）
 // 必须绝对化成应用 origin，别家播放器拿到相对路径只会画不出图。
 const absArt = (u: string) => (!u ? "" : /^https?:/i.test(u) ? u : location.origin + u);
+
 import { initFakeAudio } from "./fake-audio";
 
 type MprisBridge = {
@@ -36,12 +37,14 @@ const HEARTBEAT_MS = 5000;
 
 function currentKey(): string {
   const c = player.current;
+
   return c ? String(c._key ?? c.mid) : "";
 }
 
 function snapshot(seeked = false) {
   const c = player.current;
   const status = player.playing ? "Playing" : player.current && player.time > 0 ? "Paused" : "Stopped";
+
   return {
     v: 1,
     t: "state",
@@ -85,6 +88,7 @@ function snapshot(seeked = false) {
 /** 离散状态指纹：只有它变化才推快照（位置交给 daemon 外推） */
 function fingerprint(): string {
   const c = player.current;
+
   return [
     currentKey(),
     player.playing ? "1" : "0",
@@ -106,9 +110,12 @@ let started = false;
  *  浏览器 dev 模式不接管，避免 dev 页面抢系统媒体控件。返回值把快照喂给平台控件。 */
 function makeMediaSessionPush(): ((s: ReturnType<typeof snapshot>) => void) | null {
   if (!window.quaverMpris) return null;
+
   if (!/Windows|Macintosh/.test(navigator.userAgent)) return null; // Linux 走主进程 MPRIS
+
   if (!("mediaSession" in navigator) || typeof MediaMetadata === "undefined") return null;
   const ms = navigator.mediaSession;
+
   try {
     ms.setActionHandler("play", () => {
       if (player.paused) player.resume(); // 复用错误重试/起播语义，与 MPRIS play 一致
@@ -120,19 +127,25 @@ function makeMediaSessionPush(): ((s: ReturnType<typeof snapshot>) => void) | nu
     ms.setActionHandler("nexttrack", () => player.next());
     ms.setActionHandler("seekto", (d) => {
       const pos = d.seekTime;
+
       if (typeof pos === "number" && isFinite(pos)) player.seek(pos);
     });
   } catch (e) {
     console.warn("mediaSession action handler failed", e);
+
     return null;
   }
+
   return (s) => {
     try {
       const t = s.track;
+
       if (!t) {
         ms.playbackState = "none";
+
         return;
       }
+
       // 封面取 500px 一档：SMTC / Now Playing 显示面积比应用内封面大（无 500 时回落 300）
       const art = player.current ? absArt(coverUrl(player.current, 500)) || t.artUrl : t.artUrl;
       ms.metadata = new MediaMetadata({
@@ -145,6 +158,7 @@ function makeMediaSessionPush(): ((s: ReturnType<typeof snapshot>) => void) | nu
       ms.playbackState = s.status === "Playing" ? "playing" : "paused";
       const dur = t.durationSec ?? 0;
       const pos = s.posUs / 1e6;
+
       if (isFinite(dur) && dur > 0 && isFinite(pos) && pos >= 0) {
         ms.setPositionState({ duration: dur, position: Math.min(pos, dur), playbackRate: 1 });
       }
@@ -156,22 +170,27 @@ function makeMediaSessionPush(): ((s: ReturnType<typeof snapshot>) => void) | nu
 
 export function startMprisBridge(): void {
   const bridge = window.quaverMpris;
+
   if (!bridge || started) return;
   started = true;
 
   let lastFp = "";
   const msPush = makeMediaSessionPush();
+
   // mpv 后端下渲染层没有音频元素，Chromium 媒体会话不激活 → SMTC/Now Playing 不出现。
   // msPush 非 null 蕴含全部平台门（quaverMpris 桥 + win/mac UA + mediaSession API +
   // handler 注册成功），假音频模块免费复用这道门（详见 fake-audio.ts 头注释）。
   if (msPush) initFakeAudio();
+
   const push = (seeked = false) => {
     const s = snapshot(seeked);
+
     try {
       bridge.send(s);
     } catch (e) {
       console.warn("mpris push failed", e);
     }
+
     msPush?.(s);
   };
 
@@ -183,6 +202,7 @@ export function startMprisBridge(): void {
     const t = player.time || 0;
     const jumped = Math.abs(t - lastTime) > 2;
     lastTime = t;
+
     if (fp !== lastFp || jumped) {
       lastFp = fp;
       push(jumped);
@@ -216,35 +236,44 @@ export function startMprisBridge(): void {
         break;
       case "volume": {
         const v = Number(msg.value);
+
         if (isFinite(v)) player.setVolume(v);
         break;
       }
+
       case "setLoop": {
         const want = msg.loop;
         player.setMode(want === "Track" ? "one" : "all"); // None（顺序播放）已移除：外部请求 None 落回列表循环
         break;
       }
+
       case "setShuffle":
         if (!!msg.on !== player.shuffle) player.toggleShuffle();
         break;
       case "seek": {
         const delta = Number(msg.deltaUs) / 1e6;
+
         if (isFinite(delta)) player.seek(player.time + delta);
         break;
       }
+
       case "seekTo": {
         const pos = Number(msg.posSec);
         const tid = String(msg.trackId ?? "");
+
         // 仅当目标 trackid 对应当前曲目才跳转（mpris 语义）
         if (isFinite(pos) && (!tid || tid === trackPathOf(currentKey()))) player.seek(pos);
         break;
       }
+
       case "jump": {
         const tid = String(msg.trackId ?? "");
         const i = player.queue.findIndex((s) => trackPathOf(String(s._key ?? s.mid)) === tid);
+
         if (i >= 0) player.jump(i);
         break;
       }
+
       case "openUri":
         break; // 无 quaver:// 深链协议，忽略
       default:
@@ -260,5 +289,6 @@ export function startMprisBridge(): void {
 /** 与 electron/mpris.ts 的 trackPath 同规则；verify:mpris 会盯住两边。 */
 function trackPathOf(key: string): string {
   const safe = (key || "unknown").replace(/[^A-Za-z0-9_]/g, "_").replace(/^_+|_+$/g, "") || "unknown";
+
   return `/org/quaver/track/${safe}`;
 }

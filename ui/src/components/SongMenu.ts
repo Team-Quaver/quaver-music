@@ -55,12 +55,14 @@ const SUB_GRACE_MS = 150; // 指针离开父项后给子菜单的宽限
 // —— 提示条：菜单动作的反馈（加入歌单/复制这类没有原地视觉结果的动作）——
 let toastEl: HTMLElement | null = null;
 let toastTimer = 0;
+
 export function toast(msg: string, kind: "ok" | "err" = "ok") {
   if (!toastEl) {
     toastEl = document.createElement("div");
     toastEl.className = "toast";
     document.body.append(toastEl);
   }
+
   toastEl.textContent = msg;
   toastEl.classList.toggle("err", kind === "err");
   toastEl.classList.add("show");
@@ -71,11 +73,14 @@ export function toast(msg: string, kind: "ok" | "err" = "ok") {
 // —— 菜单层 ——
 let layer: HTMLElement | null = null;
 let panels: HTMLElement[] = [];   // 打开中的面板（0 = 顶层）
+
 /** 菜单的锚点（右键的那一行）：滚动时用它判断「谁在滚」会不会真把菜单甩脱位置 */
 let anchorEl: HTMLElement | null = null;
 let subGrace = 0;
+
 /** 子菜单请求序号：异步内容回来时只认最后一次悬停（否则快速划过父项会让旧内容落地） */
 let subSeq = 0;
+
 /** 菜单项自增 id：面板记下自己是由哪个项挂出来的，同项重复悬停就不用重建 */
 let itemSeq = 0;
 
@@ -87,6 +92,7 @@ function ensureLayer(): HTMLElement {
     layer.className = "ctx-layer";
     document.body.append(layer);
   }
+
   return layer;
 }
 
@@ -99,15 +105,18 @@ function place(panel: HTMLElement, x: number, y: number, parentItem?: HTMLElemen
   const r = panel.getBoundingClientRect();
   let left = x;
   let top = y;
+
   if (parentItem) {
     const pr = parentItem.getBoundingClientRect();
     // 优先贴父项右侧；右侧放不下就翻到左侧
     left = pr.right + SUB_GAP;
+
     if (left + r.width > window.innerWidth - VIEW_PAD) left = pr.left - r.width - SUB_GAP;
     top = pr.top - 6;
   } else if (left + r.width > window.innerWidth - VIEW_PAD) {
     left = x - r.width;
   }
+
   left = clamp(left, VIEW_PAD, Math.max(VIEW_PAD, window.innerWidth - r.width - VIEW_PAD));
   top = clamp(top, VIEW_PAD, Math.max(VIEW_PAD, window.innerHeight - r.height - VIEW_PAD));
   panel.style.left = `${Math.round(left)}px`;
@@ -116,6 +125,7 @@ function place(panel: HTMLElement, x: number, y: number, parentItem?: HTMLElemen
 
 function renderItems(panel: HTMLElement, items: MenuItem[], depth: number) {
   panel.innerHTML = "";
+
   for (const it of items) {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -135,22 +145,29 @@ function renderItems(panel: HTMLElement, items: MenuItem[], depth: number) {
     /** 展开本项的子菜单（异步内容先画「载入中…」占位） */
     const openSub = () => {
       if (!it.sub) return;
+
       if (panels[depth] !== panel) return; // 本面板已被替换/关闭
       // **同层换项**：先把比本项更深的面板收掉再挂自己的。
       // （早期版本在这里写 `panels.length !== depth + 1 → return`，本意是丢掉过期异步结果，
       //   副作用却是「第一个子菜单一开，同层其它项永远打不开」—— 收起深层是必须的，不是拒绝。）
       const cur = panels[depth + 1];
+
       if (cur && cur.dataset.owner === btn.dataset.itemId) return; // 已经是本项的子菜单：不重建（免得闪烁）
       dropPanels(depth + 1);
       const seq = ++subSeq;
+
       const show = (list: MenuItem[]) => {
         // 期间指针已换到别的项（seq 变）/ 本面板已被收起 → 丢弃这批内容
         if (seq !== subSeq || panels[depth] !== panel) return;
         openPanel(list, depth + 1, { x: 0, y: 0 }, btn);
       };
+
       let r: MenuItem[] | Promise<MenuItem[]>;
+
       try { r = it.sub(); } catch { return; }
+
       if (Array.isArray(r)) { show(r); return; }
+
       show([{ label: "载入中…", disabled: true }]);
       r.then(show, () => show([{ label: "载入失败", disabled: true }]));
     };
@@ -177,8 +194,11 @@ function renderItems(panel: HTMLElement, items: MenuItem[], depth: number) {
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
+
       if (btn.disabled) return;
+
       if (it.sub) { openSub(); return; }
+
       const run = it.run;
       closeMenu();
       void Promise.resolve()
@@ -187,6 +207,7 @@ function renderItems(panel: HTMLElement, items: MenuItem[], depth: number) {
     });
     panel.append(btn);
   }
+
   if (!items.length) {
     const empty = document.createElement("div");
     empty.className = "ct-empty";
@@ -209,6 +230,7 @@ function openPanel(items: MenuItem[], depth: number, at: { x: number; y: number 
   panels.push(panel);
   renderItems(panel, items, depth);
   place(panel, at.x, at.y, anchor);
+
   return panel;
 }
 
@@ -216,9 +238,11 @@ function openPanel(items: MenuItem[], depth: number, at: { x: number; y: number 
 function onDocDown(e: PointerEvent) {
   if (layer && !layer.contains(e.target as Node)) closeMenu();
 }
+
 function onKey(e: KeyboardEvent) {
   if (e.key === "Escape") { e.stopPropagation(); closeMenu(); }
 }
+
 /**
  * 滚动收起 —— **只认「会把菜单甩脱位置」的那一种**。
  *
@@ -236,9 +260,12 @@ function onKey(e: KeyboardEvent) {
 function onScroll(e: Event) {
   if (!layer) return;
   const t = e.target as Node | null;
+
   if (!t || t === document || t === document.documentElement || t === document.body) { closeMenu(); return; }
+
   if (anchorEl && t instanceof Element && (t === anchorEl || t.contains(anchorEl))) closeMenu();
 }
+
 function onShift() { closeMenu(); }
 
 function bindGlobal(on: boolean) {
@@ -278,9 +305,12 @@ export function isSongMenuOpen() { return !!layer; }
  *  所以补一条 toast，否则「什么都没发生」。队列空着时会直接起播，那时文案也跟着变。 */
 export function enqueueNextWithToast(song: any) {
   if (!song?.mid) return;
+
   if (player.radioActive) { toast("无限电台播放中，不能插队播放其他歌曲", "err"); return; }
+
   const playing = !!player.current;
   const label = songTitle(song) || "这首歌";
+
   if (player.enqueueNext(song)) toast(playing ? `已插队：${label}（下一首播放）` : `开始播放：${label}`);
 }
 
@@ -290,12 +320,15 @@ export function enqueueNextWithToast(song: any) {
 export function playNowWithToast(song: any) {
   if (!song?.mid) return;
   const label = songTitle(song) || "这首歌";
+
   if (player.playNextNow(song)) toast(`正在播放：${label}`);
 }
 
 function artistItems(song: any): MenuItem[] {
   const singers: any[] = song?.singer ?? [];
+
   if (!singers.length) return [{ label: "没有歌手信息", disabled: true }];
+
   return singers.map((a) => ({
     label: stripEm(a?.name) || "未知歌手",
     thumb: a?.mid || a?.pmid ? `https://y.gtimg.cn/music/photo_new/T001R300x300M000${a.pmid || a.mid}.jpg` : "",
@@ -310,8 +343,10 @@ function artistItems(song: any): MenuItem[] {
 
 function albumItems(song: any): MenuItem[] {
   const alb = song?.album;
+
   if (!alb?.mid && !alb?.pmid) return [{ label: "没有专辑信息", disabled: true }];
   const base = String(alb.pmid || alb.mid).split("_")[0];
+
   return [{
     label: stripEm(alb.name) || "专辑",
     thumb: `https://y.gtimg.cn/music/photo_new/T002R300x300M000${base}.jpg`,
@@ -324,6 +359,7 @@ function albumItems(song: any): MenuItem[] {
 function playlistItems(ctx: SongMenuContext): Promise<MenuItem[]> | MenuItem[] {
   const build = (list: MyPlaylist[]): MenuItem[] => {
     if (!list.length) return [{ label: "还没有自建歌单", disabled: true }];
+
     return list.map((p) => ({
       label: p.title,
       note: p.songnum ? `${p.songnum} 首` : "",
@@ -334,7 +370,9 @@ function playlistItems(ctx: SongMenuContext): Promise<MenuItem[]> | MenuItem[] {
       },
     }));
   };
+
   if (isMySonglistsLoaded()) return build(mySonglists());
+
   return loadMySonglists().then(build, () => [{ label: "歌单加载失败（需要登录）", disabled: true }]);
 }
 
@@ -343,6 +381,7 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
   const name = songTitle(song) || "这首歌";
   const sub = songSubtitle(song);
   const local = isLocalSong(song) ? (song as SongWithLocal).local : null;
+
   const items: MenuItem[] = [
     {
       label: "插队播放",
@@ -353,6 +392,7 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
     // 加入歌单是 QQ 在线歌单概念：本地曲目没有这条通路
     ...(local ? [] : [{ label: "加入歌单", sub: () => playlistItems(ctx) } as MenuItem]),
   ];
+
   if (ctx.playlist?.removable) {
     items.push({
       label: "从歌单删除",
@@ -364,6 +404,7 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
       },
     });
   }
+
   items.push(
     {
       label: "跳转至",
@@ -413,10 +454,13 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
                     note: "手动导入，压过在线匹配",
                     run: async () => {
                       const f = await pickFile(".lrc,.qrc,.ttml,.xml,.txt");
+
                       if (!f) return;
+
                       try {
                         const r = await importLocalLyric(local.id, f);
                         toast(r.format === "lrc" ? `歌词已导入（${r.chars} 字）` : `已导入 ${r.format.toUpperCase()} 歌词（${r.chars} 字）`);
+
                         if (isLocalSong(player.current) && player.current.local.id === local.id) void player.fetchLyric(player.current);
                       } catch (e: any) { toast(String(e?.message ?? e), "err"); }
                     },
@@ -428,6 +472,7 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
                           try {
                             await revertLocalLyric(local.id);
                             toast("已撤销导入的歌词");
+
                             if (isLocalSong(player.current) && player.current.local.id === local.id) void player.fetchLyric(player.current);
                           } catch (e: any) { toast(String(e?.message ?? e), "err"); }
                         },
@@ -439,7 +484,9 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
                 label: "导入封面…",
                 run: async () => {
                   const f = await pickFile(".jpg,.jpeg,.png,.gif,.webp");
+
                   if (!f) return;
+
                   try {
                     await importLocalCover(local.id, f);
                     toast("封面已更新");
@@ -451,12 +498,15 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
                 note: "曲名 / 歌手 / 专辑",
                 run: async () => {
                   const { showLocalMetaDialog } = await import("./LocalImportDialog");
+
                   const cur = await showLocalMetaDialog({
                     title: songTitle(song),
                     artist: (song.singer ?? []).map((x: any) => x?.name).filter(Boolean).join(" / "),
                     album: song.album?.name ?? "",
                   });
+
                   if (!cur) return;
+
                   try {
                     await setLocalMeta(local.id, cur);
                     player.patchCurrentMeta(local.id, cur);
@@ -470,6 +520,7 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
                     label: "在文件夹中显示",
                     run: async () => {
                       const r = await window.quaverLocal!.reveal(local.id);
+
                       if (!r.ok) toast(r.error ?? "无法定位文件", "err");
                     },
                   }
@@ -489,6 +540,7 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
   );
   // Sparkle 插件追加项（SparkleMenuItem 与 MenuItem 同型；异常已在 registry 侧吞掉）
   items.push(...sparkleMenuItems({ song, list: ctx.list, index: ctx.index }));
+
   return items;
 }
 

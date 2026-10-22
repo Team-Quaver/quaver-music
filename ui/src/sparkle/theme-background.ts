@@ -30,6 +30,8 @@ export interface SparkBackgroundPolicy {
 export function backgroundPolicyOf(theme: SparkleTheme | null | undefined): SparkBackgroundPolicy {
   if (!theme) return { mode: "host", themeId: null };
   const b = theme.background;
+
   if (!b || b.mode !== "host") return { mode: "off", themeId: theme.id };
+
   return { mode: "host", themeId: theme.id };
 }

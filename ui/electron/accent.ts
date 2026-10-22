@@ -84,17 +84,22 @@ export interface AccentOpts {
 /** `#rgb` / `#rrggbb` / `#rrggbbaa` → 规范小写 6 位；认不出返回 null（8 位丢 alpha）。 */
 export function normalizeHex(v: unknown): string | null {
   const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})(?:[0-9a-f]{2})?$/i.exec(String(v ?? "").trim().replace(/^['"]|['"]$/g, ""));
+
   if (!m) return null;
   const t = m[1].length === 3 ? [...m[1]].map((c) => c + c).join("") : m[1];
+
   return "#" + t.toLowerCase();
 }
 
 /** KDE 的 `AccentColor=61,174,233`（以及 [Colors:Selection] 的 BackgroundNormal 同格式）→ `#rrggbb`。 */
 export function parseRGBTriple(v: unknown): string | null {
   const m = /^(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})$/.exec(String(v ?? "").trim());
+
   if (!m) return null;
   const [r, g, b] = m.slice(1).map(Number);
+
   if (r > 255 || g > 255 || b > 255) return null;
+
   return "#" + [r, g, b].map((n) => n.toString(16).padStart(2, "0")).join("");
 }
 
@@ -123,14 +128,20 @@ interface Candidate {
 function walkJSON(node: unknown, key: string | null, mode: "dark" | "light" | "", out: Candidate[]) {
   if (typeof node === "string") {
     const color = normalizeHex(node);
+
     if (color && key) out.push({ key, mode, color });
+
     return;
   }
+
   if (Array.isArray(node)) {
     for (const v of node) walkJSON(v, key, mode, out);
+
     return;
   }
+
   if (!node || typeof node !== "object") return;
+
   for (const [rawK, v] of Object.entries(node as Record<string, unknown>)) {
     const nk = normKey(rawK);
     const isAccent = nk in ACCENT_KEY_RANK;
@@ -146,17 +157,22 @@ function walkJSON(node: unknown, key: string | null, mode: "dark" | "light" | ""
  */
 export function extractAccent(text: string, mode: "dark" | "light"): string | null {
   let data: unknown;
+
   try { data = JSON.parse(String(text ?? "")); } catch { return null; }
+
   const out: Candidate[] = [];
   walkJSON(data, null, "", out);
+
   if (!out.length) return null;
   const score = (c: Candidate) => (c.mode === mode ? 0 : c.mode === "" ? 1 : 2);
+
   const best = out
     .map((c, i) => ({ c, i }))
     .sort((a, b) =>
       ACCENT_KEY_RANK[a.c.key] - ACCENT_KEY_RANK[b.c.key]
       || score(a.c) - score(b.c)
       || a.i - b.i)[0].c;
+
   return best.color;
 }
 
@@ -178,23 +194,28 @@ export const GNOME_ACCENTS: Record<string, string> = {
 /** `gsettings get … accent-color` 的输出（`'blue'`）→ `#3584e4`；'default' / 认不出返回 null。 */
 export function parseGnomeAccent(raw: unknown): string | null {
   const v = String(raw ?? "").trim().replace(/^['"]|['"]$/g, "").toLowerCase();
+
   return GNOME_ACCENTS[v] ?? null;
 }
 
 /** GTK 配色 css 里的强调色：libadwaita 的 accent_bg_color 优先，accent_color 兜底。 */
 export function gtkCssAccent(text: string): string | null {
   const src = String(text ?? "");
+
   for (const key of ["accent_bg_color", "accent_color"]) {
     const m = new RegExp(`@define-color\\s+${key}\\s+(#[0-9a-fA-F]{3,8})`).exec(src);
     const hex = m ? normalizeHex(m[1]) : null;
+
     if (hex) return hex;
   }
+
   return null;
 }
 
 /** macOS `AppleAccentColor`（-1..6，键不存在 = 蓝）→ 色值。取值是系统设置里那八个。 */
 export function parseMacAccent(stdout: unknown): string | null {
   const v = String(stdout ?? "").trim();
+
   const table: Record<string, string> = {
     "-1": "#8e8e93", // 多彩（Graphite）
     "0": "#ff5257",  // 红
@@ -205,7 +226,9 @@ export function parseMacAccent(stdout: unknown): string | null {
     "5": "#a855f7",  // 紫
     "6": "#ff2d55",  // 粉
   };
+
   if (!/^-?\d+$/.test(v)) return null;
+
   return table[v] ?? null;
 }
 
@@ -213,17 +236,23 @@ export function parseMacAccent(stdout: unknown): string | null {
 export function parseWindowsAccent(output: unknown): string | null {
   const src = String(output ?? "");
   const acc = /accentcolor\s+REG_DWORD\s+0x([0-9a-fA-F]+)/i.exec(src);
+
   if (acc) {
     const n = parseInt(acc[1], 16) >>> 0;
+
     // 0x00BBGGRR
     return "#" + [n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff].map((c) => c.toString(16).padStart(2, "0")).join("");
   }
+
   const col = /colorizationcolor\s+REG_DWORD\s+0x([0-9a-fA-F]+)/i.exec(src);
+
   if (col) {
     const n = parseInt(col[1], 16) >>> 0;
+
     // 0xAARRGGBB
     return "#" + [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff].map((c) => c.toString(16).padStart(2, "0")).join("");
   }
+
   return null;
 }
 
@@ -239,9 +268,11 @@ const envPath = (env: Env, key: string, fallback: string) => String(env[key] ?? 
 const configHome = (env: Env) => envPath(env, "XDG_CONFIG_HOME", join(home(), ".config"));
 const cacheHome = (env: Env) => envPath(env, "XDG_CACHE_HOME", join(home(), ".cache"));
 const stateHome = (env: Env) => envPath(env, "XDG_STATE_HOME", join(home(), ".local", "state"));
+
 /** Noctalia 的 NOCTALIA_*_HOME 是「home root」形状（要再拼一层 noctalia/），与 XDG 变量不同。 */
 const noctaliaConfigDir = (env: Env) =>
   join(envPath(env, "NOCTALIA_CONFIG_HOME", configHome(env)), "noctalia");
+
 const noctaliaStateDir = (env: Env) =>
   join(envPath(env, "NOCTALIA_STATE_HOME", stateHome(env)), "noctalia");
 
@@ -253,17 +284,24 @@ export function newestJSON(dir: string): string | null {
 /** 目录里最新的一个指定后缀文件（Noctalia 的 kcolorscheme 模板每次换配色都重写它）。取不到返回 null。 */
 export function newestFile(dir: string, ext: string): string | null {
   let names: string[];
+
   try { names = readdirSync(dir); } catch { return null; }
+
   let best: { mtime: number; path: string } | null = null;
+
   for (const name of names) {
     if (!name.endsWith(ext)) continue;
     const p = join(dir, name);
+
     try {
       const st = statSync(p);
+
       if (!st.isFile()) continue;
+
       if (!best || st.mtimeMs > best.mtime) best = { mtime: st.mtimeMs, path: p };
     } catch { /* 读不到就跳过这一个 */ }
   }
+
   return best ? best.path : null;
 }
 
@@ -277,10 +315,13 @@ function tomlFiles(dir: string): string[] {
 /** Noctalia 的 [theme] 段取值：config 层全部 *.toml + GUI 覆盖层 settings.toml，**后者赢**。 */
 export function noctaliaThemeValue(env: Env, key: string): string {
   let v = "";
+
   for (const f of [...tomlFiles(noctaliaConfigDir(env)), join(noctaliaStateDir(env), "settings.toml")]) {
     const hit = iniValue(readText(f), "theme", key).replace(/^['"]|['"]$/g, "");
+
     if (hit) v = hit;
   }
+
   return v;
 }
 
@@ -295,14 +336,19 @@ export function noctaliaPalettePaths(env: Env = process.env): string[] {
   const state = noctaliaStateDir(env);
   const out = [join(cfg, "colors.json")]; // v4 / 旧版约定：外壳把活配色写在这（v4 时代）
   const source = noctaliaThemeValue(env, "source");
+
   if (source === "custom") {
     const name = noctaliaThemeValue(env, "custom_palette");
+
     if (name && /^[\w.-]+$/.test(name)) out.push(join(cfg, "palettes", `${name}.json`));
   }
+
   if (source === "community") {
     const community = newestJSON(join(state, "community-palettes"));
+
     if (community) out.push(community);
   }
+
   return out;
 }
 
@@ -313,21 +359,28 @@ export function noctaliaPalettePaths(env: Env = process.env): string[] {
 export function noctaliaTemplateOutputs(env: Env = process.env): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
+
   for (const f of [...tomlFiles(noctaliaConfigDir(env)), join(noctaliaStateDir(env), "settings.toml")]) {
     // TOML 段名形如 [theme.templates.user.<id>]；iniValue 是精确匹配段名，这里手动扫
     let inUser = false;
+
     for (const raw of readText(f).split("\n")) {
       const line = raw.trim();
-      if (line.startsWith("[")) { inUser = /^\[theme\.templates\.user\./.test(line); continue; }
+
+      if (line.startsWith("[")) { inUser = line.startsWith('[theme.templates.user.'); continue; }
+
       if (!inUser) continue;
       const m = /^output_path\s*=\s*["']([^"']+)["']/.exec(line);
+
       if (!m) continue;
       const p = m[1].replace(/^~(?=\/|$)/, home()).replace(/\$(XDG_CONFIG_HOME|XDG_DATA_HOME|XDG_STATE_HOME|XDG_CACHE_HOME)/g, (_, k) => envPath(env, k, ""));
+
       if (!p.endsWith(".json") || seen.has(p)) continue;
       seen.add(p);
       out.push(p);
     }
   }
+
   return out;
 }
 
@@ -338,15 +391,19 @@ function currentMode(opts: AccentOpts): "dark" | "light" {
     run: opts.run,
     timeoutMs: opts.timeoutMs,
   });
+
   return t === "light" ? "light" : "dark";
 }
 
 /** gsettings 问一次（必须带 timeout：spawnSync 挂住 = 主进程假死，见 systheme 的同款注释）。 */
 function gsettingsAccentName(opts: AccentOpts): string | null {
   const run = opts.run ?? spawnSync;
+
   const r = run("gsettings", ["get", "org.gnome.desktop.interface", "accent-color"],
     { encoding: "utf8", timeout: opts.timeoutMs ?? 2000 });
+
   if (r.error) return null;
+
   return parseGnomeAccent(r.stdout);
 }
 
@@ -357,29 +414,37 @@ let cache: { at: number; hit: AccentHit | null } | null = null;
 /** 探测系统强调色。拿不到返回 null（调用方回落到默认青色）。 */
 export function systemAccent(opts: AccentOpts = {}): AccentHit | null {
   const now = Date.now();
+
   if (!opts.fresh && cache && now - cache.at < CACHE_MS) return cache.hit;
   const hit = detect(opts);
   cache = { at: now, hit };
+
   return hit;
 }
 
 function detect(opts: AccentOpts): AccentHit | null {
   const env = opts.env ?? process.env;
   const platform = opts.platform ?? process.platform;
+
   const mk = (color: string, source: string, label: string, path: string): AccentHit =>
     ({ color, source, label, path });
 
   // 1/2) Quaver 专属交接文件（Noctalia / matugen 模板的落点；JSON 与 CSS 两种形态都认）
   const dir = configDir(env);
   const handoff = join(dir, "system-theme.json");
+
   if (existsSync(handoff)) {
     const json = readText(handoff);
     const c = extractAccent(json, currentMode(opts));
+
     if (c) return mk(c, "quaver-template", "系统主题交接文件", handoff);
   }
+
   const handoffCss = join(dir, "system-theme.css");
+
   if (existsSync(handoffCss)) {
     const c = gtkCssAccent(readText(handoffCss));
+
     if (c) return mk(c, "quaver-template", "系统主题交接文件", handoffCss);
   }
 
@@ -387,14 +452,17 @@ function detect(opts: AccentOpts): AccentHit | null {
   for (const p of noctaliaTemplateOutputs(env)) {
     if (!existsSync(p)) continue;
     const c = extractAccent(readText(p), currentMode(opts));
+
     if (c) return mk(c, "noctalia-template", "Noctalia 模板产物", p);
   }
 
   // 4) Noctalia 的 kcolorscheme 模板产物（每次换配色重写；Selection 底 = M3 primary）。
   //    实测 Hyprland 下也成立 —— 模板产物不看会话。
   const kdeScheme = newestFile(join(envPath(env, "XDG_DATA_HOME", join(home(), ".local", "share")), "color-schemes"), ".colors");
+
   if (kdeScheme) {
     const c = parseRGBTriple(iniValue(readText(kdeScheme), "Colors:Selection", "BackgroundNormal"));
+
     if (c) return mk(c, "noctalia-colors", "Noctalia 模板（KDE 配色）", kdeScheme);
   }
 
@@ -403,8 +471,10 @@ function detect(opts: AccentOpts): AccentHit | null {
   for (const p of noctaliaPalettePaths(env)) {
     if (!existsSync(p)) continue;
     const c = extractAccent(readText(p), currentMode(opts));
+
     if (c) {
       const community = /community-palettes/.test(p);
+
       return mk(c, community ? "noctalia-community" : p.endsWith("colors.json") ? "noctalia" : "noctalia-palette",
         "Noctalia", p);
     }
@@ -414,20 +484,24 @@ function detect(opts: AccentOpts): AccentHit | null {
   for (const p of [String(env.MATUGEN_COLORS ?? "").trim(), join(cacheHome(env), "matugen", "colors.json"), join(home(), ".cache", "matugen", "colors.json")]) {
     if (!p || !existsSync(p)) continue;
     const c = extractAccent(readText(p), currentMode(opts));
+
     if (c) return mk(c, "matugen", "matugen", p);
   }
 
   // 7) KDE：kdeglobals 的 [General] AccentColor（Plasma 自己写的才认 —— 只在 KDE 会话下）
   const desktop = String(env.XDG_CURRENT_DESKTOP ?? "");
+
   if (/(^|[^a-z])(kde|plasma)([^a-z]|$)/i.test(desktop)) {
     const p = join(configHome(env), "kdeglobals");
     const c = parseRGBTriple(iniValue(readText(p), "General", "AccentColor"));
+
     if (c) return mk(c, "kde", "KDE 系统强调色", p);
   }
 
   // 8) GNOME 47+：gsettings accent-color（三个桌面之外的标准口子）
   if (platform === "linux") {
     const c = gsettingsAccentName(opts);
+
     if (c) return mk(c, "gnome", "GNOME 系统强调色", "gsettings org.gnome.desktop.interface accent-color");
   }
 
@@ -437,6 +511,7 @@ function detect(opts: AccentOpts): AccentHit | null {
   const kdeGlobals = join(configHome(env), "kdeglobals");
   {
     const c = parseRGBTriple(iniValue(readText(kdeGlobals), "Colors:Selection", "BackgroundNormal"));
+
     if (c) return mk(c, "kde-selection", "KDE 选中色（Noctalia 合并）", kdeGlobals);
   }
 
@@ -444,28 +519,37 @@ function detect(opts: AccentOpts): AccentHit | null {
   //     注意用 configHome(env) 现算而不是 systheme.gtkCssDirs()：后者读真实 process.env，
   //     测不了（与本文件其余来源同一口径）。
   const css = gtkCssNewest([3, 4].map((v) => join(configHome(env), `gtk-${v}.0`)));
+
   if (css) {
     const c = gtkCssAccent(readText(css));
+
     if (c) return mk(c, "gtk", "GTK 配色", css);
   }
 
   // 11) macOS / Windows 的系统设置
   const run = opts.run ?? spawnSync;
+
   if (platform === "darwin") {
     const r = run("defaults", ["read", "-g", "AppleAccentColor"], { encoding: "utf8", timeout: opts.timeoutMs ?? 2000 });
+
     if (!r.error) {
       // 键不存在 = 出厂蓝（macOS 默认档），所以「读到空」也按蓝算，不往下走别的来源
       const c = parseMacAccent(r.stdout) ?? GNOME_ACCENTS.blue;
+
       return mk(c, "macos", "macOS 系统强调色", "defaults read -g AppleAccentColor");
     }
   }
+
   if (platform === "win32") {
     const r = run("reg.exe", ["query", "HKCU\\Software\\Microsoft\\Windows\\DWM"], { encoding: "utf8", timeout: opts.timeoutMs ?? 2000 });
+
     if (!r.error) {
       const c = parseWindowsAccent(r.stdout);
+
       if (c) return mk(c, "windows", "Windows 系统强调色", "HKCU\\...\\DWM\\AccentColor");
     }
   }
+
   return null;
 }
 
@@ -483,6 +567,7 @@ export interface AccentPayload {
 
 export function accentPayload(opts: AccentOpts = {}): AccentPayload {
   const hit = systemAccent(opts);
+
   return {
     ok: true,
     color: hit?.color ?? null,
@@ -502,8 +587,10 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   console.log(`XDG_CURRENT_DESKTOP    ${env.XDG_CURRENT_DESKTOP || "(空)"}`);
   console.log(`当前深浅               ${p.mode}`);
   console.log(`Noctalia [theme] source = ${noctaliaThemeValue(env, "source") || "(未设)"}`);
+
   for (const f of [join(configDir(env), "system-theme.json"), join(configDir(env), "system-theme.css"), ...noctaliaTemplateOutputs(env), join(envPath(env, "XDG_DATA_HOME", join(home(), ".local", "share")), "color-schemes"), ...noctaliaPalettePaths(env), join(cacheHome(env), "matugen", "colors.json")]) {
     console.log(`${existsSync(f) ? "有" : "无"}  ${f}`);
   }
+
   console.log(`→ 结论                 ${p.color ?? "null（回落默认青色）"}${p.color ? `  来源 ${p.label}（${p.source}）· ${p.path}` : ""}`);
 }

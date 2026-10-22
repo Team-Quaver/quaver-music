@@ -32,24 +32,31 @@ import {
 const UI_ROOT = fileURLToPath(new URL("..", import.meta.url));
 let pass = 0, fail = 0;
 const section = (t) => console.log(`\n=== ${t} ===`);
+
 const check = (name, cond, detail = "") => {
   if (cond) { pass++; console.log(`  ✅ ${name}`); }
   else { fail++; console.log(`  ❌ ${name}${detail ? ` — ${detail}` : ""}`); }
 };
+
 const eq = (name, got, want) => check(name, JSON.stringify(got) === JSON.stringify(want), `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 const until = async (fn, ms = 6000) => {
   const end = Date.now() + ms;
+
   while (Date.now() < end) {
     const v = fn();
+
     if (v) return v;
     await sleep(40);
   }
+
   return fn();
 };
 
 // ——— 1. 配置值域 ———
 section("config.ts isHotkey 值域");
+
 {
   const { writeValues, defaults, template } = await import(join(UI_ROOT, "electron/config.ts"));
   const dir = mkdtempSync(join(tmpdir(), "quaver-hk-conf-"));
@@ -71,6 +78,7 @@ section("config.ts isHotkey 值域");
 
 // ——— 2. accelerator 规范化（vite 打包 prefs）———
 section("prefs.ts acceleratorFromEvent / set·getHotkey");
+
 {
   const dir = mkdtempSync(join(tmpdir(), "quaver-hk-prefs-"));
   writeFileSync(join(dir, "entry.ts"), `export * from ${JSON.stringify(join(UI_ROOT, "src/lib/prefs.ts"))};\n`);
@@ -128,25 +136,39 @@ section("prefs.ts acceleratorFromEvent / set·getHotkey");
 
 // ——— 3. 门户触发串映射 ———
 section("global-hotkeys.ts acceleratorToPortalTrigger");
+
 eq("Ctrl+Alt+F5 → CTRL+ALT+F5", acceleratorToPortalTrigger("Ctrl+Alt+F5"), "CTRL+ALT+F5");
+
 eq("字母转基础层小写", acceleratorToPortalTrigger("Ctrl+P"), "CTRL+p");
+
 eq("方向键保持 keysym 名", acceleratorToPortalTrigger("Ctrl+Alt+Left"), "CTRL+ALT+Left");
+
 eq("Super → LOGO", acceleratorToPortalTrigger("Super+A"), "LOGO+a");
+
 eq("Space → keysym 小写", acceleratorToPortalTrigger("Ctrl+Shift+Space"), "CTRL+SHIFT+space");
+
 eq("PageUp → Page_Up", acceleratorToPortalTrigger("Ctrl+PageUp"), "CTRL+Page_Up");
+
 eq("空串/停用", acceleratorToPortalTrigger(""), "");
+
 eq("未知修饰键 → 空（跳过注册）", acceleratorToPortalTrigger("Fn+P"), "");
 
 // ——— 4. Wayland 会话判定与门户托管 ———
 section("Wayland：全局键位由桌面门户管理");
+
 eq("XDG_SESSION_TYPE=wayland", isWaylandSession("linux", { XDG_SESSION_TYPE: "wayland" }), true);
+
 eq("WAYLAND_DISPLAY 兜底", isWaylandSession("linux", { WAYLAND_DISPLAY: "wayland-0" }), true);
+
 eq("X11 不误判", isWaylandSession("linux", { XDG_SESSION_TYPE: "x11", WAYLAND_DISPLAY: "wayland-0" }), false);
+
 eq("非 Linux 恒 false", isWaylandSession("win32", { XDG_SESSION_TYPE: "wayland", WAYLAND_DISPLAY: "wayland-0" }), false);
+
 {
   const appBindings = {
     toggle: "Ctrl+Alt+P", prev: "", next: "Ctrl+Alt+Right", volup: "Fn+P", voldown: "Ctrl+Alt+Down",
   };
+
   const waylandShortcuts = portalShortcutsFor(appBindings, true);
   eq("Wayland 仍注册全部 5 个动作", waylandShortcuts.map((s) => s.id), ["toggle", "prev", "next", "volup", "voldown"]);
   check("Wayland 忽略应用内键位（不传 preferred_trigger）", waylandShortcuts.every((s) => s.trigger === ""));
@@ -162,6 +184,7 @@ eq("非 Linux 恒 false", isWaylandSession("win32", { XDG_SESSION_TYPE: "wayland
 
 // ——— 5. shortcut 模式（win/mac 路径）———
 section("createGlobalHotkeys × mock globalShortcut（shortcut 模式）");
+
 {
   // mock 只长真实 Electron GlobalShortcut 的 API 面（register/registerAll/isRegistered/
   // unregister/unregisterAll/isSuspended/setSuspended）—— 误调 Electron 上不存在的 API
@@ -170,6 +193,7 @@ section("createGlobalHotkeys × mock globalShortcut（shortcut 模式）");
   function mockGlobalShortcut(taken = new Set()) {
     const registered = new Map(); // accel → callback
     const attempts = []; // register 被调用的键（含失败的），用于断言「该不该碰注册」
+
     return {
       registered, attempts,
       isRegistered: (accel) => registered.has(accel),
@@ -181,20 +205,26 @@ section("createGlobalHotkeys × mock globalShortcut（shortcut 模式）");
       setSuspended: () => {},
     };
   }
+
   const realPlatform = process.platform;
   Object.defineProperty(process, "platform", { value: "win32" }); // Linux 开发机假装 Windows（同步段内，用完即还原）
+
   try {
     const notes = [];
     let bindings = { toggle: "Ctrl+Alt+P", prev: "", next: "Ctrl+Alt+Right", volup: "Ctrl+Alt+Up", voldown: "Ctrl+Alt+Down" };
     const ms = mockGlobalShortcut();
+
     const hk = createGlobalHotkeys({
       readBindings: () => bindings,
       sendToRenderer: (p) => notes.push(p),
       globalShortcut: ms,
     });
+
     check("win32 → shortcut 模式", hk.mode === "shortcut");
     let threw = "";
+
     try { hk.apply(); } catch (e) { threw = String(e); }
+
     check("apply 不抛（isAccelerator 回归锚）", !threw, threw);
     eq("空值停用，其余 4 键注册", [...ms.registered.keys()].sort(),
       ["Ctrl+Alt+Down", "Ctrl+Alt+P", "Ctrl+Alt+Right", "Ctrl+Alt+Up"]);
@@ -237,6 +267,7 @@ section("createGlobalHotkeys × mock globalShortcut（shortcut 模式）");
 
 // ——— 6. D-Bus 线级 ———
 section("xdg-portal.ts 编解码");
+
 {
   // 规范 worked example：大端、单个 u64 元素 5、8 字节对齐 → n=8 且垫片不计入
   const w = new Writer("B");
@@ -247,30 +278,36 @@ section("xdg-portal.ts 编解码");
 
   // 完整消息往返（大端 + 小端——门户端 GLib 常发小端）
   const match = "type='signal',interface='org.freedesktop.portal.Request',member='Response'";
+
   for (const endian of ["B", "l"]) {
     const msg = buildMessage({
       type: 1, serial: 42, destination: "org.freedesktop.DBus", path: "/org/freedesktop/DBus",
       interface: "org.freedesktop.DBus", member: "AddMatch", sig: "s", body: [match],
     }, endian);
+
     const back = parseMessage(msg);
     check(`${endian}: AddMatch 往返`, back.member === "AddMatch" && back.sig === "s" && back.body[0] === match && back.serial === 42);
   }
+
   const sig = buildMessage({
     type: 4, serial: 7, destination: null, path: "/org/freedesktop/portal/desktop",
     interface: "org.freedesktop.portal.GlobalShortcuts", member: "Activated", sig: "osta{sv}",
     body: ["/org/freedesktop/portal/desktop/session/1_1/quaver", "toggle", 1730000000000000, { activation_token: { sig: "s", value: "tok" } }],
   });
+
   const sigBack = parseMessage(sig);
   const [sigSession, sigId, sigTs, sigOpts] = sigBack.body;
   const sigDict = Object.fromEntries(sigOpts ?? []);
   check("Activated 信号体往返（o s t a{sv}）",
     sigSession === "/org/freedesktop/portal/desktop/session/1_1/quaver" && sigId === "toggle"
     && sigTs === 1730000000000000 && sigDict.activation_token === "tok");
+
   const bind = buildMessage({
     type: 1, serial: 9, path: "/org/freedesktop/portal/desktop", interface: "org.freedesktop.portal.GlobalShortcuts",
     member: "BindShortcuts", sig: "oa(sa{sv})sa{sv}",
     body: ["/org/x/session/1", [["toggle", { description: { sig: "s", value: "暂停/播放" }, preferred_trigger: { sig: "s", value: "CTRL+ALT+F5" } }]], "", {}],
   });
+
   const bindBack = parseMessage(bind);
   const bindDict = Object.fromEntries(bindBack.body[1][0][1] ?? []);
   check("BindShortcuts v2 体往返",
@@ -288,6 +325,7 @@ section("xdg-portal.ts 编解码");
  *  bindMode: "v2"（正常）｜ "never"（v2 与 v1 都回 UnknownMethod → 客户端应判 unsupported）。 */
 function startMockBus({ bindMode = "v2" } = {}) {
   const path = join(mkdtempSync(join(tmpdir(), "quaver-hk-bus-")), "bus");
+
   const server = createServer((socket) => {
     let acc = Buffer.alloc(0);
     let binary = false;
@@ -299,30 +337,40 @@ function startMockBus({ bindMode = "v2" } = {}) {
     const send = (opts, sig = opts.sig, body = opts.body) => socket.write(buildMessage({ ...opts, serial: ++serial, sig, body }));
     socket.on("data", (chunk) => {
       acc = Buffer.concat([acc, chunk]);
+
       if (!binary) {
         const s = acc.toString("utf8");
+
         if (!authed) {
           if (!s.includes("AUTH ")) return; // 等 AUTH 行
           socket.write("OK 0123456789abcdef0123456789abcdef\r\n");
           authed = true;
           acc = Buffer.alloc(0);
+
           return;
         }
+
         const begin = acc.indexOf(Buffer.from("BEGIN\r\n", "utf8"));
+
         if (begin < 0) return;
         binary = true;
         acc = acc.subarray(begin + 7); // 直接切 Buffer：过一遍 utf8 字符串会把二进制字节弄脏
       }
+
       while (true) {
         let m;
+
         try { m = parseMessage(acc); } catch { acc = Buffer.alloc(0); return; }
+
         if (!m) return;
         acc = acc.subarray(m.consumed);
         const reply = (sig, body) => send({ type: 2, replySerial: m.serial }, sig, body); // 回复指向**调用方**的 serial（m.replySerial 是回复才有的字段）
+
         const response = (reqPath, results) => send({
           type: 4, path: reqPath, interface: "org.freedesktop.portal.Request", member: "Response",
           sig: "ua{sv}", body: [0, results],
         });
+
         if (m.member === "Hello") reply("s", [":1.mock"]);
         else if (m.member === "AddMatch") reply("", []);
         else if (m.member === "CreateSession") {
@@ -336,18 +384,22 @@ function startMockBus({ bindMode = "v2" } = {}) {
             send({ type: 3, replySerial: m.serial, errorName: "org.freedesktop.DBus.Error.UnknownMethod" }, "s", ["no such method"]);
             continue;
           }
+
           const token = Object.fromEntries(m.body[3] ?? []).handle_token;
           const reqPath = `/org/freedesktop/portal/desktop/request/mock/${token}`;
           reply("o", [reqPath]);
+
           // 解码后的 a{sv} 是键值对数组（Object.fromEntries 后才是对象）；
           // 回程再编码时 a{sv} 的值必须是 variant 包裹（{sig, value}）
           const shorts = m.body[1].map(([id, pairs]) => {
             const o = Object.fromEntries(pairs ?? []);
+
             return [id, {
               description: { sig: "s", value: o.description ?? "" },
               trigger_description: { sig: "s", value: o.preferred_trigger ?? "" },
             }];
           });
+
           response(reqPath, { shortcuts: { sig: "a(sa{sv})", value: shorts } });
           // 绑成即发一次 Activated（toggle），验证信号回程
           send({
@@ -358,19 +410,23 @@ function startMockBus({ bindMode = "v2" } = {}) {
       }
     });
   });
+
   return new Promise((resolve) => server.listen(path, () => resolve({ server, path })));
 }
 
 section("PortalShortcuts × mock 总线（v2 全流程）");
+
 {
   const { server, path } = await startMockBus({ bindMode: "v2" });
   const statuses = [];
   const actions = [];
+
   const p = new PortalShortcuts({
     env: { DBUS_SESSION_BUS_ADDRESS: `unix:path=${path}` },
     onStatus: (st) => statuses.push(st),
     onAction: (id) => actions.push(id),
   });
+
   p.start([
     { id: "toggle", description: "暂停/播放", trigger: "CTRL+ALT+F5" },
     { id: "next", description: "下一曲", trigger: "CTRL+ALT+Right" },
@@ -385,13 +441,16 @@ section("PortalShortcuts × mock 总线（v2 全流程）");
 }
 
 section("PortalShortcuts × mock 总线（门户不支持 → unsupported）");
+
 {
   const { server, path } = await startMockBus({ bindMode: "never" });
   const statuses = [];
+
   const p = new PortalShortcuts({
     env: { DBUS_SESSION_BUS_ADDRESS: `unix:path=${path}` },
     onStatus: (st) => statuses.push(st),
   });
+
   p.start([{ id: "toggle", description: "暂停/播放", trigger: "CTRL+ALT+F5" }]);
   const end = await until(() => p.state === "unsupported" || p.state === "failed");
   check("v2 被拒且 v1 也被拒 → unsupported", end === true, `statuses=${JSON.stringify(statuses)}`);
@@ -401,4 +460,5 @@ section("PortalShortcuts × mock 总线（门户不支持 → unsupported）");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
+
 process.exit(fail ? 1 : 0);

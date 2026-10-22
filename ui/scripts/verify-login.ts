@@ -21,29 +21,37 @@ const appGo = readFileSync(join(root, "..", "vendor", "Typhoeus-go", "server", "
 
 let fails = 0;
 let checks = 0;
+
 const ok = (name, cond, note = "") => {
   checks++;
+
   if (cond) console.log(`PASS ${name}${note ? " — " + note : ""}`);
   else { fails++; console.log(`FAIL ${name}${note ? " — " + note : ""}`); }
 };
+
 const has = (h, n) => h.includes(n);
 const re = (h, rx) => rx.test(h);
 const noComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 
 const view = noComments(views.match(/async function loginView[\s\S]*?\n\}/)?.[0] ?? "");
+
 ok("views: 抠到 loginView 源码", view.length > 800, `${view.length} 字符`);
 
 // ============ 没有下拉了 ============
 ok("登录方式不再用 <select>（view 内无 select / option）", !has(view, "<select") && !has(view, "<option"));
+
 ok("也去掉了 select 的 onchange 接线", !has(view, "onchange"));
+
 ok("css: .row-btn 里那个 select 的样式已清掉（那一行只剩「重新生成」按钮）",
   !has(css, ".row-btn select") && has(css, ".row-btn button"));
 
 // ============ 标签行本体 ============
 ok("DOM: 标签行 = .tag-tabs#channel + role=tablist",
   /<div class="tag-tabs" id="channel" role="tablist" aria-label="登录方式">/.test(view));
+
 ok("DOM: 三个标签都是 button.tag + role=tab + aria-selected + data-ch",
   (view.match(/<button class="tag[^"]*" type="button" role="tab" aria-selected="(?:true|false)" data-ch="[a-z]+">/g) ?? []).length === 3);
+
 ok("DOM: 默认选中第一个标签（.sel + aria-selected=true 都落在同一颗上）",
   /<button class="tag sel" type="button" role="tab" aria-selected="true" data-ch="(\w+)">/.test(view)
   && re(view, /let channel = \(?tabs\[0\]\?\.dataset\.ch \?\? "mobile"\)?/));
@@ -52,93 +60,143 @@ ok("DOM: 默认选中第一个标签（.sel + aria-selected=true 都落在同一
 // Go sidecar 的登录类型表 = app.go 的 qrTypeNames（写错是 422，不是静默失败）
 const backend = new Set([...appGo.matchAll(/^\t"([a-z]+)":\s+modules\.QRType/gm)].map((m) => m[1]));
 const frontend = [...view.matchAll(/data-ch="([a-z]+)"/g)].map((m) => m[1]);
+
 ok("通道: 前端三个 data-ch 都落在 sidecar QR_TYPES 里",
   frontend.length === 3 && frontend.every((c) => backend.has(c)),
   `前端 ${frontend.join("/")}　后端 ${[...backend].join("/")}`);
 
 // ============ 交互与生命周期 ============
 ok("换标签: 点击即重开二维码（void start()）", re(view, /void start\(\);/));
+
 ok("换标签: 重复点当前档不重开（避免白烧一次上游请求 + 触发限流）",
   /if \(ch === channel\) return; \/\/ 重复点当前档不重开/.test(views));
+
 ok("换标签: 选中态与 aria-selected 同步切换",
   re(view, /x\.classList\.toggle\("sel", on\);\s*x\.setAttribute\("aria-selected", String\(on\)\);/));
+
 ok("换标签: 重开前先清掉旧轮询（两个通道的轮询不许串台）",
   re(view, /async function start\(\) \{\s*window\.clearInterval\(timer\);/));
+
 ok("请求路径用当前通道（不是元素 value）",
   re(view, /api(?:<[^>(]*>)?\(`\/login\/qrcode\/\$\{loginChannel\}`\)/)
   && re(view, /api(?:<[^>(]*>)?\(`\/login\/qrcode\/\$\{loginChannel\}\/status\?identifier=/));
+
 ok("「重新生成」按钮仍在", re(view, /#refresh"\)!\.onclick = \(\) => void start\(\)/));
+
 ok("回归: 视图返回的 cleanup 仍然停轮询（离页不留定时器）",
   re(view, /return \(\) => \{ stopped = true; window\.clearInterval\(timer\); \};/));
+
 ok("回归: 登录成功仍跳回首页", has(view, 'location.href = "/index.html"'));
 
 // ============ 版式与高亮态 ============
 ok("css: 标签行在登录区居中", /\.login-wrap \.tag-tabs \{[^}]*justify-content:\s*center/.test(css));
+
 const sel = css.match(/\.login-wrap \.tag\.sel \{([^}]*)\}/)?.[1] ?? "";
+
 ok("css: 选中态走「软洗底 + accent 系前景 + accent 描边」（不用白字压裸 accent）",
   /background:[^;]*color-mix\([^;]*transparent/.test(sel)
   && /border-color:[^;]*var\(--cvg-accent/.test(sel)
   && /(?<![-\w])color:[^;]*var\(--ink\)/.test(sel));
+
 ok("contrast: .login-wrap .tag.sel 已登记进 verify-highlight-contrast", has(contrast, '".login-wrap .tag.sel"'));
 
 // 真正执行登录视图，手动推进请求与计时器，验证旧请求和重入不会污染状态。
 const loginSource = views.match(/async function loginView[\s\S]*?\n\}/)?.[0] ?? "";
+
 const makeLogin = new Function("api", "window", "location", "setTimeout", "errText",
   stripTypeScriptTypes(loginSource) + "; return loginView;");
+
 const pending = [];
 const intervals = new Map();
 const delayed = [];
 let timerId = 0;
 const state = { textContent: "" }, qr = { innerHTML: "" }, refresh = { onclick: null };
+
 const tabs = ["mobile", "qq", "wx"].map((ch) => ({
   dataset: { ch }, click: null, classList: { toggle() {} }, setAttribute() {},
   addEventListener(_, cb) { this.click = cb; },
 }));
+
 const fakeRoot = {
   innerHTML: "",
   querySelector(s) { return { "#qr": qr, "#lstate": state, "#refresh": refresh }[s]; },
   querySelectorAll() { return tabs; },
 };
+
 const fakeWindow = {
   setInterval(cb) { const id = ++timerId; intervals.set(id, cb); return id; },
   clearInterval(id) { intervals.delete(id); },
 };
+
 const fakeLocation = { href: "" };
 const api = (path) => new Promise((resolve, reject) => pending.push({ path, resolve, reject }));
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
 const cleanup = await makeLogin(api, fakeWindow, fakeLocation, (cb) => delayed.push(cb), (e) => e.message)(fakeRoot);
+
 tabs[1].click(); // 第一张 mobile 二维码尚未返回，切到 QQ。
+
 pending[1].resolve({ img: "qq.png", identifier: "qq-id" });
+
 await flush();
+
 pending[0].resolve({ img: "old.png", identifier: "old-id" });
+
 await flush();
+
 ok("运行时：旧二维码响应不能覆盖新通道", qr.innerHTML.includes("qq.png") && !qr.innerHTML.includes("old.png") && intervals.size === 1);
+
 const qqPoll = [...intervals.values()][0];
+
 void qqPoll();
+
 void qqPoll();
+
 ok("运行时：慢请求不会被 interval 并发重入", pending.length === 3 && pending[2].path.includes("/qq/status?identifier=qq-id"));
+
 tabs[2].click(); // QQ 的成功响应此时也必须失效。
+
 pending[2].resolve({ event: 0, done: true });
+
 pending[3].resolve({ img: "wx.png", identifier: "wx-id" });
+
 await flush();
+
 ok("运行时：旧成功响应不能跳转或清掉新轮询", delayed.length === 0 && fakeLocation.href === "" && intervals.size === 1);
+
 const wxPoll = [...intervals.values()][0];
+
 void wxPoll();
+
 pending[4].reject(new Error("获取 QQ 授权码失败"));
+
 await flush();
+
 ok("运行时：授权错误会显示在页面", state.textContent.includes("获取 QQ 授权码失败"));
+
 void wxPoll();
+
 pending[5].resolve({ event: -1, done: true, error: "登录设备超限" });
+
 await flush();
+
 ok("运行时：后端流程错误显示并停止轮询", state.textContent === "登录设备超限" && intervals.size === 0);
+
 refresh.onclick();
+
 pending[6].resolve({ img: "wx-new.png", identifier: "new-id" });
+
 await flush();
+
 void [...intervals.values()][0]();
+
 cleanup();
+
 pending[7].resolve({ event: 0, done: true });
+
 await flush();
+
 ok("运行时：离页后待完成请求不能跳转", delayed.length === 0 && intervals.size === 0);
 
 console.log(`\n${checks - fails}/${checks} passed${fails ? ` — ${fails} FAILED` : ""}`);
+
 process.exit(fails ? 1 : 0);

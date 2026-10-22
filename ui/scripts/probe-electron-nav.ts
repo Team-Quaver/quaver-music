@@ -12,10 +12,13 @@ const BASE = process.env.PROBE_BASE ?? "http://[::1]:5173";
 const appOrigin = new URL(BASE).origin;
 
 let fails = 0;
+
 const ok = (name, cond, note = "") => {
   console.log(`${cond ? "PASS" : "FAIL"} ${name}${note ? " — " + note : ""}`);
+
   if (!cond) fails++;
 };
+
 const settle = (ms) => new Promise((r) => setTimeout(r, ms));
 
 app.whenReady().then(async () => {
@@ -27,10 +30,12 @@ app.whenReady().then(async () => {
   // —— 与 main.ts 逐字相同的守卫 ——
   wc.setWindowOpenHandler(({ url }) => {
     console.log("[probe] 已拒绝新窗口请求:", url);
+
     return { action: "deny" };
   });
   wc.on("will-navigate", (e, navUrl) => {
     try { if (new URL(navUrl).origin === appOrigin) return; } catch {}
+
     e.preventDefault();
     console.log("[probe] 已拦截页面跳转:", navUrl);
   });
@@ -52,6 +57,7 @@ app.whenReady().then(async () => {
   const opened = await wc.executeJavaScript(
     "window.open('https://example.com/') !== null", true,
   ).catch(() => null);
+
   await settle(800);
   ok("window.open 被拒绝（返回 null）", opened === false);
   ok("没有产生新 BrowserWindow（中键开新窗走同一条路）", newWindows === 0, `created=${newWindows}`);

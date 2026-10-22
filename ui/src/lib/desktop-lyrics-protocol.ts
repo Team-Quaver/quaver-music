@@ -75,22 +75,36 @@ export type DlCmd =
   /** 控制条单键循环标准字重（300/400/…/900）：写 [DesktopLyrics] Weight 偏好 */
   | { cmd: "weight"; op: "cycle" };
 
+/** 主窗侧对覆盖层窗口的控制（ipc quaver:dl-control；成功时带回主进程真相快照）。 */
+export type DlControl = { op: "get-state" } | { op: "set-enabled"; on: boolean };
+
+export type DlControlReply =
+  | { ok: true; open: boolean; enabled: boolean; scale: number; locked: boolean; canLock: boolean }
+  | { ok: false; error: string };
+
+/** 覆盖层的窗口级动作（electron/desktop-lyrics.ts handleWindowOp 的同名 op 表）。 */
+export type DlWindowOp =
+  | { op: "resize-by"; dx: number; dy: number }
+  | { op: "resize-end" }
+  | { op: "close" }
+  | { op: "lock"; on: boolean };
+
 declare global {
   interface Window {
     quaverDesktopLyrics?: {
       // 主窗侧
-      sendTrack(payload: unknown): void;
-      sendSync(payload: unknown): void;
-      control(msg: Record<string, unknown>): Promise<unknown>;
+      sendTrack(payload: DlTrackPayload): void;
+      sendSync(payload: DlSyncPayload): void;
+      control(msg: DlControl): Promise<DlControlReply>;
       activeSync(): DlStateSnapshot | null;
-      onActive(cb: (s: unknown) => void): void;
-      onCmd(cb: (msg: unknown) => void): void;
+      onActive(cb: (s: DlStateSnapshot) => void): void;
+      onCmd(cb: (msg: DlCmd) => void): void;
       // 覆盖层侧
-      onTrack(cb: (p: unknown) => void): void;
-      onSync(cb: (p: unknown) => void): void;
-      sendCmd(msg: unknown): void;
+      onTrack(cb: (p: DlTrackPayload) => void): void;
+      onSync(cb: (p: DlSyncPayload) => void): void;
+      sendCmd(msg: DlCmd): void;
       /** 窗口级动作：边缘缩放、关窗、锁定 —— 挪窗走 CSD 拖拽区，不经桥 */
-      windowOp(msg: unknown): void;
+      windowOp(msg: DlWindowOp): void;
     };
   }
 }

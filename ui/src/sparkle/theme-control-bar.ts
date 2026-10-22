@@ -19,6 +19,7 @@ export interface SparkControlBarPolicy {
 export function controlBarPolicyOf(theme: SparkleTheme | null | undefined): SparkControlBarPolicy {
   if (!theme) return { mode: "host", themeId: null };
   const m = theme.controlBar;
+
   return m?.mode === "floating" || m?.mode === "bottom"
     ? { mode: m.mode, themeId: theme.id }
     : { mode: "host", themeId: null };

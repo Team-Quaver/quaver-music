@@ -16,8 +16,10 @@ import { sparkleViewAt } from "../sparkle/registry";
 
 /** 宿主视图：可同步返回 cleanup，也可异步（拆分前就是两种混用，await 都兜得住）。 */
 export type ViewFn = (root: HTMLElement, q: URLSearchParams) => Promise<(() => void) | void> | ((() => void) | void);
+
 /** 交给 shell 的形态：宿主视图或插件视图（SparkleView 是同步签名，调用方一律 await）。 */
 export type ViewLike = ViewFn | SparkleView;
+
 type Loader = () => Promise<ViewFn>;
 
 const loaders: Record<string, Loader> = {
@@ -45,21 +47,28 @@ const inFlight = new Set<string>();
 /** 路由 → 视图实现。宿主路由走懒加载；插件路由与未知路径沿用拆分前的回落次序。 */
 export async function loadView(path: string): Promise<ViewLike> {
   const cached = loaded.get(path);
+
   if (cached) return cached;
   const loader = loaders[path];
+
   if (!loader) {
     const spark = sparkleViewAt(path);
+
     if (spark) return spark;
+
     return await loaders["/"](); // 未知路径回落首页；不缓存（那是插件的自由命名空间）
   }
+
   const fn = await loader();
   loaded.set(path, fn);
+
   return fn;
 }
 
 /** 预取某路由的视图模块（hover/pointerdown 触发；重复调用、未知路由、已加载都是 no-op）。 */
 export function prefetchView(path: string): void {
   const loader = loaders[path];
+
   if (!loader || loaded.has(path) || inFlight.has(path)) return;
   inFlight.add(path);
   void loader().then(

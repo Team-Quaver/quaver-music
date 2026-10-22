@@ -31,6 +31,7 @@ export function showPluginSettingsDialog(opts: { name: string; render: (box: HTM
 
   const body = layer.querySelector<HTMLElement>(".sparkle-settings-body")!;
   let cleanup: (() => void) | void | null = null;
+
   try {
     cleanup = opts.render(body);
   } catch (e) {
@@ -41,9 +42,12 @@ export function showPluginSettingsDialog(opts: { name: string; render: (box: HTM
   const close = () => {
     const el = layer;
     layer = null;
+
     if (!el) return;
     window.removeEventListener("keydown", onKey);
+
     try { cleanup?.(); } catch (e) { console.warn("[sparkle] 插件设置清理失败", e); }
+
     cleanup = null;
     // 离场动画门闩与 UpdateDialog 同一套：.leaving 挂上后 animationend 摘节点，
     // 动画被禁用（reduced-motion）时靠超时兜底。
@@ -52,7 +56,9 @@ export function showPluginSettingsDialog(opts: { name: string; render: (box: HTM
     window.setTimeout(fin, 240);
     el.classList.add("leaving");
   };
+
   const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+
   window.addEventListener("keydown", onKey);
   layer.addEventListener("mousedown", (e) => { if (e.target === layer) close(); });
   layer.querySelector<HTMLButtonElement>('[data-act="close"]')!.onclick = close;

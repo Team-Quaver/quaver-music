@@ -14,6 +14,7 @@ import { viewsSource } from "./views-source.ts";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
 const views = viewsSource();
+
 // 后端断言对 Go sidecar（vendor/Typhoeus-go）：Python 实现已退役
 const appGo = readFileSync(join(root, "..", "vendor", "Typhoeus-go", "server", "app.go"), "utf8");
 const discoveryGo = readFileSync(join(root, "..", "vendor", "Typhoeus-go", "server", "handlers_discovery.go"), "utf8");
@@ -21,49 +22,64 @@ const styleCss = read("src/style.css");
 
 let fails = 0;
 let checks = 0;
+
 const ok = (name, cond, note = "") => {
   checks++;
+
   if (cond) console.log(`PASS ${name}${note ? " — " + note : ""}`);
   else { fails++; console.log(`FAIL ${name}${note ? " — " + note : ""}`); }
 };
+
 const has = (h, n) => h.includes(n);
 const re = (h, rx) => rx.test(h);
 const noComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 
 const view = views.match(/async function dailyView[\s\S]*?\n\}/)?.[0] ?? "";
 const code = noComments(view);
+
 ok("views: 抠到 dailyView 源码", view.length > 300, `${view.length} 字符`);
 
 // ============ 后端（Go sidecar）：dirid 202 的虚拟歌单 ============
 ok("Go sidecar: 有 GET /recommend/daily 路由", re(appGo, /"GET \/recommend\/daily"/));
+
 ok("Go sidecar: 用 dailyDirid = 202（与「我喜欢」201 同族的系统 dirid）",
   re(discoveryGo, /dailyDirid int64 = 202/) && re(discoveryGo, /GetDetail\(\s*dailyDirid,\s*dailyDirid/));
+
 ok("Go sidecar: 注释写清「disstid 每天变、按 dirid 取才稳」（免得后人又去追那个 id）",
   has(discoveryGo, "每天") && has(discoveryGo, "dirid"));
 
 // ============ 前端：接真接口，且假实现彻底删干净 ============
 ok("views: 走 /recommend/daily（路径与后端一致，写错就是 404）",
   re(code, /api(?:<[^>(]*>)?\("\/recommend\/daily\?page=1&num=100"\)/) && re(appGo, /"GET \/recommend\/daily"/));
+
 ok("views: 30 首一把拿全（num=100，不翻页）", re(code, /num=100/));
+
 ok("假实现已删干净：不再用「我喜欢」凑数 / 不再有日期种子随机",
   !has(code, "loadLiked") && !has(code, "mulberry32") && !has(code, "2654435761")
   && !has(noComments(views), "接口未开放"));
+
 ok("输出: 行渲染带专辑列 + 双击播整列（与歌单页同一套语义）",
   re(code, /renderSongRows\(box, songs, \{ showAlbum: true, onPlay: \(s, i, all\) => player\.playList\(all, i\) \}\)/));
+
 ok("布局: 与歌单页同一套信息头 + 吸顶条 + 播放全部",
   re(code, /mountHead\(root,[\s\S]{0,220}name: "每日 30 首"/)
   && re(code, /mountStickyBar\(root, \{ artHtml: cover, name: "每日 30 首" \}/)
   && re(code, /playAllButton\(\(\) => songs\)/));
+
 ok("封面: Accent 渐变的日历图标，日期只取本地当天的 dd",
   has(views, "const dailyCover = (day: string)")
   && re(code, /new Date\(\)/) && re(code, /getDate\(\)\)\.padStart\(2, "0"\)/)
   && has(views, 'class="daily-cover__calendar"') && has(views, 'class="daily-cover__day"')
   && re(styleCss, /\.daily-cover(?:\s*,\s*\.liked-cover)?\s*\{[^}]*linear-gradient\(145deg,[^}]*var\(--cvg-accent/));
+
 ok("说明文案: 服务端那句编辑语（info.desc）进入歌单式信息头",
   re(code, /desc = d\.info\?\.desc \?\? ""/) && re(code, /mountHead\(root,[\s\S]{0,220}desc: desc \|\|/));
+
 ok("空态: 列表为空给可读提示（没生成 / 未登录），不是白屏",
   re(code, /if \(!songs\.length\) \{[\s\S]{0,160}今天的 30 首还没生成/));
+
 ok("失败态: 报错文案带「需要先登录」引导", has(code, "需要先登录"));
 
 console.log(`\n${checks - fails}/${checks} passed${fails ? ` — ${fails} FAILED` : ""}`);
+
 process.exit(fails ? 1 : 0);

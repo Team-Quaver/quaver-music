@@ -39,14 +39,17 @@ export function showLocalMetaDialog(init: LocalMetaEdit): Promise<LocalMetaEdit 
     </div>`;
 
   const inputs = [...layer.querySelectorAll<HTMLInputElement>(".lmd-body input")];
+
   const fieldOf = (inp: HTMLInputElement): keyof LocalMetaEdit =>
     inp.dataset.k === "artist" ? "artist" : inp.dataset.k === "album" ? "album" : "title";
+
   for (const inp of inputs) inp.value = String(init[fieldOf(inp)] ?? "");
   const saveBtn = layer.querySelector<HTMLButtonElement>('[data-act="save"]')!;
 
   let closing = false;
   let resolveFn: (v: LocalMetaEdit | null) => void = () => {};
   const promise = new Promise<LocalMetaEdit | null>((res) => (resolveFn = res));
+
   const close = (result: LocalMetaEdit | null) => {
     if (closing) return;
     closing = true;
@@ -54,27 +57,34 @@ export function showLocalMetaDialog(init: LocalMetaEdit): Promise<LocalMetaEdit 
     const el = layer;
     layer = null;
     resolveFn(result);
+
     if (!el) return;
     const fin = () => el.remove();
     el.addEventListener("animationend", fin, { once: true });
     window.setTimeout(fin, 240);
     el.classList.add("leaving");
   };
+
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") close(null);
+
     if (e.key === "Enter" && (e.target as HTMLElement)?.tagName === "INPUT") { e.preventDefault(); saveBtn.click(); }
   };
+
   window.addEventListener("keydown", onKey);
   layer.addEventListener("mousedown", (e) => { if (e.target === layer) close(null); });
   layer.querySelector<HTMLButtonElement>('[data-act="cancel"]')!.onclick = () => close(null);
   saveBtn.onclick = () => {
     const out: LocalMetaEdit = { title: "", artist: "", album: "" };
+
     for (const inp of inputs) out[fieldOf(inp)] = inp.value.trim();
+
     if (!out.title && !out.artist && !out.album) close(null); // 全空 = 什么都不改，等价取消
     else close(out);
   };
 
   document.body.append(layer);
   inputs[0]?.focus();
+
   return promise;
 }

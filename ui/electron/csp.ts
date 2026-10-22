@@ -76,17 +76,22 @@ export interface SessionLike {
  */
 export function cspHeadersFor(url: string, appOrigin: string, responseHeaders?: HeaderBag): HeaderBag | undefined {
   let sameOrigin = false;
+
   try {
     sameOrigin = new URL(url).origin === appOrigin;
   } catch {
     sameOrigin = false;
   }
+
   if (!sameOrigin) return responseHeaders;
   const out: HeaderBag = {};
+
   for (const [key, value] of Object.entries(responseHeaders ?? {})) {
     if (key.toLowerCase() !== "content-security-policy") out[key] = value;
   }
+
   out["Content-Security-Policy"] = [APP_CSP];
+
   return out;
 }
 
@@ -96,11 +101,15 @@ export function cspHeadersFor(url: string, appOrigin: string, responseHeaders?: 
  */
 export function installAppCsp(session: SessionLike, appOrigin: string, log: (msg: string, ...rest: unknown[]) => void = () => {}): boolean {
   if (!session) { log("[quaver] CSP 未挂：拿不到 session"); return false; }
+
   if (!session.webRequest) { log("[quaver] CSP 未挂：session.webRequest 不可用"); return false; }
+
   if (!/^https?:\/\/[^/]+$/.test(appOrigin)) { log("[quaver] CSP 未挂：origin 不是纯 http(s) 源 =", appOrigin); return false; }
+
   session.webRequest.onHeadersReceived({ urls: [`${appOrigin}/*`] }, (details, callback) => {
     callback({ responseHeaders: cspHeadersFor(details.url, appOrigin, details.responseHeaders) });
   });
   log("[quaver] CSP 已挂到", appOrigin);
+
   return true;
 }

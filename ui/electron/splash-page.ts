@@ -48,6 +48,7 @@ export function buildSplashHtml(
   if (!template.includes("__THEME__") || !template.includes("__ICON__")) {
     throw new Error("splash.html 缺占位符（__ICON__ / __THEME__）");
   }
+
   return template
     .replace("__THEME__", opts.dark ? "dark" : "light")
     .replace("__ICON__", opts.iconSvg);

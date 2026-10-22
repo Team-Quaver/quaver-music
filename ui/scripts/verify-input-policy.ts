@@ -21,8 +21,10 @@ const read = (p) => readFileSync(join(root, p), "utf8");
 
 let fails = 0;
 let checks = 0;
+
 const ok = (name, cond, note = "") => {
   checks++;
+
   if (cond) console.log(`PASS ${name}${note ? " — " + note : ""}`);
   else { fails++; console.log(`FAIL ${name}${note ? " — " + note : ""}`); }
 };
@@ -64,4 +66,5 @@ ok("main.ts: 渲染层不出现 window.open（Electron 侧 deny-all，dev 态也
   !/window\.open\(/.test(mainTs));
 
 console.log(`\n${checks - fails}/${checks} passed${fails ? ` — ${fails} FAILED` : ""}`);
+
 process.exit(fails ? 1 : 0);

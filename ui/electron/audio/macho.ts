@@ -34,12 +34,15 @@ const fromPacked = (v: number): OsVer => ({ major: (v >>> 16) & 0xffff, minor: (
 /** 读文件头部若干字节（路径或已经是 Buffer 都收）。读不到返回 null。 */
 function headBytes(src: Buffer | string): Buffer | null {
   if (Buffer.isBuffer(src)) return src;
+
   try {
     const size = Math.min(statSync(src).size, HEAD_BYTES);
     const fd = openSync(src, "r");
+
     try {
       const buf = Buffer.alloc(size);
       const n = readSync(fd, buf, 0, size, 0);
+
       return buf.subarray(0, n);
     } finally { closeSync(fd); }
   } catch { return null; }
@@ -53,37 +56,48 @@ function headBytes(src: Buffer | string): Buffer | null {
  */
 export function machOMinOs(src: Buffer | string): OsVer | null {
   const buf = headBytes(src);
+
   if (!buf || buf.length < 32) return null;
   let off = 0;
   // fat 头（大端）：nfat_arch 个 arch 描述（cputype 8 / cpusubtype 12 / offset 16 …），
   // 跟着第一个切片的偏移走。fat_arch_64 的 offset 是 64 位字段，位置同样是 16。
   const be32 = (o: number): number => buf.readUInt32BE(o);
+
   if (be32(0) === FAT_MAGIC || be32(0) === FAT_MAGIC_64) {
     const fat64 = be32(0) === FAT_MAGIC_64;
+
     if (buf.length < (fat64 ? 40 : 28)) return null;
     const off0 = fat64 ? Number(buf.readBigUInt64BE(16)) : be32(16);
+
     if (!off0 || off0 >= buf.length) return null;
     off = off0;
   }
+
   const magic = buf.readUInt32LE(off);
   const is64 = magic === MH_MAGIC_64;
+
   if (!is64 && magic !== MH_MAGIC) return null;
   const ncmds = buf.readUInt32LE(off + 16);
   let p = off + (is64 ? 32 : 28);
   let minOs = null;
+
   for (let i = 0; i < ncmds; i++) {
     if (p + 8 > buf.length) break;
     const cmd = buf.readUInt32LE(p);
     const size = buf.readUInt32LE(p + 4);
+
     if (size < 8 || p + size > buf.length) break;
+
     // BUILD_VERSION 比 VERSION_MIN_MACOSX 新且优先（新版链接器只发前者）
     if (cmd === LC_BUILD_VERSION && p + 24 <= buf.length) {
       minOs = fromPacked(buf.readUInt32LE(p + 12));
       break;
     }
+
     if (cmd === LC_VERSION_MIN_MACOSX && p + 16 <= buf.length) minOs = fromPacked(buf.readUInt32LE(p + 8));
     p += size;
   }
+
   return minOs;
 }
 
@@ -95,7 +109,9 @@ export function formatOsVersion(v: OsVer | null): string {
 /** "14.5.2" / "14.5" → {major, minor, patch}；解析不出返回 null（段数不足按 0 补） */
 export function parseOsVersion(s: unknown): OsVer | null {
   const m = /^\s*(\d+)(?:\.(\d+))?(?:\.(\d+))?/.exec(String(s ?? ""));
+
   if (!m) return null;
+
   return { major: Number(m[1]), minor: Number(m[2] ?? 0), patch: Number(m[3] ?? 0) };
 }
 
@@ -103,8 +119,10 @@ export function parseOsVersion(s: unknown): OsVer | null {
 export function osVersionGt(a: OsVer | null, b: OsVer | null): boolean {
   if (!a || !b) return false;
   const keys: (keyof OsVer)[] = ["major", "minor", "patch"];
+
   for (const k of keys) {
     if (a[k] !== b[k]) return a[k] > b[k];
   }
+
   return false;
 }

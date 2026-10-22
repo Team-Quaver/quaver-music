@@ -22,83 +22,116 @@ const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "sr
 
 function hex(s) {
   s = s.replace("#", "");
+
   if (s.length === 3) s = [...s].map((c) => c + c).join("");
+
   return [0, 2, 4].map((i) => parseInt(s.slice(i, i + 2), 16));
 }
+
 function hsl2rgb(h, s, l) {
   const k = (n) => (n + h / 30) % 12;
   const a = s * Math.min(l, 1 - l);
   const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+
   return [255 * f(0), 255 * f(8), 255 * f(4)];
 }
+
 const mix = (a, b, p) => a.map((v, i) => v * p + b[i] * (1 - p));
+
 function over(a, al, b) { return a.map((v, i) => v * al + b[i] * (1 - al)); }
+
 // color-mix(in srgb, A p%, B) —— 预乘 alpha 语义
 function cmix(A, p, B) {
   const al = p * (A.a ?? 1) + (1 - p) * (B.a ?? 1);
+
   if (!al) return { c: [0, 0, 0], a: 0 };
+
   return { c: A.c.map((v, i) => (p * v * (A.a ?? 1) + (1 - p) * B.c[i] * (B.a ?? 1)) / al), a: al };
 }
+
 const solid = (c) => ({ c, a: 1 });
 const flatten = (f, bg) => over(f.c, f.a, bg);
+
 function lum(c) { const [r, g, b] = c.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; }
+
 function ratio(a, b) { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); }
+
 function rgb2lab(c) {
   const [r, g, b] = c.map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
   const X = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047;
   const Y = r * 0.2126 + g * 0.7152 + b * 0.0722;
   const Z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883;
   const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+
   return [116 * f(Y) - 16, 500 * (f(X) - f(Y)), 200 * (f(Y) - f(Z))];
 }
+
 function dE(a, b) { const [l1, a1, b1] = rgb2lab(a), [l2, a2, b2] = rgb2lab(b); return Math.hypot(l1 - l2, a1 - a2, b1 - b2); }
+
 const f2 = (n) => n.toFixed(2);
 const f1 = (n) => n.toFixed(1);
 
 // —— 封面采样：glow 与 accent 同色相（同一张封面），L 分别 0.62 / 0.5 ——
 const COVERS = [];
+
 for (let h = 0; h < 360; h += 10) for (const s of [0.18, 0.5, 1.0]) {
   COVERS.push({ glow: hsl2rgb(h, Math.min(1, s * 1.05), 0.62), accent: hsl2rgb(h, s, 0.5) });
 }
+
 COVERS.push({ glow: hex("#19c2d8"), accent: hex("#2f7d5c") }); // 主题兜底色（未播放 / 中继不可用）
+
 COVERS.push({ glow: hex("#19c2d8"), accent: hex("#19c2d8") });
 
 const TOK = {
   浅色: { ink: hex("#1f2329"), bg: hex("#f7f7f8"), bar: hex("#f0f0f1"), ph2: hex("#d5d5d7"), ink2: hex("#6b7280"), ink3: hex("#3c4048") },
   深色: { ink: hex("#e6e8ec"), bg: hex("#131417"), bar: hex("#1a1c21"), ph2: hex("#34373e"), ink2: hex("#a6adb8"), ink3: hex("#c3c8d0") },
 };
+
 const SCRIM = hex("#0b0e19");
 
 let fails = 0;
+
 const check = (name, vals, need, kind) => {
   const lo = Math.min(...vals), hi = Math.max(...vals);
+
   if (lo < need) fails++;
   console.log(`${lo >= need ? "PASS" : "FAIL"} ${name}  最坏 ${f2(lo)}:1 / 最好 ${f2(hi)}:1  (门槛 ${need}，${kind})`);
 };
+
 const checkE = (name, vals, need) => {
   const lo = Math.min(...vals), hi = Math.max(...vals);
+
   if (lo < need) fails++;
   console.log(`${lo >= need ? "PASS" : "FAIL"} ${name}  最坏 ΔE ${f1(lo)} / 最好 ${f1(hi)}  (门槛 ${need}，清晰可辨)`);
 };
+
 const hx = (c) => "#" + c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
+
 // 点名最坏样本：只看一个数字不知道该怎么调，得知道是哪个色相塌的
 const worstOf = (label, fn) => {
   let wi = 0, wv = Infinity;
   COVERS.forEach((p, i) => { const v = fn(p); if (v < wv) { wv = v; wi = i; } });
+
   return { accent: COVERS[wi].accent, i: wi, v: wv };
 };
+
 const note = (s) => console.log("     ↳ " + s);
 const bad = (s) => { fails++; console.log("FAIL " + s); };
 
 // ================= 抠值 + 结构断言 =================
 const blockOf = (sel) => {
   const m = css.match(new RegExp(sel.replace(/[.#]/g, "\\$&") + "\\s*\\{([^}]*)\\}"));
+
   if (!m) { bad(`找不到规则 ${sel}`); return ""; }
+
   return m[1];
 };
+
 const pct = (b, what) => {
   const m = b.match(/color-mix\(in srgb,[\s\S]*?(\d+)%/);
+
   if (!m) { bad(`${what}：取不到 color-mix 比例`); return NaN; }
+
   return parseFloat(m[1]) / 100;
 };
 
@@ -108,20 +141,31 @@ const pill = blockOf(".pb-q.active");
 const playHover = blockOf(".pb-play:hover");
 
 console.log("=== style.css 实际取值 ===");
+
 const F_GHOST = pct(ghost, ".pb-ghost.on 前景");
 const F_PILL = pct(pill, ".pb-q.active 前景");
+
 console.log(`  ghost 前景 accent ${F_GHOST}　胶囊 前景 accent ${F_PILL}`);
 
 // —— 结构断言 ——
 if (/background\s*:/.test(ghost)) bad(".pb-ghost.on 带了 background —— 控制条是裸图标排，次级按钮不许加底");
+
 if (/box-shadow\s*:/.test(ghost)) bad(".pb-ghost.on 带了 box-shadow（描边/底片）—— 控制条次级按钮不许加");
+
 if (!ghost.includes("var(--ink)")) bad(".pb-ghost.on 前景没锚到 --ink（裸 accent 会随色相漂）");
+
 if (/background\s*:/.test(pill)) bad(".pb-q.active 改了 background —— 胶囊的底必须保持 --ph2");
+
 if (!pill.includes("var(--ink)")) bad(".pb-q.active 前景没锚到 --ink");
+
 if (!/border-color:\s*var\(--cvg-accent/.test(pill)) bad(".pb-q.active 描边不是实心 accent");
+
 if (/opacity\s*:/.test(playHover)) bad(".pb-play:hover 不可用 opacity 合成层覆盖 backdrop-filter 播放条");
+
 if (!/background:\s*color-mix\(in srgb, var\(--ink\)/.test(playHover)) bad(".pb-play:hover 应使用局部底色混合提供 hover 反馈");
+
 if (love.replace(/\s/g, "") !== "color:var(--ink3);") bad(`.pb-ghost#pb-love.on 应为无染色 color:var(--ink3)（只靠空心/实心区分），现为：${love.trim()}`);
+
 if (fails) { console.log("\n结构不对，先修 CSS 再跑对比度"); process.exit(1); }
 
 // ================= 控制条 =================
@@ -150,12 +194,17 @@ for (const [tn, T] of Object.entries(TOK)) {
   // 安全上限
   const capF = (base, need) => {
     let best = 0;
+
     for (let F = 0.02; F <= 1.0001; F += 0.02) if (Math.min(...COVERS.map((p) => ratio(mix(p.accent, T.ink, F), base))) >= need) best = F;
+
     return Math.round(best * 100) / 100;
   };
+
   const capIcon = capF(T.bar, 3.0), capText = capF(T.ph2, 4.5);
   note(`安全上限：ghost 前景 ≤ ${capIcon}（现 ${F_GHOST}）　胶囊前景 ≤ ${capText}（现 ${F_PILL}）`);
+
   if (F_GHOST > capIcon + 0.021) bad(`.pb-ghost.on 的 accent 占比 ${F_GHOST} 越界，应 ≤ ${capIcon}`);
+
   if (F_PILL > capText + 0.021) bad(`.pb-q.active 的 accent 占比 ${F_PILL} 越界，应 ≤ ${capText}`);
 
   const before = COVERS.map((p) => ratio(p.accent, T.bar));
@@ -165,38 +214,56 @@ for (const [tn, T] of Object.entries(TOK)) {
 
 // ================= 正在播放页（底色恒深；二维扫描 封面亮度 × 遮罩透明度）=================
 console.log("\n=== 正在播放页 · 翻译选项（底色恒深，与明暗主题无关）===");
+
 const SURFACES = [];
+
 for (let g = 0; g <= 255; g += 15) for (const a of [0.35, 0.45, 0.55]) SURFACES.push(over([g, g, g], a, SCRIM));
+
 // 选中档底 = accent 掺**深遮罩**（45% + #0b0e19）：白字压在任意色相上都保持小字对比。
 // 掺白提亮走不通 —— 亮色相封面（黄）掺白后底色逼近白字，选中态会隐形。
 const optBlock = blockOf(".np-menu-opt.sel");
+
 if (!/background:[^;]*var\(--cvg-accent/.test(optBlock)) bad(".np-menu-opt.sel 没用封面染色（应与进度条/歌词高亮同源，换曲平滑跟随）");
+
 if (!optBlock.includes("#0b0e19")) bad(".np-menu-opt.sel 没掺深遮罩 —— 掺白的话亮色相封面下白字会隐形");
+
 const W_NP = (() => {
   const m = optBlock.match(/background:\s*color-mix\(in srgb,[\s\S]*?(\d+)%/);
+
   if (!m) { bad(".np-menu-opt.sel：取不到 color-mix 比例"); return NaN; }
+
   return parseFloat(m[1]) / 100;
 })();
+
 const onFill = (p, s) => flatten(cmix(solid(p.accent), W_NP, { c: SCRIM, a: 1 }), s);
+
 // 选项住在「更多选项」菜单里：实际背板是菜单的深色玻璃（#10131c @ 85%），不是裸页面 ——
 // 未选中档是透明底，只靠文字本身与菜单底保证可读。
 const menuOf = (s) => over([16, 19, 28], 0.85, s);
 
 console.log(`  取值：选中档底 accent ${W_NP} + 深遮罩 #0b0e19　未选中档透明底（压在菜单深玻璃上）`);
+
 // 状态信号：选中底色 vs 菜单底取「可察觉」2.3；白字是 11.5px 小字，取硬门槛 4.5。
 checkE("选项 · 选中档底 vs 菜单底（状态可察觉）", COVERS.flatMap((p) => SURFACES.map((s) => dE(onFill(p, s), menuOf(s)))), 2.3);
+
 check("选项 · 白字 vs 选中档底（11.5px 小字 4.5）", COVERS.flatMap((p) => SURFACES.map((s) => ratio([255, 255, 255], onFill(p, s)))), 4.5, "小字 4.5");
+
 check("选项 · 未选中白字 vs 菜单底（11.5px 小字 4.5）", SURFACES.map((s) => ratio([255, 250, 250], menuOf(s))), 4.5, "小字 4.5");
+
 {
   // 安全上限：accent 占比再往上加，最坏色相下白字对比会跌破 4.5:1
   let capW = 0;
+
   for (let W = 0.05; W <= 1.0001; W += 0.01) {
     if (COVERS.every((p) => SURFACES.every((s) => ratio([255, 255, 255], flatten(cmix(solid(p.accent), Math.round(W * 100) / 100, { c: SCRIM, a: 1 }), s)) >= 4.5))) capW = W;
   }
+
   capW = Math.round(capW * 100) / 100;
   note(`安全上限：选项底 accent ≤ ${capW}（现 ${W_NP}）`);
+
   if (W_NP > capW + 0.011) bad(`.np-menu-opt.sel 的 accent 占比 ${W_NP} 越界，应 ≤ ${capW}`);
 }
+
 note(`扫描面：封面灰度 0-255 × 遮罩 0.35/0.45/0.55 = ${SURFACES.length} 种底色 × ${COVERS.length} 色相`);
 
 // ================= 「软洗底 + accent 系前景 + accent 描边」这一类高亮态 =================
@@ -206,27 +273,37 @@ note(`扫描面：封面灰度 0-255 × 遮罩 0.35/0.45/0.55 = ${SURFACES.lengt
 const MIX_CASES = [
   { sel: ".login-wrap .tag.sel", name: "登录页 · 登录方式标签", px: "13px" },
 ];
+
 // 注：列表工具条的排序胶囊（歌单页/我喜欢）已并入 .tag / .tag.sel 这一套（见 ListTools.ts）——
 // 它就是歌手页分类标签的同一个组件，所以不再单列一份「软洗底」口径；它的选中态数值
 // 与 .tag.sel / .stab.sel / .opt-card.sel 一起记在下面的「回归对照」里。
 for (const C of MIX_CASES) {
   console.log(`\n=== ${C.name} ${C.sel}（软洗底 + accent 系前景）===`);
   const block = blockOf(C.sel);
+
   const pctOf = (re, what) => {
     const m = block.match(re);
+
     if (!m) { bad(`${C.sel} ${what} 取不到 color-mix 比例`); return NaN; }
+
     return parseFloat(m[1]) / 100;
   };
+
   const WASH = pctOf(/background:\s*color-mix\(in srgb,[\s\S]*?(\d+)%/, "洗底");
   // 注意别被 `border-color:` 抢匹配：它排在 color 前面，`/color:/` 会命中它
   const FG = pctOf(/(?<![-\w])color:\s*color-mix\(in srgb,[\s\S]*?(\d+)%/, "前景");
   const BD = pctOf(/border-color:\s*color-mix\(in srgb,[\s\S]*?(\d+)%/, "描边");
+
   // 结构：底不许是实心 accent（那会退化成「白字 + 裸 accent」那套），前景必须锚到 --ink
   if (/background:[^;]*var\(--cvg-accent/.test(block)) bad(`${C.sel} 的底用了实心 accent —— 亮色相封面/浅色 accent 下前景会塌`);
+
   if (!/background:[^;]*transparent/.test(block)) bad(`${C.sel} 的底不是洗底（应 mix 到 transparent）`);
+
   if (!block.includes("var(--ink)")) bad(`${C.sel} 前景没锚到 --ink（裸 accent 的亮度会随色相漂）`);
+
   if (!block.includes("var(--acc)")) bad(`${C.sel} 没给 --acc 兜底（未播放/中继不可用时要有色）`);
   console.log(`  取值：洗底 glow ${WASH}　前景 accent ${FG}　描边 accent ${BD}`);
+
   for (const [tn, T] of Object.entries(TOK)) {
     const washBg = (p) => over(p.glow, WASH, T.bg);   // 洗底压在页面底上
     const fg = (p) => mix(p.accent, T.ink, FG);       // 前景只把亮度锚回 token
@@ -235,21 +312,28 @@ for (const C of MIX_CASES) {
     checkE(`${tn} · 底色开/关（洗底 vs 页面底）`, COVERS.map((p) => dE(washBg(p), T.bg)), 2.3);
     checkE(`${tn} · 文字色开/关（accent 掺色 vs --ink2）`, COVERS.map((p) => dE(fg(p), T.ink2)), 5);
     let cap = 0;
+
     for (let F = 0.02; F <= 1.0001; F += 0.02) {
       if (COVERS.every((p) => ratio(mix(p.accent, T.ink, F), washBg(p)) >= 4.5)) cap = Math.round(F * 100) / 100;
     }
+
     const w = worstOf(C.sel, (p) => ratio(fg(p), washBg(p)));
     note(`安全上限：前景 accent ≤ ${cap}（现 ${FG}）　洗底 glow ${WASH}（只影响底，不参与上限）`);
     note(`最坏样本：封面 accent ${hx(w.accent)} → 文字 ${hx(fg(COVERS[w.i]))} vs 洗底 ${hx(washBg(COVERS[w.i]))}`);
+
     if (FG > cap + 0.021) bad(`${C.sel} 前景 accent 占比 ${FG} 越界，应 ≤ ${cap}`);
   }
 }
 
 // ================= 回归对照（本次未动，仅记录）=================
 console.log("\n=== 回归对照（未改动，仅记录数值）===");
+
 const raw = COVERS.map((p) => ratio(p.accent, [255, 255, 255]));
+
 console.log(`  「白字 + 裸 accent 实心」= .tag.sel / .stab.sel / .opt-card.sel / 列表工具条排序胶囊（现用 .tag）\n       最坏 ${f2(Math.min(...raw))}:1 / 最好 ${f2(Math.max(...raw))}:1`);
+
 if (Math.min(...raw) < 3) console.log("       ← 亮色相封面下不可读。要收敛就同样把底色锚到 --ink（如 color-mix(in srgb, accent 34%, var(--ink))）");
 
 console.log(fails ? `\n${fails} 项未达标` : "\nALL PASS");
+
 process.exit(fails ? 1 : 0);

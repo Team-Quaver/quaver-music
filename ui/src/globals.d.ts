@@ -21,6 +21,45 @@ interface UpdateProgressPayload {
   total: number;
 }
 
+// Sparkle 已安装插件与 Marketplace 索引的最小清单（主进程读盘/读远端 JSON 的原样投影；
+// 渲染层只声明宿主真正消费的字段，第三方多余键在运行时被忽略）。
+interface SparklePluginManifest {
+  id?: string;
+  name?: string;
+  version?: string;
+  minHostVersion?: string;
+  allowBeta?: boolean;
+  author?: string;
+  description?: string;
+  category?: string;
+  main?: string;
+}
+
+interface SparkleInstalledPlugin {
+  id: string;
+  dir: string;
+  manifest: SparklePluginManifest;
+  installedAt: number;
+}
+
+interface SparkleMarketPluginEntry {
+  id: string;
+  name: string;
+  version: string;
+  author?: string;
+  description?: string;
+  minHostVersion?: string;
+  allowBeta?: boolean;
+  category?: string;
+  download: string;
+  homepage?: string;
+  hash?: string;
+}
+
+interface SparkleMarketIndex {
+  plugins?: SparkleMarketPluginEntry[];
+}
+
 // Sparkle 第三方插件桥（electron/preload.cts 暴露；浏览器 dev 下不存在）。
 // 本文件是 ambient 声明文件（无 import/export），Window 直接全局合并。
 interface Window {
@@ -41,14 +80,14 @@ interface Window {
     onProgress(cb: (p: UpdateProgressPayload) => void): void;
   };
   quaverSparkle?: {
-    list(): Promise<{ ok: boolean; plugins?: { id: string; dir: string; manifest: Record<string, unknown>; installedAt: number }[] }>;
-    install(msg: { url: string; sha256?: string; meta?: Record<string, unknown> }): Promise<{ ok: boolean; id?: string; error?: string }>;
+    list(): Promise<{ ok: boolean; plugins?: SparkleInstalledPlugin[] }>;
+    install(msg: { url: string; sha256?: string; meta?: SparklePluginManifest }): Promise<{ ok: boolean; id?: string; error?: string }>;
     uninstall(msg: { id: string }): Promise<{ ok: boolean; error?: string }>;
-    market(msg: { url: string }): Promise<{ ok: boolean; index?: unknown; error?: string }>;
+    market(msg: { url: string }): Promise<{ ok: boolean; index?: SparkleMarketIndex; error?: string }>;
     /** 「添加本地插件」第一步：native 文件选择器 + 读文件（base64；用户取消时 canceled=true） */
     pickLocal(): Promise<{ ok: boolean; canceled?: boolean; name?: string; dataBase64?: string; error?: string }>;
     /** 第二步：渲染层校验插件形状后回传本体（base64）与元数据，主进程落盘 */
-    installLocal(msg: { dataBase64: string; meta?: Record<string, unknown> }): Promise<{ ok: boolean; id?: string; error?: string }>;
+    installLocal(msg: { dataBase64: string; meta?: SparklePluginManifest }): Promise<{ ok: boolean; id?: string; error?: string }>;
   };
   /** Sparkle 安全模式（QUAVER_REDFLAG=1）：主进程读环境变量后经 preload 下发。
    *  加载策略见 src/sparkle/policy.ts；浏览器 dev 下不存在 → 恒 false。 */

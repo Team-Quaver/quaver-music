@@ -8,8 +8,10 @@ import type { Song } from "../player";
 
 export const h = (tag: string, cls: string, html = "") => {
   const el = document.createElement(tag);
+
   if (cls) el.className = cls;
   el.innerHTML = html;
+
   return el;
 };
 
@@ -92,6 +94,7 @@ export interface ToplistCard {
 }
 
 export interface ToplistGroup { id?: number; name?: string; toplists?: ToplistCard[] }
+
 export interface ToplistCategoryResp { groups?: ToplistGroup[] }
 
 /** 榜单详情与歌单详情近似的契约，供同一套信息头/歌曲行复用。 */
@@ -151,13 +154,16 @@ function mountHead(root: HTMLElement, opts: {
       <div class="pl-meta">${escHtml(opts.meta)}</div>
       <div class="pl-desc muted">${escHtml(opts.desc)}</div>
     </div>`;
+
   if (opts.actions) {
     const box = h("div", "pl-actions");
     box.append(opts.actions);
     head.querySelector<HTMLElement>(".pl-info")!.append(box);
   }
+
   root.append(head);
   const desc = head.querySelector<HTMLElement>(".pl-desc")!;
+
   if (opts.desc) {
     // 截断检测在下一帧做（-webkit-line-clamp 生效后 scrollHeight 才可比）
     requestAnimationFrame(() => {
@@ -168,9 +174,11 @@ function mountHead(root: HTMLElement, opts: {
         const open = desc.classList.toggle("open");
         btn.textContent = open ? "收起" : "展开";
       };
+
       desc.after(btn);
     });
   }
+
   return head;
 }
 
@@ -185,6 +193,7 @@ export /** 下翻吸顶单行条：信息头滚出视口后，封面/头像 + �
  *  未吸顶时左侧缩略信息隐藏（不与大信息头重复），吸顶后浮现。 */
 function mountStickyBar(root: HTMLElement, opts: { artHtml?: string; round?: boolean; name?: string } = {}) {
   const bar = h("div", "sticky-bar");
+
   if (opts.name || opts.artHtml) {
     bar.innerHTML = `
       <div class="sticky-bar__lead">
@@ -192,9 +201,11 @@ function mountStickyBar(root: HTMLElement, opts: { artHtml?: string; round?: boo
         <span class="sticky-bar__name">${escHtml(opts.name ?? "")}</span>
       </div>`;
   }
+
   const right = h("div", "sticky-bar__right");
   bar.append(right);
   root.append(bar);
+
   return { bar, right, off: trackStuck(bar, routeScroller(root)) };
 }
 
@@ -208,13 +219,17 @@ export /** 吸顶条最右侧的「播放全部」：整队列替换、从第一
 function playAllButton(getVisible: () => Song[]) {
   const btn = h("button", "ghost-btn sticky-playall",
     `<span class="sp-ico" aria-hidden="true">${icons.play}</span>播放全部`) as HTMLButtonElement;
+
   btn.type = "button";
   const sync = () => { btn.disabled = !getVisible().length; };
+
   sync();
   btn.addEventListener("click", () => {
     const list = getVisible().filter((s) => s?.mid);
+
     if (list.length) player.playList(list, 0);
   });
+
   return { el: btn, sync };
 }
 
@@ -261,8 +276,10 @@ export /**
 function trackStuck(el: HTMLElement, scroller: HTMLElement) {
   const host = el.closest<HTMLElement>(".content") ?? el;
   let raf = 0;
+
   const sync = () => {
     raf = 0;
+
     // 吸顶 = 「已离开顶部滚动」且「几何上贴住停靠位」。只有后者不够：
     // 吸顶头自带 margin-top: -6px（抵消 route 顶内边距），回到顶部时 diff 恰为 0，
     // 与吸顶位重合 —— 只看 diff 会把「回到顶部」误判成仍在吸顶，实底永远摘不掉。
@@ -270,20 +287,25 @@ function trackStuck(el: HTMLElement, scroller: HTMLElement) {
     // （滚动 0-6px 之间元素还在随内容上移，提前判吸顶 6px，视觉无差）。
     const stuck = scroller.scrollTop > 0
       && el.getBoundingClientRect().top - scroller.getBoundingClientRect().top <= 0;
+
     el.classList.toggle("stuck", stuck);
     host.classList.toggle("has-stuck", stuck);
     host.style.setProperty("--stuck-h", `${Math.round(el.getBoundingClientRect().height)}px`);
   };
+
   const onScroll = () => {
     if (raf) return;
     raf = requestAnimationFrame(sync);
   };
+
   scroller.addEventListener("scroll", onScroll, { passive: true });
   window.addEventListener("resize", onScroll);
   sync();
+
   return () => {
     scroller.removeEventListener("scroll", onScroll);
     window.removeEventListener("resize", onScroll);
+
     if (raf) cancelAnimationFrame(raf);
     el.classList.remove("stuck");
     host.classList.remove("has-stuck");
@@ -310,10 +332,14 @@ const plainText = (s: unknown) => String(s ?? "")
 
 export const compactCount = (value: unknown) => {
   const n = Number(value ?? 0);
+
   if (!Number.isFinite(n) || n <= 0) return "";
   const fmt = (v: number) => v.toFixed(v >= 100 ? 0 : 1).replace(/\.0$/, "");
+
   if (n >= 100_000_000) return `${fmt(n / 100_000_000)} 亿`;
+
   if (n >= 10_000) return `${fmt(n / 10_000)} 万`;
+
   return Math.round(n).toLocaleString("zh-CN");
 };
 
@@ -323,6 +349,7 @@ export // 卡片播放（悬停浮出的圆形播放键）：取集合歌曲后�
 async function cardPlay(kind: "playlist" | "album" | "singer" | "toplist", id: string, fallbackHash: string) {
   try {
     let songs: Song[] = [];
+
     if (kind === "playlist") {
       songs = (await api<PlaylistDetailResp>(`/songlist/${id}/detail?page=1&num=100`))?.songs ?? [];
     } else if (kind === "toplist") {
@@ -332,6 +359,7 @@ async function cardPlay(kind: "playlist" | "album" | "singer" | "toplist", id: s
     } else {
       songs = (await api<SingerSongsResp>(`/singer/${encodeURIComponent(id)}/songs?num=50&page=1&order=1`))?.song_list ?? [];
     }
+
     if (!songs.length) throw new Error("empty");
     player.playList(songs, 0);
   } catch {
@@ -360,7 +388,9 @@ function navCard(href: string, cover: string, title: string, sub: string, play?:
     if (e.key === "Enter" && (e.target as HTMLElement) === el) { e.preventDefault(); location.hash = href; }
   });
   const pb = el.querySelector(".card-play");
+
   if (pb && play) pb.addEventListener("click", (e) => { e.stopPropagation(); play(); });
+
   return el;
 }
 
@@ -372,15 +402,18 @@ export const PLAY_SVG = `<svg viewBox="0 0 24 24" width="18" height="18" fill="c
 export // 区块错误/空态：标题 + 说明 + 可选重试
 function homeStatus(box: HTMLElement, title: string, note: string, retry?: () => void) {
   box.innerHTML = "";
+
   const status = h("div", "home-status", `
     <p class="home-status__title">${escHtml(title)}</p>
     <p class="muted">${escHtml(note)}</p>`);
+
   if (retry) {
     const btn = h("button", "ghost-btn", "重试") as HTMLButtonElement;
     btn.type = "button";
     btn.onclick = retry;
     status.append(btn);
   }
+
   box.append(status);
 }
 
@@ -395,7 +428,9 @@ async function favSonglistButton(meta: {
   id: string; title: string; picurl?: string; songnum?: number; creatorMusicid?: number;
 }, cleanups: (() => void)[]): Promise<HTMLElement | null> {
   const myId = await getMyMusicid();
+
   if (!myId) return null;
+
   if (meta.creatorMusicid && Number(meta.creatorMusicid) === myId) return null;
   // 收藏列表没拉到（未登录/上游失败）也照常给按钮：点击时写接口会给出真实错误
   await loadFavSonglists().catch(() => []);
@@ -404,12 +439,14 @@ async function favSonglistButton(meta: {
   btn.type = "button";
   btn.className = "fav-btn";
   btn.dataset.plid = meta.id;
+
   const paint = () => {
     const on = isFavSonglist(meta.id);
     btn.classList.toggle("on", on);
     btn.innerHTML = `<span class="fb-ic">${on ? "♥" : "♡"}</span><span>${on ? "已收藏" : "收藏"}</span>`;
     btn.title = on ? "从我的收藏中移除" : "收藏这首歌单";
   };
+
   paint();
   // 订阅挂**按钮的一生**（曾经只挂在点击期间）：侧栏右键「取消收藏」等别处的收藏变更
   // 必须同帧反映到这里 —— 否则按钮停在旧态，下一次点击按旧态取反，做出与显示相反的动作。
@@ -418,6 +455,7 @@ async function favSonglistButton(meta: {
   cleanups.push(off);
   btn.onclick = async () => {
     btn.disabled = true;
+
     try {
       await toggleFavSonglist({ id: meta.id, title: meta.title, picurl: meta.picurl, songnum: meta.songnum });
     } catch (e) {
@@ -433,9 +471,11 @@ async function favSonglistButton(meta: {
       }, 2600);
     } finally {
       btn.disabled = false;
+
       if (!btn.dataset.fail) paint();
     }
   };
+
   return btn;
 }
 
@@ -448,6 +488,7 @@ function albumCardsHtml(albums: AlbumBrief[]): string {
     .sort((a, b) => {
       const aTime = Number.isNaN(a.releaseTime) ? Number.NEGATIVE_INFINITY : a.releaseTime;
       const bTime = Number.isNaN(b.releaseTime) ? Number.NEGATIVE_INFINITY : b.releaseTime;
+
       return bTime - aTime || a.index - b.index;
     })
     .map(({ album }) => album);
@@ -456,6 +497,7 @@ function albumCardsHtml(albums: AlbumBrief[]): string {
     const pm: string = x.pmid || x.mid || "";
     const cover = pm ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${pm.split("_")[0]}.jpg` : "";
     const sub = [x.album_type, x.time_public].filter(Boolean).join(" · ");
+
     return `<a class="card" href="#/album?mid=${encodeURIComponent(x.mid ?? "")}&name=${encodeURIComponent(x.name || "专辑")}">
       <div class="art">${cover ? `<img src="${cover}" alt="" loading="lazy"/>` : ""}</div>
       <div class="name">${escHtml(x.name || "专辑")}</div><div class="sub">${escHtml(sub)}</div></a>`;
@@ -468,18 +510,22 @@ export // 歌手专辑接口的返回顺序不是发行时间顺序，且单页�
 async function fetchSingerAlbums(mid: string, pageSize = 30): Promise<SingerAlbumsResp | null> {
   const albums: AlbumBrief[] = [];
   let total = 0;
+
   try {
     for (let page = 1; ; page++) {
       const d = (await api<SingerAlbumsResp>(`/singer/${encodeURIComponent(mid)}/albums?num=${pageSize}&page=${page}`)) ?? {};
       const batch = d.album_list ?? [];
       albums.push(...batch);
+
       if (typeof d.total === "number") total = d.total;
+
       // total 缺失或为 0 时继续请求，直到接口返回空页，避免漏掉后续专辑。
       if (!batch.length || (total > 0 && albums.length >= total)) break;
     }
   } catch {
     if (!albums.length) return null;
   }
+
   return { album_list: albums, total: total || albums.length };
 }
 
@@ -491,12 +537,14 @@ export // —— 列表页公共壳 ——
 function listPage(root: HTMLElement, title: string, note?: string) {
   const head = h("div", "sticky-head"); // 标题（+副题）吸顶：下翻时固定在内容区顶部
   head.append(h("h1", "page-title", title));
+
   if (note) head.append(h("p", "muted page-note", note));
   root.append(head);
   const offHead = trackStuck(head, routeScroller(root));
   const rows = h("div", "rows", `<div class="muted">加载中…</div>`);
   rows.id = "rows";
   root.append(rows);
+
   return { rows, off: offHead };
 }
 
@@ -518,9 +566,11 @@ export /** 我的页离场：加 .leaving 等动画结束。动画只是观感�
  *  用户关了动效（动画被媒体查询去掉、animationend 永不触发）或事件丢失时按超时兜底。 */
 function exitMe(el: HTMLElement): Promise<void> {
   if (reduceMotion()) return Promise.resolve();
+
   return new Promise<void>((done) => {
     let timer = 0;
     const fin = () => { window.clearTimeout(timer); done(); };
+
     el.addEventListener("animationend", fin, { once: true });
     timer = window.setTimeout(fin, ME_OUT_MS + 120);
     el.classList.add("leaving");

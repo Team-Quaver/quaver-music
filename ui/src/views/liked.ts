@@ -17,12 +17,14 @@ export default async function likedView(root: HTMLElement) {
   // 与「每日 30 首」同一套信息头 + 吸顶条：Accent 封面在前，收藏计数与工具条随后。
   // 封面里的红心固定纯白实心，不跟随 Accent 混色。
   const cover = likedCover;
+
   const head = mountHead(root, {
     artHtml: cover,
     name: "我喜欢",
     meta: "0 首",
     desc: "收藏的歌曲都会在这里。",
   });
+
   const metaEl = head.querySelector<HTMLElement>(".pl-meta");
   const sticky = mountStickyBar(root, { artHtml: cover, name: "我喜欢" });
   const nameEl = sticky.bar.querySelector<HTMLElement>(".sticky-bar__name");
@@ -31,29 +33,39 @@ export default async function likedView(root: HTMLElement) {
   let items: Song[] = []; // 原序 = 收藏顺序（服务端返回的顺序），工具条只读它
   let painted: Song[] = []; // 最近一次上屏的序列（筛排后的副本）：列表级重画只在与缓存不一致时发生
   let shown = 0; // 标题计数（服务端 total 优先：超预载上限时也报真实总数）
+
   const setCount = (n: number) => {
     shown = Math.max(0, n);
+
     if (metaEl) metaEl.textContent = `${shown} 首`;
+
     // 吸顶条里那份缩略名跟着走：条上不显示计数会是「看着像另一个人」
     if (nameEl) nameEl.textContent = shown ? `我喜欢 · ${shown} 首` : "我喜欢";
   };
+
   const keyOf = (s: Song) => String(s._key ?? s.mid ?? "");
+
   // 取消收藏：行淡出后移出本页 + 计数 -1。只在写接口确认后调用——失败已在 player 侧回滚，不会触发
   const dropRow = (song: Song) => {
     const key = keyOf(song);
     const row = key ? box.querySelector<HTMLElement>(`.row[data-songkey="${CSS.escape(key)}"]`) : null;
+
     if (row?.classList.contains("leaving")) return; // 已在淡出：别把计数扣两次
     // 从原序与上屏序列里都摘掉：player.likedCache 是**换新数组**（filter），这里的 items/painted
     // 还指着旧数组，不摘的话下次重排/筛选会把这行放回来（或触发一次无谓的整表重画）。
     const byKey = (x: Song) => keyOf(x) === key;
     const at = items.findIndex(byKey);
+
     if (at >= 0) items.splice(at, 1);
     const pat = painted.findIndex(byKey);
+
     if (pat >= 0) painted.splice(pat, 1);
+
     if (row) {
       row.classList.add("leaving");
       setTimeout(() => { row.remove(); renumberRows(box); }, 220);
     }
+
     setCount(shown - 1);
     tools.refreshCount();
   };
@@ -65,10 +77,13 @@ export default async function likedView(root: HTMLElement) {
     paint: (songs, st) => {
       playAll.sync(); // 筛排结果变了 → 「播放全部」可用态跟着走
       painted = songs; // 记下真正上屏的序列（筛排副本），列表级重画据此去重
+
       if (!songs.length) {
         box.innerHTML = `<div class="muted">${st.filtering ? "没有匹配的歌曲" : "还没有收藏的歌曲"}</div>`;
+
         return;
       }
+
       setCount(Math.max(items.length, player.likedTotal));
       renderSongRows(box, songs, {
         onPlay: (_s, i, all) => player.playList(all, i),
@@ -77,6 +92,7 @@ export default async function likedView(root: HTMLElement) {
       player.markActive(); // 重排后当前曲可能换了行位置
     },
   });
+
   sticky.right.append(tools.el); // 工具条住进吸顶条右侧（与歌单/歌手页同一位置）
   const playAll = playAllButton(() => tools.visible()); // 吃当前搜索+排序后的可见列表
   sticky.right.append(playAll.el); // 「播放全部」固定在吸顶条最右
@@ -88,39 +104,52 @@ export default async function likedView(root: HTMLElement) {
   // 仍不一致时：纯移除逐行淡出补齐（兜住播放条等别处的取消），其余整表重画；有行在淡出则先跳过。
   const offList = player.onLovedListChange(() => {
     const cur = player.likedCache;
+
     if (!cur || sameMids(painted, cur)) return;
     setTimeout(() => {
       const now = player.likedCache;
+
       if (!now || sameMids(painted, now) || box.querySelector(".row.leaving")) return;
       const nowKeys = new Set(now.map(keyOf));
       const paintKeys = new Set(painted.map(keyOf));
       const gone = painted.filter((s) => !nowKeys.has(keyOf(s)));
       const added = [...nowKeys].filter((k) => !paintKeys.has(k));
+
       if (!added.length && gone.length) { for (const s of gone) dropRow(s); return; }
+
       adopt(now);
     }, 0);
   });
 
   // 预载命中（开机已拉回）：首帧直接出，红心默认全部点亮；随后按 TTL 后台对账，内容变了才重画
   const cached = player.likedCache;
+
   if (cached) adopt(cached);
   const ok = await player.loadLoved();
+
   if (!ok) {
     offList();
     sticky.off();
+
     if (!cached) {
       tools.el.remove(); // 拉不到就别摆一排没用的控件
       sticky.bar.remove(); // 内容也没有时，别在标题下留一条空的吸顶条
+
       if (metaEl) metaEl.textContent = "";
       const desc = head.querySelector<HTMLElement>(".pl-desc");
+
       if (desc) desc.textContent = "暂时没有拿到收藏列表，请确认登录状态。";
       box.innerHTML = `<div class="muted">加载失败 — 需要先登录</div>`;
     }
+
     return;
   }
+
   const fresh: Song[] = player.likedCache ?? [];
+
   if (!sameMids(painted, fresh)) adopt(fresh);
   player.syncLovedSoon(); // 进页顺带一次小窗对账：TTL 内不整单重载也能纠漂移
+
   return () => { offList(); sticky.off(); };
 }
 

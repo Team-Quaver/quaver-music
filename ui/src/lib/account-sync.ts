@@ -9,6 +9,7 @@ import { player } from "../player";
 
 /** 前台轮询间隔：足够让手机操作在回到桌面后很快出现，又不至于把两个读接口打穿。 */
 const POLL_MS = 30_000;
+
 /** focus 与 visibilitychange 经常成对触发：短窗口内只发一轮，避免重复请求。 */
 const WAKE_MIN_GAP = 5_000;
 
@@ -22,7 +23,9 @@ const foreground = () => document.visibilityState !== "hidden";
 async function refresh(reason: "wake" | "poll" | "manual"): Promise<void> {
   if (!foreground()) return;
   const now = Date.now();
+
   if (reason === "wake" && now - lastAttemptAt < WAKE_MIN_GAP) return;
+
   if (inflight) return inflight;
   lastAttemptAt = now;
   inflight = (async () => {
@@ -32,6 +35,7 @@ async function refresh(reason: "wake" | "poll" | "manual"): Promise<void> {
       player.refreshLovedFromRemote(),
     ]);
   })();
+
   try {
     await inflight;
   } finally {
@@ -50,6 +54,7 @@ export function startAccountSync(): void {
   lastAttemptAt = Date.now();
 
   const wake = () => { void refresh("wake"); };
+
   window.addEventListener("focus", wake);
   window.addEventListener("online", wake);
   document.addEventListener("visibilitychange", () => {

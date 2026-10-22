@@ -34,9 +34,11 @@ export const isMySonglistsLoaded = () => items !== null;
 /** 拉取自建歌单（默认吃缓存；force=true 回源）。失败抛错且不清空已有缓存。 */
 export async function loadMySonglists(force = false): Promise<MyPlaylist[]> {
   if (items && !force) return items;
+
   if (inflight) return inflight;
   inflight = (async () => {
     const d: any = await api("/user/created-songlists");
+
     return ((d?.playlists ?? []) as any[])
       .filter((p) => Number(p?.dirid) !== LOVED_DIRID && p?.dirid)
       .map((p) => ({
@@ -47,8 +49,10 @@ export async function loadMySonglists(force = false): Promise<MyPlaylist[]> {
         songnum: Number(p.songnum ?? 0),
       }));
   })();
+
   try {
     items = await inflight;
+
     return items;
   } finally {
     inflight = null;
@@ -58,6 +62,7 @@ export async function loadMySonglists(force = false): Promise<MyPlaylist[]> {
 /** 写接口需要的歌曲引用；缺 song_id 就没法写（部分上下文不带数字 id） */
 function songRef(song: any): { song_id: number; song_type: number } {
   if (!song?.id) throw new Error("这首歌缺少 song_id，无法写入歌单");
+
   return { song_id: Number(song.id), song_type: writeSongType(song.type) };
 }
 
@@ -77,6 +82,7 @@ export async function addSongToSonglist(target: MyPlaylist, song: any): Promise<
   const r = await postJson<{ ok: boolean }>(`/songlist/${target.dirid}/songs`, { ...ref, tid: target.id || 0 });
   assertAccepted(r, "加入歌单");
   const hit = mySonglists().find((x) => x.dirid === target.dirid);
+
   if (hit) hit.songnum = Number(hit.songnum ?? 0) + 1;
   // 乐观跟进歌单详情缓存并排一次增量回源（打开中的该歌单页即时上屏；love-song-reload 同款）
   noteSonglistWrite(target.id, String(song.mid ?? ""), true, song);
@@ -88,14 +94,18 @@ export async function removeSongFromSonglist(
   song: any,
 ): Promise<void> {
   const ref = songRef(song);
+
   const r = await api<{ ok: boolean }>(`/songlist/${target.dirid}/songs`, {
     method: "DELETE",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ ...ref, tid: target.tid ?? 0 }),
   });
+
   assertAccepted(r, "从歌单删除");
   const hit = mySonglists().find((x) => x.dirid === target.dirid);
+
   if (hit && Number(hit.songnum ?? 0) > 0) hit.songnum = Number(hit.songnum) - 1;
+
   // 没拿不到 tid（个别调用方只带 dirid）就没法对上详情缓存，只跳过跟进，写本身已生效
   if (target.tid) noteSonglistWrite(target.tid, String(song.mid ?? ""), false, song);
 }
@@ -107,6 +117,7 @@ declare global { interface Window { __quaverSonglists?: {
   mySonglists: typeof mySonglists;
   getCachedSonglist: typeof getCachedSonglist;
 } } }
+
 if (import.meta.env?.DEV) {
   window.__quaverSonglists = { addSongToSonglist, removeSongFromSonglist, mySonglists, getCachedSonglist };
 }
@@ -119,5 +130,6 @@ export async function deleteSonglist(target: { dirid: number; title?: string }):
   if (!Number(target?.dirid)) throw new Error("缺少歌单 dirid，无法删除");
   const r = await api<{ ok: boolean }>(`/songlist/${target.dirid}`, { method: "DELETE" });
   assertAccepted(r, "删除歌单");
+
   if (items) items = items.filter((x) => x.dirid !== Number(target.dirid));
 }

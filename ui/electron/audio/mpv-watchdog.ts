@@ -10,6 +10,7 @@
 // 退出路径：主进程主动收尾（引擎 shutdown / mpv 自身退出）会 end 管道并直接 kill 本进程；
 // 无论如何本进程生命周期 ≤ 主进程，不留驻。
 const pid = Number(process.argv[2]);
+
 if (!Number.isFinite(pid) || pid <= 0) process.exit(2);
 
 const killMpv = () => {
@@ -18,6 +19,9 @@ const killMpv = () => {
 
 // stdin 必须显式 resume，否则流不启动、EOF 永远不来。end/close/error 任一 → 送 mpv 陪葬。
 process.stdin.resume();
+
 process.stdin.on("end", () => { killMpv(); process.exit(0); });
+
 process.stdin.on("close", () => { killMpv(); process.exit(0); });
+
 process.stdin.on("error", () => { killMpv(); process.exit(0); });

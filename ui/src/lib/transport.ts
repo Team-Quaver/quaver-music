@@ -86,6 +86,7 @@ export class WebTransport implements Transport {
 
   onEvent(cb: (e: TransportEvent) => void) {
     this.listeners.add(cb);
+
     return () => { this.listeners.delete(cb); };
   }
 
@@ -112,7 +113,9 @@ export class WebTransport implements Transport {
   stop() {
     // 断开旧流下载（token 中继无 Range 请求即停）；load() 让旧 play() promise 以 AbortError 结束
     try { this.audio.pause(); } catch { /* noop */ }
+
     this.audio.removeAttribute("src");
+
     try { this.audio.load(); } catch { /* noop */ }
   }
 
@@ -168,11 +171,13 @@ export class EngineTransport implements Transport {
 
   onEvent(cb: (e: TransportEvent) => void) {
     this.listeners.add(cb);
+
     return () => { this.listeners.delete(cb); };
   }
 
   private onEngineEvent(ev: any) {
     if (!ev || typeof ev !== "object") return;
+
     switch (ev.t) {
       case "state": {
         const prev = { ...this.st };
@@ -183,6 +188,7 @@ export class EngineTransport implements Transport {
           buffering: !!ev.buffering,
           idle: !!ev.idle,
         };
+
         // 冻结检测：播放中位置两帧不动 → 停止外推（引擎卡住/谎报时时间轴冻结而非漂移）
         if (!this.st.paused && !this.st.idle && !this.st.buffering) {
           this.frozen = Math.abs(this.st.pos - prev.pos) < 0.001 ? this.frozen + 1 : 0;
@@ -190,24 +196,33 @@ export class EngineTransport implements Transport {
         this.posAt = performance.now();
 
         if (this.st.dur !== prev.dur) this.emit({ type: "duration" });
+
         if (this.st.paused !== prev.paused) this.emit(this.st.paused ? { type: "pause" } : { type: "play" });
+
         if (this.st.buffering && !prev.buffering) this.emit({ type: "waiting" });
         // 缓冲恢复，或从 idle/暂停进入出声状态 → playing（起播后 loading 指示靠它熄灭）
         const started = !this.st.paused && !this.st.idle && !this.st.buffering && (prev.idle || prev.paused || prev.buffering);
+
         if ((!this.st.buffering && prev.buffering) || started) this.emit({ type: "playing" });
+
         if (this.st.pos !== prev.pos) this.emit({ type: "time" });
+
         return;
       }
+
       case "ended":
         this.emit({ type: "ended" });
+
         return;
       case "error":
         this.emit({ type: "error", message: String(ev.message ?? "") });
+
         return;
       case "dead":
         // mpv 退出：冻结时间轴并报错；下一次 load 会自动重拉 mpv（重试语义交给播放器）
         this.st = { pos: this.st.pos, dur: this.st.dur, paused: true, buffering: false, idle: true };
         this.emit({ type: "error", message: String(ev.message ?? "mpv 进程退出") });
+
         return;
     }
   }
@@ -219,6 +234,7 @@ export class EngineTransport implements Transport {
     if (this.paused || this.st.buffering || this.frozen >= 2) return this.st.pos;
     const dt = (performance.now() - this.posAt) / 1000;
     const p = this.st.pos + Math.min(Math.max(dt, 0), EXTRAP_CAP_SEC);
+
     return this.st.dur > 0 ? Math.min(p, this.st.dur) : p;
   }
 
@@ -227,7 +243,9 @@ export class EngineTransport implements Transport {
   async snapshot(): Promise<{ running: boolean; url: string; pos: number; dur: number; paused: boolean; buffering: boolean; idle: boolean } | null> {
     try {
       const r = await this.invoke({ cmd: "snapshot" });
+
       if (!r?.ok || !r.running || !r.url || r.idle) return null;
+
       return {
         running: true,
         url: String(r.url),
@@ -259,6 +277,7 @@ export class EngineTransport implements Transport {
 
   async load(url: string, opts?: { paused?: boolean }) {
     const r = await this.invoke({ cmd: "load", url, paused: !!opts?.paused });
+
     if (!r?.ok) throw new Error(r?.error ?? "音频引擎加载失败");
     this.loadedUrl = url;
     this.frozen = 0;
@@ -267,6 +286,7 @@ export class EngineTransport implements Transport {
   async play() {
     // eof 后 mpv 回 idle 会卸载文件（区别于 <audio> 保留 src）——重挂由引擎侧处理（它才知道 mpv 真实 idle 态）
     const r = await this.invoke({ cmd: "play" });
+
     if (!r?.ok) throw new Error(r?.error ?? "音频引擎播放失败");
   }
 
@@ -295,12 +315,15 @@ export class EngineTransport implements Transport {
 
   async listDevices() {
     const r = await this.invoke({ cmd: "devices" });
+
     if (!r?.ok) throw new Error(r?.error ?? "获取音频设备列表失败");
+
     return { current: String(r.current ?? "auto"), devices: (r.devices ?? []) as AudioDeviceInfo[] };
   }
 
   async setDevice(id: string) {
     const r = await this.invoke({ cmd: "device", id });
+
     if (!r?.ok) throw new Error(r?.error ?? "切换音频设备失败");
   }
 
@@ -310,6 +333,7 @@ export class EngineTransport implements Transport {
 
   async setEqualizer(state: EqState) {
     const r = await this.invoke({ cmd: "eq", state });
+
     if (!r?.ok) throw new Error(r?.error ?? "应用 EQ 失败");
   }
 }

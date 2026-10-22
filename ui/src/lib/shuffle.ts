@@ -12,27 +12,32 @@
 /** 本地日期键 `YYYY-MM-DD`（本地时区，理由见文件头） */
 export function dayKey(d: Date = new Date()): string {
   const p = (n: number) => String(n).padStart(2, "0");
+
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
 /** 日期键 → 32 位无符号种子（FNV-1a；同键必得同种子，跨键不易撞） */
 export function daySeed(key: string): number {
   let h = 0x811c9dc5;
+
   for (let i = 0; i < key.length; i++) {
     h ^= key.charCodeAt(i);
     h = Math.imul(h, 0x01000193);
   }
+
   return h >>> 0;
 }
 
 /** mulberry32：同种子必得同序列。取 0..1 浮点，供 Fisher–Yates 取下标 */
 export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
+
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
     let t = a;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
@@ -41,12 +46,14 @@ export function mulberry32(seed: number): () => number {
 export function shuffleOrder(n: number, seed: number): number[] {
   const a = Array.from({ length: Math.max(0, n | 0) }, (_, i) => i);
   const rnd = mulberry32(seed);
+
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(rnd() * (i + 1));
     const t = a[i];
     a[i] = a[j];
     a[j] = t;
   }
+
   return a;
 }
 
@@ -63,17 +70,25 @@ export function shuffleOrder(n: number, seed: number): number[] {
 export function step(order: number[], cur: number, dir: 1 | -1, wrap: boolean): number {
   if (!order.length) return -1;
   const p = order.indexOf(cur);
+
   if (p < 0) {
     // cur 不在当日顺序里：队列换了内容、或用户从列表直接点了一首不在序的歌。
     // 沿 dir 方向取第一个仍在序里的元素；取不到（已在序列另一端外侧）才按 wrap 决定回绕。
     const hit = dir > 0 ? order.find((i) => i > cur) : order.slice().reverse().find((i) => i < cur);
+
     if (hit !== undefined) return hit;
+
     if (!wrap) return -1;
+
     return dir > 0 ? order[0] : order[order.length - 1];
   }
+
   const q = p + dir;
+
   if (q >= 0 && q < order.length) return order[q];
+
   if (!wrap) return -1;
+
   return dir > 0 ? order[0] : order[order.length - 1];
 }
 
@@ -87,6 +102,7 @@ export function step(order: number[], cur: number, dir: 1 | -1, wrap: boolean): 
  */
 export function walk(order: number[], from: number, steps: number, dir: 1 | -1, wrap: boolean): number {
   const n = order.length;
+
   if (!n) return -1;
   // 步数先夹紧：**这不是优化，是防呆** —— 调用方可能传个天文数字（插件里 offset 来自
   // 用户/路由），线性空转会把主线程转死。语义上夹紧是等价的：
@@ -95,9 +111,12 @@ export function walk(order: number[], from: number, steps: number, dir: 1 | -1, 
   const left0 = wrap ? ((steps % n) + n) % n : Math.min(steps, n);
   let left = left0;
   let cur = from;
+
   while (left-- > 0) {
     cur = step(order, cur, dir, wrap);
+
     if (cur < 0) return -1;
   }
+
   return cur;
 }

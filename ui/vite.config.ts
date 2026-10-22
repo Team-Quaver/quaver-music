@@ -20,7 +20,9 @@ import { apiRelay } from "./src/relay.ts";
 function appVersion(): string {
   const root = fileURLToPath(new URL(".", import.meta.url));
   const explicit = process.env.QUAVER_VERSION?.trim();
+
   if (explicit) return explicit;
+
   try {
     return execSync('git describe --tags --abbrev=0 --match "v*"', { cwd: root, encoding: "utf8" }).trim();
   } catch {
@@ -41,24 +43,29 @@ function attachRelay(server: ViteDevServer | PreviewServer) {
 // **形状**断言，而不是只盯着总大小看数字（总大小会随依赖漂移，形状不会）。
 function chunkGraphPlugin() {
   let outDir = "dist";
+
   return {
     name: "quaver-chunk-graph",
     apply: "build",
     configResolved(cfg: any) { outDir = resolve(cfg.root ?? ".", cfg.build?.outDir ?? "dist"); },
     writeBundle(_opts: any, bundle: any) {
       const graph: Record<string, unknown> = {};
+
       for (const [file, item] of Object.entries<any>(bundle)) {
         if (item.type !== "chunk") continue;
+
         const mods = Object.entries<any>(item.modules ?? {})
           .map(([id, m]) => ({ id, bytes: m.renderedLength ?? 0 }))
           .sort((a, b) => b.bytes - a.bytes)
           .slice(0, 60);
+
         graph[file] = {
           kind: item.isEntry ? "entry" : item.isDynamicEntry ? "dynamic" : "shared",
           bytes: Buffer.byteLength(item.code ?? "", "utf8"),
           modules: mods,
         };
       }
+
       mkdirSync(join(outDir, ".vite"), { recursive: true });
       writeFileSync(join(outDir, ".vite", "chunk-graph.json"), JSON.stringify(graph, null, 1));
     },

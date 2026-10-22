@@ -54,18 +54,25 @@ const pad = (n: number) => String(n).padStart(2, "0");
  *  显示出来。回读墙钟三段（年/月/日，含时分秒）与原串逐项对齐，对不上就是脏值。 */
 export function parseVipTime(s: unknown, edge: "start" | "end" = "start"): number | null {
   const raw = String(s ?? "").trim().replace("T", " ");
+
   if (!raw || raw === "0") return null;
   const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ ](\d{2}):(\d{2})(?::(\d{2}))?)?$/.exec(raw);
+
   if (!m) return null;
   const [, y, mo, d, hh = "00", mi = "00", ss = "00"] = m;
+
   if (Number(y) < 2000 || Number(y) > 2100) return null; // "0000-00-00" 这类脏值挡在门外
   const ms = Date.parse(`${y}-${mo}-${d}T${hh}:${mi}:${ss}+08:00`);
+
   if (Number.isNaN(ms)) return null;
   const back = new Date(ms + SH_MS); // 回读墙钟，与输入逐项对齐（防进位）
+
   const same =
     back.getUTCFullYear() === Number(y) && back.getUTCMonth() + 1 === Number(mo) && back.getUTCDate() === Number(d) &&
     back.getUTCHours() === Number(hh) && back.getUTCMinutes() === Number(mi) && back.getUTCSeconds() === Number(ss);
+
   if (!same) return null;
+
   // 只有日期（上游没给时分秒）且是「到期」语义 → 收到当天 23:59:59
   return edge === "end" && m[4] === undefined ? ms + DAY_MS - 1000 : ms;
 }
@@ -75,25 +82,30 @@ export function fmtVipWall(ms: number): string {
   const d = new Date(ms + SH_MS);
   const date = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
   const time = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+
   return time === "00:00" ? date : `${date} ${time}`;
 }
 
 /** 上游墙钟串 → 展示形态；解析不出来给空串 */
 export const fmtVipTime = (s: unknown): string => {
   const ms = parseVipTime(s);
+
   return ms === null ? "" : fmtVipWall(ms);
 };
 
 /** 自然日差（+08:00 日历日）：到期日 − 今天。0 = 今天到期，负数 = 已过期几天 */
 export function vipDaysLeft(endMs: number, now: number): number {
   const day = (ms: number) => Math.floor((ms + SH_MS) / DAY_MS);
+
   return day(endMs) - day(now);
 }
 
 /** 到期状态：未过期「6 天后到期」/「今天到期」，已过期「已过期 3 天」 */
 export function vipExpiryState(endMs: number, now: number): { expired: boolean; text: string } {
   const d = vipDaysLeft(endMs, now);
+
   if (endMs <= now) return { expired: true, text: d < 0 ? `已过期 ${-d} 天` : "今天已过期" };
+
   return { expired: false, text: d === 0 ? "今天到期" : `${d} 天后到期` };
 }
 
@@ -128,37 +140,49 @@ const tierSource = (vip: any, t: VipTierDef): any => t.where === "root" ? vip ??
 /** 日期未给时信标志；已给但无效、尚未生效或已到期时绝不显示徽章。 */
 export function vipTierActive(vip: any, t: VipTierDef, now: number = Date.now()): boolean {
   const src = tierSource(vip, t);
+
   if (Number(src[t.flag]) !== 1) return false;
+
   for (const [key, edge] of [[t.start, "start"], [t.end, "end"]] as const) {
     const raw = String(src[key] ?? "").trim();
+
     if (!raw || raw === "0") continue;
     const ms = parseVipTime(raw, edge);
+
     if (ms === null || (edge === "start" ? now < ms : now >= ms)) return false;
   }
+
   return true;
 }
 
 /** 侧栏/我的页共用，仅显示最高有效会员；音乐人徽章由调用方独立处理。 */
 export function vipBadgeHtml(vip: any, now: number = Date.now()): string {
   const tier = VIP_TIERS.find((t) => vipTierActive(vip, t, now));
+
   return tier ? `<i class="badge ${tier.flag === "svip" ? "orange" : "green"}">${escHtml(tier.label)}</i>` : "";
 }
 
 /** 页面保持打开时也在权益边界更新；每分钟校时，并在窗口恢复时立即重算。 */
 export function watchVip(vip: any, render: () => void): () => void {
   let timer: ReturnType<typeof setTimeout>;
+
   const refresh = () => {
     clearTimeout(timer);
     render();
     const now = Date.now();
+
     const edges = VIP_TIERS.flatMap((t) => {
       const src = tierSource(vip, t);
+
       return [parseVipTime(src[t.start]), parseVipTime(src[t.end], "end")];
     }).filter((ms): ms is number => ms !== null && ms > now);
+
     timer = setTimeout(refresh, Math.min(60_000, ...edges.map((ms) => ms - now)));
   };
+
   refresh();
   document.addEventListener("visibilitychange", refresh);
+
   return () => { clearTimeout(timer); document.removeEventListener("visibilitychange", refresh); };
 }
 
@@ -168,9 +192,11 @@ export function vipOverview(vip: any, now: number = Date.now()): VipOverview {
     const src = tierSource(vip, t);
     const startMs = parseVipTime(src[t.start]);
     const endMs = parseVipTime(src[t.end], "end");
+
     if (Number(src[t.flag] ?? 0) !== 1 && startMs === null && endMs === null) return [];
     const active = vipTierActive(vip, t, now);
     const st = endMs === null ? null : vipExpiryState(endMs, now);
+
     const row: VipRow = {
       label: t.label, year: Number(src[t.yearFlag] ?? 0) === 1,
       active, expired: st?.expired ?? false,
@@ -178,10 +204,13 @@ export function vipOverview(vip: any, now: number = Date.now()): VipOverview {
       end: endMs === null ? "" : fmtVipTime(src[t.end]),
       state: st?.expired ? st.text : startMs !== null && now < startMs ? "尚未生效" : active ? st?.text ?? "已开通" : "未开通",
     };
+
     return [{ row, endMs }];
   });
+
   // 主时间始终属于主权益，不取 max，也不从 userinfo.expire/音乐包借时间。
   const primary = records.find((r) => r.row.active) ?? records[0];
+
   return {
     svip: vipTierActive(vip, VIP_TIERS[0]!, now),
     level: Number(vip?.identity?.level ?? 0),
@@ -198,16 +227,19 @@ export function vipOverview(vip: any, now: number = Date.now()): VipOverview {
  */
 export function vipCardHtml(vip: any, now: number = Date.now()): string {
   const hint = `<p class="vip-note">${escHtml(VIP_RENEW_HINT)}</p>`;
+
   if (!vip) {
     return `<section class="vip-card"><div class="vip-head"><span class="vip-title">会员权益</span></div>
       <p class="vip-empty">会员信息暂时读不到（上游没响应），稍后再进本页看看。</p>${hint}</section>`;
   }
 
   const ov = vipOverview(vip, now);
+
   const head = `<div class="vip-head"><span class="vip-title">会员权益</span>${
     ov.level ? `<span class="vip-lv">VIP ${ov.level} 级</span>` : ""}</div>`;
 
   const bad = " is-expired";
+
   const main = ov.until
     ? `<div class="vip-main"><span>${escHtml(ov.until.label)}有效至</span><b class="vip-until${ov.until.expired ? bad : ""}">${escHtml(ov.until.text)}</b>
         <span class="vip-state${ov.until.expired ? bad : ""}">${escHtml(ov.until.state)}</span></div>`

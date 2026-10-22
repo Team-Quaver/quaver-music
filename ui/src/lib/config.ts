@@ -115,6 +115,7 @@ function adopt(r: any): boolean {
   if (!r?.ok || !r.values) return false;
   values = { ...FALLBACK, ...r.values };
   info = { dir: r.dir ?? "", path: r.path ?? "", bridged: true, writable: r.writable !== false };
+
   return true;
 }
 
@@ -133,12 +134,17 @@ function adopt(r: any): boolean {
  */
 function mergeFromBroadcast(payload: unknown): void {
   const p = payload as { all?: boolean; values?: ConfigSnapshot } | null;
+
   if (p?.all) { void loadConfig(); return; }
+
   const vs = p?.values;
+
   if (!vs || typeof vs !== "object") return;
+
   for (const [k, v] of Object.entries(vs)) {
     if (!(k in values)) continue;
     const s = String(v);
+
     if (values[k] === s) continue;
     values[k] = s;
   }
@@ -146,8 +152,11 @@ function mergeFromBroadcast(payload: unknown): void {
 
 (function boot() {
   const b = bridge();
+
   if (b?.onChanged) { try { b.onChanged(mergeFromBroadcast); } catch { /* 桥形状不符：只丢广播，不影响读写 */ } }
+
   if (b?.boot && adopt(b.boot)) return;
+
   try {
     values = { ...FALLBACK, ...(JSON.parse(localStorage.getItem(LS_KEY) ?? "{}") as ConfigSnapshot) };
   } catch { /* 坏 JSON：用默认值 */ }
@@ -156,16 +165,20 @@ function mergeFromBroadcast(payload: unknown): void {
 /** 重新从磁盘装载（dev 钩子 / 手动刷新用）。启动路径不需要它。 */
 export async function loadConfig(): Promise<void> {
   const b = bridge();
+
   if (b?.all) {
     try {
       const r = await b.all();
+
       if (adopt(r)) return;
       console.warn("quaver: 配置文件读取失败，保持当前值", r?.error);
+
       return;
     } catch (e) {
       console.warn("quaver: 配置桥不可用，保持当前值", e);
     }
   }
+
   try {
     values = { ...FALLBACK, ...(JSON.parse(localStorage.getItem(LS_KEY) ?? "{}") as ConfigSnapshot) };
   } catch { /* 忽略 */ }
@@ -177,16 +190,19 @@ export const cfg = (key: string, fallback = ""): string => values[key] ?? fallba
 /** 内存先行：只把真正变化的键挑出来（值没变就别产生一次写盘）。 */
 function applyPatch(patch: ConfigSnapshot): ConfigSnapshot | null {
   const changed: ConfigSnapshot = {};
+
   for (const [k, v] of Object.entries(patch)) {
     if (values[k] === v) continue;
     values[k] = v;
     changed[k] = v;
   }
+
   return Object.keys(changed).length ? changed : null;
 }
 
 function flush(patch: ConfigSnapshot) {
   const b = bridge();
+
   if (b?.set) {
     // 不 await：UI 不该等磁盘。失败只记日志 —— 配置丢一项不影响这次会话的使用。
     void Promise.resolve(b.set(patch)).catch((e: unknown) => console.warn("quaver: 配置写入失败", e));
@@ -198,6 +214,7 @@ function flush(patch: ConfigSnapshot) {
 /** 写一项或多项：内存立即生效，随即落盘。 */
 export function cfgSet(patch: ConfigSnapshot): void {
   const changed = applyPatch(patch);
+
   if (changed) flush(changed);
 }
 
@@ -207,20 +224,25 @@ let timer: number | null = null;
 
 function flushPending() {
   if (timer !== null) { window.clearTimeout(timer); timer = null; }
+
   const p = pending;
   pending = {};
+
   if (Object.keys(p).length) flush(p);
 }
 
 export function cfgSetSoon(patch: ConfigSnapshot, ms = 250): void {
   const changed = applyPatch(patch);
+
   if (!changed) return;
   Object.assign(pending, changed);
+
   if (timer !== null) window.clearTimeout(timer);
   timer = window.setTimeout(flushPending, ms);
 }
 
 window.addEventListener("pagehide", flushPending);
+
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushPending(); });
 
 /** 配置文件位置（设置页展示用）。bridged=false 表示当前跑在浏览器里。 */
@@ -234,11 +256,15 @@ export async function revealConfig(): Promise<void> {
 /** 用模板重建配置文件（设置回默认值，凭证文件不动）。调用方负责刷新界面。 */
 export async function resetConfig(): Promise<void> {
   const b = bridge();
+
   if (b?.reset) {
     const r = await b.reset();
-    if (r?.ok) values = { ...FALLBACK, ...(r.values ?? {}) };
+
+    if (r?.ok) values = { ...FALLBACK, ...r.values };
+
     return;
   }
+
   values = { ...FALLBACK };
   saveLocal();
 }

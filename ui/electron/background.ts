@@ -49,22 +49,29 @@ export interface BackgroundInfo {
 /** 当前配置里的背景图路径。配置文件还不存在时不落盘（读值会顺手写模板 —— 一条 GET 不该改磁盘）。 */
 export function backgroundPath(env: Env = process.env): string {
   if (!existsSync(configFile(env))) return "";
+
   return String(readValues(env).values["Style.BackgroundImage"] ?? "").trim();
 }
 
 /** 设置页「图片」一行要显示的现状：路径 + 文件在不在（不在就提示重选）。 */
 export function backgroundInfo(env: Env = process.env): BackgroundInfo {
   const path = backgroundPath(env);
+
   if (!path) return { path: "", exists: false };
+
   if (!backgroundMime(path)) {
     return { path, exists: false, error: `不是支持的图片格式（只认 ${BG_IMAGE_EXTS.join(" / ")}）` };
   }
+
   try {
     const st = statSync(path);
+
     if (!st.isFile()) return { path, exists: false, error: "不是一个普通文件" };
+
     if (st.size > BACKGROUND_MAX_BYTES) {
       return { path, exists: false, error: `图片超过 ${Math.round(BACKGROUND_MAX_BYTES / 1024 / 1024)}MB` };
     }
+
     return { path, exists: true };
   } catch {
     return { path, exists: false, error: "文件不存在或读不了" };
@@ -87,8 +94,11 @@ const jsonBody = (status: number, msg: string): BackgroundResponse => ({
 /** 读出背景图本体。任何一步不成立都给一个明确的 status —— 界面侧只看「加载成功/失败」。 */
 export function backgroundResponse(env: Env = process.env): BackgroundResponse {
   const info = backgroundInfo(env);
+
   if (!info.path) return jsonBody(404, "未设置自定义背景");
+
   if (!info.exists) return jsonBody(404, info.error ?? "不可用");
+
   try {
     return { status: 200, type: backgroundMime(info.path) as string, body: readFileSync(info.path) };
   } catch (e) {

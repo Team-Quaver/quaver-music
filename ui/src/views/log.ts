@@ -1,6 +1,7 @@
 // Quaver — 路由视图：log（由 src/views/index.ts 按需动态 import，不在首屏解析）
 import { api } from "../lib/api";
 import { errText, h } from "./_shared";
+
 // —— 调试：日志页面（壳层 electron-dev.log 尾部；由 relay.ts /api/log 提供） ——
 export default async function logView(root: HTMLElement) {
   const bar = h("div", "log-bar");
@@ -11,14 +12,18 @@ export default async function logView(root: HTMLElement) {
   bar.append(back, refresh, meta);
   root.append(bar, pre);
   back.onclick = () => (location.hash = "#/settings");
+
   async function load() {
     meta.textContent = "读取中…";
+
     try {
       const r = await fetch("/api/log?tail=800");
+
       if (!r.ok) {
         const j = (await r.json().catch(() => null)) as { msg?: string } | null;
         throw new Error(j?.msg || `HTTP ${r.status}`);
       }
+
       pre.textContent = await r.text();
       meta.textContent = "来源 ui/electron-dev.log（尾部 800 行）";
       pre.scrollTop = pre.scrollHeight;
@@ -28,6 +33,7 @@ export default async function logView(root: HTMLElement) {
       meta.textContent = "";
     }
   }
+
   refresh.onclick = load;
   await load();
 }

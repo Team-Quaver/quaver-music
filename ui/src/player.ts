@@ -46,6 +46,7 @@ export type Song = {
 
 /** 播放模式只剩循环两档：「顺序播放（off）」已移除 —— 列表到尾一律回绕。 */
 export type Mode = "all" | "one";
+
 /** 实际生效的播放管线（transport.kind 投影；设置页据此展示） */
 export type ActiveBackend = "mpv" | "web";
 
@@ -54,6 +55,7 @@ type Listener = () => void;
 // 红心收藏是「本地数据」不是设置：留在 localStorage（上游无收藏写接口，见 README 约定）。
 // 其余偏好（音量/静音/歌词翻译/后端/音质…）一律走 quaver.conf，见 lib/prefs.ts。
 const LS_KEY = "quaver.loved.v1";
+
 // 近期写入记录（mid → 写入时刻/期望态）：跨页面重载的读侧滞后庇护 —— 重载会丢进程内状态，
 // 而上游读侧缓存不保证单调（不同分页参数各缓存各的），整单预载可能拿到写之前的旧快照。
 const LS_WRITES_KEY = "quaver.loved.writes.v1";
@@ -70,9 +72,11 @@ const LOVED_TTL = 60_000;
 // 以本地乐观态为准（reconcilePending），别让回源把用户刚点的红心冲掉。
 const LOVED_SYNC_DELAY = 2_000;    // 距最后一次写入/进页的静默期（去抖合并连点）
 const LOVED_SYNC_PAGE = 100;       // 增量窗口：单请求，覆盖最近收藏段
+
 // 前台轮询的轻量探针：先比「最近收藏头部 + total」，变了才做整单回源。
 // 他端的收藏/取消都会体现在这两个量上；没变化时每轮只要一个小请求。
 const LOVED_PROBE_PAGE = 20;
+
 // 写入庇护期：期内所有读路径都按已确认写入校正读数（读数反映也不提前出名单 ——
 // 读侧缓存不保证单调，同一写值可能被更旧的快照再次冲掉）。实测过期快照能活 20s+，取 2 分钟。
 const LOVED_PENDING_TTL = 120_000;
@@ -126,6 +130,7 @@ class Player {
     try {
       const raw = JSON.parse(localStorage.getItem(LS_WRITES_KEY) ?? "{}") as Record<string, { on: boolean; at: number }>;
       const now = Date.now();
+
       return new Map(Object.entries(raw ?? {}).filter(([, w]) => w && now - Number(w.at) <= LOVED_PENDING_TTL));
     } catch { return new Map(); }
   })();
@@ -207,8 +212,10 @@ class Player {
     let lastKaraProvider: SparkleKaraokeProvider | null = null;
     onSparkleChange(() => {
       const p = sparkleKaraokeProvider();
+
       if (p === lastKaraProvider) return;
       lastKaraProvider = p;
+
       if (p && this.current) void this.fetchLyric(this.current);
     });
     // 本地库快照变化（扫描/自动刮削落定）→ 当前本地曲目的 qqMid/封面指纹原地跟进
@@ -239,15 +246,20 @@ class Player {
         break;
       case "waiting": // 起播后仍需缓冲（网络卡顿）→ 保持加载指示
         this.listenReporter?.setPlaying(false);
+
         if (this.current) { this.loading = true; this.notify(); }
+
         break;
       case "playing": // playing = 真的出声了（起播/缓冲恢复）
         this.listenReporter?.setPlaying(true);
+
         if (this.loading) { this.loading = false; this.error = ""; this.notify(); }
+
         this.failStreak = 0; // 出声即成功：自动跳曲的连续失败计数清零
         break;
       case "canplay":
         if (this.loading && !this.transport.paused) { this.loading = false; this.notify(); }
+
         break;
       case "ended":
         this.listenReporter?.setPlaying(false);
@@ -256,13 +268,16 @@ class Player {
         break;
       case "error": {
         this.listenReporter?.setPlaying(false);
+
         // src 加载/解码失败（token 过期、上游断流、mpv 退出）→ 在播/正常起播态自动回退音质，
         // 回退链穷尽（最低档仍失败）→ 直接下一曲，别把队列卡死在一首坏流上。
         // 非自动播放轮（还原挂流失败）与用户暂停态不自动动：留错误态，点播放键重试。
         if (!this.current || !this.transport.src) return;
         const wasLoading = this.loading; // 起播尚未成功过（区别于「用户暂停后」的流错误）
         this.loading = false;
+
         if (!this.lastAutoplay || (this.transport.paused && !wasLoading)) { this.notify(); return; }
+
         this.handleStreamError(e.message ?? "音频流加载失败");
         break;
       }
@@ -272,14 +287,19 @@ class Player {
   /** 启动时的后端选择：偏好 MPV 且引擎可用 → 热切到引擎传输（此时通常还没开播，无损替换） */
   private async initBackend() {
     if (getDecode() !== "MPV" || !window.quaverAudio) return;
+
     try {
       const st = await window.quaverAudio.invoke({ cmd: "status" });
+
       if (!st?.ok || !st.available) {
         this.backendNotice = st?.reason || "mpv 不可用，已回退浏览器音频";
+
         return;
       }
+
       const t = new EngineTransport(window.quaverAudio);
       const dev = getAudioDevice();
+
       if (dev) void t.setDevice?.(dev).catch(() => {});
       const resume = this.swapTransport(t);
       this.backend = "mpv";
@@ -288,6 +308,7 @@ class Player {
     } catch {
       this.backendNotice = "音频引擎桥接失败，已回退浏览器音频";
     }
+
     this.notify();
   }
 
@@ -298,7 +319,9 @@ class Player {
   // 竞态：还原期间用户已经点了歌（队列非空）就放弃还原，用户意图优先。
   private async restoreSession() {
     const snap = loadSession();
+
     if (!snap || this.queue.length || this.index >= 0) { this.sessionReady = true; return; }
+
     this.queue = snap.queue;
     this.index = snap.index;
     this.mode = snap.mode;
@@ -312,22 +335,27 @@ class Player {
     this._radioLoading = false;
     this.radioWaitingNext = false;
     this.radioError = "";
+
     if (this.radioOn) this.queueOpen = false;
     this.queueVersion++;
     this.savedPos = snap.position;
     this.notify();
     this.sessionReady = true;
+
     // 首轮还没取回就退出的空电台：恢复电台会话但继续走非自动播放的启动语义。
     if (this.radioOn && !this.current) {
       void this.startRadio(false).catch(() => { /* 错误态已写进 radioError；保留电台态并定时重试 */ });
+
       return;
     }
+
     // 引擎正在播（CSD/SSD 重建窗口：mpv 跨重建没停）→ 直接接管，**绝不重新挂流** ——
     // startCurrent 的 load 是 loadfile replace，会把正在放的歌掐掉。位置/时长/播放态
     // 由引擎 snapshot 如实汇报（比 ≤5s 节流的存档位置准），进度条/歌词/MPRIS 随即对齐。
     if (this.transport.kind === "engine") {
       const t = this.transport as EngineTransport;
       const es = await t.snapshot();
+
       if (es && this.current) {
         t.adopt(es.url, es);
         this.streamUrl = es.url; // 接管正在放的流：流信息浮窗（正在播放页）照样可探测
@@ -340,9 +368,11 @@ class Player {
         this.savedPos = 0;
         void this.fetchLyric(this.current);
         this.notify();
+
         return;
       }
     }
+
     if (this.current) await this.startCurrent(snap.position, false);
     this.notify();
   }
@@ -350,13 +380,17 @@ class Player {
   /** 当前应存的位置：流未就绪（还原后还没拿到真实位置）时保住还原点 */
   private posForSave(): number {
     const p = this.transport.position;
+
     if (p > 1) { this.savedPos = 0; return p; }
+
     return this.savedPos || p;
   }
 
   private saveSessionNow() {
     if (!this.sessionReady) return;
+
     if (this.sessionTimer !== null) { window.clearTimeout(this.sessionTimer); this.sessionTimer = null; }
+
     this.sessionAt = Date.now();
     // 音质两项随档走：播放条会话覆盖 + 已应用流档位 —— 窗口重建接管时恢复，
     // 否则新页面的音质胶囊会跳回「自动」（这两个是内存态，只有这里能跨重建）
@@ -372,7 +406,9 @@ class Player {
   private scheduleSessionSave() {
     if (!this.sessionReady) return;
     const elapsed = Date.now() - this.sessionAt;
+
     if (elapsed >= SESSION_EVERY) { this.saveSessionNow(); return; }
+
     if (this.sessionTimer !== null) return;
     this.sessionTimer = window.setTimeout(() => { this.sessionTimer = null; this.saveSessionNow(); }, SESSION_EVERY - elapsed);
   }
@@ -385,11 +421,15 @@ class Player {
     const wasPlaying = !this.transport.paused;
     const hadStream = !!this.transport.src || this.loading;
     this.listenReporter?.setPlaying(false);
+
     try { this.transport.stop(); } catch { /* noop */ }
+
     this.pendingSeek = 0;
     this.bindTransport(t);
     this.applyVolume();
+
     if (!song || !hadStream || this.current !== song) return Promise.resolve();
+
     return this.startCurrent(at > 1 ? at : 0, wasPlaying);
   }
 
@@ -398,29 +438,39 @@ class Player {
     setDecode(kind);
     const wantEngine = kind === "MPV";
     const isEngine = this.transport.kind === "engine";
+
     if (wantEngine === isEngine) { this.notify(); return; }
+
     if (!wantEngine) {
       await this.swapTransport(new WebTransport());
       this.backend = "web";
       this.backendNotice = "";
       this.engineVersion = "";
       this.notify();
+
       return;
     }
+
     if (!window.quaverAudio) {
       this.backendNotice = "当前环境无原生音频引擎（浏览器模式）";
       this.notify();
+
       return;
     }
+
     try {
       const st = await window.quaverAudio.invoke({ cmd: "status" });
+
       if (!st?.ok || !st.available) {
         this.backendNotice = st?.reason ?? "mpv 不可用";
         this.notify();
+
         return;
       }
+
       const t = new EngineTransport(window.quaverAudio);
       const dev = getAudioDevice();
+
       if (dev) void t.setDevice?.(dev).catch(() => {});
       await this.swapTransport(t);
       this.backend = "mpv";
@@ -429,14 +479,17 @@ class Player {
     } catch (e: any) {
       this.backendNotice = String(e?.message ?? e);
     }
+
     this.notify();
   }
 
   /** 引擎可用性（设置页禁用态/提示用；后端偏好的归 setBackend） */
   async probeEngine(): Promise<{ available: boolean; reason: string; version: string; source: string }> {
     if (!window.quaverAudio) return { available: false, reason: "当前环境无原生音频引擎", version: "", source: "" };
+
     try {
       const st = await window.quaverAudio.invoke({ cmd: "status" });
+
       return { available: !!st?.ok && !!st.available, reason: st?.reason ?? "", version: String(st?.version ?? ""), source: String(st?.source ?? "") };
     } catch {
       return { available: false, reason: "音频引擎桥接失败", version: "", source: "" };
@@ -446,13 +499,16 @@ class Player {
   /** 音频设备列表（仅引擎传输支持；web 返回 null） */
   async listAudioDevices(): Promise<{ current: string; devices: AudioDeviceInfo[] } | null> {
     if (!this.transport.listDevices) return null;
+
     try { return await this.transport.listDevices(); } catch { return null; }
   }
 
   /** 选择音频设备（持久化 + 应用到引擎） */
   async selectAudioDevice(id: string): Promise<boolean> {
     setAudioDevice(id);
+
     if (!this.transport.setDevice) return false;
+
     try { await this.transport.setDevice(id); return true; } catch { return false; }
   }
 
@@ -460,7 +516,9 @@ class Player {
   async setFadePreset(p: FadePreset): Promise<void> {
     setFade(p);
     const ms = FADE_PRESETS[p];
+
     if (!this.transport.setFade) return;
+
     try { await this.transport.setFade(ms.inMs, ms.outMs); } catch { /* 引擎不在：下次建立传输时随配置下发 */ }
   }
 
@@ -469,9 +527,11 @@ class Player {
   async setEqualizer(eq: EqState): Promise<EqState> {
     const next = normalizeEqState(eq);
     setEqualizerState(next);
+
     if (this.transport.setEqualizer) {
       try { await this.transport.setEqualizer(next); } catch { /* mpv 未起：状态留在引擎侧，首播时套用 */ }
     }
+
     return next;
   }
 
@@ -480,10 +540,12 @@ class Player {
 
   on(fn: Listener) {
     this.listeners.add(fn);
+
     return () => { this.listeners.delete(fn); };
   }
   private notify() {
     for (const fn of [...this.listeners]) { try { fn(); } catch (e) { console.warn(e); } }
+
     this.scheduleSessionSave();
   }
   /** UI 组件反向驱动状态（展开/收起等）后广播 */
@@ -517,8 +579,10 @@ class Player {
   }
   setVolume(v: number, unmute = true) {
     this._vol = Math.max(0, Math.min(1, v));
+
     if (unmute && this._muted && this._vol > 0) this._muted = false;
     setVolumeConf(this._vol);           // 拖拽高频：内存即时、落盘合并
+
     if (!this._muted) setMutedConf(false);
     this.applyVolume();
     this.notify();
@@ -592,9 +656,12 @@ class Player {
     this.error = "";
     this.queueOpen = false; // 无限电台没有可编辑的播放列表，进入即收掉队列面板
     this.notify();
+
     try {
       const songs = await this.fetchRadioRound();
+
       if (seq !== this.radioSeq) return false;
+
       if (!songs.length) throw new Error("猜你喜欢暂无推荐，登录后可得");
       this.queue = songs;
       this.index = 0;
@@ -604,6 +671,7 @@ class Player {
       this.error = "";
       this.notify();
       void this.startCurrent(0, autoplay);
+
       return true;
     } catch (e) {
       if (seq !== this.radioSeq) return false;
@@ -615,6 +683,7 @@ class Player {
       this.radioWaitingNext = prev.waiting;
       this.radioError = String((e as Error)?.message ?? e);
       this.notify();
+
       if (this.radioOn && this.radioEnd < 0 && !this.queue.length) {
         this.clearRadioRetry();
         this.radioRetryTimer = window.setTimeout(() => {
@@ -628,6 +697,7 @@ class Player {
           this.maybeExtendRadio();
         }, 5_000);
       }
+
       throw e;
     }
   }
@@ -635,6 +705,7 @@ class Player {
   /** 单轮电台取歌：上游一次固定 5 首，所以这里显式 rounds=1，不把多轮结果当成一张歌单。 */
   private async fetchRadioRound(): Promise<Song[]> {
     const r = await api<{ songs?: Song[] }>("/recommend/guess?rounds=1");
+
     return (r?.songs ?? []).filter((s) => !!s?.mid).slice(0, 5);
   }
 
@@ -652,22 +723,28 @@ class Player {
     this._radioLoading = true;
     this.radioError = "";
     this.notify();
+
     try {
       const songs = await this.fetchRadioRound();
+
       if (seq !== this.radioSeq) return;
+
       if (!songs.length) throw new Error("猜你喜欢暂无更多推荐");
       this.queue.push(...songs);
       const anchor = this.current;
       const at = anchor ? this.queue.indexOf(anchor) : this.index;
       const drop = Math.max(0, at);
+
       if (drop) this.queue.splice(0, drop);
       this.index = Math.max(0, this.index - drop);
       this.queueVersion++;
       this.radioEnd = this.queue.length - 1;
       this._radioLoading = false;
       this.notify();
+
       if (this.radioWaitingNext) {
         this.radioWaitingNext = false;
+
         if (this.index + 1 < this.queue.length) this.jump(this.index + 1);
       }
     } catch (e) {
@@ -698,10 +775,13 @@ class Player {
    *  队列还空着（没播过任何东西）时没有「下一首」可言，退化成单曲起播。 */
   enqueueNext(song: Song): boolean {
     if (!song?.mid || this.radioOn) return false;
+
     if (this.index < 0 || !this.queue.length) { this.playList([song], 0); return true; }
+
     this.queueVersion++;
     this.queue.splice(this.index + 1, 0, song);
     this.notify();
+
     return true;
   }
 
@@ -710,11 +790,15 @@ class Player {
   enqueueNextMany(songs: Song[]): boolean {
     if (this.radioOn) return false;
     const list = songs.filter((s) => s?.mid);
+
     if (!list.length) return false;
+
     if (this.index < 0 || !this.queue.length) { this.playList(list, 0); return true; }
+
     this.queueVersion++;
     this.queue.splice(this.index + 1, 0, ...list);
     this.notify();
+
     return true;
   }
 
@@ -725,12 +809,15 @@ class Player {
    *  队列还空着（没播过任何东西）时没有「插队」可言，退化成单曲起播。 */
   playNextNow(song: Song): boolean {
     if (!song?.mid) return false;
+
     if (this.index < 0 || !this.queue.length) { this.playList([song], 0); return true; }
+
     this.exitRadio();
     this.queue.splice(this.index + 1, 0, song);
     this.index++;
     this.queueVersion++;
     void this.startCurrent();
+
     return true;
   }
 
@@ -742,23 +829,28 @@ class Player {
     const cur = this.index;
     this.queue.splice(i, 1);
     this.queueVersion++;
+
     if (!this.queue.length) { this.index = -1; this.interrupt(); this.notify(); return; }
+
     if (i < cur) this.index = cur - 1;
     else if (i === cur) {
       this.index = Math.min(cur, this.queue.length - 1);
       this.interrupt();
     }
+
     this.notify();
   }
 
   /** 队列内排序：把 from 位置的歌挪到 to。当前曲指针始终跟随这首歌本身走。 */
   moveInQueue(from: number, to: number) {
     const n = this.queue.length;
+
     if (from === to || from < 0 || to < 0 || from >= n || to >= n) return;
     this.exitRadio();
     const [s] = this.queue.splice(from, 1);
     this.queue.splice(to, 0, s);
     this.queueVersion++;
+
     if (this.index === from) this.index = to;
     else if (from < this.index && to >= this.index) this.index--;
     else if (from > this.index && to <= this.index) this.index++;
@@ -768,6 +860,7 @@ class Player {
   /** 清空队列并停止播放 */
   clearQueue() {
     if (!this.queue.length && this.index < 0) { this.notify(); return; }
+
     this.exitRadio();
     this.queue = [];
     this.index = -1;
@@ -785,15 +878,18 @@ class Player {
 
   private consumePendingSeek() {
     const dur = this.transport.duration;
+
     if (this.pendingSeek > 1 && dur > this.pendingSeek) {
       const t = this.pendingSeek;
       this.pendingSeek = 0;
+
       try { this.transport.seek(t); } catch { /* 稍后 time 事件再补 */ this.pendingSeek = t; }
     } else if (this.pendingSeek > 1 && !dur) {
       /* 元数据未就绪：保留 pendingSeek 等下一次 duration 事件 */
     } else {
       this.pendingSeek = 0;
     }
+
     this.notify();
   }
 
@@ -805,19 +901,24 @@ class Player {
     this.error = "";
     this.pendingSeek = 0;
     this.streamUrl = "";
+
     try { this.transport.stop(); } catch { /* noop */ }
   }
 
   /** 当前流对应的听歌时长上报目标；本地/NAS 曲目和异常 URL 一律返回 null。 */
   private listenTargetOf(s: Song, url: string): ListenReportTarget | null {
     const prefix = "/api/stream/";
+
     if (isLocalSong(s) || !s.id || !url.startsWith(prefix)) return null;
     const streamToken = url.slice(prefix.length).split(/[?#]/, 1)[0] ?? "";
+
     if (!streamToken) return null;
     const singer = s.singer?.[0];
     const file = (s as Song & { file?: { media_mid?: string } }).file;
     const interval = Number(s.interval || this.transport.duration || 0);
+
     if (!(interval > 0)) return null;
+
     return {
       mid: s.mid,
       mediaMid: String(file?.media_mid ?? ""),
@@ -833,6 +934,7 @@ class Player {
   /** 首次播放 QQ 曲目才加载上报器；初始化完成时若已切歌，旧目标直接丢弃。 */
   private initListenReporter(song: Song, url: string): void {
     const target = this.listenTargetOf(song, url);
+
     if (!target) return;
     void this.ensureListenReporter().then((reporter) => {
       if (this.current !== song || this.streamUrl !== url) return;
@@ -843,6 +945,7 @@ class Player {
 
   private ensureListenReporter(): Promise<ListenTimeReporter> {
     if (this.listenReporter) return Promise.resolve(this.listenReporter);
+
     if (!this.listenReporterInit) {
       this.listenReporterInit = import("./lib/listen-report").then(({ ListenTimeReporter }) => {
         this.listenReporter = new ListenTimeReporter({
@@ -854,17 +957,21 @@ class Player {
             keepalive,
           }),
         });
+
         return this.listenReporter;
       });
     }
+
     return this.listenReporterInit;
   }
 
   private async startCurrent(resumeTo = 0, autoplay = true, overrideTier?: string) {
     const s = this.current;
     this.interrupt();
+
     // 降级尝试记录按曲归属：换到别的歌就重置（每首都有完整的一次回退机会）
     if (s && s.mid !== this.fallbackMid) { this.fallbackMid = s.mid; this.fallbackTried.clear(); }
+
     this.lastAutoplay = autoplay;
     this.lyrics = [];
     this.karaoke = [];
@@ -873,20 +980,27 @@ class Player {
     // 换曲即作废在途歌词请求：fetchLyric 的序号守卫只防「更新的 fetch」，不防换曲 ——
     // 不作废的话，上一曲慢悠悠的歌词响应会在新曲起播期间回写（快速连点下一首时显示前前一首的歌词）
     this.lyricSeq++;
+
     if (!s) { this.notify(); return; }
+
     this.loading = true;
     this.notify();
     const seq = this.playSeq;
+
     try {
       await this.backendInit; // 首播发生在启动后端检查完成前：等检查定再挂流
+
       if (seq !== this.playSeq || this.current !== s) return; // 期间又切了歌：本轮作废
       const r = await this.getStream(s, overrideTier); // 命中单击预取的链接 → 直接跳过取链；降级重试带指定档
+
       if (seq !== this.playSeq || this.current !== s) return;
       this.streamUrl = r.url;
       this.initListenReporter(s, r.url);
       setLastStream({ tier: r.tier, label: r.label, degraded: r.degraded });
       await this.transport.load(r.url, { paused: !autoplay }); // web: 赋 src；engine: loadfile replace
+
       if (resumeTo > 1) this.pendingSeek = resumeTo; // 换音质/换后端：时长就绪后从旧进度续播
+
       if (autoplay) {
         try {
           await this.transport.play();
@@ -898,6 +1012,7 @@ class Player {
           } else throw pe;
         }
       }
+
       if (seq !== this.playSeq) return;
       this.loading = false;
       this.error = "";
@@ -911,6 +1026,7 @@ class Player {
         this.skipSong(msg);
       }
     }
+
     if (seq === this.playSeq && this.current === s) this.fetchLyric(s); // 被作废的轮次不拉歌词，防竞态覆盖
     this.notify();
   }
@@ -925,14 +1041,21 @@ class Player {
 
   private handleStreamError(msg: string) {
     const s = this.current;
+
     if (!s) return;
+
     // 本地/NAS 曲目没有档位阶梯可下（文件就是那一档）：直接跳下一曲
     if (isLocalSong(s)) { this.skipSong(msg); return; }
+
     if (this.fallbackMid !== s.mid) { this.fallbackMid = s.mid; this.fallbackTried.clear(); }
+
     const applied = getLastStream()?.tier; // 实际在放的档（auto 降级后 ≠ 会话选择）
+
     if (applied) this.fallbackTried.add(applied);
     const nextTier = Player.FALLBACK_CHAIN.find((t) => !this.fallbackTried.has(t));
+
     if (!nextTier) { this.skipSong(msg); return; } // 最低档仍失败：这首在本会话里播不动了
+
     this.fallbackTried.add(nextTier); // 请求档也记：它失败（或被降级后失败）时不重发同一请求
     this.error = "";
     this.loading = true;
@@ -946,16 +1069,22 @@ class Player {
    *  必须一直有下一首可试；随机开着时同样沿当日顺序走，免得坏流把当天的听感打乱。 */
   private skipSong(reason: string) {
     this.failStreak++;
+
     if (!this.queue.length || this.failStreak >= this.queue.length) {
       this.loading = false;
       this.error = `播放失败（${reason}），已停止自动切歌`;
       this.notify();
+
       return;
     }
+
     // 电台的“下一首”还负责轮末续批；这里不能绕过 next() 直接 stepInOrder 回绕。
     if (this.radioOn) { this.next(true); return; }
+
     const i = this.stepInOrder(1);
+
     if (i < 0) { this.loading = false; this.notify(); return; }
+
     this.jump(i);
   }
 
@@ -965,8 +1094,10 @@ class Player {
 
   prefetchSong(song: Song | undefined) {
     if (!song?.mid) return;
+
     if (isLocalSong(song)) return; // 本地流是现成的同源 URL，没有「取链预热」可言
     const q = String(effectiveQuality());
+
     if (song.mid === this.prefetchedMid && this.prefetch.has(q + "|" + song.mid)) return;
     this.prefetch.clear(); // 清理旧预加载链接引用（token 由后端 TTL 回收；前端不再持有下载）
     this.prefetchedMid = song.mid;
@@ -981,11 +1112,13 @@ class Player {
     for (const src of sparkleStreamSources()) {
       try {
         const r = await src.resolve(song, q);
+
         if (r?.url) return { url: r.url, tier: r.tier ?? "plugin", label: r.label ?? src.id, degraded: false };
       } catch (e) {
         console.warn(`[sparkle] 播放源 ${src.id} 解析失败，放行下一环`, e);
       }
     }
+
     return resolveStreamUrl(song, q as any);
   }
 
@@ -998,15 +1131,19 @@ class Player {
     if (isLocalSong(s)) {
       void loadLocalLibrary().catch(() => {});
       const l = localSongStreamUrl(s);
+
       return { url: l.url, tier: l.tier, label: l.label, degraded: false };
     }
+
     if (overrideTier) return this.resolveWithSources(s, overrideTier);
     const q = String(effectiveQuality());
     const hit = this.prefetch.get(q + "|" + s.mid);
     this.prefetch.clear(); // 用后即弃：链接是一次性上下文（会员/曲库状态可能变化），不跨切歌复用
+
     if (hit) {
       try { return await hit; } catch { /* 预取失败 → 现场重来 */ }
     }
+
     return this.resolveWithSources(s, q);
   }
 
@@ -1016,9 +1153,13 @@ class Player {
    *  播放条/正在播放页/队列面板跟着 notify 换字，不用等重进页面回读库。 */
   patchCurrentMeta(id: string, meta: { title: string; artist: string; album: string }) {
     const s = this.current;
+
     if (!isLocalSong(s) || s.local.id !== id) return;
+
     if (meta.title) { s.name = meta.title; s.title = meta.title; }
+
     if (meta.artist) s.singer = meta.artist.split(/\s*\/\s*/).filter(Boolean).map((name) => ({ name }));
+
     if (meta.album && s.album) s.album.name = meta.album;
     this.notify();
   }
@@ -1051,29 +1192,39 @@ class Player {
     const local = isLocalSong(s) ? s.local : null;
     // 手动导入的歌词 = 用户显式意图，压过在线 QRC（在线命中是机器猜的，导入是人给的）。
     const qqMid = local ? (local.lyricImport ? "" : String(local.qqMid ?? "")) : s.mid;
+
     if (qqMid) {
       const has = await this.pullQqLyric(qqMid, seq, s);
+
       if (seq !== this.lyricSeq || this.current !== s) return; // 已被更新的 fetch 作废
+
       // 无逐字内容 → TTML 逐字补刀（导入件在上面已被排除，走不到这里）
       if (!this.karaoke.length && (await this.pullTtml(qqMid, seq, s))) { this.notify(); return; }
+
       if (seq !== this.lyricSeq || this.current !== s) return;
+
       if (has || !local) { this.notify(); return; } // 官方曲目：在线就是唯一通路，拉不到=none（行为不变）
     } else if (local && !local.lyricImport) {
       // 未匹配 QQ 的本地曲：在线没有身份可用，TTML 只剩本地库的名字通路
       if (await this.pullTtml("", seq, s)) { this.notify(); return; }
+
       if (seq !== this.lyricSeq || this.current !== s) return;
     }
+
     // —— 本地通路 ——
     try {
       const d = await api<{ lyric: string; trans: string; roma: string; source: string; format?: string }>(`/local/lyric/${encodeURIComponent(local!.id)}`);
+
       if (seq !== this.lyricSeq || this.current !== s) return;
       const lyricC = await cjkConvert(String(d?.lyric ?? ""));
       const transC = await cjkConvert(String(d?.trans ?? ""));
+
       if (seq !== this.lyricSeq || this.current !== s) return; // 转换是惰性 async，别拿旧曲文本写新曲状态
       this.applyLyricText(lyricC, transC, String(d?.roma ?? ""), String(d?.format ?? "lrc"));
     } catch {
       if (seq === this.lyricSeq && this.lyricState === "loading") { this.karaoke = []; this.lyricState = "none"; }
     }
+
     this.notify();
   }
 
@@ -1081,45 +1232,59 @@ class Player {
    *  返回「是否拿到了内容」；被更新的 fetch 作废时返回 true，让调用方直接收线。 */
   private async pullQqLyric(midRaw: string, seq: number, s: Song): Promise<boolean> {
     const mid = encodeURIComponent(midRaw);
+
     try {
       let d: any = await api(`/song/${mid}/lyric?trans=1&roma=1&qrc=1`);
+
       if (seq !== this.lyricSeq || this.current !== s) return true;
+
       if (!String(d?.lyric ?? "").trim()) {
         // qrc=1 下无逐字内容的歌曲可能整包为空 → 退回普通歌词请求再试一次
         d = await api(`/song/${mid}/lyric?trans=1&roma=1`);
+
         if (seq !== this.lyricSeq || this.current !== s) return true;
       }
+
       let raw = await cjkConvert(String(d?.lyric ?? ""));
       let trans = await cjkConvert(String(d?.trans ?? ""));
       let roma = String(d?.roma ?? ""); // 音译 = 拉丁转写，繁简转换不碰
+
       if (seq !== this.lyricSeq || this.current !== s) return true;
       const provider = sparkleKaraokeProvider();
       let kara = provider ? provider.parse(raw, trans, roma) : null;
+
       if (!kara && !/^\[\d{1,2}:/.test(raw)) {
         // 逐字解析失败（或无提供器）且内容不是行级 LRC（QRC XML / 纯文本 QRC / TTML
         // 都是 parseLrc 读不了的格式）→ 退回普通歌词请求，「停用逐字」时行级歌词仍有内容
         d = await api(`/song/${mid}/lyric?trans=1&roma=1`);
+
         if (seq !== this.lyricSeq || this.current !== s) return true;
         raw = await cjkConvert(String(d?.lyric ?? ""));
         trans = await cjkConvert(String(d?.trans ?? ""));
         roma = String(d?.roma ?? "");
+
         if (seq !== this.lyricSeq || this.current !== s) return true;
         kara = provider ? provider.parse(raw, trans, roma) : null;
       }
+
       if (kara?.length) {
         this.karaoke = kara;
         this.lyrics = karaokeToLines(kara);
         this.lyricState = "ok";
         this.lyricRevision++;
+
         return true;
       }
+
       this.karaoke = [];
       this.lyrics = parseLrc(raw, trans, roma);
       this.lyricState = this.lyrics.length ? "ok" : "none";
       this.lyricRevision++;
+
       return this.lyrics.length > 0;
     } catch {
       if (seq === this.lyricSeq) { this.karaoke = []; this.lyricState = "none"; this.lyricRevision++; }
+
       return false;
     }
   }
@@ -1133,34 +1298,49 @@ class Player {
   private async pullTtml(mid: string, seq: number, s: Song): Promise<boolean> {
     const name = String(s.title || s.name || "").trim();
     const artist = (s.singer ?? []).map((x) => x?.name).filter(Boolean).join(",");
+
     // ① 本地 TTML 歌词库（目录未设置就一个请求都不发；渲染层看不见盘，路径真相在主进程的配置里）
     if (getTtmlLibrary()) {
       try {
         const qs = new URLSearchParams();
+
         if (mid) qs.set("qq", mid);
+
         if (name) qs.set("name", name);
+
         if (artist) qs.set("artist", artist);
         const d = await api<{ found?: boolean; text?: string }>(`/local/ttml?${qs.toString()}`);
+
         if (seq !== this.lyricSeq || this.current !== s) return true;
+
         if (d?.found && d.text) {
           const text = await cjkConvert(d.text);
+
           if (seq !== this.lyricSeq || this.current !== s) return true;
           this.applyLyricText(text, "", "", "ttml");
+
           if (this.lyrics.length) return true; // 坏文件（解不出行）：不锁死，继续走在线档
         }
       } catch { /* 库不可达/目录坏了：交回在线档，与本地通路同一「静默回落」语义 */ }
     }
+
     // ② 在线 TTML 数据库：要开关开启 + 有 QQ 歌曲身份（songmid）。行级 LRC 已在位时也放行 ——
     //    TTML 带词级时间轴，命中就是把行级升级成逐字，这正是本功能的主场景。
     if (!mid || !getOnlineTtml()) return false;
     const url = expandTtmlUrl(getTtmlDatabase(), "qq", mid);
+
     if (!url || ttmlMissCached(url)) return false;
     const raw = await fetchTtml(url);
+
     if (seq !== this.lyricSeq || this.current !== s) return true;
+
     if (!raw) { ttmlMissRemember(url); return false; }
+
     const text = await cjkConvert(raw);
+
     if (seq !== this.lyricSeq || this.current !== s) return true;
     this.applyLyricText(text, "", "", "ttml");
+
     return this.lyrics.length > 0;
   }
 
@@ -1171,16 +1351,19 @@ class Player {
   private applyLyricText(raw: string, trans: string, roma: string, format = "lrc") {
     const provider = sparkleKaraokeProvider();
     const kara = provider && raw ? provider.parse(raw, trans, roma) : null;
+
     if (kara?.length) {
       this.karaoke = kara;
       this.lyrics = karaokeToLines(kara);
     } else {
       this.karaoke = [];
       this.lyrics = parseLrc(raw, trans, roma);
+
       if (!this.lyrics.length && raw && format !== "lrc") {
         this.lyrics = parseLrc(coerceLyricToLrc(raw, format), trans, roma);
       }
     }
+
     this.lyricState = this.lyrics.length ? "ok" : "none";
     this.lyricRevision++;
   }
@@ -1191,8 +1374,10 @@ class Player {
    *  ③ 歌词来源在「导入 ⇄ 自动」之间切换（右键导入/撤销导入）→ 无条件重拉。 */
   private refreshLocalCurrent() {
     const s = this.current;
+
     if (!isLocalSong(s)) return;
     const t = trackById(s.local.id);
+
     if (!t) return;
     const qqMid = t.match?.qqMid ?? "";
     const cover = !!t.coverRel;
@@ -1202,6 +1387,7 @@ class Player {
     s.local.qqMid = qqMid;
     s.local.hasCover = cover;
     s.local.lyricImport = lyricImport;
+
     if (importFlipped || (midAppeared && this.lyricState !== "ok")) void this.fetchLyric(s);
     // 快照落定就广播，**不按指纹相等早退**：重导封面是「同 id 原地换图」——指纹三个字段全不变，
     // 但 URL 已被 api.ts:bumpLocalCover 加了版本，tint/背景这些按 coverUrl 缓存的层要收到
@@ -1211,9 +1397,12 @@ class Player {
 
   toggle() {
     if (!this.current) return;
+
     // 上轮取链/加载失败或流已断开 → 重新协商起播（重试语义）
     if (this.error || (!this.transport.src && !this.loading)) { void this.startCurrent(this.transport.position > 1 ? this.transport.position : 0); return; }
+
     if (this.loading) { this.interrupt(); this.notify(); return; } // 加载中再点 = 取消
+
     if (this.transport.paused) void this.transport.play().catch(() => {});
     else this.transport.pause();
   }
@@ -1221,12 +1410,16 @@ class Player {
   // —— 播放条音质切换（会话级：不持久化；带 Fallback 协商，切档即从当前进度重挂流） ——
   switchQuality(q: Parameters<typeof setSessionQuality>[0]) {
     if (this.current && isLocalSong(this.current)) { this.notify(); return; } // 本地文件无在线档位
+
     const cur = getSessionQuality();
+
     if ((q ?? null) === cur && this.current && this.transport.src && !this.error) { this.notify(); return; } // 同档重复点：不打断
+
     const at = this.transport.position;
     setSessionQuality(q);
     this.prefetch.clear();
     this.prefetchedMid = "";
+
     if (this.current) void this.startCurrent(at > 1 ? at : 0);
     else this.notify();
   }
@@ -1237,9 +1430,11 @@ class Player {
   private dailyOrder(): number[] {
     const day = dayKey();
     const c = this.shuffleCache;
+
     if (c && c.ver === this.queueVersion && c.day === day) return c.order;
     const order = shuffleOrder(this.queue.length, daySeed(day));
     this.shuffleCache = { ver: this.queueVersion, day, order };
+
     return order;
   }
 
@@ -1252,12 +1447,16 @@ class Player {
       if (this.identityOrder.length !== this.queue.length) {
         this.identityOrder = Array.from({ length: this.queue.length }, (_, i) => i);
       }
+
       return this.identityOrder;
     }
+
     if (this.shuffle) return this.dailyOrder();
+
     if (this.identityOrder.length !== this.queue.length) {
       this.identityOrder = Array.from({ length: this.queue.length }, (_, i) => i);
     }
+
     return this.identityOrder;
   }
 
@@ -1265,6 +1464,7 @@ class Player {
    *  shuffle 开 → 当日洗牌顺序；关 → 队列原序。末位一律回绕（顺序播放档已移除）。 */
   private stepInOrder(dir: 1 | -1): number {
     if (!this.queue.length) return -1;
+
     return step(this.orderOf(), this.index, dir, true);
   }
 
@@ -1274,8 +1474,10 @@ class Player {
     // 电台是单向流：左侧没有「上一首」，轮末也绝不回绕到本轮第一首。
     if (this.radioOn) {
       const next = this.index >= 0 && this.index + 1 < this.queue.length ? this.index + 1 : -1;
+
       return { prev: -1, next };
     }
+
     return { prev: this.stepInOrder(-1), next: this.stepInOrder(1) };
   }
 
@@ -1296,18 +1498,24 @@ class Player {
    */
   songAtOffset(offset: number): Song | undefined {
     if (!this.queue.length) return undefined;
+
     if (offset === 0) return this.current;
+
     if (!Number.isInteger(offset)) return undefined;
+
     if (this.radioOn) {
       if (offset < 0) return undefined;
       const i = this.index + offset;
+
       return i >= 0 && i < this.queue.length ? this.queue[i] : undefined;
     }
+
     const dir: 1 | -1 = offset > 0 ? 1 : -1;
     // walk 逐首前进、每步从上一步的落点继续。**别改成循环调 stepInOrder** ——
     // 它每次都从 this.index 出发，循环 N 次也只走一步，±2 会取回 ±1 那首
     // （封面流两侧各出现一对重复封面的根因，见 lib/shuffle.ts:walk 的注释）。
     const i = walk(this.orderOf(), this.index, Math.abs(offset), dir, true); // wrap：取邻曲与跳转同一条回绕语义
+
     return i < 0 ? undefined : this.queue[i]; // 只可能是空队列；下标越界由 walk 夹紧后不会发生
   }
 
@@ -1315,56 +1523,79 @@ class Player {
    *  无限电台只接受正向且未越过队列末尾的偏移，负偏移与回绕一律 no-op。 */
   jumpToOffset(offset: number) {
     if (!Number.isInteger(offset) || offset === 0) return;
+
     if (this.radioOn) {
       const i = this.index + offset;
+
       if (i < 0 || i >= this.queue.length) return;
       this.jump(i);
+
       return;
     }
+
     const dir: 1 | -1 = offset > 0 ? 1 : -1;
     const i = walk(this.orderOf(), this.index, Math.abs(offset), dir, true); // wrap：手动跳允许回绕
+
     if (i < 0) return;
     this.jump(i);
   }
 
   next(auto = false) {
     if (!this.queue.length) return;
+
     if (this.radioOn) {
       if (this.radioEnd < 0) return; // 首轮还没取回：旧队列不参与电台推进
+
       // 轮末还没等到下一轮时先挂起，绝不回绕到旧队列。
       if (this.index >= this.radioEnd && this.index >= this.queue.length - 1) {
         this.radioWaitingNext = true;
         this.maybeExtendRadio();
+
         return;
       }
+
       const i = this.index + 1;
+
       if (i >= this.queue.length) {
         this.radioWaitingNext = true;
         this.maybeExtendRadio();
+
         return;
       }
+
       this.jump(i);
+
       return;
     }
+
     if (auto && this.mode === "one") {
       this.transport.seek(0);
+
       if (this.transport.paused) void this.transport.play().catch(() => {});
+
       return;
     }
+
     // 手动/自然结束都走下一步：末位回绕到队首，与洗牌无关（顺序播放档已移除）
     const i = this.stepInOrder(1);
+
     if (i < 0) { this.notify(); return; }
+
     this.jump(i);
   }
 
   prev(force = false) {
     if (!this.queue.length) return;
+
     if (this.radioOn) return; // 无限电台屏蔽上一曲（按钮/热键/媒体键最终都落到这里）
+
     // 「上一首」逻辑（Playing.PrevReplay，设置页即时生效）：
     // replay=把当前曲从头重放（播放条双击走 force 直接切上一首）；previous=直接切到队列里的上一首。
     // force 只由播放条双击与媒体键/热键的连按判定传：单次动作永远按单击逻辑走
     if (!force && getPrevBehavior() === "replay") { this.transport.seek(0); return; }
+
     const i = this.stepInOrder(-1);
+
     if (i < 0) return;
     this.jump(i);
   }
@@ -1392,6 +1623,7 @@ class Player {
   /** 播放模式菜单用：直接落某一档（不再靠 cycleMode 推进，菜单点哪档就是哪档） */
   setMode(m: Mode) {
     if (this.radioOn) return; // 无限电台按固定轮次向前走，循环档不生效也不可改
+
     if (this.mode === m) return;
     this.mode = m;
     this.notify();
@@ -1407,6 +1639,7 @@ class Player {
 
   seek(sec: number) {
     const d = this.transport.duration;
+
     if (d > 0) this.transport.seek(Math.max(0, Math.min(sec, d)));
     this.notify();
   }
@@ -1418,6 +1651,7 @@ class Player {
     // 庇护名单一起落盘：页面重载后，整单预载的旧快照照样冲不掉近期写入
     const now = Date.now();
     const writes: Record<string, { on: boolean; at: number }> = {};
+
     for (const [mid, w] of this.recentWrites) if (now - w.at <= LOVED_PENDING_TTL) writes[mid] = w;
     localStorage.setItem(LS_WRITES_KEY, JSON.stringify(writes));
   }
@@ -1426,6 +1660,7 @@ class Player {
   private setLoved(mid: string, on: boolean, ref?: { id: number; type: number }) {
     if (on) {
       this.loved.add(mid);
+
       if (ref) this.lovedRef.set(mid, ref);
     } else this.loved.delete(mid);
     this.loveVersion++;
@@ -1439,33 +1674,45 @@ class Player {
    *  - 失败不清空红心态（未登录/上游抖动时保留本地缓存），返回是否成功。 */
   loadLoved(fresh = false): Promise<boolean> {
     if (this.likedFlight) return this.likedFlight;
+
     if (!fresh && this.likedCache && Date.now() - this.likedAt < LOVED_TTL) return Promise.resolve(true);
     let flight!: Promise<boolean>;
     flight = (async () => {
       const all: Song[] = [];
       let total = 0;
+
       for (let page = 1; all.length < LOVED_MAX; page++) {
         const r: any = await api(`/user/liked?page=${page}&num=${LOVED_PAGE}`);
         const batch: Song[] = r?.songs ?? [];
+
         if (page === 1) total = Number(r?.total ?? 0);
         all.push(...batch);
+
         if (!r?.hasmore || !batch.length) break;
       }
+
       // 别让整单预载冲掉刚点的红心：滞后写入以本地为准校正读数（love-song-reload 的教训）
       const old = this.likedCache;
       const rec = this.reconcilePending(all, total);
       total = rec.total;
+
       for (const mid of [...rec.laggingOn].reverse()) {
         const row = old?.find((x) => x.mid === mid);
+
         if (row) all.unshift(row); // 本地乐观行插回头部（收藏顺序 = 最近在前）
       }
+
       const mids = new Set<string>();
+
       for (const s of all) {
         if (!s?.mid) continue;
         mids.add(s.mid);
+
         if (s.id) this.lovedRef.set(s.mid, { id: s.id, type: s.type ?? 1 }); // 存读侧原值，写时再转写侧枚举
       }
+
       for (const mid of rec.laggingOn) mids.add(mid); // 无行可插的滞后 like 至少保住红心
+
       if (all.length >= total) this.loved = mids;
       else for (const m of mids) this.loved.add(m);
       this.likedCache = all;
@@ -1475,14 +1722,17 @@ class Player {
       this.persistLoved();
       this.notify();
       this.emitLovedListChange();
+
       return true;
     })()
       .catch((e) => {
         console.warn("「我喜欢」预载失败（保留本地红心态）", e);
+
         return false;
       })
       .finally(() => { if (this.likedFlight === flight) this.likedFlight = null; });
     this.likedFlight = flight;
+
     return flight;
   }
 
@@ -1490,31 +1740,40 @@ class Player {
    *  探针比较「头部 20 首 + total」：手机端收藏/取消都会改变其一，没变就不搬整单数据。 */
   async refreshLovedFromRemote(): Promise<boolean> {
     if (this.likedFlight) return this.likedFlight;
+
     if (!this.likedCache) return this.loadLoved(true);
+
     try {
       const r: any = await api(`/user/liked?page=1&num=${LOVED_PROBE_PAGE}`);
       const head: Song[] = ((r?.songs ?? []) as Song[]).filter((s) => s?.mid);
       const probeLen = Math.min(this.likedCache.length, LOVED_PROBE_PAGE);
+
       const sameHead = head.length === probeLen
         && head.every((s, i) => s.mid === this.likedCache![i]?.mid);
+
       if (sameHead && Number(r?.total ?? 0) === this.likedTotal) {
         this.likedAt = Date.now(); // 确认远端没变：整单缓存重新算新鲜，避免进页白拉
+
         return true;
       }
     } catch (e) {
       console.warn("「我喜欢」远端探针失败（保留本地）", e);
+
       return false;
     }
+
     return this.loadLoved(true);
   }
 
   /** 订阅「我喜欢」列表内容变更（写确认新增 / 增量回源 / 整单预载后触发）。返回退订函数。 */
   onLovedListChange(fn: Listener): () => void {
     this.lovedListListeners.add(fn);
+
     return () => { this.lovedListListeners.delete(fn); };
   }
   private emitLovedListChange() {
     this.lovedListVersion++;
+
     for (const fn of [...this.lovedListListeners]) { try { fn(); } catch (e) { console.warn(e); } }
   }
 
@@ -1537,16 +1796,22 @@ class Player {
     songs: Song[]; total: number; laggingOn: string[]; corrected: boolean;
   } {
     const now = Date.now();
+
     for (const [mid, w] of this.recentWrites) if (now - w.at > LOVED_PENDING_TTL) this.recentWrites.delete(mid);
     const laggingOn: string[] = [];
     let t = total;
+
     for (const [mid, w] of this.recentWrites) {
       const at = songs.findIndex((s) => s?.mid === mid);
+
       if (w.on && at < 0) { laggingOn.push(mid); this.loved.add(mid); t++; continue; }
+
       if (w.on) continue; // 已反映：无需校正，但更旧的快照仍可能缺它
+
       if (at >= 0) { songs.splice(at, 1); t--; continue; } // unlike 滞后：从读数剔除
       // unlike 已反映：无需校正
     }
+
     return { songs, total: t, laggingOn, corrected: laggingOn.length > 0 || t !== total };
   }
 
@@ -1558,6 +1823,7 @@ class Player {
    *    本地乐观态本就是兜底。 */
   private syncLoved(): Promise<void> {
     if (!this.likedCache || this.likedFlight) return Promise.resolve(); // 无基线不凭空造列表；整单预载在跑则交给它
+
     if (this.lovedSyncFlight) return this.lovedSyncFlight;
     let flight!: Promise<void>;
     flight = (async () => {
@@ -1573,39 +1839,50 @@ class Player {
         // 窗口内以服务端顺序为准；滞后 like 的本地乐观行插回头部（收藏顺序 = 最近在前）
         const head = [...rec.songs];
         const seen = new Set(head.map((s) => s.mid));
+
         for (const mid of [...rec.laggingOn].reverse()) {
           seen.add(mid);
           const row = old.find((x) => x.mid === mid);
+
           if (row) head.unshift(row);
         }
+
         const tail = old.filter((s) => s?.mid && !seen.has(s.mid));
         this.likedCache = [...head, ...tail];
+
         for (const s of head) {
           if (!s.mid) continue;
           this.loved.add(s.mid);
+
           if (s.id) this.lovedRef.set(s.mid, { id: s.id, type: s.type ?? 1 }); // 存读侧原值，写时再转写侧枚举
         }
+
         for (const mid of rec.laggingOn) this.loved.add(mid);
         this.likedTotal = Math.max(rec.total, prevTotal); // 计数同理不回退（stale 读数只会更旧）
+
         const changed = !sameLovedOrder(prevOrder, this.likedCache)
           || prevTotal !== this.likedTotal
           || prevLoved.size !== this.loved.size
           || [...prevLoved].some((m) => !this.loved.has(m));
+
         if (changed) this.emitLovedListChange();
       } catch (e) {
         console.warn("「我喜欢」增量回源失败（保留本地）", e);
       } finally {
         this.lovedSyncFlight = null;
+
         if (this.lovedSyncCorrected && this.lovedSyncTries < 3) {
           this.lovedSyncTries++; // 读侧滞后没追平：稍后再对一轮（封顶，防上游真丢了无限打转）
           this.syncLovedSoon();
         } else if (!this.lovedSyncCorrected) {
           this.lovedSyncTries = 0;
         }
+
         this.lovedSyncCorrected = false;
       }
     })();
     this.lovedSyncFlight = flight;
+
     return flight;
   }
 
@@ -1614,17 +1891,22 @@ class Player {
    *  写确认后进滞后庇护名单并安排一次增量回源（syncLovedSoon）：拉一小窗与远端对账。 */
   async toggleLove(song?: Song): Promise<boolean | null> {
     const mid = song?.mid;
+
     if (!mid) return null;
+
     if (isLocalSong(song)) return null; // 红心是 QQ 侧概念：本地曲目无在线收藏
     // 行对象可能来自不带数字 id 的上下文（如专辑曲目）：回落到预载时记下的 song_id
     const ref = song.id ? { id: song.id, type: song.type ?? 1 } : this.lovedRef.get(mid);
+
     if (!ref) return null;
     const on = !this.loved.has(mid);
     this.setLoved(mid, on, ref);
     this.notify();
+
     try {
       const r = await postJson<boolean>(on ? "/song/like" : "/song/unlike",
         { song_id: ref.id, song_type: writeSongType(ref.type) });
+
       // 上游把 retCode≠0（含 80092）压成 false 且不抛错 —— 不拦就是「看着收藏了、其实没有」
       if (r === false) throw new Error("上游未接受本次收藏写入");
     } catch (e: any) {
@@ -1633,21 +1915,27 @@ class Player {
       this.setLoved(mid, !on, ref); // 回滚
       this.error = "收藏失败：" + (e?.message ?? e);
       this.notify();
+
       return !on;
     }
+
     this.recentWrites.set(mid, { on, at: Date.now() });
     this.lovedSyncTries = 0;
+
     // 缓存与列表计数跟进（写接口已确认，视图据此即时自洽）
     if (on) {
       if (this.likedCache && !this.likedCache.some((x) => x.mid === mid)) this.likedCache.unshift(song!);
       this.likedTotal++;
     } else {
       if (this.likedCache) this.likedCache = this.likedCache.filter((x) => x.mid !== mid);
+
       if (this.likedTotal > 0) this.likedTotal--;
     }
+
     // 广播列表变更：新增行让打开中的我喜欢页立刻出现；移除由该页逐行淡出消化（src/views/liked.ts）
     this.emitLovedListChange();
     this.syncLovedSoon();
+
     return on;
   }
 
@@ -1655,12 +1943,14 @@ class Player {
   markActive() {
     document.querySelectorAll(".card.playing,.row.playing").forEach((e) => e.classList.remove("playing"));
     const key = this.current?.mid;
+
     if (!key) return;
     document.querySelectorAll(`[data-songkey="${CSS.escape(key)}"]`).forEach((e) => e.classList.add("playing"));
   }
 }
 
 export const player = new Player();
+
 export { coverUrl };
 
 // —— 逐字歌词辅助（模块级纯函数，便于复用与测试） ——
@@ -1674,8 +1964,10 @@ function sameLovedOrder(a: Song[], b: Song[]) {
 /** 逐字行 → 行级展示列表（逐字提供器缺位/解析失败回退时的行级视图，与 LRC 行为一致） */
 function karaokeToLines(lines: SparkleKaraokeLine[]): LyricLine[] {
   const out: LyricLine[] = [];
+
   for (const l of lines) {
     const text = l.words.map((w) => w.word).join("").trim();
+
     if (!text) continue;
     out.push({
       t: l.startTime / 1000,
@@ -1684,9 +1976,11 @@ function karaokeToLines(lines: SparkleKaraokeLine[]): LyricLine[] {
       roma: l.romanLyric?.trim() || undefined,
     });
   }
+
   return out;
 }
 
 // 开发/自动化测试钩子：shell 挂载时暴露单例（生产构建里 vite define 会剔除）
 declare global { interface Window { __quaverPlayer?: Player } }
+
 if (import.meta.env?.DEV) window.__quaverPlayer = player;

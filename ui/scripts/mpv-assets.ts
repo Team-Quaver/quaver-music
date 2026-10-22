@@ -25,5 +25,6 @@ export const ASSETS = {
 /** 从资产 URL 抠出 macOS 档位号（"…-macos-15-arm.zip" → 15）；不是 mac 资产返回 null。 */
 export function macosAssetMajor(url) {
   const m = /-macos-(\d+)-/.exec(String(url ?? ""));
+
   return m ? Number(m[1]) : null;
 }

@@ -14,6 +14,7 @@ import { normalizeEqState, type EqState } from "../../electron/audio/eq-config.t
 import type { UpdateChannel } from "./update-core";
 
 export type ThemeMode = "system" | "light" | "dark";
+
 export type DecorMode = "csd" | "ssd";
 
 // —— 外观模式 ——
@@ -25,32 +26,40 @@ const THEME_TO_CONF: Record<ThemeMode, string> = { system: "follow-system", ligh
 export function getTheme(): ThemeMode {
   return CONF_TO_THEME[cfg("Style.Style", "dark")] ?? "system";
 }
+
 const mq = window.matchMedia("(prefers-color-scheme: dark)");
+
 export function effectiveTheme(mode: ThemeMode = getTheme()): "light" | "dark" {
   return mode === "system" ? (mq.matches ? "dark" : "light") : mode;
 }
+
 export function applyTheme() {
   document.documentElement.dataset.theme = effectiveTheme();
 }
+
 export function setTheme(m: ThemeMode) {
   cfgSet({ "Style.Style": THEME_TO_CONF[m] ?? "follow-system" });
   applyTheme();
 }
+
 mq.addEventListener("change", () => { if (getTheme() === "system") applyTheme(); });
 
 // —— 字体 ——
 // 配置文件里存的就是 CSS font-family 列表（与模板示例 `Source Han Sans,Microsoft Yahei UI` 一致），
 // 空值 = 不覆盖，走 style.css 的 --font-default 内置栈。设置页给的是预设，选中后把对应列表写进配置。
 export interface FontPreset { label: string; css: string }
+
 export const FONT_PRESETS: Record<string, FontPreset> = {
   system: { label: "系统默认", css: "" },
   sans: { label: "黑体（无衬线）", css: '"Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' },
   serif: { label: "宋体（衬线）", css: '"Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", SimSun, serif' },
   mono: { label: "等宽", css: 'ui-monospace, "JetBrains Mono", "Noto Sans Mono CJK SC", monospace' },
 };
+
 export const FONT_LABELS: Record<string, string> = Object.fromEntries(
   Object.entries(FONT_PRESETS).map(([k, v]) => [k, v.label]),
 );
+
 /** 手改配置文件写进来的字体族列表在设置页里的占位选项值。 */
 export const FONT_CUSTOM = "custom";
 
@@ -59,11 +68,15 @@ const normCss = (s: string) => s.trim().replace(/^["']|["']$/g, "").replace(/\s*
 /** 配置值 → 预设名（命中预设）；否则 FONT_CUSTOM（用户自己填的字体族列表）。 */
 export function fontKeyOf(value: string): string {
   const v = normCss(value || "");
+
   if (!v) return "system"; // 空 = 不覆盖 = 系统默认
+
   if (v in FONT_PRESETS) return v; // 直接写预设名（system/sans/serif/mono）也认
+
   for (const [k, p] of Object.entries(FONT_PRESETS)) {
     if (p.css && normCss(p.css) === v) return k;
   }
+
   return FONT_CUSTOM;
 }
 
@@ -73,7 +86,7 @@ export function fontKeyOf(value: string): string {
  *  isFontList（拦结构字符与 url(）更严 —— 前端清洗后的值一定能过后端校验。 */
 export function normalizeFontList(s: string): string {
   return (s || "")
-    .replace(/[^\p{L}\p{N}\s,'"_.+\-]/gu, " ")
+    .replace(/[^\p{L}\p{N}\s,'"_.+-]/gu, " ")
     .split(",")
     .map((p) => p.replace(/\s+/g, " ").trim())
     .filter(Boolean)
@@ -85,12 +98,15 @@ export function normalizeFontList(s: string): string {
  *  是无效声明，会整条 font 简写失效、字变成浏览器默认的衬线体。 */
 export function fontCssOf(value: string): string {
   const v = (value || "").trim();
+
   if (!v) return "";
+
   return v in FONT_PRESETS ? FONT_PRESETS[v].css : v;
 }
 
 export const getUiFont = () => fontKeyOf(cfg("Style.DefaultUIFonts"));
 export const getLyricFont = () => fontKeyOf(cfg("Style.DefaultLyricsFonts"));
+
 /** 设置页输入框回填用：配置里写的是什么就显示什么（保留用户的大小写与引号，不走归一）。 */
 export const getUiFontList = () => cfg("Style.DefaultUIFonts");
 export const getLyricFontList = () => cfg("Style.DefaultLyricsFonts");
@@ -101,24 +117,30 @@ export function setUiFontList(css: string) {
   cfgSetSoon({ "Style.DefaultUIFonts": normalizeFontList(css) }, 400);
   applyFonts();
 }
+
 export function setLyricFontList(css: string) {
   cfgSetSoon({ "Style.DefaultLyricsFonts": normalizeFontList(css) }, 400);
   applyFonts();
 }
+
 /** 下拉选预设：把该预设的族列表写进配置（FONT_CUSTOM = 保持输入框现有内容，不动配置）。 */
 export function setUiFontPreset(key: string) {
   if (key === FONT_CUSTOM) return;
   setUiFontList(FONT_PRESETS[key]?.css ?? "");
 }
+
 export function setLyricFontPreset(key: string) {
   if (key === FONT_CUSTOM) return;
   setLyricFontList(FONT_PRESETS[key]?.css ?? "");
 }
+
 export function applyFonts() {
   const r = document.documentElement.style;
   const ui = fontCssOf(cfg("Style.DefaultUIFonts"));
   const ly = fontCssOf(cfg("Style.DefaultLyricsFonts"));
+
   if (ui) r.setProperty("--font-ui", ui); else r.removeProperty("--font-ui");
+
   if (ly) r.setProperty("--font-lyric", ly); else r.removeProperty("--font-lyric");
 }
 
@@ -129,17 +151,21 @@ export function applyFonts() {
 // 这里**只**管「内部枚举 ⇄ 配置取值」：DOM 归 src/lib/ambient.ts —— prefs 被 player/api
 // 反向依赖，不能反过来 import 渲染层的东西（成环）。改完要自己调 applyBackground()。
 export type BackgroundMode = "off" | "cover" | "custom";
+
 const CONF_TO_BG: Record<string, BackgroundMode> = { off: "off", cover: "cover", custom: "custom" };
 
 export function getBackgroundMode(): BackgroundMode {
   return CONF_TO_BG[cfg("Style.Background", "off")] ?? "off";
 }
+
 export function setBackgroundMode(m: BackgroundMode) {
   cfgSet({ "Style.Background": CONF_TO_BG[m] ?? "off" });
 }
+
 export function getBackgroundImage(): string {
   return cfg("Style.BackgroundImage").trim();
 }
+
 export function setBackgroundImage(path: string) {
   cfgSet({ "Style.BackgroundImage": (path ?? "").trim() });
 }
@@ -151,11 +177,15 @@ export const BG_BLUR_DEFAULT = 70;
 /** 模糊强度（px 高斯半径）。空值/非数值回落默认；越界夹紧（手改 conf 写 9999 不该把界面糊死）。 */
 export function getBackgroundBlur(): number {
   const raw = cfg("Style.BackgroundBlur", String(BG_BLUR_DEFAULT)).trim();
+
   if (!raw) return BG_BLUR_DEFAULT; // Number("") === 0 的坑：空值 ≠ 不模糊
   const n = Number(raw);
+
   if (!Number.isFinite(n)) return BG_BLUR_DEFAULT;
+
   return Math.min(BG_BLUR_MAX, Math.max(BG_BLUR_MIN, Math.round(n)));
 }
+
 /** 拖滑块是高频项 → 合并落盘（与音量同一套）。 */
 export function setBackgroundBlur(px: number) {
   const clamped = Math.max(BG_BLUR_MIN, Math.min(BG_BLUR_MAX, Math.round(px)));
@@ -172,6 +202,7 @@ export function setBackgroundBlur(px: number) {
 export function getMenuBlur(): boolean {
   return !/^(false|0|no)$/i.test(cfg("Style.MenuBlur", "True"));
 }
+
 export function setMenuBlur(v: boolean) {
   cfgSet({ "Style.MenuBlur": v ? "True" : "False" });
 }
@@ -180,21 +211,27 @@ export function setMenuBlur(v: boolean) {
 // 模式 id 统一走小写 kebab-case：宿主内置 bars/mirror/wave，Sparkle 插件可注册更多。
 // 插件被停用/未安装时，持久化的插件模式会自然回落 bars（见 lib/spectrum-render.ts 的查找）。
 export type BuiltinSpectrumMode = "bars" | "mirror" | "wave";
+
 export const BUILTIN_SPECTRUM_MODES: readonly BuiltinSpectrumMode[] = ["bars", "mirror", "wave"];
 const SPECTRUM_MODE_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 export function getSpectrumEnabled(): boolean {
   return !/^(false|0|no)$/i.test(cfg("Style.Spectrum", "False"));
 }
+
 export function setSpectrumEnabled(v: boolean) {
   cfgSet({ "Style.Spectrum": v ? "True" : "False" });
 }
+
 export function getSpectrumMode(): string {
   const v = cfg("Style.SpectrumMode", "bars").trim().toLowerCase();
+
   return SPECTRUM_MODE_ID.test(v) ? v : "bars";
 }
+
 export function setSpectrumMode(id: string) {
   const v = String(id ?? "").trim().toLowerCase();
+
   if (!SPECTRUM_MODE_ID.test(v)) return;
   cfgSet({ "Style.SpectrumMode": v });
 }
@@ -204,16 +241,20 @@ export function setSpectrumMode(id: string) {
 // 布局与动画只消费 style.css 的 --control-bar-* 令牌。Sparkle 主题/样式层可直接覆盖
 // 这些令牌或按 body[data-control-bar="floating"] 重画形态，不需要改渲染层。
 export type ControlBarMode = "bottom" | "floating";
+
 const CONTROL_BAR_MODES: readonly string[] = ["bottom", "floating"];
 
 export function getControlBarMode(): ControlBarMode {
   const v = cfg("Style.ControlBar");
+
   return CONTROL_BAR_MODES.includes(v) ? (v as ControlBarMode) : "bottom";
 }
+
 export function applyControlBarMode(mode: ControlBarMode = getControlBarMode()) {
   document.body.classList.toggle("control-bar-floating", mode === "floating");
   document.body.dataset.controlBar = mode;
 }
+
 export function setControlBarMode(m: ControlBarMode) {
   cfgSet({ "Style.ControlBar": CONTROL_BAR_MODES.includes(m) ? m : "bottom" });
   applyControlBarMode();
@@ -224,12 +265,15 @@ export function setControlBarMode(m: ControlBarMode) {
 // 侧栏布局与歌单集合页只按这两个状态走，不互相找节点。Sparkle 主题可用 theme.playlistMode
 // 接管（策略在 src/sparkle/theme-playlist-mode.ts，应用入口在 src/lib/playlist-mode.ts）。
 export type PlaylistMode = "menu" | "collection";
+
 const PLAYLIST_MODES: readonly string[] = ["menu", "collection"];
 
 export function getPlaylistMode(): PlaylistMode {
   const v = cfg("Style.PlaylistMode");
+
   return PLAYLIST_MODES.includes(v) ? (v as PlaylistMode) : "menu";
 }
+
 // 切换形态走「淡出 → 换布局 → 淡入」两拍：两态之间差的正是 display:none 的整块撤走/回来、
 // 再加上导航按钮从顶部挪到居中 —— 这些都是瞬间跳变，直接切很生硬。做法：先挂 body.pl-mode-out
 // 让侧栏「导航 + 歌单区」淡出，等淡出走完再落新布局（换布局那一瞬正好落在透明度 0，看不见跳变），
@@ -238,8 +282,10 @@ export function getPlaylistMode(): PlaylistMode {
 // 首屏（还没上过屏）与同态重放（换了主题但形态没变）都不播，免得开屏闪一下。
 const MODE_FADE_OUT_MS = 150; // 与 style.css .pl-mode-out 的动画时长对齐
 const MODE_FADE_IN_MS = 180; // 与 style.css .pl-mode-in 的动画时长对齐
+
 /** 上一次真正落到 body 的形态；null = 首屏还没上过屏（用来区分「真变了」与「同态重放」）。 */
 let paintedPlaylistMode: PlaylistMode | null = null;
+
 /** 在途两拍的票据：连点 / 主题连切时只认最后一次，旧回调作废。 */
 let modeFadeTicket = 0;
 
@@ -253,14 +299,17 @@ export function applyPlaylistModeKind(mode: PlaylistMode = getPlaylistMode()) {
   paintedPlaylistMode = mode;
   const body = document.body;
   const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
   // 首屏 / 同态重放 / 用户关了动效：直接落终态，并把在途的两拍一并作废。
   if (prev === null || prev === mode || still) {
     modeFadeTicket++;
     body.classList.toggle("pl-mode-out", false);
     body.classList.toggle("pl-mode-in", false);
     commitPlaylistMode(mode);
+
     return;
   }
+
   const ticket = ++modeFadeTicket;
   body.classList.toggle("pl-mode-in", false); // 上一拍的淡入若没走完，先撤掉再淡出
   body.classList.toggle("pl-mode-out", true);
@@ -274,6 +323,7 @@ export function applyPlaylistModeKind(mode: PlaylistMode = getPlaylistMode()) {
     }, MODE_FADE_IN_MS);
   }, MODE_FADE_OUT_MS);
 }
+
 export function setPlaylistMode(m: PlaylistMode) {
   cfgSet({ "Style.PlaylistMode": PLAYLIST_MODES.includes(m) ? m : "menu" });
   applyPlaylistModeKind();
@@ -284,6 +334,7 @@ export function setPlaylistMode(m: PlaylistMode) {
 // custom=自定义色），自定义色的取值落在 TintColor（#rrggbb）。这里同样**只**管「枚举 ⇄ 配置取值」：
 // 写 CSS 变量的 DOM 侧在 src/lib/tint.ts（prefs 被 player/api 反向依赖，不能反过来 import 渲染层模块）。
 export type TintMode = "default" | "cover" | "system" | "custom";
+
 const TINT_MODES: readonly string[] = ["default", "cover", "system", "custom"];
 
 /** 默认档的固定色 —— 就是主题里那条「播放进度条青色」（style.css 的 --cyan）。
@@ -292,8 +343,10 @@ export const TINT_DEFAULT_COLOR = "#19c2d8";
 
 export function getTintMode(): TintMode {
   const v = cfg("Style.Tint", "default");
+
   return TINT_MODES.includes(v) ? (v as TintMode) : "default";
 }
+
 export function setTintMode(m: TintMode) {
   cfgSet({ "Style.Tint": TINT_MODES.includes(m) ? m : "default" });
 }
@@ -302,11 +355,14 @@ export function setTintMode(m: TintMode) {
  *  解析不了的取值（手误写进来的别的字符串）回落默认色，不让它流进 CSS 变量。 */
 export function getTintColor(): string {
   const c = parseHex(cfg("Style.TintColor"));
+
   return c ? toHex(c) : TINT_DEFAULT_COLOR;
 }
+
 /** 写自定义色：只接受能解析的颜色字面量（输入框里正在敲的半截值直接丢弃，不改色也不落盘）。 */
 export function setTintColor(hex: string) {
   const c = parseHex(hex);
+
   if (!c) return;
   // 拖色相条 / 连打数字是高频项 → 合并落盘；改色本身即时生效（调用方补一次 applyTint()）
   cfgSetSoon({ "Style.TintColor": toHex(c) }, 200);
@@ -316,13 +372,16 @@ export function setTintColor(hex: string) {
 export function getDecor(): DecorMode {
   return cfg("Window.Decor") === "ssd" ? "ssd" : "csd";
 }
+
 export function applyDecor() {
   document.body.classList.toggle("ssd", getDecor() === "ssd");
 }
+
 export function setDecor(m: DecorMode) {
   cfgSet({ "Window.Decor": m });
   applyDecor();
   const bridge = (window as any).quaverCSD;
+
   if (bridge?.setDecor) bridge.setDecor(m); // Electron：主进程改 frame 并重建窗口
 }
 
@@ -330,10 +389,13 @@ export function setDecor(m: DecorMode) {
 //    Chromium=浏览器 <audio>（兜底/对照用，配置文件里写 Chromium，内部标识沿用 Blink）。
 //    偏好只决定启动选择；引擎不可用时播放器自动落 Blink 并在设置页提示。 ——
 export type DecodeBackend = "MPV" | "Blink";
+
 export function getDecode(): DecodeBackend {
   const v = cfg("Playing.Backend");
+
   return v === "Chromium" || v === "Blink" ? "Blink" : "MPV";
 }
+
 export function setDecode(v: DecodeBackend) {
   cfgSet({ "Playing.Backend": v === "Blink" ? "Chromium" : "MPV" });
 }
@@ -343,38 +405,48 @@ export function setDecode(v: DecodeBackend) {
 export function getAudioDevice(): string {
   return cfg("Playing.AudioDevice") || "auto";
 }
+
 export function setAudioDevice(id: string) {
   cfgSet({ "Playing.AudioDevice": id || "auto" });
 }
 
 // —— 淡入淡出（仅 MPV 后端）：起播淡入 / 暂停与切歌淡出。时长交给引擎做振幅包络。 ——
 export type FadePreset = "off" | "short" | "normal" | "long";
+
 export const FADE_PRESETS: Record<FadePreset, { inMs: number; outMs: number }> = {
   off: { inMs: 0, outMs: 0 },
   short: { inMs: 150, outMs: 120 },
   normal: { inMs: 400, outMs: 250 },
   long: { inMs: 800, outMs: 500 },
 };
+
 export function getFade(): FadePreset {
   const v = cfg("Playing.Fade");
+
   return v === "off" || v === "short" || v === "long" ? v : "normal";
 }
+
 export function setFade(v: FadePreset) {
   cfgSet({ "Playing.Fade": v });
 }
+
 export function getFadeMs() { return FADE_PRESETS[getFade()]; }
 
 // —— 音量 / 静音：0..1 浮点，静音时保留原值（恢复即回）。音量是拖拽高频项 → 合并落盘。 ——
 export function getVolume(): number {
   const v = Number(cfg("Playing.Volume", "0.8"));
+
   return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0.8;
 }
+
 export function setVolume(v: number) {
   cfgSetSoon({ "Playing.Volume": String(Math.max(0, Math.min(1, v))) });
 }
+
 export function getMuted(): boolean {
   return /^(true|1|yes)$/i.test(cfg("Playing.Muted"));
 }
+
 export function setMuted(m: boolean) {
   cfgSet({ "Playing.Muted": m ? "True" : "False" });
 }
@@ -384,10 +456,13 @@ export function setMuted(m: boolean) {
 //    拖节点是高频写 → cfgSetSoon 合并落盘；播放器侧另有一条实时下发链，不等磁盘。 ——
 export function getEqualizerState(): EqState {
   const raw = cfg("Playing.Equalizer", "");
+
   if (!raw.trim()) return normalizeEqState(null);
+
   try { return normalizeEqState(JSON.parse(raw)); }
   catch { return normalizeEqState(null); }
 }
+
 export function setEqualizerState(s: EqState) {
   const next = normalizeEqState(s);
   cfgSetSoon({ "Playing.Equalizer": JSON.stringify(next) }, 300);
@@ -397,10 +472,12 @@ export function setEqualizerState(s: EqState) {
 //    播放条按钮与 MPRIS/媒体键共用 player.prev() 一个入口，每次点击现读内存快照 → 设置页改完即时生效；
 //    双击=播放条原生 dblclick；媒体键/热键走 player.prevPress() 的时间窗连按判定（400ms）。 ——
 export type PrevBehavior = "replay" | "previous";
+
 export function getPrevBehavior(): PrevBehavior {
   // 默认开（重放）：只有明确写 False 档才关闭，手误写进来的值回落默认
   return /^(false|0|no)$/i.test(cfg("Playing.PrevReplay", "True")) ? "previous" : "replay";
 }
+
 export function setPrevBehavior(v: PrevBehavior) {
   cfgSet({ "Playing.PrevReplay": v === "replay" ? "True" : "False" });
 }
@@ -413,6 +490,7 @@ export function getInhibitSleep(): boolean {
   // 默认开：只有明确写 False 档才关闭，手误写进来的值回落默认
   return !/^(false|0|no)$/i.test(cfg("Playing.InhibitSleep", "True"));
 }
+
 export function setInhibitSleep(v: boolean) {
   cfgSet({ "Playing.InhibitSleep": v ? "True" : "False" });
 }
@@ -422,6 +500,7 @@ export function setInhibitSleep(v: boolean) {
 export function getReportListenTime(): boolean {
   return !/^(false|0|no)$/i.test(cfg("Playing.ReportListenTime", "True"));
 }
+
 export function setReportListenTime(v: boolean) {
   cfgSet({ "Playing.ReportListenTime": v ? "True" : "False" });
 }
@@ -434,23 +513,30 @@ export function setReportListenTime(v: boolean) {
 //    清单与理由见 ui/AGENTS.md「歌词辅助行」。音译是 romaji/拼音这类「整行换套读音」，
 //    不是日文振假名那种词上方注音（那是 Ruby，来自 QRC 的 [kana:] 标签，见 src/lyrics/qrc-kana.ts）。
 export type LyricAuxMode = "off" | "translation" | "romanization";
+
 export const LYRIC_AUX_MODES: LyricAuxMode[] = ["off", "translation", "romanization"];
 
 export function getLyricAux(): LyricAuxMode {
   const raw = cfg("Style.LyricAux", "translation").trim().toLowerCase();
+
   if (raw === "off" || raw === "romanization") return raw;
+
   if (raw === "translation") {
     // 翻译档要求 ShowTranslation=True；旧配置只有 ShowTranslation=False 时按关闭处理
     return !/^(false|0|no)$/i.test(cfg("Style.ShowTranslation", "True")) ? "translation" : "off";
   }
+
   // 瞎写的 LyricAux 回落到 ShowTranslation 布尔
   return !/^(false|0|no)$/i.test(cfg("Style.ShowTranslation", "True")) ? "translation" : "off";
 }
+
 export function setLyricAux(mode: LyricAuxMode) {
   cfgSet({ "Style.LyricAux": mode, "Style.ShowTranslation": mode === "translation" ? "True" : "False" });
 }
+
 // 旧入口/插件门面：非 off 即显示辅助行（两档都总有一路上屏，所以 off 之外都算「开」）
 export function getShowTrans(): boolean { return getLyricAux() !== "off"; }
+
 export function setShowTrans(v: boolean) { setLyricAux(v ? "translation" : "off"); }
 
 // —— 正在播放页行级（LRC）歌词缩放：字号与行距随同一系数放大/缩小（0.7..1.5，1=默认）。
@@ -462,7 +548,9 @@ export const LYRIC_SCALE_STEP = 0.1;
 
 export function getLyricScale(): number {
   const n = Number(cfg("Style.LyricScale", "1"));
+
   if (!Number.isFinite(n)) return 1;
+
   return Math.min(LYRIC_SCALE_MAX, Math.max(LYRIC_SCALE_MIN, n));
 }
 
@@ -475,10 +563,12 @@ export function setLyricScale(v: number) {
 //     全高由 .np-lyrics-full 控制，并让频谱开启态自动把底边抬到可视化上方；
 //     隐藏已播放行由 .np-hide-played（行级）与 AMLL 的 setHidePassedLines（逐字）共同执行。 ——
 export type NpLyricLayout = "default" | "full" | "hide-played" | "full-hide-played";
+
 export const NP_LYRIC_LAYOUTS: NpLyricLayout[] = ["default", "full", "hide-played", "full-hide-played"];
 
 export function getNpLyricLayout(): NpLyricLayout {
   const raw = cfg("Style.LyricLayout", "default").trim().toLowerCase() as NpLyricLayout;
+
   return NP_LYRIC_LAYOUTS.includes(raw) ? raw : "default";
 }
 
@@ -489,12 +579,14 @@ export function setNpLyricLayout(v: NpLyricLayout) {
 /** 全高档：歌词/逐字歌词容器铺满安全高度。 */
 export const npLyricFullHeight = () => {
   const m = getNpLyricLayout();
+
   return m === "full" || m === "full-hide-played";
 };
 
 /** 隐藏已播放行档：当前行之前的歌词不显示，但仍留在滚动容器里，滚轮翻阅不受影响。 */
 export const npLyricHidePlayed = () => {
   const m = getNpLyricLayout();
+
   return m === "hide-played" || m === "full-hide-played";
 };
 
@@ -504,12 +596,14 @@ export const npLyricHidePlayed = () => {
 // electron/config.ts 的 schema 值域同规（改一处要改两处）：TTML 地址模板的合法性由 ttml.ts
 // 的 isTtmlDatabaseUrl 把关（与写盘侧 isTtmlDatabaseUrlTemplate 对齐），本地库目录沿用「非控制字符 + 长度」口径。
 export type ChineseConvert = "off" | "simplified" | "traditional";
+
 const CONF_CHINESE: Record<string, ChineseConvert> = { off: "off", simplified: "simplified", traditional: "traditional" };
 
 export function getChineseConvert(): ChineseConvert {
   // 未知/瞎写回落 off：转换是锦上添花，坏值宁可显示原文也别拿一套没验证的词典去改歌词
   return CONF_CHINESE[cfg("Lyrics.ChineseConvert", "off").trim().toLowerCase()] ?? "off";
 }
+
 export function setChineseConvert(v: ChineseConvert) {
   cfgSet({ "Lyrics.ChineseConvert": v });
 }
@@ -518,6 +612,7 @@ export function getOnlineTtml(): boolean {
   // 默认开：只有在明确写关闭档才停。逐字缺位时才补一次查询（口径见 src/player.ts + schema 注释）
   return !/^(false|0|no)$/i.test(cfg("Lyrics.OnlineTtml", "True"));
 }
+
 export function setOnlineTtml(v: boolean) {
   cfgSet({ "Lyrics.OnlineTtml": v ? "True" : "False" });
 }
@@ -525,8 +620,10 @@ export function setOnlineTtml(v: boolean) {
 export function getTtmlDatabase(): string {
   // 空 / 非法一律回落默认模板：地址坏了宁可打公共镜像，也别拼出个必 404 的请求或让歌词链路吃字符串异常
   const raw = cfg("Lyrics.TtmlDatabase", TTML_DB_DEFAULT_URL).trim();
+
   return isTtmlDatabaseUrl(raw) ? raw : TTML_DB_DEFAULT_URL;
 }
+
 export function setTtmlDatabase(v: string) {
   const t = String(v ?? "").trim();
   cfgSet({ "Lyrics.TtmlDatabase": isTtmlDatabaseUrl(t) ? t : TTML_DB_DEFAULT_URL });
@@ -535,8 +632,10 @@ export function setTtmlDatabase(v: string) {
 export function getTtmlLibrary(): string {
   // 本地 TTML 歌词库目录：留空 = 不使用（无独立开关，非空即启用）。非控制字符 + 长度上限与背景图路径同口径。
   const raw = cfg("Lyrics.TtmlLibrary", "").trim();
+
   return /[\r\n\u0000]/.test(raw) || raw.length > 1024 ? "" : raw;
 }
+
 export function setTtmlLibrary(v: string) {
   const t = String(v ?? "").trim();
   cfgSet({ "Lyrics.TtmlLibrary": /[\r\n\u0000]/.test(t) || t.length > 1024 ? "" : t });
@@ -553,6 +652,7 @@ export function setTtmlLibrary(v: string) {
 export function getDesktopLyrics(): boolean {
   return /^(true|1|yes)$/i.test(cfg("DesktopLyrics.Enabled", "False").trim());
 }
+
 export function setDesktopLyrics(v: boolean) {
   cfgSet({ "DesktopLyrics.Enabled": v ? "True" : "False" });
 }
@@ -562,6 +662,7 @@ export function setDesktopLyrics(v: boolean) {
 export function getDesktopLyricsLocked(): boolean {
   return /^(true|1|yes)$/i.test(cfg("DesktopLyrics.Locked", "False").trim());
 }
+
 export function setDesktopLyricsLocked(v: boolean) {
   cfgSet({ "DesktopLyrics.Locked": v ? "True" : "False" });
 }
@@ -579,6 +680,7 @@ export const DL_HOVER_OPACITY_FLOOR = 0.3;
 /** 0.1..1 的那把夹子（坏值回落 1，与 electron/desktop-lyrics-core.ts 的 normalizeOpacity 同规）。 */
 function clampDlOpacity(n: number): number {
   if (!Number.isFinite(n)) return 1;
+
   return Math.min(DL_OPACITY_MAX, Math.max(DL_OPACITY_MIN, Math.round(n * 100) / 100));
 }
 
@@ -591,9 +693,11 @@ export function getDesktopLyricsOpacity(): number {
 export function hoverOpacityOf(opacity: number): number {
   return Math.max(clampDlOpacity(opacity), DL_HOVER_OPACITY_FLOOR);
 }
+
 export function getDesktopLyricsHoverOpacity(): number {
   return hoverOpacityOf(getDesktopLyricsOpacity());
 }
+
 export function setDesktopLyricsOpacity(v: number) {
   const clamped = Math.min(DL_OPACITY_MAX, Math.max(DL_OPACITY_MIN, Number(v) || 1));
   cfgSetSoon({ "DesktopLyrics.Opacity": String(Math.round(clamped * 100) / 100) });
@@ -604,9 +708,12 @@ export function setDesktopLyricsOpacity(v: number) {
  *  三平台同一套（不做原生 setOpacity：那条 Linux 不实现，会造成口径分叉）。 */
 export function getDesktopLyricsBackdrop(): number {
   const n = Number(cfg("DesktopLyrics.Backdrop", "0"));
+
   if (!Number.isFinite(n)) return 0;
+
   return Math.min(1, Math.max(0, Math.round(n * 100) / 100));
 }
+
 export function setDesktopLyricsBackdrop(v: number) {
   const clamped = Math.min(1, Math.max(0, Number(v) || 0));
   cfgSetSoon({ "DesktopLyrics.Backdrop": String(Math.round(clamped * 100) / 100) });
@@ -614,9 +721,11 @@ export function setDesktopLyricsBackdrop(v: number) {
 
 // 行数：single=只当前句（AMLL 行对齐钉到条带中线 + 裁掉邻行）｜dual=当前句 + 下一句。
 export type DlMode = "single" | "dual";
+
 export function getDesktopLyricsMode(): DlMode {
   return cfg("DesktopLyrics.Mode", "single").trim() === "dual" ? "dual" : "single";
 }
+
 export function setDesktopLyricsMode(v: DlMode) {
   cfgSet({ "DesktopLyrics.Mode": v });
 }
@@ -628,6 +737,7 @@ export function setDesktopLyricsMode(v: DlMode) {
 export function getDesktopLyricsSingleCenter(): boolean {
   return !/^(false|0|no)$/i.test(cfg("DesktopLyrics.SingleCenter", "True"));
 }
+
 export function setDesktopLyricsSingleCenter(v: boolean) {
   cfgSet({ "DesktopLyrics.SingleCenter": v ? "True" : "False" });
 }
@@ -636,11 +746,15 @@ export function setDesktopLyricsSingleCenter(v: boolean) {
 // cover/system 的**取色源**由主窗桥随曲目镜像带来（与正在播放页同源，桌面歌词窗不碰网络）；
 // 混色公式与 .np-kara-host 一致（color-mix(in srgb, accent 55%, #fff)），改一处要改两处。
 export type DlColorMode = "default" | "cover" | "system" | "custom";
+
 const DL_COLOR_MODES: DlColorMode[] = ["default", "cover", "system", "custom"];
+
 export function getDesktopLyricsColorMode(): DlColorMode {
   const raw = cfg("DesktopLyrics.ColorMode", "default").trim() as DlColorMode;
+
   return DL_COLOR_MODES.includes(raw) ? raw : "default";
 }
+
 export function setDesktopLyricsColorMode(v: DlColorMode) {
   cfgSet({ "DesktopLyrics.ColorMode": v });
 }
@@ -648,8 +762,10 @@ export function setDesktopLyricsColorMode(v: DlColorMode) {
 /** 自定义色（HEX）；parseHex 认不下就回落白字（与 tint 自定义色同一进表口径）。 */
 export function getDesktopLyricsColor(): string {
   const rgb = parseHex(cfg("DesktopLyrics.Color", "#ffffff"));
+
   return rgb ? toHex(rgb) : "#ffffff";
 }
+
 export function setDesktopLyricsColor(v: string) {
   const rgb = parseHex(String(v ?? ""));
   cfgSet({ "DesktopLyrics.Color": rgb ? toHex(rgb) : "#ffffff" });
@@ -661,9 +777,12 @@ export const DL_SCALE_MAX = 2;
 /** 桌面歌词字号倍率 0.5..2（1=默认）。字体家族走独立的 [DesktopLyrics] Font。 */
 export function getDesktopLyricsScale(): number {
   const n = Number(cfg("DesktopLyrics.Scale", "1"));
+
   if (!Number.isFinite(n)) return 1;
+
   return Math.min(DL_SCALE_MAX, Math.max(DL_SCALE_MIN, Math.round(n * 100) / 100));
 }
+
 export function setDesktopLyricsScale(v: number) {
   const clamped = Math.min(DL_SCALE_MAX, Math.max(DL_SCALE_MIN, Number(v) || 1));
   cfgSetSoon({ "DesktopLyrics.Scale": String(Math.round(clamped * 100) / 100) });
@@ -677,11 +796,15 @@ export const DL_WEIGHT_DEFAULT = 400;
  *  静态字重字体由 font-weight 选择最近字面，缺少目标字面时允许浏览器字重合成。 */
 export function getDesktopLyricsWeight(): number {
   const raw = String(cfg("DesktopLyrics.Weight", String(DL_WEIGHT_DEFAULT))).trim();
+
   if (!raw) return DL_WEIGHT_DEFAULT;
   const n = Number(raw);
+
   if (!Number.isFinite(n)) return DL_WEIGHT_DEFAULT;
+
   return Math.min(DL_WEIGHT_MAX, Math.max(DL_WEIGHT_MIN, Math.round(n)));
 }
+
 export function setDesktopLyricsWeight(v: number) {
   const n = Number(v);
   const clamped = Number.isFinite(n) ? Math.min(DL_WEIGHT_MAX, Math.max(DL_WEIGHT_MIN, Math.round(n))) : DL_WEIGHT_DEFAULT;
@@ -691,9 +814,11 @@ export function setDesktopLyricsWeight(v: number) {
 /** 桌面歌词字体列表：独立于正在播放页的 Style.DefaultLyricsFonts，输入口径与全局字体相同。 */
 export const getDesktopLyricsFontList = () => cfg("DesktopLyrics.Font", "Source Han Serif");
 export const getDesktopLyricsFont = () => fontKeyOf(getDesktopLyricsFontList());
+
 export function setDesktopLyricsFontList(css: string) {
   cfgSetSoon({ "DesktopLyrics.Font": normalizeFontList(css) }, 400);
 }
+
 export function setDesktopLyricsFontPreset(key: string) {
   if (key === FONT_CUSTOM) return;
   setDesktopLyricsFontList(FONT_PRESETS[key]?.css ?? "");
@@ -705,11 +830,15 @@ export const DL_BORDER_MAX = 4;
 /** 桌面歌词文字描边宽度（px）：0..4，默认 1。坏值回落 1；0 是合法的「无描边」。 */
 export function getDesktopLyricsBorder(): number {
   const raw = String(cfg("DesktopLyrics.Border", "1")).trim();
+
   if (!raw) return 1;
   const n = Number(raw);
+
   if (!Number.isFinite(n)) return 1;
+
   return Math.min(DL_BORDER_MAX, Math.max(DL_BORDER_MIN, Math.round(n * 10) / 10));
 }
+
 export function setDesktopLyricsBorder(v: number) {
   const n = Number(v);
   const clamped = Number.isFinite(n) ? Math.min(DL_BORDER_MAX, Math.max(DL_BORDER_MIN, n)) : 1;
@@ -721,10 +850,13 @@ export const DL_SHADOW_OFFSET_MAX = 12;
 
 function clampDlNum(raw: string, fallback: number, min: number, max: number, digits = 1): number {
   const s = String(raw ?? "").trim();
+
   if (!s) return fallback;
   const n = Number(s);
+
   if (!Number.isFinite(n)) return fallback;
   const k = 10 ** digits;
+
   return Math.min(max, Math.max(min, Math.round(n * k) / k));
 }
 
@@ -732,6 +864,7 @@ function clampDlNum(raw: string, fallback: number, min: number, max: number, dig
 export function getDesktopLyricsShadow(): boolean {
   return !/^(false|0|no|off)$/i.test(cfg("DesktopLyrics.Shadow", "True").trim());
 }
+
 export function setDesktopLyricsShadow(v: boolean) {
   cfgSetSoon({ "DesktopLyrics.Shadow": v ? "True" : "False" });
 }
@@ -740,6 +873,7 @@ export function setDesktopLyricsShadow(v: boolean) {
 export function getDesktopLyricsShadowBlur(): number {
   return clampDlNum(cfg("DesktopLyrics.ShadowBlur", "8"), 8, 0, DL_SHADOW_BLUR_MAX);
 }
+
 export function setDesktopLyricsShadowBlur(v: number) {
   cfgSetSoon({ "DesktopLyrics.ShadowBlur": String(clampDlNum(String(v), 8, 0, DL_SHADOW_BLUR_MAX)) });
 }
@@ -748,6 +882,7 @@ export function setDesktopLyricsShadowBlur(v: number) {
 export function getDesktopLyricsShadowOpacity(): number {
   return clampDlNum(cfg("DesktopLyrics.ShadowOpacity", "0.45"), 0.45, 0, 1, 2);
 }
+
 export function setDesktopLyricsShadowOpacity(v: number) {
   cfgSetSoon({ "DesktopLyrics.ShadowOpacity": String(clampDlNum(String(v), 0.45, 0, 1, 2)) });
 }
@@ -756,12 +891,15 @@ export function setDesktopLyricsShadowOpacity(v: number) {
 export function getDesktopLyricsShadowX(): number {
   return clampDlNum(cfg("DesktopLyrics.ShadowX", "0"), 0, -DL_SHADOW_OFFSET_MAX, DL_SHADOW_OFFSET_MAX);
 }
+
 export function setDesktopLyricsShadowX(v: number) {
   cfgSetSoon({ "DesktopLyrics.ShadowX": String(clampDlNum(String(v), 0, -DL_SHADOW_OFFSET_MAX, DL_SHADOW_OFFSET_MAX)) });
 }
+
 export function getDesktopLyricsShadowY(): number {
   return clampDlNum(cfg("DesktopLyrics.ShadowY", "2"), 2, -DL_SHADOW_OFFSET_MAX, DL_SHADOW_OFFSET_MAX);
 }
+
 export function setDesktopLyricsShadowY(v: number) {
   cfgSetSoon({ "DesktopLyrics.ShadowY": String(clampDlNum(String(v), 2, -DL_SHADOW_OFFSET_MAX, DL_SHADOW_OFFSET_MAX)) });
 }
@@ -770,9 +908,11 @@ export function setDesktopLyricsShadowY(v: number) {
 // —— 音质 Fallback 排序：False=自动/回退时不优先落到臻品全景声（默认，母带优先），
 //    True=按标准 rank 降序回退（全景声在其 rank 位置自然参与） ——
 export type FallbackSort = "no-atmos" | "rank";
+
 export function getFallbackSort(): FallbackSort {
   return /^(true|1|yes)$/i.test(cfg("Quality.FallbackToQMAtmos")) ? "rank" : "no-atmos";
 }
+
 export function setFallbackSort(v: FallbackSort) {
   cfgSet({ "Quality.FallbackToQMAtmos": v === "rank" ? "True" : "False" });
 }
@@ -780,17 +920,22 @@ export function setFallbackSort(v: FallbackSort) {
 // —— 关闭按钮行为：tray=缩放到托盘（默认）；quit=退出程序。CSD 胶囊与 SSD 标题栏共用。
 //    偏好经 Electron 桥同步到主进程（主进程拦截 window close 决定 hide 还是真退出）。 ——
 export type CloseAction = "tray" | "quit";
+
 export function getCloseAction(): CloseAction {
   return cfg("Window.CloseAction") === "quit" ? "quit" : "tray";
 }
+
 export function setCloseAction(v: CloseAction) {
   cfgSet({ "Window.CloseAction": v });
   const bridge = (window as any).quaverCSD;
+
   if (bridge?.setCloseAction) bridge.setCloseAction(v);
 }
+
 // 启动时把已存偏好推给主进程（Electron 壳层）；浏览器 dev 下为 no-op
 export function syncCloseAction() {
   const bridge = (window as any).quaverCSD;
+
   if (bridge?.setCloseAction) bridge.setCloseAction(getCloseAction());
 }
 
@@ -801,9 +946,11 @@ export function syncCloseAction() {
 export function getSidebarCollapsed(): boolean {
   return /^(true|1|yes)$/i.test(cfg("Window.SidebarCollapsed", "False"));
 }
+
 export function applySidebar() {
   document.body.classList.toggle("side-collapsed", getSidebarCollapsed());
 }
+
 export function setSidebarCollapsed(v: boolean) {
   cfgSet({ "Window.SidebarCollapsed": v ? "True" : "False" });
   applySidebar();
@@ -814,8 +961,10 @@ export function setSidebarCollapsed(v: boolean) {
 const readPx = (key: string): number | null => {
   const v = cfg(key).trim();
   const n = Number(v);
+
   return v !== "" && Number.isFinite(n) && n > 0 ? Math.round(n) : null;
 };
+
 const writePx = (key: string, px: number | null, min: number, max: number) => {
   const v = px == null ? "" : String(Math.round(Math.max(min, Math.min(max, px))));
   cfgSetSoon({ [key]: v });
@@ -824,6 +973,7 @@ const writePx = (key: string, px: number | null, min: number, max: number) => {
 export function getSidebarWidth(): number | null {
   return readPx("Window.SidebarWidth");
 }
+
 export function setSidebarWidth(px: number | null) {
   writePx("Window.SidebarWidth", px, 64, 2000);
 }
@@ -831,6 +981,7 @@ export function setSidebarWidth(px: number | null) {
 export function getQueueWidth(): number | null {
   return readPx("Window.QueueWidth");
 }
+
 export function setQueueWidth(px: number | null) {
   writePx("Window.QueueWidth", px, 64, 2000);
 }
@@ -841,6 +992,7 @@ export function setQueueWidth(px: number | null) {
 // 全局热键由主进程注册（Windows/macOS 用 Electron globalShortcut，Linux 走 XDG 桌面门户），
 // 焦点内热键由渲染层 keydown 分发（src/lib/hotkeys.ts）；两边都实时读内存快照，改完即生效。
 export type HotkeyAction = "toggle" | "prev" | "next" | "volup" | "voldown" | "quit";
+
 export type HotkeyScope = "Global" | "Focus";
 
 /** Global 段没有 quit（退出程序只作为焦点内热键）；UI 据此取各自的行动清单。 */
@@ -856,6 +1008,7 @@ const HOTKEY_KEY_NAMES: Record<HotkeyAction, string> = {
 export function getHotkey(scope: HotkeyScope, action: HotkeyAction): string {
   return cfg(hotkeyConfKey(scope, action));
 }
+
 export function setHotkey(scope: HotkeyScope, action: HotkeyAction, accel: string): void {
   cfgSet({ [hotkeyConfKey(scope, action)]: accel });
 }
@@ -866,16 +1019,22 @@ export function acceleratorFromEvent(e: Pick<KeyboardEvent, "key" | "ctrlKey" | 
     " ": "Space", ArrowLeft: "Left", ArrowRight: "Right", ArrowUp: "Up", ArrowDown: "Down",
     "-": "Minus", "=": "Equal", ",": "Comma", ".": "Period",
   };
+
   const raw = e.key;
+
   if (!raw) return null;
   let key = KEY_NAMES[raw] ?? "";
+
   if (/^[a-zA-Z]$/.test(raw)) key = raw.toUpperCase();
   else if (/^[0-9]$/.test(raw)) key = raw;
   else if (/^F(?:[1-9]|1[0-9]|2[0-4])$/.test(raw)) key = raw;
   else if (["Enter", "Escape", "Backspace", "Delete", "Insert", "Home", "End", "PageUp", "PageDown", "Tab"].includes(raw)) key = raw;
+
   if (!key) return null;
   const mods = [e.ctrlKey ? "Ctrl" : "", e.altKey ? "Alt" : "", e.shiftKey ? "Shift" : "", e.metaKey ? "Super" : ""].filter(Boolean);
+
   if (!mods.length) return null; // 裸键不许录：单键热键会吞掉正常输入
+
   return [...mods, key].join("+");
 }
 
@@ -888,6 +1047,7 @@ export const HOTKEY_LABELS: Record<HotkeyAction, string> = {
   voldown: "音量减小",
   quit: "退出 Quaver Music",
 };
+
 export const GLOBAL_HOTKEY_ACTIONS: HotkeyAction[] = ["toggle", "prev", "next", "volup", "voldown"];
 export const FOCUS_HOTKEY_ACTIONS: HotkeyAction[] = ["toggle", "quit", "prev", "next", "volup", "voldown"];
 
@@ -900,14 +1060,17 @@ export function getAutoCheck(): boolean {
   // 默认开：只有明确写 False 档才关闭，手误写进来的值回落默认
   return !/^(false|0|no)$/i.test(cfg("Update.AutoCheck", "True"));
 }
+
 export function setAutoCheck(v: boolean) {
   cfgSet({ "Update.AutoCheck": v ? "True" : "False" });
 }
 
 export function getUpdateChannel(): UpdateChannel {
   const v = cfg("Update.Channel");
+
   return v === "nightly" || v === "beta" ? v : "stable";
 }
+
 export function setUpdateChannel(v: UpdateChannel) {
   cfgSet({ "Update.Channel": v === "nightly" || v === "beta" ? v : "stable" });
 }
@@ -916,6 +1079,7 @@ export function setUpdateChannel(v: UpdateChannel) {
 export function getLastNotified(): string {
   return cfg("Update.LastNotified");
 }
+
 export function setLastNotified(v: string) {
   cfgSet({ "Update.LastNotified": v.slice(0, 128) });
 }
@@ -930,17 +1094,24 @@ const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 /** 黑名单 id 列表（去重、保序；手改配置文件写进来的非法段会被丢掉）。 */
 export function getSparkleBlacklist(): string[] {
   const out: string[] = [];
+
   for (const raw of cfg("Sparkle.Blacklist", "").split(",")) {
     const id = raw.trim();
+
     if (id && SPARKLE_ID_RE.test(id) && !out.includes(id)) out.push(id);
   }
+
   return out;
 }
+
 export function setSparkleBlacklist(ids: string[]) {
   const kept: string[] = [];
+
   for (const raw of ids) {
     const id = String(raw ?? "").trim();
+
     if (id && SPARKLE_ID_RE.test(id) && !kept.includes(id)) kept.push(id);
   }
+
   cfgSet({ "Sparkle.Blacklist": kept.join(",") });
 }

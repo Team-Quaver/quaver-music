@@ -108,6 +108,7 @@ function emit() {
 /** 订阅库变化（快照更新 / 进度轮询落地）。返回退订函数。 */
 export function onLocalLibraryChange(fn: () => void): () => void {
   listeners.add(fn);
+
   return () => listeners.delete(fn);
 }
 
@@ -116,14 +117,18 @@ export const localSnapshot = () => snapshot;
 /** 拉库快照；并发去重（多处同时首屏时只发一次）。 */
 export async function loadLocalLibrary(force = false): Promise<LibrarySnapshot> {
   if (!force && snapshot) return snapshot;
+
   if (!inflight) {
     inflight = api<LibrarySnapshot>("/local/library").then((d) => {
       snapshot = d;
+
       if (d.scan.running || d.scrape.running) startPolling();
       emit();
+
       return d;
     }).finally(() => { inflight = null; });
   }
+
   return inflight;
 }
 
@@ -135,6 +140,7 @@ function startPolling() {
       const d = await api<LibrarySnapshot>("/local/library");
       snapshot = d;
       emit();
+
       if (!d.scan.running && !d.scrape.running && pollTimer != null) {
         clearInterval(pollTimer);
         pollTimer = null;
@@ -150,7 +156,9 @@ export async function addFolderSource(name: string, path: string) {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ kind: "folder", name, path }),
   });
+
   await loadLocalLibrary(true);
+
   return r;
 }
 
@@ -159,7 +167,9 @@ export async function addWebdavSource(payload: { name: string; url: string; user
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ ...payload, kind: "webdav" }),
   });
+
   await loadLocalLibrary(true);
+
   return r;
 }
 
@@ -178,8 +188,11 @@ export async function triggerScrape(opts: { ids?: string[]; all?: boolean; force
   const r = await api<{ started: boolean; busy?: boolean; total: number }>("/local/scrape", {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(opts),
   });
+
   await loadLocalLibrary(true);
+
   if (r.started || r.busy) startPolling();
+
   return r;
 }
 
@@ -194,6 +207,7 @@ export function pickFile(accept: string): Promise<File | null> {
     inp.style.cssText = "position:fixed;left:-9999px;top:0";
     let done = false;
     const fin = (v: File | null) => { if (done) return; done = true; inp.remove(); resolve(v); };
+
     inp.onchange = () => fin(inp.files?.[0] ?? null);
     // Chromium ≥ 113：文件选择对话框取消会派发 cancel 事件（Electron 44 内核满足）
     inp.addEventListener("cancel", () => fin(null));
@@ -205,7 +219,9 @@ export function pickFile(accept: string): Promise<File | null> {
 export async function fileToBase64(file: File): Promise<string> {
   const buf = new Uint8Array(await file.arrayBuffer());
   let bin = "";
+
   for (let i = 0; i < buf.length; i += 8192) bin += String.fromCharCode(...buf.subarray(i, i + 8192));
+
   return btoa(bin);
 }
 
@@ -214,7 +230,9 @@ export async function importLocalLyric(id: string, file: File): Promise<{ format
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ id, name: file.name, data: await fileToBase64(file) }),
   });
+
   await loadLocalLibrary(true);
+
   return r;
 }
 
@@ -260,6 +278,7 @@ export type SongWithLocal = Song & { local?: LocalSongFingerprint };
 
 export function isLocalSong(s: unknown): s is SongWithLocal & { local: LocalSongFingerprint } {
   const song = s as SongWithLocal | null | undefined;
+
   return !!song?.local?.id;
 }
 
@@ -267,6 +286,7 @@ export function trackToSong(t: LocalTrackView, snapshotSources?: LocalSourceView
   const src = (snapshotSources ?? snapshot?.sources ?? []).find((x) => x.id === t.sourceId);
   const kind: "folder" | "webdav" = src?.kind === "webdav" ? "webdav" : "folder";
   const artists = (t.artist || t.albumArtist || "").split(/\s*\/\s*/).map((x) => x.trim()).filter(Boolean);
+
   return {
     mid: "local:" + t.id,
     name: t.title || t.relPath.split("/").pop() || t.relPath,
@@ -288,6 +308,7 @@ export function trackToSong(t: LocalTrackView, snapshotSources?: LocalSourceView
 /** 队列/会话恢复出来的 Song 只有 local 指纹；封面/取流都够用（hasCover 随存档走）。 */
 export function localSongStreamUrl(song: SongWithLocal): { url: string; tier: string; label: string } {
   const kind = song.local?.kind ?? "folder";
+
   return {
     url: `/api/local/stream/${song.local!.id}`,
     tier: kind === "webdav" ? "nas" : "local",
@@ -305,18 +326,24 @@ export function trackById(id: string): LocalTrackView | null {
 export function fmtLocalDur(sec: number): string {
   if (!sec || sec <= 0) return "";
   const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 /** 曲目总数/进度的一行摘要（本地音乐页顶部状态条）。 */
 export function scanSummary(s: ScanStateView): string {
   if (s.running) return `扫描中… 已处理 ${s.processed}，新增/更新 ${s.found}，移除 ${s.removed}`;
+
   if (!s.finishedAt) return "";
   const errs = s.errors.length ? `，${s.errors.length} 个错误` : "";
+
   return `扫描完成：新增/更新 ${s.found}，沿用 ${s.kept}${errs}`;
 }
+
 export function scrapeSummary(s: ScrapeStateView): string {
   if (s.running) return `刮削中… ${s.processed}/${s.total}（匹配 ${s.matched}）`;
+
   if (!s.finishedAt) return "";
+
   return `刮削完成：匹配 ${s.matched}，未匹配 ${s.unmatched}${s.failed ? `，失败 ${s.failed}` : ""}`;
 }

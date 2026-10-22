@@ -26,12 +26,15 @@ import { menuGlassPolicyOf } from "../sparkle/theme-menus";
 /** 应用当前偏好。设置页改完立刻调一次即生效；换主题 / 插件启停由 bootMenuGlass 注册的监听驱动。 */
 export function applyMenuGlass() {
   const root = document.documentElement;
+
   // 主题接管菜单外观：让位 —— 不写 on/off，令牌回到 style.css 的默认值（主题在自己的
   // html[data-sparkle-theme="<id>"] 段里覆盖 --menu-* 就赢，那边特异性本来就更高）。
   if (menuGlassPolicyOf(sparkleActiveTheme()).mode === "off") {
     root.dataset.menuGlass = "theme";
+
     return;
   }
+
   root.dataset.menuGlass = getMenuBlur() ? "on" : "off";
 }
 

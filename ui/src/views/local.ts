@@ -8,6 +8,7 @@ import { renderSongRows } from "../lib/songs";
 import { player } from "../player";
 import type { Song } from "../player";
 import { h, mountStickyBar, playAllButton } from "./_shared";
+
 // —— 本地音乐（本地文件夹 + NAS：播放 · 刮削）——
 // 数据层在 lib/local.ts（同源 /api/local/*，真相在 electron/local/library.ts）；这一页只管三件事：
 //   ① 源管理（添加本机/NAS 挂载目录、WebDAV，扫描进度）；
@@ -36,10 +37,13 @@ export default async function localView(root: HTMLElement) {
     hint: "在本地库内搜索",
     paint: (songs, st) => {
       playAll.sync();
+
       if (!songs.length) {
         box.innerHTML = `<div class="muted">${st.filtering || snap?.tracks.length ? "没有匹配的歌曲" : "本地库还是空的 —— 添加一个音乐文件夹（NAS 挂载目录同理），或直连 WebDAV 后点「重新扫描」"}</div>`;
+
         return;
       }
+
       renderSongRows(box, songs, {
         hideLove: true,
         showAlbum: true,
@@ -48,6 +52,7 @@ export default async function localView(root: HTMLElement) {
       player.markActive();
     },
   });
+
   sticky.right.append(tools.el);
   const playAll = playAllButton(() => tools.visible());
   sticky.right.append(playAll.el);
@@ -55,12 +60,14 @@ export default async function localView(root: HTMLElement) {
   const setCount = (n: number) => {
     const text = n ? `· ${n} 首` : "";
     cnt.textContent = text;
+
     if (nameEl) nameEl.textContent = `本地音乐 ${text}`.trim();
   };
 
   // —— 添加表单（折叠式；folder=手输路径 / webdav=四字段）——
   const addForm = (kind: "folder" | "webdav"): HTMLElement => {
     const f = h("div", "local-form");
+
     if (kind === "folder") {
       f.innerHTML = `
         <label class="lf-row"><span>目录路径</span><input type="text" placeholder="如 /home/x/Music 或已挂载的 NAS：/mnt/nas/music" spellcheck="false"/></label>
@@ -73,11 +80,13 @@ export default async function localView(root: HTMLElement) {
         <label class="lf-row"><span>密码</span><input type="password" autocomplete="new-password"/></label>
         <div class="lf-foot"><button class="ghost-btn lf-ok" type="button">测试并添加</button><span class="muted lf-msg"></span></div>`;
     }
+
     const okBtn = f.querySelector<HTMLButtonElement>(".lf-ok")!;
     const msg = f.querySelector<HTMLSpanElement>(".lf-msg")!;
     okBtn.onclick = async () => {
       const inputs = [...f.querySelectorAll<HTMLInputElement>("input")].map((x) => x.value.trim());
       msg.textContent = "连接中…"; okBtn.disabled = true;
+
       try {
         if (kind === "folder") {
           if (!inputs[0]) throw new Error("路径不能为空");
@@ -85,6 +94,7 @@ export default async function localView(root: HTMLElement) {
         } else {
           await addWebdavSource({ name: inputs[0], url: inputs[1], username: inputs[2], password: inputs[3] });
         }
+
         f.remove();
         await triggerLocalScan();
         toast("源已添加，扫描已开始");
@@ -93,12 +103,15 @@ export default async function localView(root: HTMLElement) {
         okBtn.disabled = false;
       }
     };
+
     return f;
   };
 
   const toggleForm = (kind: "folder" | "webdav") => {
     const old = panel.querySelector(".local-form");
+
     if (old) { old.remove(); return; }
+
     panel.append(addForm(kind));
   };
 
@@ -122,14 +135,18 @@ export default async function localView(root: HTMLElement) {
     addFolderBtn.type = "button"; addFolderBtn.disabled = busy;
     addFolderBtn.onclick = async () => {
       if (!window.quaverLocal) { toggleForm("folder"); return; }
+
       const r = await window.quaverLocal.pickFolder();
+
       if (!r.ok) { toast(r.error ?? "选择目录失败", "err"); return; }
+
       if (r.canceled || !r.path) return;
       const name = r.path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || r.path;
       await addFolderSource(name, r.path);
       await triggerLocalScan();
       toast(`已添加「${name}」，扫描已开始`);
     };
+
     const addDavBtn = h("button", "ghost-btn", "添加 NAS (WebDAV)") as HTMLButtonElement;
     addDavBtn.type = "button"; addDavBtn.disabled = busy;
     addDavBtn.onclick = () => toggleForm("webdav");
@@ -140,21 +157,26 @@ export default async function localView(root: HTMLElement) {
     const lines: string[] = [];
     const sc = scanSummary(snap.scan); if (sc) lines.push(sc);
     const sp = scrapeSummary(snap.scrape); if (sp) lines.push(sp);
+
     if (lines.length) {
       const st = h("div", "local-status", escHtml(lines.join(" ｜ ")));
+
       if (snap.scan.errors.length) {
         st.title = "扫描错误：\n" + snap.scan.errors.join("\n");
         st.classList.add("has-err");
       }
+
       if (snap.scrape.lastError) st.title = (st.title ? st.title + "\n" : "") + "最近刮削错误：" + snap.scrape.lastError;
       panel.append(st);
     }
 
     // —— 源清单 ——
     const srcBox = h("div", "local-srcs");
+
     if (!srcs.length) {
       srcBox.innerHTML = `<div class="muted local-src-empty">还没有音乐源 —— 「本地音乐」同时吃本机目录、已挂载的 NAS 共享与 WebDAV。</div>`;
     }
+
     for (const src of srcs) {
       const card = h("div", "local-src");
       const badge = `<span class="local-badge${src.kind === "webdav" ? " nas" : ""}">${src.kind === "webdav" ? "NAS·WebDAV" : "本地"}</span>`;
@@ -163,27 +185,34 @@ export default async function localView(root: HTMLElement) {
       const btns = h("span", "ls-ops");
       const revealBtn = h("button", "ghost-btn ghost-btn--quiet", "打开位置") as HTMLButtonElement;
       revealBtn.type = "button";
+
       if (src.kind !== "folder" || !window.quaverLocal) revealBtn.hidden = true;
       revealBtn.onclick = async () => {
         // 源级「打开位置」：借首个曲目 id 由主进程从库里反查目录后高亮（无曲目则不可用）
         const t = snap?.tracks.find((x) => x.sourceId === src.id);
+
         if (!t || !window.quaverLocal) return;
         const r = await window.quaverLocal.reveal(t.id);
+
         if (!r.ok) toast(r.error ?? "无法定位", "err");
       };
+
       const rmBtn = h("button", "ghost-btn ghost-btn--quiet danger", "移除") as HTMLButtonElement;
       rmBtn.type = "button";
       rmBtn.onclick = async () => {
         if (!confirm(`移除「${src.name}」？曲目会从曲库与缓存中删除（磁盘文件不动），正在播放的该源曲目会停。`)) return;
+
         try {
           await removeLocalSource(src.id);
           toast("已移除");
         } catch (e: any) { toast(String(e?.message ?? e), "err"); }
       };
+
       btns.append(revealBtn, rmBtn);
       card.append(btns);
       srcBox.append(card);
     }
+
     panel.append(srcBox);
 
     // —— 计数 ——
@@ -204,7 +233,9 @@ export default async function localView(root: HTMLElement) {
 
   const off = onLocalLibraryChange(() => { snap = localSnapshot(); apply(); });
   snap = await loadLocalLibrary(true);
+
   if (!snap) { box.innerHTML = `<div class="muted">本地曲库服务不可用（sidecar 中继未就绪？）</div>`; }
+
   apply();
 
   // 正在播放的是本地曲目时进页 → 立刻高亮所在行（markActive 由 player 订阅驱动，这里补一次）

@@ -30,11 +30,13 @@ export function applyHotkeyAction(action: HotkeyAction): void {
       toast(`音量 ${Math.round(player.volume * 100)}%`);
       break;
     }
+
     case "voldown": {
       player.setVolume(player.volume - VOLUME_STEP);
       toast(`音量 ${Math.round(player.volume * 100)}%`);
       break;
     }
+
     case "quit": (window as any).quaverCSD?.quit?.(); break; // 浏览器 dev 无壳层桥：no-op
   }
 }
@@ -42,6 +44,7 @@ export function applyHotkeyAction(action: HotkeyAction): void {
 export function startHotkeysBridge(): void {
   // —— 全局热键回程（Electron 壳层才有桥）——
   const hk = (window as any).quaverHotkeys;
+
   if (hk?.onEvent) {
     hk.onEvent((payload: { t?: string; action?: HotkeyAction; state?: string; reason?: string; wayland?: boolean; items?: { action: string; accel: string; label?: string; why?: string }[] }) => {
       if (payload?.t === "action" && payload.action) applyHotkeyAction(payload.action);
@@ -63,14 +66,18 @@ export function startHotkeysBridge(): void {
     (e) => {
       if (hotkeyRecorder.active) return; // 录制中：全部按键归设置页的捕获器
       const accel = acceleratorFromEvent(e);
+
       if (!accel) return;
+
       for (const action of FOCUS_HOTKEY_ACTIONS) {
         if (getHotkey("Focus", action) !== accel) continue;
+
         // 切歌/音量与文本编辑冲突 → 输入类控件内让位；暂停与退出无此冲突，全程生效
         if (action !== "toggle" && action !== "quit" && isEditable(e.target)) return;
         e.preventDefault();
         e.stopPropagation();
         applyHotkeyAction(action);
+
         return;
       }
     },

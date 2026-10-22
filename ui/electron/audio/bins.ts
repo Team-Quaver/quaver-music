@@ -34,8 +34,10 @@ function fromPath(name: string): string | null {
   for (const dir of (env.PATH ?? "").split(PATH_SEP)) {
     if (!dir) continue;
     const p = join(dir, name);
+
     if (isExec(p)) return p;
   }
+
   return null;
 }
 
@@ -44,22 +46,28 @@ function libraryPath(tree: string): string {
   const libDir = join(tree, "lib");
   const parts = [libDir];
   const decl = join(libDir, "lib.path");
+
   if (existsSync(decl)) {
     for (const raw of readFileSync(decl, "utf8").split("\n")) {
       const line = raw.trim();
+
       if (!line.startsWith("+")) continue;
       const sub = line.slice(1).replace(/^\/+/, "");
+
       if (sub) parts.push(join(libDir, sub));
     }
   }
+
   return parts.join(PATH_SEP);
 }
 
 /** 自带 loader（ld-linux-*.so.*）：与包内 libc 配套，必须用它启动载荷 */
 function findLoader(tree: string): string | null {
   const libDir = join(tree, "lib");
+
   if (!existsSync(libDir)) return null;
   const hit = readdirSync(libDir).filter((n) => /^ld-linux.*\.so/.test(n)).sort()[0];
+
   return hit ? join(libDir, hit) : null;
 }
 
@@ -85,22 +93,32 @@ export interface BundledRuntime extends MpvBin {
 export function resolveBundled(audioRoot: string | null | undefined): BundledRuntime | null {
   if (!audioRoot) return null;
   const tree = join(audioRoot, "mpv");
+
   // win32 / darwin：官方二进制自包含（win 同目录找 DLL；mac mpv.app 自带 dylib rpath），
   // 直接 spawn 载荷本身，不需要 Linux 那套 loader + lib.path 花活。
   if (platform === "win32") {
     const payload = join(tree, "mpv.exe");
+
     if (!isExec(payload)) return null;
+
     return { source: "bundled", payload, argv: [payload], tree };
   }
+
   if (platform === "darwin") {
     const payload = join(tree, "mpv.app", "Contents", "MacOS", "mpv");
+
     if (!isExec(payload)) return null;
+
     return { source: "bundled", payload, argv: [payload], tree };
   }
+
   const payload = join(tree, "shared", "bin", "mpv");
+
   if (!isExec(payload)) return null; // 目录在但没产物（本地只放 .gitkeep）= 未随包，正常回落
   const loader = findLoader(tree);
+
   if (!loader) return null;
+
   return {
     source: "bundled",
     payload,
@@ -120,15 +138,19 @@ export function resolveMpv(opts: { bundledRoot?: string | null } = {}): MpvBin |
   // 1) env 显式路径：排障要能一条 env 顶掉包里那份；指定了但不可执行就直接判不可用，
   //    不再偷偷回落（排障要可预期）。env 那份按普通可执行文件启动。
   const explicit = env.QUAVER_MPV;
+
   if (explicit) {
     return isExec(explicit) ? { source: "env", payload: explicit, argv: [explicit] } : null;
   }
+
   // 2) 随包运行时
   const bundled = resolveBundled(opts.bundledRoot);
+
   if (bundled) return bundled;
   // 3) 宿主 PATH
   const name = platform === "win32" ? "mpv.exe" : "mpv";
   const p = fromPath(name);
+
   return p ? { source: "path", payload: p, argv: [p] } : null;
 }
 
@@ -149,6 +171,7 @@ export function probeRuntime(resolved: { payload: string; argv: string[] }, time
   const [bin, ...rest] = resolved.argv;
   const r = spawnSync(bin, [...rest, "--version"], { encoding: "utf8", timeout: timeoutMs });
   const output = `${r.stdout ?? ""}${r.stderr ?? ""}`.trim();
+
   // stdout 里混日志/崩溃报告是常态 → 按行找版本行（mpv 的门面是 "mpv v0.41.0 ..."）
   return {
     ok: r.status === 0 && !r.signal && /^mpv v?\d/m.test(output),
@@ -161,21 +184,27 @@ export function probeRuntime(resolved: { payload: string; argv: string[] }, time
 // —— CLI：--check <audioRoot>（只认随包运行时；真跑一次 --version）——
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   const [flag, root] = process.argv.slice(2);
+
   if (flag !== "--check" || !root) {
     console.error("用法: node electron/audio/bins.ts --check <声源根目录>");
     process.exit(2);
   }
+
   const found = resolveBundled(root);
+
   if (!found) {
     console.error(`✗ 随包运行时不可用：${root}（本平台预期的载荷/loader 不在位，布局见 resolveBundled）`);
     process.exit(1);
   }
+
   // 真跑一次：跨架构/缺库/系统版本不够都不会在 exec 时报错，只会跑不起来，必须执行才算验过
   const probe = probeRuntime(found);
+
   if (!probe.ok) {
     console.error(`✗ 随包 mpv 跑不起来（exit=${probe.status}${probe.signal ? `, signal=${probe.signal}` : ""}）:\n${probe.output}`);
     process.exit(1);
   }
+
   console.log(`✓ 随包 mpv 可用：${probe.output.split("\n")[0]}`);
   console.log(`  payload: ${found.payload}`);
 }

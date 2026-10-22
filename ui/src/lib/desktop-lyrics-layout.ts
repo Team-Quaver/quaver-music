@@ -12,7 +12,9 @@ export interface ScrollRange { from: number; to: number; dist: number }
 export function scrollRange(aL: number, aR: number, left: number, right: number): ScrollRange | null {
   const from = aL - left; // 文字左缘贴可用区左缘
   const to = aR - right;  // 文字右缘贴可用区右缘
+
   if (!(from > to + 1)) return null; // 装得下（或 1px 内等价）就不滚
+
   return { from, to, dist: from - to };
 }
 
@@ -23,6 +25,7 @@ export function scrollRange(aL: number, aR: number, left: number, right: number)
  */
 export function alignFor(viewH: number, centerRel: number, min = 0.08, max = 0.92): number {
   if (!(viewH >= 40)) return 0.5;
+
   return Math.min(max, Math.max(min, (viewH / 2 - centerRel) / viewH));
 }
 
@@ -36,8 +39,11 @@ export const BAND_MIN_PX = 20;
 export function bandFor(viewH: number, blockH: number, pad: number): { top: number; h: number } {
   const h = Math.max(BAND_MIN_PX, Math.min(viewH, Math.round(blockH + pad * 2)));
   let top = Math.round((viewH - h) / 2);
+
   if (top + h > viewH) top = viewH - h;
+
   if (top < 0) top = 0;
+
   return { top, h };
 }
 
@@ -75,19 +81,25 @@ export function sequenceOverlappingLines<T extends TimedLyricLine>(lines: readon
 
   for (let i = 0; i < out.length; i++) {
     const line = out[i]!;
+
     if (line.isBG) continue;
     let next = i + 1;
+
     while (next < out.length && out[next]!.isBG) next++;
+
     if (next >= out.length) break;
     const boundary = out[next]!.startTime;
+
     // 同起点（或异常倒序）没有可推进的边界；行本身没越界也不动。
     if (!(boundary > line.startTime) || line.endTime <= boundary) continue;
     line.endTime = boundary;
+
     // AMLL 的 resetLineTimestamps 会用最后一个词的时间覆盖行时间：
     // 只前行 endTime 不够，最后一个跨过边界的词也必须一起收口。
     for (const word of line.words ?? []) {
       if (word.endTime > boundary) word.endTime = Math.max(word.startTime, boundary);
     }
   }
+
   return out;
 }

@@ -11,10 +11,11 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { probeRuntime, resolveMpv } from "./bins.ts";
 import { formatOsVersion, machOMinOs, osVersionGt, parseOsVersion } from "./macho.ts";
-import { MpvIpc, type MpvEvent } from "./mpv-ipc.ts";
+import { MpvIpc, type MpvEvent, type MpvObject } from "./mpv-ipc.ts";
 import { eqFilterString, normalizeEqState, type EqState } from "./eq-config.ts";
 
 const POS_BROADCAST_MS = 250; // 位置广播节流：4Hz 足够渲染层外推出平滑进度/歌词
+
 // 看门狗脚本：父进程（本进程）无论怎么死，mpv 都会被它杀掉（注销/崩溃时 will-quit 跑不到）
 const WATCHDOG_SCRIPT = fileURLToPath(new URL("./mpv-watchdog.ts", import.meta.url));
 
@@ -23,6 +24,7 @@ const WATCHDOG_SCRIPT = fileURLToPath(new URL("./mpv-watchdog.ts", import.meta.u
  *  QUAVER_AUDIO_DIR 可显式顶掉（排障/自检：拿另一份解好的运行时跑）。 */
 function bundledAudioRoot() {
   if (process.env.QUAVER_AUDIO_DIR) return process.env.QUAVER_AUDIO_DIR;
+
   return app?.isPackaged
     ? join(process.resourcesPath ?? "", "audio")
     : fileURLToPath(new URL("../../build-res/audio", import.meta.url));
@@ -77,6 +79,7 @@ export class AudioEngine {
     this.baseUrl = "";
     this.getWin = () => null;
     this.log = () => {};
+
     this.mpv = null;
     this.starting = null;
     this.watchdog = null;
@@ -103,8 +106,11 @@ export class AudioEngine {
   /** main.ts 在窗口 URL 确定后调用（幂等：重复调用只刷新 baseUrl/窗口引用） */
   init({ baseUrl, getWin, log }: { baseUrl?: string; getWin?: () => BrowserWindow | null; log?: EngineLog }): void {
     if (baseUrl) this.baseUrl = baseUrl;
+
     if (getWin) this.getWin = getWin;
+
     if (log) this.log = log;
+
     if (!this.wired) {
       this.wired = true;
       ipcMain.handle("quaver:audio", (_e, cmd) => this.onInvoke(cmd).catch((e) => ({ ok: false, error: String(e?.message ?? e) })));
@@ -113,12 +119,14 @@ export class AudioEngine {
 
   send(ev: unknown): void {
     const wc = this.getWin()?.webContents;
+
     if (wc && !wc.isDestroyed()) { try { wc.send("quaver:audio-event", ev); } catch (e) { this.log("[audio] send failed:", String(e)); } }
   }
 
   /** 位置类变化节流广播；离散变化（暂停/缓冲/时长/idle）立即广播 */
   pushState(force = false): void {
     const now = Date.now();
+
     if (!force && now - this.lastPosSent < POS_BROADCAST_MS) return;
     this.lastPosSent = now;
     const { pos, dur, paused, buffering, idle } = this.st;
@@ -140,6 +148,7 @@ export class AudioEngine {
   async applyEqualizer(mpv: MpvIpc | null = this.mpv): Promise<void> {
     if (!mpv || mpv.dead) return;
     const filter = eqFilterString(this.eq);
+
     try {
       await mpv.setProp("af", filter);
     } catch (e) {
@@ -155,25 +164,34 @@ export class AudioEngine {
    *  淡入（level=1）一律清空待执行动作 —— 回升就意味着「不暂停/不停止」了。 */
   rampTo(level: number, ms: number, after?: AfterFade): void {
     this.fadeTarget = level;
+
     if (level === 1) this.pendingAfterFadeOut = null;
     else if (after !== undefined) this.pendingAfterFadeOut = after;
+
     if (this.fadeTimer) { clearInterval(this.fadeTimer); this.fadeTimer = null; }
+
     const from = this.fadeLevel;
+
     const settle = () => {
       this.fadeLevel = level;
       this.applyVolume();
       const act = this.pendingAfterFadeOut;
       this.pendingAfterFadeOut = null;
+
       try { act?.(); } catch (e) { this.log("[audio] after-fade action failed:", String(e)); }
     };
+
     if (!(ms > 0) || Math.abs(from - level) < 0.002) return settle();
     const t0 = Date.now();
+
     const timer = setInterval(() => {
       const k = Math.min(1, (Date.now() - t0) / ms);
       this.fadeLevel = from + (level - from) * k;
       this.applyVolume();
+
       if (k >= 1) { clearInterval(timer); this.fadeTimer = null; settle(); }
     }, 30);
+
     this.fadeTimer = timer;
     timer.unref?.();
   }
@@ -182,7 +200,9 @@ export class AudioEngine {
    *  否则会先听见 250ms 的歌头再静音。 */
   finishFadeOut(): void {
     if (this.fadeTarget !== 0) return;
+
     if (this.fadeTimer) { clearInterval(this.fadeTimer); this.fadeTimer = null; }
+
     this.rampTo(0, 0);
   }
 
@@ -197,6 +217,7 @@ export class AudioEngine {
 
   findBin() {
     if (this.bin === undefined) this.bin = resolveMpv({ bundledRoot: bundledAudioRoot() });
+
     return this.bin;
   }
 
@@ -208,20 +229,26 @@ export class AudioEngine {
    *  认出来之后回落宿主 mpv：有就顶用（先能听歌），没有也把原因写进日志与 status.reason。 */
   async resolveRuntime() {
     const found = this.findBin();
+
     if (!found || found.source !== "bundled") return found;
+
     if (this.bundledProbe === undefined) this.bundledProbe = probeRuntime(found, 10000);
     const probe = await this.bundledProbe;
+
     if (probe.ok) return found;
     // 门槛型的失败给一句能直接照做的诊断：读到载荷声明的 macOS 门槛 + 本机系统版本
     const min = process.platform === "darwin" ? machOMinOs(found.payload) : null;
     const running = process.platform === "darwin" ? parseOsVersion(process.getSystemVersion?.() ?? "") : null;
+
     const why = osVersionGt(min, running)
       ? `它要求 macOS ${formatOsVersion(min)}，本机是 ${formatOsVersion(running)}`
       : `exit=${probe.status}${probe.signal ? `, signal=${probe.signal}` : ""}`;
+
     this.binNote = `随包 mpv 起不来（${why}）`;
     this.log(`[audio] ${this.binNote}；原始输出：`, probe.output.slice(0, 400));
     this.log("[audio] 回落宿主 mpv（QUAVER_MPV 可显式指定一份能跑的）");
     this.bin = resolveMpv({ bundledRoot: null }); // null = 跳过随包那层，走 env / PATH
+
     return this.bin;
   }
 
@@ -231,12 +258,15 @@ export class AudioEngine {
   armWatchdog(mpv: MpvIpc): void {
     this.stopWatchdog();
     const pid = mpv.child?.pid ?? 0;
+
     if (!pid) return;
+
     try {
       const wd = spawn(process.execPath, [WATCHDOG_SCRIPT, String(pid)], {
         stdio: ["pipe", "ignore", "ignore"],
         env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
       });
+
       wd.unref();          // 不挡主进程退出
       // 管道写端同理（unref 只摘事件循环引用，fd 仍握着不断开）；@types/node 的 Writable
       // 没声明 unref（运行期管道其实是 Socket），类型上补个可选口子
@@ -251,23 +281,30 @@ export class AudioEngine {
   stopWatchdog(): void {
     const wd = this.watchdog;
     this.watchdog = null;
+
     if (!wd) return;
+
     try { wd.stdin?.end(); } catch {}
+
     try { wd.kill(); } catch {}
   }
 
   /** 拉起（或复用）mpv。返回 MpvIpc。失败抛错。 */
   async ensureStarted(): Promise<MpvIpc> {
     if (this.mpv && !this.mpv.dead) return this.mpv;
+
     if (this.starting) return this.starting;
     const found = await this.resolveRuntime();
+
     if (!found) {
       throw new Error("未找到 mpv 可执行文件（可用 QUAVER_MPV 指定路径）"
         + (this.binNote ? `；${this.binNote}` : ""));
     }
+
     this.starting = (async () => {
       // 排障口子：QUAVER_MPV_ARGS 追加 mpv 参数（空白分隔，如 "--ao=null"；测试/无声环境用）
       const extraArgs = (process.env.QUAVER_MPV_ARGS ?? "").split(/\s+/).filter(Boolean);
+
       const mpv = new MpvIpc(found.argv, {
         log: this.log,
         volume: this.st.volume * this.fadeLevel, // 带上包络：重拉时若正处于淡出/淡入中途，别一上来就满音量
@@ -275,6 +312,7 @@ export class AudioEngine {
         audioDevice: this.device,
         extraArgs,
       });
+
       await mpv.start();
       // EQ 必须在第一首歌 file-loaded 前套上；失败只记日志，不能连累播放。
       await this.applyEqualizer(mpv).catch(() => {});
@@ -293,8 +331,10 @@ export class AudioEngine {
       this.armWatchdog(mpv);
       this.mpv = mpv;
       this.log("[audio] mpv ready:", mpv.mpvVersion);
+
       return mpv;
     })();
+
     try {
       return await this.starting;
     } finally {
@@ -307,14 +347,17 @@ export class AudioEngine {
     const pick = async (prop: string, dflt: number | boolean): Promise<number | boolean> => {
       try {
         const v = await mpv.getProp(prop);
+
         // get_property 的应答是任意 JSON；出口处已按 typeof 逐项校验，这里只管透传
         return v === null || v === undefined ? dflt : (v as number | boolean);
       } catch { return dflt; }
     };
+
     const [pause, idle, dur, pos, mute] = await Promise.all([
       pick("pause", false), pick("idle-active", true), pick("duration", 0),
       pick("time-pos", 0), pick("mute", false),
     ]);
+
     return {
       paused: !!pause,
       idle: !!idle,
@@ -330,6 +373,7 @@ export class AudioEngine {
   onMpvEvent(ev: MpvEvent): void {
     if (ev.event === "property-change") {
       const d = ev.data;
+
       switch (ev.id) {
         case 1: // time-pos（idle 时为 null）
           this.st.pos = typeof d === "number" && isFinite(d) ? d : 0;
@@ -349,16 +393,21 @@ export class AudioEngine {
           break;
         case 5:
           this.st.idle = !!d;
+
           if (this.st.idle) { this.st.pos = 0; this.st.dur = 0; this.st.buffering = false; this.st.paused = true; }
+
           this.pushState(true);
           break;
       }
+
       return;
     }
+
     switch (ev.event) {
       case "file-loaded":
         this.st.idle = false;
         this.st.buffering = false;
+
         // 真正出声的这一刻开始淡入（loadfile 被接受到 file-loaded 之间是静音窗口）
         if (!this.st.paused) this.rampTo(1, this.fade.inMs);
         this.pushState(true);
@@ -372,6 +421,7 @@ export class AudioEngine {
         } else if (ev.reason === "error") {
           this.send({ t: "error", message: `mpv 播放失败：${ev.file_error ?? ev.reason}` });
         }
+
         break;
       case "__exit__":
         this.log("[audio] mpv exited:", ev.code);
@@ -386,15 +436,18 @@ export class AudioEngine {
    *  vkey/token 依旧只出现在这条本机中继 URL 里，不进命令行与参数。 */
   absolutize(url: string): string {
     if (/^https?:\/\//i.test(url)) return url;
+
     if (!this.baseUrl) throw new Error("音频引擎未初始化（baseUrl 缺失）");
+
     return new URL(url, this.baseUrl).href;
   }
 
-  async onInvoke(cmd: EngineCmd): Promise<unknown> {
+  async onInvoke(cmd: EngineCmd) {
     switch (cmd?.cmd) {
       case "status": {
         const found = await this.resolveRuntime();
         const running = this.mpv && !this.mpv.dead;
+
         return {
           ok: true, backend: "mpv",
           available: !!found,
@@ -407,15 +460,19 @@ export class AudioEngine {
           device: this.device,
         };
       }
+
       case "boot": {
         const mpv = await this.ensureStarted();
+
         return { ok: true, version: mpv.mpvVersion };
       }
+
       case "snapshot": {
         // 渲染层接管用（CSD/SSD 重建窗口后的新页面）：引擎的真实播放态 + 现挂的流 URL。
         // 引擎活在渲染层之外，窗口拆掉它还在放 —— 新页面问一次就知道「正在放哪条流、放到哪」，
         // 直接接管而不是重新挂流（重新挂会 replace 掉正在放的歌）。
         const running = !!this.mpv && !this.mpv.dead;
+
         return {
           ok: true, backend: "mpv", running,
           pos: this.st.pos, dur: this.st.dur,
@@ -423,9 +480,11 @@ export class AudioEngine {
           url: running ? this.lastUrl : "",
         };
       }
+
       case "load": {
         const mpv = await this.ensureStarted();
         const url = this.absolutize(String(cmd.url ?? ""));
+
         if (!url) return { ok: false, error: "missing url" };
         // 包络压到 0：新流出声即从静音起步（file-loaded 后再淡入）。
         // 已经在淡出就沿用剩余时长继续降；null = 作废「淡出后 stop」——切歌时那个 stop 会把新歌掐掉。
@@ -440,8 +499,10 @@ export class AudioEngine {
         await mpv.setProp("pause", paused);
         await mpv.command(["loadfile", url, "replace"]);
         this.lastUrl = url;
+
         return { ok: true };
       }
+
       case "play": {
         const mpv = await this.ensureStarted();
         this.st.paused = false; // 意图先落地（mpv 只在变化时推事件，值相同则不推）
@@ -451,17 +512,22 @@ export class AudioEngine {
         // 判据实查 mpv（不信缓存的 idle 态）：渲染层的 ended→play 往返可能快过 idle-active 事件落库。
         const idleNow = await mpv.getProp("idle-active").catch(() => this.st.idle);
         this.st.idle = !!idleNow;
+
         if (this.st.idle && this.lastUrl) {
           this.st.buffering = true;
           this.st.idle = false;
           this.pushState(true);
           await mpv.command(["loadfile", this.lastUrl, "replace"]);
         }
+
         this.rampTo(1, this.fade.inMs); // 从当前包络淡入（淡出途中按播放 = 掉头回升）
+
         return { ok: true };
       }
+
       case "pause":
         this.doPause();
+
         return { ok: true };
       case "stop": {
         if (!this.mpv || this.mpv.dead) return { ok: true };
@@ -474,40 +540,55 @@ export class AudioEngine {
           this.st = { ...this.st, pos: 0, dur: 0, paused: true, buffering: false, idle: true };
           this.pushState(true);
         });
+
         return { ok: true };
       }
+
       case "seek": {
         if (!this.mpv || this.mpv.dead) return { ok: false, error: "mpv not running" };
         const sec = Number(cmd.sec);
+
         if (!isFinite(sec)) return { ok: false, error: "bad sec" };
         this.finishFadeOut(); // 淡出途中 seek（MPRIS Stop）：马上收尾，别听见歌头再静音
         await this.mpv.command(["seek", Math.max(0, sec), "absolute"]);
         this.st.pos = Math.max(0, sec); // 乐观位置：state 事件马上会对齐
         this.pushState(true);
+
         return { ok: true };
       }
+
       case "volume": {
         const v = Math.max(0, Math.min(1, Number(cmd.value)));
+
         if (!isFinite(v)) return { ok: false, error: "bad volume" };
         this.st.volume = v;
         this.applyVolume(); // 乘包络：不在淡出途中打断淡出，也不在淡入途中跳音量
+
         return { ok: true };
       }
+
       case "mute": {
         this.st.muted = !!cmd.value;
+
         if (this.mpv && !this.mpv.dead) await this.mpv.setProp("mute", !!cmd.value).catch(() => {});
+
         return { ok: true };
       }
+
       case "fade": {
         const clamp = (n: unknown): number => Math.max(0, Math.min(3000, Math.round(Number(n) || 0)));
         this.fade = { inMs: clamp(cmd.inMs), outMs: clamp(cmd.outMs) };
+
         // 关掉淡入淡出时别把音量卡在半路上（只在淡入方向兜底；淡出途中说明有 pending 动作，别打断）
         if (!this.fade.inMs && !this.fade.outMs && this.fadeTarget === 1 && this.fadeLevel < 1) this.rampTo(1, 0);
+
         return { ok: true, fade: this.fade };
       }
+
       case "eq": {
         // IPC 边界统一 normalize：freq/gain/Q 越界会夹紧，未知 type 落 bell，段数封顶。
         this.eq = normalizeEqState(cmd.state);
+
         if (this.mpv && !this.mpv.dead) {
           try {
             await this.applyEqualizer(this.mpv);
@@ -515,23 +596,35 @@ export class AudioEngine {
             return { ok: false, error: String((e as Error)?.message ?? e), state: this.eq };
           }
         }
+
         return { ok: true, state: this.eq, filter: eqFilterString(this.eq) };
       }
+
       case "devices": {
         const mpv = await this.ensureStarted();
         const [list, current] = await Promise.all([mpv.getProp("audio-device-list"), mpv.getProp("audio-device")]);
+
         return {
           ok: true,
           current: String(current ?? "auto"),
-          devices: (Array.isArray(list) ? list : []).map((d) => ({ id: String(d.name), desc: String(d.description ?? d.name) })),
+          devices: (Array.isArray(list) ? list : []).map((d) => {
+            // SAFETY: mpv 的 audio-device-list 每项都是 {name, description} 对象；非对象条目兜底成空
+            const o = (d && typeof d === "object" ? d : {}) as MpvObject;
+
+            return { id: String(o.name), desc: String(o.description ?? o.name) };
+          }),
         };
       }
+
       case "device": {
         const id = String(cmd.id ?? "auto");
         this.device = id;
+
         if (this.mpv && !this.mpv.dead) await this.mpv.setProp("audio-device", id).catch(() => {});
+
         return { ok: true, current: id };
       }
+
       default:
         return { ok: false, error: `unknown cmd: ${cmd?.cmd}` };
     }
@@ -541,7 +634,9 @@ export class AudioEngine {
    *  main.ts 的 SIGTERM 接管）都会走这里；幂等。 */
   shutdown() {
     this.stopWatchdog();
+
     try { this.mpv?.kill(); } catch {}
+
     this.mpv = null;
   }
 }

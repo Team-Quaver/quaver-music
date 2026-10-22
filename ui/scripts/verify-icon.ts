@@ -22,10 +22,12 @@ import { TRAY_ICON_FILES, TRAY_ICON_PT, trayIconFile } from "../electron/tray-ic
 
 let pass = 0, fail = 0;
 const section = (t) => console.log(`\n=== ${t} ===`);
+
 function check(name, cond, detail = "") {
   if (cond) { pass++; console.log(`  ✅ ${name}`); }
   else { fail++; console.log(`  ❌ ${name}${detail ? ` — ${detail}` : ""}`); }
 }
+
 const eq = (name, got, want) =>
   check(name, JSON.stringify(got) === JSON.stringify(want), `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
 
@@ -36,13 +38,16 @@ const eq = (name, got, want) =>
  */
 function decodePng(buf) {
   const SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
   if (buf.length < 8 || !buf.subarray(0, 8).equals(SIG)) return null;
   let p = 8, ihdr = null;
   const idat = [];
+
   while (p + 8 <= buf.length) {
     const len = buf.readUInt32BE(p);
     const type = buf.toString("ascii", p + 4, p + 8);
     const data = buf.subarray(p + 8, p + 8 + len);
+
     if (type === "IHDR") {
       ihdr = {
         width: data.readUInt32BE(0), height: data.readUInt32BE(4),
@@ -52,6 +57,7 @@ function decodePng(buf) {
     else if (type === "IEND") break;
     p += 12 + len; // len + type(4) + data + crc(4)
   }
+
   // 只支持本项目导出的那几种：8bit、不隔行、RGB(2)/RGBA(6)
   if (!ihdr || ihdr.depth !== 8 || ihdr.interlace !== 0 || ![2, 6].includes(ihdr.color)) return null;
   const ch = ihdr.color === 6 ? 4 : 3;
@@ -59,13 +65,16 @@ function decodePng(buf) {
   const stride = ihdr.width * ch;
   const out = Buffer.alloc(ihdr.width * ihdr.height * 4);
   let prev = Buffer.alloc(stride);
+
   for (let y = 0; y < ihdr.height; y++) {
     const filter = raw[y * (stride + 1)];
     const line = Buffer.from(raw.subarray(y * (stride + 1) + 1, y * (stride + 1) + 1 + stride));
+
     for (let i = 0; i < stride; i++) {
       const a = i >= ch ? line[i - ch] : 0;          // 左
       const b = prev[i];                             // 上
       const c = i >= ch ? prev[i - ch] : 0;          // 左上
+
       if (filter === 1) line[i] = (line[i] + a) & 0xff;
       else if (filter === 2) line[i] = (line[i] + b) & 0xff;
       else if (filter === 3) line[i] = (line[i] + ((a + b) >> 1)) & 0xff;
@@ -75,25 +84,32 @@ function decodePng(buf) {
         line[i] = (line[i] + pred) & 0xff;
       }
     }
+
     for (let x = 0; x < ihdr.width; x++) {
       const s = x * ch, d = (y * ihdr.width + x) * 4;
       out[d] = line[s]; out[d + 1] = line[s + 1]; out[d + 2] = line[s + 2];
       out[d + 3] = ch === 4 ? line[s + 3] : 0xff;
     }
+
     prev = line;
   }
+
   return { width: ihdr.width, height: ihdr.height, ch, px: out };
 }
 
 /** 取 SVG 里出现最多的 fill 色（本项目这些素材是单色图形）→ "#rrggbb" 小写；没有返回 null */
 function svgFill(text) {
   const count = new Map();
+
   for (const m of text.matchAll(/fill:\s*(#[0-9a-fA-F]{6})/g)) {
     const c = m[1].toLowerCase();
     count.set(c, (count.get(c) ?? 0) + 1);
   }
+
   let best = null;
+
   for (const [c, n] of count) if (!best || n > count.get(best)) best = c;
+
   return best;
 }
 
@@ -103,18 +119,24 @@ function opaqueStats(img) {
   const mask = Buffer.alloc(img.width * img.height);
   let opaque = 0;
   let x0 = img.width, x1 = -1, y0 = img.height, y1 = -1;
+
   for (let i = 0; i < img.width * img.height; i++) {
     if (img.px[i * 4 + 3] <= 128) continue;
     opaque++; mask[i] = 1;
     const x = i % img.width, y = (i - x) / img.width;
+
     if (x < x0) x0 = x; if (x > x1) x1 = x;
+
     if (y < y0) y0 = y; if (y > y1) y1 = y;
     const c = "#" + img.px.subarray(i * 4, i * 4 + 3).toString("hex");
     count.set(c, (count.get(c) ?? 0) + 1);
   }
+
   let best = null;
+
   for (const [c, n] of count) if (!best || n > count.get(best)) best = c;
   const w = Math.max(0, x1 - x0 + 1), h = Math.max(0, y1 - y0 + 1);
+
   return {
     color: best, opaque, mask,
     ratio: opaque / (img.width * img.height),
@@ -126,76 +148,108 @@ const UI = join(import.meta.dirname, "..");
 
 // ——— 身份真相：package.json + packages/electron-builder-base.yml ———
 section("打包配置身份链");
+
 const pkg = JSON.parse(readFileSync(join(UI, "package.json"), "utf8"));
+
 function mergeConfig(base, patch) {
   for (const [key, value] of Object.entries(patch ?? {})) {
     if (value && !Array.isArray(value) && typeof value === "object") {
-      base[key] = mergeConfig({ ...(base[key] ?? {}) }, value);
+      base[key] = mergeConfig({ ...base[key] }, value);
     } else {
       base[key] = value;
     }
   }
+
   return base;
 }
+
 const loadBuilderConfig = (rel) => loadYaml(readFileSync(join(UI, "..", rel), "utf8"));
+
 // win/mac 的 icon/executableName 在各自目标档里；base 是公共身份与资源，合并后再校验。
 const build = [loadBuilderConfig("packages/windows/x86-arm.yml"), loadBuilderConfig("packages/macos/arm64.yml")]
   .reduce(mergeConfig, loadBuilderConfig("packages/electron-builder-base.yml"));
+
 const appId = build?.appId;
+
 eq("appId", appId, "red.0w0.quaver");
+
 eq("desktopName = <appId>.desktop（Electron init 经 CHROME_DESKTOP 生成 app_id/WM_CLASS）",
   pkg.desktopName, `${appId}.desktop`);
+
 eq("name = appId", pkg.name, appId);
+
 eq("linux.executableName = appId（AppImage 内二进制名 = desktop 文件名 = Icon 名，三方只能同源）",
   build?.linux?.executableName, appId);
+
 eq("linux.icon 指向多尺寸图标集", build?.linux?.icon, "build-res/icons");
+
 check("win.icon 已配（electron-builder 以 png 自动转 ico，缺省就是 Electron 默认图标）",
   build?.win?.icon === "build-res/icon.png");
+
 check("mac.icon 已配（同上自动转 icns）", build?.mac?.icon === "build-res/icon.png");
+
 check("extraResources 打包 build-res/icons（运行时 hicolor 自装的素材来源）",
   (build?.extraResources ?? []).some((r) => r.from === "build-res/icons" && r.to === "build-res/icons"));
+
 check("extraResources 打包 build-res/tray（托盘图素材，主进程按 build-res 相对路径取）",
   (build?.extraResources ?? []).some((r) => r.from === "build-res/tray" && r.to === "build-res/tray"));
+
 check("extraResources 里不再有 tray.png（旧的那张 512² 直塞 Tray 就是 mac 上「图标巨大」的成因）",
   !(build?.extraResources ?? []).some((r) => String(r.from).includes("tray.png")));
 
 // ——— macOS 可执行名 ———
 section("macOS 可执行名 = Quaver Music");
+
 // app-builder-lib 的 AppInfo：productFilename = 平台配置的 executableName ?? 顶层 executableName ?? productName；
 // .app 目录名与 CFBundleExecutable 都取 productFilename。顶层留着 quaver（Windows 侧现状不动），
 // mac 必须单独覆盖 —— 否则装出来是 quaver.app / Contents/MacOS/quaver。
 eq("mac.executableName = Quaver Music", build?.mac?.executableName, "Quaver Music");
+
 eq("顶层 executableName 保持 quaver（Windows 不动）", build?.executableName, "quaver");
+
 eq("productName 仍是 Quaver Music（CFBundleName / 菜单栏名 / 提示语）", build?.productName, "Quaver Music");
 
 // ——— 主进程源码护栏 ———
 section("main.ts 源码护栏");
+
 const mainSrc = readFileSync(join(UI, "electron", "main.ts"), "utf8");
+
 check("主进程不再调用 setDesktopName（真相唯一在 package.json；两处赋值迟早写岔。注释提到 API 名不算）",
   !/\bsetDesktopName\s*\(/.test(mainSrc));
+
 check("whenReady 接了 linux-desktop 自装", mainSrc.includes("installLinuxDesktopIntegration"));
+
 // 开发态（pnpm app）不再自装 Applications 条目：Exec 写死「当前 electron + 仓库 ui/」，条目落进
 // 启动器就是跟着仓库漂移的开发实例。main.ts 的开发态分支只调 removeDevManagedDesktopEntry，
 // 自装调用必须在打包态分支里；开发态 Exec 的拼法应当整体消失。
 check("开发态走清理分支：main.ts 接了 removeDevManagedDesktopEntry", mainSrc.includes("removeDevManagedDesktopEntry"));
+
 check("开发态判据是 !app.isPackaged && !process.env.APPIMAGE（AppImage 直跑仍自装）",
   /if \(!app\.isPackaged && !process\.env\.APPIMAGE\)/.test(mainSrc));
+
 check("不再拼开发态 Exec（electron + 仓库 ui/ 那份桌面项的原料）", !mainSrc.includes("quoteExecPath(UI_ROOT)"));
+
 // distro 包（deb/rpm/pacman）装到 /opt/<productName>，那份布局里没有 AppRun：盲猜 join(execPath, "AppRun")
 // 会写出一条点不开的桌面项。Exec 的这条分支必须存在性检查。
 check("主进程猜 AppRun 前做 existsSync（rpm/deb/pacman 布局里没有 AppRun）",
   /const appRun = join\(dirname\(process\.execPath\), "AppRun"\)/.test(mainSrc)
     && /existsSync\(appRun\)/.test(mainSrc));
+
 check("打包态没有 AppRun 时退回可执行文件本身（不再是 AppRun 死路径）",
   /existsSync\(appRun\)[\s\S]{0,80}quoteExecPath\(process\.execPath\)/.test(mainSrc));
+
 check("BrowserWindow 仍带 X11 窗口图标", /icon:\s*buildRes\("icon\.png"\)/.test(mainSrc));
 
 // ——— 图标素材 ———
 section("build-res/icons 素材");
+
 const ICON_SIZES = [16, 24, 32, 48, 64, 128, 256, 512];
+
 for (const s of ICON_SIZES) {
   const p = join(UI, "build-res", "icons", `${s}x${s}.png`);
+
   if (!existsSync(p)) { check(`${s}x${s}.png 存在`, false, "缺文件"); continue; }
+
   const buf = readFileSync(p);
   // PNG 签名 8 字节 + IHDR 头 8 字节 → 宽高分别在 16/20（大端）
   const w = buf.readUInt32BE(16), h = buf.readUInt32BE(20);
@@ -204,16 +258,22 @@ for (const s of ICON_SIZES) {
 
 // ——— 托盘图标 ———
 section("托盘图标：尺寸口径 + 明暗素材 + 接线");
+
 eq("逻辑尺寸统一 16pt（mac 菜单栏 / win 通知区 / linux SNI 的通用档位）", TRAY_ICON_PT, 16);
+
 eq("深色外壳配浅色图标", trayIconFile("dark"), TRAY_ICON_FILES.dark);
+
 eq("浅色外壳配深色图标", trayIconFile("light"), TRAY_ICON_FILES.light);
+
 eq("外观判不出来时按深色处理（浅色图标在两种底色上都能看）", trayIconFile(null), TRAY_ICON_FILES.dark);
+
 check("两份素材是两个不同的文件", TRAY_ICON_FILES.dark !== TRAY_ICON_FILES.light);
 
 // SVG（设计源）与它的光栅化产物必须还对得上：改了 SVG 忘了重新导出，只有像素能证明
 // （重新导出命令见 electron/tray-icon.ts 头部）
 const SRC_SVG = { dark: "tray-icon.svg", light: "tray-icon-dark.svg" };
 const decoded = {};
+
 for (const [appearance, pngRel] of Object.entries(TRAY_ICON_FILES)) {
   const svgSrc = join(UI, "..", "img", SRC_SVG[appearance]);      // 设计源
   const png = join(UI, "build-res", pngRel);                      // 随包产物
@@ -221,9 +281,12 @@ for (const [appearance, pngRel] of Object.entries(TRAY_ICON_FILES)) {
   check(`${appearance}：设计源 img/${SRC_SVG[appearance]} 在位`, existsSync(svgSrc));
   check(`${appearance}：随包产物 build-res/${pngRel} 在位`, existsSync(png));
   check(`${appearance}：随包也带上 SVG 源（build-res/tray/${SRC_SVG[appearance]}）`, existsSync(svgPacked));
+
   if (!existsSync(png)) continue;
   const img = decodePng(readFileSync(png));
+
   if (!img) { check(`${pngRel} 能解码（8bit 非隔行 PNG）`, false, "解不开"); continue; }
+
   const st = opaqueStats(img);
   decoded[appearance] = st;
   check(`${pngRel} 是正方形 256²（缩到 @2x 的 32 是降采样，不会糊）`,
@@ -245,45 +308,59 @@ for (const [appearance, pngRel] of Object.entries(TRAY_ICON_FILES)) {
   check(`${pngRel} 明暗与用途相符（${appearance === "dark" ? "深色外壳 → 浅色图形" : "浅色外壳 → 深色图形"}）`,
     appearance === "dark" ? luma > 127 : luma < 128, `主色亮度 ${luma.toFixed(0)}`);
 }
+
 if (decoded.dark && decoded.light) {
   check("两份素材形状一致（同一份图形只换了颜色，不是各画一套）",
     decoded.dark.mask.equals(decoded.light.mask));
 }
+
 check("build-res/tray 下没有留下 tray.png", !existsSync(join(UI, "build-res", "tray", "tray.png")));
 
 check("主进程不再硬编码旧托盘图（tray.png）", !mainSrc.includes("tray.png"));
+
 check("主进程经 tray-icon.ts 挑素材（明暗映射只有一份真相）",
   /const appearance = trayAppearance\(\)/.test(mainSrc) && /trayIconFile\(appearance\)/.test(mainSrc));
+
 check("判据结果进日志（外壳=… → 哪份素材）：外壳底色判错时只看日志就能定位",
   /tray icon: 外壳=\$\{appearance\}/.test(mainSrc));
+
 check("托盘图按逻辑尺寸 resize（不 resize 就是 mac 上「图标巨大」的成因）",
   /resize\(\{\s*width:\s*px,\s*height:\s*px/.test(mainSrc));
+
 check("附了 @2x 位图（高 DPI 菜单栏不糊）", /addRepresentation\(\{\s*scaleFactor:\s*2/.test(mainSrc));
+
 // 这条是踩过的坑：拿 nativeTheme 当判据 → 被应用主题（默认 dark）钉死 → 系统切浅色后图标看不见
 // Windows 那条同款坑：shouldUseDarkColorsForSystemIntegratedUI 在首次 native theme 通知前会退回
 // shouldUseDarkColors（= 应用主题）→ 托盘图跟着「深浅色模式」走，所以判据要自己读注册表。
 check("外壳外观按平台取「系统给外壳的颜色」：Linux 探测 / mac 读系统设置 / win 读注册表系统模式",
   /readSystemTheme\(\)/.test(mainSrc) && /readMacShellTheme\(\)/.test(mainSrc)
     && /readWindowsShellTheme\(\)/.test(mainSrc));
+
 const appearanceFn = /function trayAppearance\(\)[\s\S]*?\n\}/.exec(mainSrc)?.[0] ?? "";
+
 check("Windows 主判据是 readWindowsShellTheme()（不是那个会退回应用主题的 Electron 属性）",
   /process\.platform === "win32"\s*\?\s*readWindowsShellTheme\(\)/.test(appearanceFn), appearanceFn.slice(0, 120));
+
 check("托盘判据不直接吃 nativeTheme.shouldUseDarkColors 当主判据（只能是最后的兜底）",
   !/readSystemTheme\(\)\s*\?\?\s*nativeTheme\.shouldUseDarkColors/.test(mainSrc));
+
 check("系统配色变化会刷新托盘图（nativeTheme.updated / Linux watchSystemTheme / mac watchMacShellTheme / win watchWindowsShellTheme 四条都接）",
   /nativeTheme\.on\("updated",\s*\(\)\s*=>\s*refreshTrayImage\(\)\)/.test(mainSrc)
     && /watchSystemTheme\(\(\) => \{[\s\S]{0,240}refreshTrayImage\(\)/.test(mainSrc)
     && /watchMacShellTheme\(\(\) => refreshTrayImage\(\)\)/.test(mainSrc)
     && /watchWindowsShellTheme\(\(\) => refreshTrayImage\(\)\)/.test(mainSrc));
+
 check("裁边生成脚本在位（PNG 不是直接导出的那份空白稿）",
   existsSync(join(UI, "scripts", "gen-tray-icons.sh")));
 
 // ——— linux-desktop.ts 功能测试 ———
 section("desktopEntryContent / 引号 / 解析");
+
 const entry = desktopEntryContent({
   desktopId: "red.0w0.quaver", name: "Quaver Music", comment: "又一个第三方 QQ 音乐客户端",
   exec: '"/opt/Quaver Music" --no-sandbox %U',
 });
+
 check("键序固定（幂等比对的确定性来源）",
   entry === [
     "[Desktop Entry]",
@@ -297,29 +374,45 @@ check("键序固定（幂等比对的确定性来源）",
     "StartupWMClass=red.0w0.quaver",
     "X-Quaver-Managed=true",
   ].join("\n") + "\n");
+
 check("条目必须可见（NoDisplay/Hidden 会让 Noctalia 整条丢弃 → app_id 丢图标，#4626）",
   !/^\s*(NoDisplay|Hidden)\s*=/mi.test(entry));
+
 eq("带空格的路径被引号包住", quoteExecPath("/home/u/Applications/Quaver Music"), '"/home/u/Applications/Quaver Music"');
+
 eq("Exec 路径里的引号被转义", quoteExecPath('/a"b'), '"/a\\"b"');
+
 eq("值里的反斜杠按 spec 转义", desktopEntryContent({ desktopId: "x", name: "a\\b", exec: "e" }).includes("Name=a\\\\b"), true);
+
 eq("值里的换行不破结构", desktopEntryContent({ desktopId: "x", name: "a\nb", exec: "e" }).match(/^Name=a\\nb$/m) !== null, true);
+
 eq("readDesktopIcon 命中", readDesktopIcon("[Desktop Entry]\nType=Application\nIcon=audio-x-generic\n"), "audio-x-generic");
+
 eq("readDesktopIcon 大小写不敏感", readDesktopIcon("[Desktop Entry]\n icon = quaver \n"), "quaver");
+
 eq("readDesktopIcon 只认 Desktop Entry 段", readDesktopIcon("[Desktop Action X]\nIcon=a\n[Desktop Entry]\nIcon=b\n"), "b");
+
 eq("readDesktopIcon 无 Icon 返回 null", readDesktopIcon("[Desktop Entry]\nType=Application\n"), null);
+
 eq("xdgDataHome 尊重 XDG_DATA_HOME", xdgDataHome({ XDG_DATA_HOME: "/xdg" }, "/home/u"), "/xdg");
+
 eq("xdgDataHome 默认 ~/.local/share", xdgDataHome({}, "/home/u"), "/home/u/.local/share");
 
 section("自装：全新安装 → 幂等 → 收编 → 让位");
+
 const ROOT = mkdtempSync(join(tmpdir(), "quaver-icon-"));
 const dataHome = join(ROOT, "data");
 const iconsSrc = join(ROOT, "icons-src");
+
 mkdirSync(join(iconsSrc, "plain"), { recursive: true });
+
 // 素材用真 PNG（尺寸可任意，这里不校验内容合法性）
 const tinyPng = Buffer.from(
   "89504e470000000149484452000000010000000108060000001f15c4890000000d4944415478da63fcffff3f0300050201" +
   "6b6ad2440000000049454e44ae426082", "hex");
+
 for (const s of [16, 32, 512]) writeFileSync(join(iconsSrc, `${s}x${s}.png`), tinyPng);
+
 writeFileSync(join(iconsSrc, "ignored.txt"), "x");
 
 const spec = {
@@ -329,36 +422,55 @@ const spec = {
   // 不注入就会走「让位给系统条目」那条线，与本节要验的自装逻辑无关 —— 那条线单独测，见下。
   env: { XDG_DATA_DIRS: join(ROOT, "sys-empty") },
 };
+
 const r1 = await installLinuxDesktopIntegration(spec);
 const desktopFile = join(dataHome, "applications", `${DESKTOP_ID}.desktop`);
+
 eq("首次安装：desktop 文件落位", r1.desktopFile, desktopFile);
+
 eq("首次安装：动作为 written", r1.desktopAction, "written");
+
 check("首次安装：desktop 内容正确", readFileSync(desktopFile, "utf8") === desktopEntryContent({
   desktopId: DESKTOP_ID, name: "Quaver Music", comment: "测试", exec: '"/opt/q" %U',
 }));
+
 eq("首次安装：三个尺寸图标就位",
   [16, 32, 512].every((s) => existsSync(join(dataHome, "icons", "hicolor", `${s}x${s}`, "apps", `${DESKTOP_ID}.png`))), true);
+
 check("非尺寸命名的素材不被拷贝", !existsSync(join(dataHome, "icons", "hicolor", "plain")));
 
 const r2 = await installLinuxDesktopIntegration(spec);
+
 eq("二次安装：幂等（kept，不重写）", r2.desktopAction, "kept");
+
 eq("二次安装：图标零写入（内容一致跳过，不刷 mtime）", r2.iconsWritten, []);
+
 const mtimeAfter2 = statSync(desktopFile).mtimeMs;
+
 await installLinuxDesktopIntegration(spec);
+
 check("三次安装：desktop mtime 未变", statSync(desktopFile).mtimeMs === mtimeAfter2);
 
 // 收编：手写/历史遗留的坏条目（Icon 指向通配名 —— Tela 下就是「音符」图标的那类问题）
 const bad = "[Desktop Entry]\nType=Application\nName=Quaver Music\nExec=electron .\nIcon=audio-x-generic\nNoDisplay=true\n";
+
 writeFileSync(desktopFile, bad);
+
 const r3 = await installLinuxDesktopIntegration(spec);
+
 eq("坏 Icon 被收编（改写为正确内容）", r3.desktopAction, "written");
+
 check("收编后 Icon 指向我们的图标名", readDesktopIcon(readFileSync(desktopFile, "utf8")) === DESKTOP_ID);
 
 // 让位：集成工具（AppImageLauncher 等）装的可见条目 Icon 已正确 → 原样保留，避免启动器重复
 const integrated = "[Desktop Entry]\nType=Application\nName=Quaver Music\nExec=appimage %U\nIcon=red.0w0.quaver\n";
+
 writeFileSync(desktopFile, integrated);
+
 const r4 = await installLinuxDesktopIntegration(spec);
+
 eq("Icon 已正确的既有条目让位（kept）", r4.desktopAction, "kept");
+
 check("既有条目内容原样保留（没被加 NoDisplay）", readFileSync(desktopFile, "utf8") === integrated);
 
 // 隐藏条目不能让位：NoDisplay/Hidden 的条目 Noctalia 整条丢弃（#4626），Icon 对了也没用，必须收编成可见
@@ -372,24 +484,33 @@ for (const [label, hideLine] of [["NoDisplay", "NoDisplay=true"], ["Hidden", "Hi
 }
 
 eq("readDesktopHidden 识别 NoDisplay=true", readDesktopHidden("[Desktop Entry]\nNoDisplay=true\n"), true);
+
 eq("readDesktopHidden 识别 Hidden=1", readDesktopHidden("[Desktop Entry]\nHidden=1\n"), true);
+
 eq("readDesktopHidden 识别 yes", readDesktopHidden("[Desktop Entry]\nHidden=yes\n"), true);
+
 eq("readDesktopHidden 对 NoDisplay=false 不误报", readDesktopHidden("[Desktop Entry]\nNoDisplay=false\n"), false);
+
 eq("readDesktopHidden 只认 Desktop Entry 段", readDesktopHidden("[Desktop Action X]\nNoDisplay=true\n"), false);
 
 // 托管文件漂移：带 X-Quaver-Managed 标记的文件整份强制对齐（Exec 被改坏也要修回来）
 const drifted = desktopEntryContent({
   desktopId: DESKTOP_ID, name: "Quaver Music", comment: "测试", exec: '"$HOME/broken" %U',
 }).replace('Exec="$HOME/broken" %U', "Exec=$HOME/broken");
+
 writeFileSync(desktopFile, drifted);
+
 const r5 = await installLinuxDesktopIntegration(spec);
+
 eq("托管文件漂移被整份修回（written）", r5.desktopAction, "written");
+
 check("修回后 Exec 恢复正确", readFileSync(desktopFile, "utf8") === desktopEntryContent({
   desktopId: DESKTOP_ID, name: "Quaver Music", comment: "测试", exec: '"/opt/q" %U',
 }));
 
 // 素材目录缺失：不抛、desktop 照装（图标走系统 fallback）
 const r6 = await installLinuxDesktopIntegration({ ...spec, iconSourceDir: join(ROOT, "nope"), dataHome: join(ROOT, "data2") });
+
 check("素材目录缺失不致命", r6.iconsWritten.length === 0 && r6.desktopAction === "written");
 
 // distro 包（electron-builder 的 deb/rpm/pacman，装到 /opt/<productName>）已经带一份可见的
@@ -397,70 +518,105 @@ check("素材目录缺失不致命", r6.iconsWritten.length === 0 && r6.desktopA
 // $XDG_DATA_HOME 优先），包升级换了 Exec 也轮不到生效 —— 真踩过：包管理器的条目好好的
 // Exec="/opt/Quaver Music/red.0w0.quaver"，被用户目录那份 Exec="/opt/Quaver Music/AppRun" 顶掉。
 section("系统条目在场：整件事都不做，并清掉自己以前的遮蔽副本");
+
 const sysRoot = join(ROOT, "sysdata");
 const sysFile = join(sysRoot, "applications", `${DESKTOP_ID}.desktop`);
+
 const sysContent = '[Desktop Entry]\nName=Quaver Music\nExec="/opt/Quaver Music/red.0w0.quaver" %U\n'
   + "Type=Application\nIcon=red.0w0.quaver\nCategories=Audio;\n";
+
 mkdirSync(dirname(sysFile), { recursive: true });
+
 writeFileSync(sysFile, sysContent);
+
 const sysEnv = { XDG_DATA_DIRS: sysRoot };
+
 eq("xdgDataDirs 默认按 XDG 规范（/usr/local/share:/usr/share）", xdgDataDirs({}), ["/usr/local/share", "/usr/share"]);
+
 eq("xdgDataDirs 尊重 XDG_DATA_DIRS（多根按序）", xdgDataDirs({ XDG_DATA_DIRS: "/a:/b" }), ["/a", "/b"]);
+
 eq("findSystemDesktopEntry 命中系统条目", findSystemDesktopEntry(DESKTOP_ID, sysEnv), sysFile);
+
 eq("findSystemDesktopEntry 找不到时返回 null", findSystemDesktopEntry(DESKTOP_ID, { XDG_DATA_DIRS: join(ROOT, "nope") }), null);
 
 // 先摆上「上一版跑过留下的死 Exec 副本」——这正是用户目录遮蔽系统条目的现场
 const sysDataHome = join(ROOT, "data-sys");
 const staleFile = join(sysDataHome, "applications", `${DESKTOP_ID}.desktop`);
+
 mkdirSync(dirname(staleFile), { recursive: true });
+
 writeFileSync(staleFile, desktopEntryContent({
   desktopId: DESKTOP_ID, name: "Quaver Music", comment: "测试",
   exec: `${quoteExecPath(join(sysRoot, "AppRun"))} --no-sandbox %U`,
 }));
+
 const rs1 = await installLinuxDesktopIntegration({ ...spec, dataHome: sysDataHome, env: sysEnv });
+
 eq("系统条目在场 → 让位并清掉旧副本", rs1.desktopAction, "system-cleaned");
+
 eq("让位时报告系统条目路径", rs1.systemDesktopFile, sysFile);
+
 check("旧副本已被清掉（留着就继续遮蔽系统条目）", !existsSync(staleFile));
+
 check("系统条目内容一字未动（那份属于包管理器）", readFileSync(sysFile, "utf8") === sysContent);
+
 eq("让位时不碰用户目录的图标（包已经装了）", rs1.iconsWritten, []);
+
 check("用户目录里没留下 icons/", !existsSync(join(sysDataHome, "icons")));
 
 // 干净用户目录（没被上一版写脏的机器）→ 只报告让位，什么都不创建
 const rs2 = await installLinuxDesktopIntegration({ ...spec, dataHome: join(ROOT, "data-sys2"), env: sysEnv });
+
 eq("干净用户目录 → 让位（system）", rs2.desktopAction, "system");
+
 check("让位时不创建 applications 目录", !existsSync(join(ROOT, "data-sys2", "applications")));
 
 // 用户自己复制系统条目、改启动参数（比如 Exec 后面加 --enable-features=...）—— 那份没有
 // X-Quaver-Managed 标记，一个字都不能动：让位不是「放弃管理」，是只管理自己写的那一份。
 const userDataHome = join(ROOT, "data-user");
 const userFile = join(userDataHome, "applications", `${DESKTOP_ID}.desktop`);
+
 const userCopy = '[Desktop Entry]\nName=Quaver Music\n'
   + 'Exec="/opt/Quaver Music/red.0w0.quaver" --enable-features=Foo %U\n'
   + "Type=Application\nIcon=red.0w0.quaver\nCategories=Audio;\n";
+
 mkdirSync(dirname(userFile), { recursive: true });
+
 writeFileSync(userFile, userCopy);
+
 const ru1 = await installLinuxDesktopIntegration({ ...spec, dataHome: userDataHome, env: sysEnv });
+
 eq("用户手改的副本（无标记）→ 让位", ru1.desktopAction, "system");
+
 check("用户手改的副本一字未动（Exec 里的启动参数还在）", readFileSync(userFile, "utf8") === userCopy);
 
 // 反过来：拿我们生成的那份当模板改、标记还留着 → 标记就是契约（那份归我们管）。系统条目在场的
 // 场景下不重写、直接清掉，让包管理器那份可见条目接管（留着只会遮蔽它）。
 const tplDataHome = join(ROOT, "data-tpl");
 const tplFile = join(tplDataHome, "applications", `${DESKTOP_ID}.desktop`);
+
 mkdirSync(dirname(tplFile), { recursive: true });
+
 writeFileSync(tplFile, desktopEntryContent({
   desktopId: DESKTOP_ID, name: "Quaver Music", comment: "测试",
   exec: `"/opt/Quaver Music/red.0w0.quaver" --my-args %U`,
 }));
+
 const ru2 = await installLinuxDesktopIntegration({ ...spec, dataHome: tplDataHome, env: sysEnv });
+
 eq("带我们标记的副本 → 清掉（标记 = 契约）", ru2.desktopAction, "system-cleaned");
+
 check("那份带标记的副本不再遮蔽系统条目", !existsSync(tplFile));
 
 // 系统条目被 Hidden 藏起来 → 不算「装好了」，照旧由我们收编成可见条目（#4626 同因）
 writeFileSync(sysFile, sysContent + "Hidden=true\n");
+
 const rs3 = await installLinuxDesktopIntegration({ ...spec, dataHome: join(ROOT, "data-sys3"), env: sysEnv });
+
 eq("被隐藏的系统条目不让位（照旧自装）", rs3.desktopAction, "written");
+
 check("收编后的条目可见", !readDesktopHidden(readFileSync(join(ROOT, "data-sys3", "applications", `${DESKTOP_ID}.desktop`), "utf8")));
+
 writeFileSync(sysFile, sysContent);
 
 // GTK 缓存：图标有实际写入时必须刷 icon-theme.cache（有 cache 的系统不会自动重扫新文件）
@@ -469,41 +625,64 @@ check("图标写入后会触发 gtk-update-icon-cache（GNOME 侧新图标立即
 
 // ——— 开发态清理：removeDevManagedDesktopEntry ———
 section("开发态只清掉自己写下的开发态条目");
+
 const devHome = join(ROOT, "data-dev");
 const devFile = join(devHome, "applications", `${DESKTOP_ID}.desktop`);
+
 mkdirSync(dirname(devFile), { recursive: true });
+
 const uiMarker = join(ROOT, "ui");
+
 const devEntry = desktopEntryContent({
   desktopId: DESKTOP_ID, name: "Quaver Music", comment: "测试",
   exec: `"/store/electron/dist/electron" "${uiMarker}" %U`, // 开发态 Exec 的形：electron 二进制 + 仓库 ui/
 });
+
 const packEntry = desktopEntryContent({
   desktopId: DESKTOP_ID, name: "Quaver Music", comment: "测试",
   exec: '"/home/u/Applications/Quaver-1.0.0.AppImage" --no-sandbox %U',
 });
+
 // 没有文件 → no-op，不报错也不建目录
 eq("文件不在场：no-op", removeDevManagedDesktopEntry({ dataHome: join(ROOT, "data-none"), devMarker: uiMarker }).removed, false);
+
 check("no-op 不会凭空造出目录", !existsSync(join(ROOT, "data-none")));
+
 // 开发态写的托管条目 → 删
 writeFileSync(devFile, devEntry);
+
 const rd1 = removeDevManagedDesktopEntry({ dataHome: devHome, devMarker: uiMarker });
+
 eq("开发态托管条目被清掉", rd1.removed, true);
+
 check("文件确实没了", !existsSync(devFile));
+
 eq("再跑一次幂等（没文件可删）", removeDevManagedDesktopEntry({ dataHome: devHome, devMarker: uiMarker }).removed, false);
+
 // 打包态写的托管条目（Exec 不含仓库路径）→ 不碰：开发态无权清打包态的身份文件
 writeFileSync(devFile, packEntry);
+
 eq("打包态的托管条目不被开发态清掉", removeDevManagedDesktopEntry({ dataHome: devHome, devMarker: uiMarker }).removed, false);
+
 check("那份条目仍在", readFileSync(devFile, "utf8") === packEntry);
+
 // 无标记的条目（用户/集成工具）→ 不碰，哪怕 Exec 看着就像开发态
 writeFileSync(devFile, "[Desktop Entry]\nType=Application\nName=Quaver Music\nExec=electron \"" + uiMarker + "\" %U\nIcon=red.0w0.quaver\n");
+
 eq("没有 X-Quaver-Managed 标记就不删", removeDevManagedDesktopEntry({ dataHome: devHome, devMarker: uiMarker }).removed, false);
+
 check("用户条目原样保留", existsSync(devFile));
+
 // devMarker 缺失 → 全 no-op（没依据就别删）
 eq("devMarker 为空时拒绝删", removeDevManagedDesktopEntry({ dataHome: devHome, devMarker: "" }).removed, false);
+
 // 标记+开发 Exec 齐备 → 删（收尾回到干净状态）
 writeFileSync(devFile, devEntry);
+
 eq("标记 + Exec 含仓库路径 → 删", removeDevManagedDesktopEntry({ dataHome: devHome, devMarker: uiMarker }).removed, true);
 
 rmSync(ROOT, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+
 console.log(`\n${fail === 0 ? "✅" : "❌"} verify-icon: ${pass} passed, ${fail} failed`);
+
 process.exit(fail === 0 ? 0 : 1);

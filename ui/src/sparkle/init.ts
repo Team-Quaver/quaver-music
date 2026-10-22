@@ -13,6 +13,7 @@ const OFFICIAL_KNOWN_KEY = "quaver.sparkle.official-known.v1";
 function readIds(key: string): string[] {
   try {
     const v = JSON.parse(localStorage.getItem(key) ?? "[]");
+
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
   } catch {
     return [];
@@ -25,8 +26,10 @@ function readIds(key: string): string[] {
 function seedOfficialDefaults() {
   const known = new Set(readIds(OFFICIAL_KNOWN_KEY));
   const optedOut = new Set(sparkOfficialOffIds());
+
   const fresh = OFFICIAL_META.map((m) => m.id)
     .filter((id) => !known.has(id) && !optedOut.has(id));
+
   if (fresh.length) sparkSetEnabledIds([...sparkEnabledIds(), ...fresh]);
   localStorage.setItem(OFFICIAL_KNOWN_KEY, JSON.stringify([...known, ...OFFICIAL_META.map((m) => m.id)]));
 }
@@ -40,8 +43,11 @@ function pruneRetiredOfficial() {
   const enabled = sparkEnabledIds();
   const off = sparkOfficialOffIds();
   const known = readIds(OFFICIAL_KNOWN_KEY);
+
   if (keep(enabled).length !== enabled.length) sparkSetEnabledIds(keep(enabled));
+
   if (keep(off).length !== off.length) sparkSetOfficialOffIds(keep(off));
+
   if (keep(known).length !== known.length) localStorage.setItem(OFFICIAL_KNOWN_KEY, JSON.stringify(keep(known)));
 }
 
@@ -59,13 +65,16 @@ export async function initSparkle(): Promise<void> {
   // 代码一行不 import，坏插件也就没机会把启动搞黄（这就是「干净载入」）。
   // 内置歌词引擎不受这里影响：它是宿主代码，本来就在安全模式该管的范围之外。
   const redflag = sparkRedflag();
+
   if (redflag) console.warn("[sparkle] 安全模式（QUAVER_REDFLAG=1）：仅加载预装插件，第三方插件全部禁用");
 
   // 官方插件：meta 表是展示真相，加载表有对应 loader 才能启
   for (const meta of OFFICIAL_META) {
     if (!enabled.has(meta.id)) continue;
     const blocked = sparkBlockReason({ id: meta.id, kind: "official" });
+
     if (blocked) { console.warn(`[sparkle] 预装插件 ${meta.id} 未加载：${blocked}`); continue; }
+
     try {
       await enableSparklePlugin(await loadOfficial(meta.id));
     } catch (e) {
@@ -75,8 +84,10 @@ export async function initSparkle(): Promise<void> {
 
   // 第三方插件：经 quaverSparkle 桥拿安装列表（无桥 = 浏览器 dev，跳过）；安全模式直接空表
   const installed = redflag ? [] : await listInstalledThirdParty();
+
   for (const inst of installed) {
     if (!enabled.has(inst.id)) continue;
+
     try {
       await enableSparklePlugin(await loadThirdParty(inst));
     } catch (e) {

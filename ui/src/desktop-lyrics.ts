@@ -39,7 +39,7 @@ import { loadConfig } from "./lib/config";
 import { fontCssOf, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsHoverOpacity, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsSingleCenter, getDesktopLyricsWeight, getLyricAux } from "./lib/prefs";
 import { fmtLyricDelay, LYRIC_DELAY_MAX_MS, LYRIC_DELAY_STEP_MS } from "./lib/lyric-delay";
 import { alignFor, bandFor, scrollRange, sequenceOverlappingLines } from "./lib/desktop-lyrics-layout";
-import { CLOCK_COMP_MS, type DlCmd, type DlLine, type DlStateSnapshot, type DlSyncPayload, type DlTrackPayload } from "./lib/desktop-lyrics-protocol";
+import { CLOCK_COMP_MS, type DlCmd, type DlLine, type DlStateSnapshot, type DlSyncPayload, type DlTrackPayload, type DlWindowOp } from "./lib/desktop-lyrics-protocol";
 import { LayoutAlignAnchor, LayoutReason } from "@applemusic-like-lyrics/core";
 import { amllPlayerByHost, builtinKaraokeProvider } from "./lyrics/amll";
 import type { SparkleKaraokeLine } from "@quaver/sparkle";
@@ -83,13 +83,21 @@ const ICON = {
   plus: '<svg class="line" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
   lock: '<svg class="line" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>',
 };
+
 prevBtn.innerHTML = ICON.prev;
+
 nextBtn.innerHTML = ICON.next;
+
 playBtn.innerHTML = ICON.play;
+
 closeBtn.innerHTML = ICON.close;
+
 delayDec.innerHTML = ICON.minus;
+
 delayInc.innerHTML = ICON.plus;
+
 lockBtn.innerHTML = ICON.lock;
+
 coverImg.addEventListener("error", () => {
   failedCover = coverImg.getAttribute("src") ?? "";
   coverImg.hidden = true;
@@ -114,10 +122,12 @@ let renderedFp = "";
 /** 行级兜底 → AMLL 的「整行单音节」形状（口径对齐内置引擎对 LRC 的整形：行尾=下一行头）。 */
 function linesToKaraoke(lines: DlLine[]): SparkleKaraokeLine[] {
   const sorted = [...lines].sort((a, b) => a.t - b.t);
+
   return sorted.map((l, i) => {
     const start = Math.max(0, Math.round(l.t * 1000));
     const next = sorted[i + 1]?.t;
     const end = next != null ? Math.max(start + 100, Math.round(next * 1000)) : start + 60_000;
+
     return {
       words: [{ word: l.text, startTime: start, endTime: end }],
       startTime: start,
@@ -131,6 +141,7 @@ function linesToKaraoke(lines: DlLine[]): SparkleKaraokeLine[] {
 /** 裸播放头的外推（毫秒）：快照 + 本地单调钟；不含 +0.2s 补偿、不含歌词延迟（口径见桥模块头）。 */
 function rawPosMs(): number {
   if (!sync) return 0;
+
   return sync.posMs + (sync.playing ? performance.now() - syncAt : 0);
 }
 
@@ -148,6 +159,7 @@ const ctx = {
   seek: (_ms: number) => {},
   onNotify: (cb: () => void) => {
     notifyCbs.add(cb);
+
     return () => notifyCbs.delete(cb);
   },
 };
@@ -155,18 +167,21 @@ const ctx = {
 function sendCmd(cmd: DlCmd): void {
   bridge?.sendCmd(cmd);
 }
-function windowOp(msg: Record<string, unknown>): void {
+
+function windowOp(msg: DlWindowOp): void {
   bridge?.windowOp(msg);
 }
 
 /** 锁定态由主进程给真相：页面只负责隐藏交互控件与拖拽区，原生输入穿透不在 DOM 层模拟。 */
 function syncInteractionMode(): void {
   let state: DlStateSnapshot | null = null;
+
   try {
     state = bridge?.activeSync?.() ?? null;
   } catch {
     state = null;
   }
+
   const canLock = !!state?.canLock;
   const locked = canLock && !!state?.locked;
   lockBtn.hidden = !canLock;
@@ -179,8 +194,10 @@ function syncInteractionMode(): void {
 function paintEmpty(): void {
   if (track && track.lyricState === "ok" && (track.karaoke.length || track.lines.length)) {
     empty.hidden = true;
+
     return;
   }
+
   empty.hidden = false;
   clip.innerHTML = "";
   empty.textContent =
@@ -194,6 +211,7 @@ function syncTrackInfo(): void {
   const hasTrack = !!track?.key;
   trackInfo.hidden = !hasTrack;
   trackSep.hidden = !hasTrack;
+
   if (!hasTrack) {
     trackMeta.textContent = "";
     trackMeta.removeAttribute("title");
@@ -201,8 +219,10 @@ function syncTrackInfo(): void {
     coverImg.hidden = true;
     coverFallback.hidden = true;
     failedCover = "";
+
     return;
   }
+
   const title = String(track?.title ?? "").trim();
   const artist = String(track?.artist ?? "").trim();
   const label = title && artist ? `${title} - ${artist}` : title || artist || "未知曲目";
@@ -212,6 +232,7 @@ function syncTrackInfo(): void {
   const broken = !!cover && cover === failedCover;
   coverImg.hidden = !cover || broken;
   coverFallback.hidden = !!cover && !broken;
+
   if (cover && !broken) {
     if (coverImg.getAttribute("src") !== cover) coverImg.src = cover;
   } else {
@@ -221,19 +242,26 @@ function syncTrackInfo(): void {
 
 function reRender(force = false): void {
   paintEmpty();
+
   const fp = track
     ? `${track.key}|${track.lyricState}|${track.lyricRevision ?? 0}|${track.karaoke.length}|${track.lines.length}`
     : "empty";
+
   if (!force && fp === renderedFp) return;
   renderedFp = fp;
+
   if (disposeRender) {
     try { disposeRender(); } catch (e) { console.warn("[dl] 渲染清理失败", e); }
+
     disposeRender = null;
   }
+
   clip.innerHTML = "";
   resetMarquee(); // 旧行元素已随 innerHTML 一起没了：滚动状态/在滚类名一并清掉
+
   if (!track || track.lyricState !== "ok") return;
   const lines = sequenceOverlappingLines(track.karaoke.length ? track.karaoke : linesToKaraoke(track.lines));
+
   if (!lines.length) return;
   // 新播放器 = 新行表：条带几何清空重估（applyPlayerLayout 里会先给个估计锚位）
   stripApplied = -1;
@@ -269,9 +297,13 @@ const mixInk = (hex: string | null | undefined): string =>
 
 function lyricInk(): string {
   const mode = getDesktopLyricsColorMode();
+
   if (mode === "cover") return mixInk(track?.accent);
+
   if (mode === "system") return mixInk(track?.systemAccent);
+
   if (mode === "custom") return getDesktopLyricsColor();
+
   return "#fff";
 }
 
@@ -300,15 +332,19 @@ const MARQUEE_SPEED_PX_S = 72; // 横向滚动速度（px/s，与字号无关，
 interface Box { top: number; bottom: number; left: number; right: number }
 
 const classOf = (el: Element): string => String((el as HTMLElement).className ?? "");
+
 /** 任一行元素：.xxx_lyricLine（和声行是 .xxx_lyricBgLine）；排除行容器 .xxx_lyricLineWrapper。 */
 const isAnyLineEl = (el: Element): boolean =>
   classOf(el).includes("lyricLine") && !classOf(el).includes("Wrapper");
+
 /** 本行（主行组）的行元素：主行 + 翻译 + 音译挂它下面；和声行整组另行挂在 bgWrapper 里。 */
 const isLineEl = (el: Element): boolean => isAnyLineEl(el) && !classOf(el).includes("BgLine");
+
 /** 和声行容器（.xxx_bgWrapper，AMLL 把 isBG 行整组放进它；播放器的底栏容器名字也带
  *  Wrapper，一并排除）。 */
 const isBgWrap = (el: Element): boolean => {
   const c = classOf(el);
+
   return c.includes("Wrapper") && !c.includes("lyricLine") && !c.includes("bottomLine");
 };
 
@@ -319,34 +355,44 @@ const isBgWrap = (el: Element): boolean => {
  */
 function textBox(el: Element | null): Box | null {
   if (!el) return null;
+
   // 滑出去的和声行（bgWrapperHidden）只改 visibility，几何仍在 —— 显式排除，
   // 否则会把「藏起来的行」算进文字块，条带被拉长、块心被拽偏
   if (getComputedStyle(el).visibility === "hidden") return null;
   const nodes = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
   const rg = document.createRange();
   let top = Infinity, bottom = -Infinity, left = Infinity, right = -Infinity;
+
   for (let n = nodes.nextNode(); n; n = nodes.nextNode()) {
     if (!n.nodeValue?.trim()) continue;
     rg.selectNodeContents(n);
+
     for (const r of rg.getClientRects()) {
       if (r.width <= 0 && r.height <= 0) continue;
+
       if (r.top < top) top = r.top;
+
       if (r.bottom > bottom) bottom = r.bottom;
+
       if (r.left < left) left = r.left;
+
       if (r.right > right) right = r.right;
     }
   }
+
   return Number.isFinite(top) ? { top, bottom, left, right } : null;
 }
 
 const unionBox = (bs: Array<Box | null>): Box | null => {
   let o: Box | null = null;
+
   for (const b of bs) {
     if (!b) continue;
     o = o
       ? { top: Math.min(o.top, b.top), bottom: Math.max(o.bottom, b.bottom), left: Math.min(o.left, b.left), right: Math.max(o.right, b.right) }
       : { top: b.top, bottom: b.bottom, left: b.left, right: b.right };
   }
+
   return o;
 };
 
@@ -354,19 +400,23 @@ const unionBox = (bs: Array<Box | null>): Box | null => {
  *  withBg 时再把和声容器里的行一起收进来（单行关居中 / 双行档）。 */
 function rowsOf(wrapper: HTMLElement, withBg: boolean): HTMLElement[] {
   const out: HTMLElement[] = [];
+
   const rowsIn = (lineEl: Element): void => {
     out.push(...(Array.from(lineEl.children) as HTMLElement[]));
   };
+
   for (const kid of Array.from(wrapper.children) as HTMLElement[]) {
     if (isLineEl(kid)) rowsIn(kid);
     else if (withBg && isBgWrap(kid))
       for (const bg of Array.from(kid.children) as HTMLElement[]) if (isAnyLineEl(bg)) rowsIn(bg);
   }
+
   return out;
 }
 
 function emPx(): number {
   const v = parseFloat(getComputedStyle(root).getPropertyValue("--dl-font-size"));
+
   return Number.isFinite(v) && v > 0 ? v : 24;
 }
 
@@ -382,10 +432,12 @@ function setWindow(topPx: number, hPx: number): void {
 
 /** 已生效的锚位（选行判据 s 用它：理论目标值，弹簧途中也能锁住正在到位的那行）。 */
 let alignApplied = 0.35;
+
 /** 锚位迟滞：行容器本身上下弹不影响实测块心（块与容器一起动），但和声滑入这类
  *  「块内元素自己动」的过渡帧会让读数晃 —— 第一次直接落位，之后要连续两次同读数才改。 */
 let alignPending = -1;
 let alignLocked = false;
+
 /** 最近一次量到的「文字块中心 − 行容器顶边」（px）；只给调试缝看，逻辑不读它。 */
 let lastCenterRel = 0;
 
@@ -393,6 +445,7 @@ let lastCenterRel = 0;
 // 相位记在**行元素**上（marqueeStart）：4Hz 重测、瞬时掉出滚动集合（比如 content-visibility
 // 的可见性抖动）都不能把文字弹回开头 —— 只有真的换到别一行才会拿到新的起点。
 interface ScrollRow { el: HTMLElement; from: number; to: number; dist: number; tx: number; t0: number }
+
 let scrollRows: ScrollRow[] = [];
 let scrollParents = new Set<HTMLElement>();
 let marqueeRaf = 0;
@@ -409,9 +462,13 @@ const marqueeTravelMs = (dist: number): number => Math.max(1, (dist / MARQUEE_SP
 function marqueeProgress(age: number, travel: number): number {
   const cycle = (MARQUEE_HOLD_MS + travel) * 2;
   const t = ((age % cycle) + cycle) % cycle;
+
   if (t < MARQUEE_HOLD_MS) return 0;
+
   if (t < MARQUEE_HOLD_MS + travel) return (t - MARQUEE_HOLD_MS) / travel;
+
   if (t < MARQUEE_HOLD_MS * 2 + travel) return 1;
+
   return 1 - (t - MARQUEE_HOLD_MS * 2 - travel) / travel;
 }
 
@@ -422,7 +479,9 @@ function stopMarquee(): void {
 
 function resetMarquee(): void {
   stopMarquee();
+
   for (const r of scrollRows) r.el.style.removeProperty("translate");
+
   for (const p of scrollParents) p.classList.remove("dl-scrolling");
   scrollRows = [];
   scrollParents = new Set();
@@ -431,14 +490,17 @@ function resetMarquee(): void {
 
 function marqueeTick(): void {
   marqueeRaf = 0;
+
   if (!scrollRows.length) return;
   const now = performance.now();
+
   for (const r of scrollRows) {
     const k = marqueeProgress(now - r.t0, marqueeTravelMs(r.dist));
     const tx = r.from + (r.to - r.from) * k;
     r.tx = tx;
     r.el.style.translate = `${tx.toFixed(1)}px 0`;
   }
+
   // 长句还在，就继续转（来回滚是常态，不是一次性动画）
   marqueeRaf = window.requestAnimationFrame(marqueeTick);
 }
@@ -452,32 +514,43 @@ function updateMarquee(rows: HTMLElement[], wrapper: HTMLElement): void {
   const aL = wr.left + (parseFloat(cs.paddingLeft) || 0);
   const aR = wr.right - (parseFloat(cs.paddingRight) || 0);
   const applied = new Map<HTMLElement, number>();
+
   for (const r of scrollRows) applied.set(r.el, r.tx);
   const next: ScrollRow[] = [];
+
   for (const row of rows) {
     const b = textBox(row);
+
     if (!b) continue;
     const cur = applied.get(row) ?? 0;
     const range = scrollRange(aL, aR, b.left - cur, b.right - cur);
+
     if (!range) continue;
     const lineEl = row.parentElement ?? row; // 「同一行」相位按行元素记（主行/翻译/音译同一条）
     let t0 = marqueeStart.get(lineEl);
+
     if (t0 === undefined) { t0 = performance.now(); marqueeStart.set(lineEl, t0); }
+
     next.push({ el: row, ...range, tx: cur, t0 });
   }
+
   for (const r of scrollRows) if (!next.some((n) => n.el === r.el)) r.el.style.removeProperty("translate");
   scrollRows = next;
   scrollParents = new Set();
+
   for (const r of scrollRows) {
     const parent = r.el.parentElement; // 行元素（.xxx_lyricLine）：.dl-scrolling 摘掉它的 paint containment
+
     if (parent) { parent.classList.add("dl-scrolling"); scrollParents.add(parent); }
   }
+
   if (scrollRows.length) { if (!marqueeRaf) marqueeRaf = window.requestAnimationFrame(marqueeTick); }
   else stopMarquee();
 }
 
 function applyPlayerLayout(): void {
   const player = amllPlayerByHost.get(clip);
+
   if (player) {
     player.setHidePassedLines(true);
     player.setAlignAnchor(LayoutAlignAnchor.Top);
@@ -486,6 +559,7 @@ function applyPlayerLayout(): void {
     alignLocked = false;
     player.setAlignPosition(alignApplied);
   }
+
   stripApplied = -1;
   stripTop = -1;
   stripPending = -1;
@@ -506,43 +580,57 @@ let stripLastAt = 0;
 
 function tightenStrip(force = false): void {
   const now = performance.now();
+
   if (!force && now - stripLastAt < STRIP_MIN_MS) return;
   stripLastAt = now;
   const H0 = clip.clientHeight;
+
   if (H0 < 40) return;
   const playerEl = clip.firstElementChild as HTMLElement | null; // renderAmll 挂进来的 .amll-lyric-player
+
   if (!playerEl) return;
   const clipTop = clip.getBoundingClientRect().top;
   const s = alignApplied * H0;
   const dual = getDesktopLyricsMode() === "dual";
   const boxes: Array<{ el: HTMLElement; top: number; bottom: number; height: number }> = [];
+
   for (const kid of Array.from(playerEl.children) as HTMLElement[]) {
     if (!kid.innerText?.trim()) continue; // 间奏点等无字元素不算行
     const r = kid.getBoundingClientRect();
     boxes.push({ el: kid, top: r.top - clipTop, bottom: r.bottom - clipTop, height: r.height });
   }
+
   let active: (typeof boxes)[number] | null = null;
   let bestD = Infinity;
+
   for (const b of boxes) {
     const d = Math.abs(b.top - s);
+
     if (d < bestD) { bestD = d; active = b; }
   }
+
   // 认不出当前行就不写：落位前所有行都挤在 0，谁都不该被当真（0.5 行高 = 明显偏离锚点）
   if (!active || bestD > active.height * 0.5) return;
 
   // 当前行要显示的整块文字：主行 + 翻译/音译；单行关居中 / 双行再把和声与下一行并进来
   const withBg = dual || !getDesktopLyricsSingleCenter();
   const rows = rowsOf(active.el, withBg);
+
   if (dual) {
     let nextBox: (typeof boxes)[number] | null = null;
+
     for (const b of boxes) {
       if (b === active) continue;
+
       if (b.top >= active.bottom - 2 && (!nextBox || b.top < nextBox.top)) nextBox = b;
     }
+
     // 下一行的和声还没到激活态（滑在外面）——不带它，免得把条带拉成两倍高
     if (nextBox) rows.push(...rowsOf(nextBox.el, false));
   }
+
   const block = unionBox(rows.map(textBox));
+
   if (!block) return;
 
   // ① 锚位：把文字块**中心**钉到视口中心（旧版钉的是行盒顶 + 1em —— 翻译一挂上就整体偏低）
@@ -551,6 +639,7 @@ function tightenStrip(force = false): void {
   lastCenterRel = centerRel;
   const p = alignFor(H0, centerRel);
   const player = amllPlayerByHost.get(clip);
+
   if (player && Math.abs(p - alignApplied) > 0.002) {
     if (!alignLocked || (alignPending >= 0 && Math.abs(p - alignPending) < 0.004)) {
       alignApplied = p;
@@ -579,10 +668,14 @@ function tightenStrip(force = false): void {
     stripApplied = h;
     stripTop = top;
     setWindow(top, h);
+
     return;
   }
+
   if (top === stripTop && h === stripApplied) { stripPending = -1; stripPendingTop = -1; return; }
+
   if (stripPending !== h || stripPendingTop !== top) { stripPending = h; stripPendingTop = top; return; }
+
   stripApplied = h;
   stripTop = top;
   stripPending = -1;
@@ -592,6 +685,7 @@ function tightenStrip(force = false): void {
 
 function applyStyle(): void {
   const font = fontCssOf(getDesktopLyricsFontList());
+
   if (font) root.style.setProperty("--dl-font", font);
   else root.style.removeProperty("--dl-font");
   const scale = getDesktopLyricsScale();
@@ -608,6 +702,7 @@ function applyStyle(): void {
   root.style.setProperty("--dl-border", `${getDesktopLyricsBorder()}px`);
   // 单层 text-shadow：便宜、可关、参数全由设置页控制；0 不透明度直接撤掉变量。
   const shadowOpacity = getDesktopLyricsShadowOpacity();
+
   if (getDesktopLyricsShadow() && shadowOpacity > 0) {
     root.style.setProperty(
       "--dl-shadow",
@@ -616,6 +711,7 @@ function applyStyle(): void {
   } else {
     root.style.removeProperty("--dl-shadow");
   }
+
   root.style.setProperty("--dl-ink", lyricInk());
   // 两层不透明度分开，各管各的（别再混成一个）：
   //   • --dl-opacity（[DesktopLyrics] Opacity）= **歌词层**：淡出内容（字 + 空态提示）；悬停控件不连坐；
@@ -633,20 +729,22 @@ function applyStyle(): void {
 
 if (bridge) {
   bridge.onTrack?.((p) => {
-    track = p as DlTrackPayload;
+    track = p;
     reRender();
     // 染色字段（accent/systemAccent）与歌词同包到货：整包重推（取色迟到补刀）时指纹未变
     // 不重渲染，但颜色必须重算 —— 否则「封面染色」档永远停在上一首的色
     root.style.setProperty("--dl-ink", lyricInk());
     syncTrackInfo();
     syncTools();
+
     for (const cb of [...notifyCbs]) cb();
   });
   bridge.onSync?.((p) => {
-    sync = p as DlSyncPayload;
+    sync = p;
     syncAt = performance.now();
     syncTools();
     tightenStrip();
+
     for (const cb of [...notifyCbs]) cb();
   });
   // 主进程写盘（托盘/其它窗）后的增量广播 → 字体/字号即时跟随（lib/config 的订阅先合并快照，
@@ -664,18 +762,30 @@ if (bridge) {
 // —— 按钮 ——
 
 prevBtn.onclick = () => sendCmd({ cmd: "prev" });
+
 fontDec.onclick = () => sendCmd({ cmd: "scale", dir: -1 });
+
 fontInc.onclick = () => sendCmd({ cmd: "scale", dir: 1 });
+
 weightVal.onclick = () => sendCmd({ cmd: "weight", op: "cycle" });
+
 playBtn.onclick = () => sendCmd({ cmd: "playpause" });
+
 nextBtn.onclick = () => sendCmd({ cmd: "next" });
+
 delayDec.onclick = () => sendCmd({ cmd: "delay", op: "step", dir: -1 });
+
 delayInc.onclick = () => sendCmd({ cmd: "delay", op: "step", dir: 1 });
+
 delayVal.onclick = () => sendCmd({ cmd: "delay", op: "zero" });
+
 lockBtn.onclick = () => windowOp({ op: "lock", on: true });
+
 closeBtn.onclick = () => windowOp({ op: "close" });
+
 progress.onclick = (e) => {
   const dur = sync?.durationSec ?? 0;
+
   if (dur <= 0) return;
   const rect = progress.getBoundingClientRect();
   const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
@@ -695,23 +805,29 @@ function startDragResize(e: PointerEvent): void {
   let lastY = e.screenY;
   let total = 0;
   const pid = e.pointerId;
+
   const onMove = (ev: PointerEvent) => {
     if (ev.pointerId !== pid) return;
     const dx = ev.screenX - lastX;
     const dy = ev.screenY - lastY;
     lastX = ev.screenX;
     lastY = ev.screenY;
+
     if (!dx && !dy) return;
     total += Math.abs(dx) + Math.abs(dy);
+
     if (total > 4) windowOp({ op: "resize-by", dx, dy });
   };
+
   const onUp = () => {
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("pointercancel", onUp);
+
     // 松手：把宽度那条轴放回区间（拖动期间两条轴都钉着，见主进程 releaseWidth）
     if (total > 4) windowOp({ op: "resize-end" });
   };
+
   window.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);
   window.addEventListener("pointercancel", onUp);
@@ -725,22 +841,27 @@ grip.addEventListener("pointerdown", (e) => {
 
 
 applyStyle();
+
 syncInteractionMode();
+
 paintEmpty();
+
 syncTrackInfo();
+
 syncTools();
 
 // 窗体尺寸（用户拖右下角把手 / 档位变化后主进程贴高）/字体迟到都会改文字盒 → 立刻重估条带、锚位与滚动量
 window.addEventListener("resize", () => tightenStrip(true));
+
 void document.fonts?.ready.then(() => tightenStrip(true));
 
 // Crotchet 调试活体注入缝（与主窗 __player/dev 钩子同口径）：CDP / 控制台可直接喂镜像快照验渲染链路。
 // 无桥页（纯浏览器开的 desktop-lyrics.html）没有实时镜像抢写状态，缝恒开 —— 排版量测就用这条确定性路。
 if ((window as any).quaverCrotchet || !bridge) {
   (window as any).__dl = {
-    injectTrack: (p: unknown) => { track = p as DlTrackPayload; reRender(true); syncTrackInfo(); syncTools(); for (const cb of [...notifyCbs]) cb(); },
+    injectTrack: (p: DlTrackPayload) => { track = p; reRender(true); syncTrackInfo(); syncTools(); for (const cb of [...notifyCbs]) cb(); },
     // 与 bridge.onSync 的生产路径逐行对齐（含 tightenStrip 的 4Hz 驱动），量测才有代表性
-    injectSync: (p: unknown) => { sync = p as DlSyncPayload; syncAt = performance.now(); syncTools(); tightenStrip(); for (const cb of [...notifyCbs]) cb(); },
+    injectSync: (p: DlSyncPayload) => { sync = p; syncAt = performance.now(); syncTools(); tightenStrip(); for (const cb of [...notifyCbs]) cb(); },
     applyStyle,
     stripDiag: () => ({
       applied: stripApplied, top: stripTop, pending: stripPending, pendingTop: stripPendingTop,

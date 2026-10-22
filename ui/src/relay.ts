@@ -22,32 +22,44 @@ const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 export function serveSparkle(sub: string, res: ServerResponse) {
   // sub 形如 /sparkle/plugin/<id>/<file...>；id 与 file 都过白名单（防目录穿越）
   const m = /^\/sparkle\/plugin\/([a-z0-9][a-z0-9-]*)\/(.+)$/.exec(sub);
+
   if (!m) {
     res.statusCode = 404;
+
     return res.end(JSON.stringify({ code: -1, msg: "sparkle: bad path" }));
   }
+
   const [, id, file] = m;
   const dir = normalize(join(SPARKLE_PLUGINS_ROOT, id));
+
   if (!dir.startsWith(normalize(SPARKLE_PLUGINS_ROOT))) {
     res.statusCode = 403;
+
     return res.end(JSON.stringify({ code: -1, msg: "sparkle: bad id" }));
   }
+
   const target = normalize(join(dir, file));
   // 跨平台：Windows 的 normalize() 产出反斜杠路径，`target.startsWith(dir + "/")` 永不成立
   // → 所有第三方插件请求 403（dev/preview 下 import 失败 = Flowscape 在 Windows 加载不出来）。
   // 改用 relative() 判「target 是否确实落在 dir 之内」，Windows/POSIX 同一套语义。
   const rel = relative(dir, target);
+
   if (!rel || rel.startsWith("..") || isAbsolute(rel) || /[\\/]$/.test(file) || file.includes("..")) {
     res.statusCode = 403;
+
     return res.end(JSON.stringify({ code: -1, msg: "sparkle: bad file" }));
   }
+
   if (!existsSync(target)) {
     res.statusCode = 404;
+
     return res.end(JSON.stringify({ code: -1, msg: "sparkle: not found" }));
   }
+
   const type = file.endsWith(".js") || file.endsWith(".mjs") ? "text/javascript"
     : file.endsWith(".json") ? "application/json"
     : file.endsWith(".css") ? "text/css" : "application/octet-stream";
+
   res.statusCode = 200;
   res.setHeader("content-type", type);
   res.setHeader("cache-control", "no-store");
@@ -60,10 +72,14 @@ const json = (obj: unknown, status = 200) =>
 // 流中继的可预期中断：客户端切歌/seek/关页面 → AbortError；上游（sidecar/CDN）半路断流
 // → undici 的 TypeError: terminated / premature close。都不是异常，只是常态。
 const EXPECTED_ABORT_CODES = new Set(["ABORT_ERR", "ERR_STREAM_PREMATURE_CLOSE", "ERR_STREAM_DESTROYED"]);
+
 function isExpectedAbort(e: unknown): boolean {
   const err = e as { name?: string; code?: string; message?: string } | null;
+
   if (!err) return true;
+
   if (err.name === "AbortError" || (err.code && EXPECTED_ABORT_CODES.has(err.code))) return true;
+
   return /terminated|premature close|aborted|socket hang up/i.test(String(err.message ?? ""));
 }
 
@@ -75,6 +91,7 @@ function isExpectedAbort(e: unknown): boolean {
 async function pipeStream(body: ReadableStream<Uint8Array>, res: ServerResponse, signal: AbortSignal) {
   const { Readable } = await import("node:stream");
   const { pipeline } = await import("node:stream/promises");
+
   try {
     await pipeline(Readable.fromWeb(body as never), res, { signal });
   } catch (e) {
@@ -84,6 +101,7 @@ async function pipeStream(body: ReadableStream<Uint8Array>, res: ServerResponse,
 
 function readBody(req: IncomingMessage): Promise<Uint8Array | undefined> {
   if (req.method === "GET" || req.method === "HEAD") return Promise.resolve(undefined);
+
   return new Promise((res, rej) => {
     const chunks: Buffer[] = [];
     req.on("data", (c) => chunks.push(c));
@@ -96,19 +114,26 @@ function readBody(req: IncomingMessage): Promise<Uint8Array | undefined> {
 // 这里同源转发并限定主机+路径白名单（非开放代理）。
 const IMG_HOSTS = new Set(["y.gtimg.cn", "qpic.y.qq.com", "img.y.gtimg.cn", "pictax.qpic.cn"]);
 const IMG_PATHS = ["/music/photo_new/", "/music_cover/", "/music/a_"];
+
 async function proxyImage(u: string | null, res: ServerResponse) {
   if (!u) { res.statusCode = 400; return res.end("missing u"); }
+
   let target: URL;
+
   try {
     target = new URL(u);
   } catch {
     res.statusCode = 400;
+
     return res.end("bad url");
   }
+
   const ok = (target.protocol === "https:" || target.protocol === "http:")
     && IMG_HOSTS.has(target.hostname)
     && IMG_PATHS.some((p) => target.pathname.startsWith(p));
+
   if (!ok) { res.statusCode = 403; return res.end("host not allowed"); }
+
   try {
     const upstream = await fetch(target, { headers: { referer: "https://y.qq.com/", "user-agent": "Mozilla/5.0" } });
     const buf = Buffer.from(await upstream.arrayBuffer());
@@ -127,10 +152,13 @@ async function proxyImage(u: string | null, res: ServerResponse) {
 // 这里以纯文本给出尾部 N 行；文件不存在（纯浏览器 dev）返回 404 JSON，前端显示占位提示。
 function serveLog(res: ServerResponse, tail: number) {
   const file = join(import.meta.dirname ?? ".", "..", "electron-dev.log");
+
   if (!existsSync(file)) {
     res.statusCode = 404;
+
     return res.end(JSON.stringify({ code: -1, msg: "electron-dev.log 不存在" }));
   }
+
   const size = statSync(file).size;
   const buf = readFileSync(file);
   const text = size > 2_000_000 ? buf.subarray(size - 2_000_000).toString("utf8") : buf.toString("utf8");
@@ -147,7 +175,9 @@ export function apiRelay(): Connect.NextHandleFunction {
     const path = url.pathname.replace(/^\//, "");
 
     if (path === "img") return proxyImage(url.searchParams.get("u"), res);
+
     if (path === "log") return serveLog(res, parseInt(url.searchParams.get("tail") ?? "800", 10) || 800);
+
     // 自定义背景图（设置→外观→背景）：路径只认 quaver.conf 里那一条，query 只当缓存击穿用。
     // 打包态在 native-server.ts 有同构实现（同一个 backgroundResponse）。
     if (path === "bg") {
@@ -155,8 +185,10 @@ export function apiRelay(): Connect.NextHandleFunction {
       res.statusCode = r.status;
       res.setHeader("content-type", r.type);
       res.setHeader("cache-control", "no-store"); // 换图后同 URL 也要拿到新的
+
       return res.end(r.body);
     }
+
     // 系统强调色（设置→外观→高亮颜色「系统强调色」档）：探测逻辑全在 electron/accent.ts
     // （Noctalia / matugen / KDE / GNOME / GTK…），这里只回一个小 JSON —— 候选路径写死在那边，
     // 不接受任何 query/参数。打包态在 native-server.ts 有同构实现（同一个 accentPayload）。
@@ -165,10 +197,13 @@ export function apiRelay(): Connect.NextHandleFunction {
       res.statusCode = 200;
       res.setHeader("content-type", "application/json");
       res.setHeader("cache-control", "no-store");
+
       return res.end(JSON.stringify(r));
     }
+
     // Sparkle 已安装插件的文件服务（/api/sparkle/...，打包态在 native-server.ts 有同构实现）
     if (path.startsWith("sparkle/")) return serveSparkle("/" + path, res);
+
     // 本地/NAS 曲库（/api/local/...，真相在 electron/local/library.ts；打包态在 native-server.ts 同构挂载）
     if (path === "local" || path.startsWith("local/")) return void (await handleLocalApi(req, res, path));
 
@@ -178,8 +213,10 @@ export function apiRelay(): Connect.NextHandleFunction {
 
     const headers = new Headers();
     const ct = req.headers["content-type"];
+
     if (ct) headers.set("content-type", ct);
     const range = req.headers["range"];
+
     if (range) headers.set("range", range); // 播放流 Range 中继必须透传
 
     // 客户端断线（切歌 removeAttribute(src)+load()、seek、关页面）→ 立刻掐掉上游 fetch。
@@ -187,6 +224,7 @@ export function apiRelay(): Connect.NextHandleFunction {
     // TypeError: terminated —— 那正是主进程弹框的根因。abort 由 res 的 close 驱动。
     const ac = new AbortController();
     const onClientGone = () => { if (!res.writableFinished) ac.abort(); };
+
     res.once("close", onClientGone);
 
     try {
@@ -197,6 +235,7 @@ export function apiRelay(): Connect.NextHandleFunction {
         redirect: "manual",
         signal: ac.signal,
       });
+
       // 播放流（/api/stream/<token>）：流式管道，绝不整段缓冲（边下边播 + 省内存）
       if (/^stream\/[^/]+$/.test(path) && upstream.body) {
         res.statusCode = upstream.status;
@@ -205,8 +244,10 @@ export function apiRelay(): Connect.NextHandleFunction {
           res.appendHeader(k, v);
         });
         await pipeStream(upstream.body, res, ac.signal);
+
         return;
       }
+
       res.statusCode = upstream.status;
       upstream.headers.forEach((v, k) => {
         // hop-by-hop 与内容编码头交给运行时重算，透传会双重编码

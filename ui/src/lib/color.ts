@@ -9,8 +9,10 @@ const cache = new Map<string, RGB | null>();
 function cacheSet(key: string, v: RGB | null) {
   cache.delete(key);          // 重插到队尾 = MRU
   cache.set(key, v);
+
   if (cache.size > CACHE_MAX) {
     const oldest = cache.keys().next().value;
+
     if (oldest !== undefined) cache.delete(oldest);
   }
 }
@@ -44,12 +46,15 @@ async function loadPixelColor(src: string): Promise<RGB | null> {
   const cv = document.createElement("canvas");
   cv.width = N; cv.height = N;
   const ctx = cv.getContext("2d", { willReadFrequently: true });
+
   if (!ctx) return null;
   ctx.drawImage(img, 0, 0, N, N);
   const { data } = ctx.getImageData(0, 0, N, N); // 同源：不会 taint
   const buckets = new Map<number, { n: number; r: number; g: number; b: number }>();
+
   for (let i = 0; i < data.length; i += 4) {
     const a = data[i + 3];
+
     if (a < 128) continue;
     const r = data[i], g = data[i + 1], b = data[i + 2];
     const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
@@ -57,13 +62,17 @@ async function loadPixelColor(src: string): Promise<RGB | null> {
     e.n++; e.r += r; e.g += g; e.b += b;
     buckets.set(key, e);
   }
+
   let best: RGB | null = null;
   let bestScore = -1;
+
   for (const e of buckets.values()) {
     const avg = { r: e.r / e.n, g: e.g / e.n, b: e.b / e.n };
     const score = e.n * 64 + sat(avg); // 票数主权重；同票取更鲜艳（避开黑白边条）
+
     if (score > bestScore) { bestScore = score; best = avg; }
   }
+
   return best ? { r: Math.round(best.r), g: Math.round(best.g), b: Math.round(best.b) } : null;
 }
 
@@ -72,6 +81,7 @@ async function loadPixelColor(src: string): Promise<RGB | null> {
 // 保证深色文字压在上面仍有高对比，同时与玻璃底色拉开明显色差。
 /** 色相 0..360，饱和度/亮度 0..1。 */
 export interface HSL { h: number; s: number; l: number }
+
 /** CMYK 四通道 0..1。 */
 export interface CMYK { c: number; m: number; y: number; k: number }
 
@@ -79,12 +89,15 @@ export function rgb2hsl(c: RGB): HSL {
   const r = c.r / 255, g = c.g / 255, b = c.b / 255;
   const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
   const l = (mx + mn) / 2;
+
   if (!d) return { h: 0, s: 0, l };
   const s = d / (1 - Math.abs(2 * l - 1));
   let h = 0;
+
   if (mx === r) h = ((g - b) / d) % 6;
   else if (mx === g) h = (b - r) / d + 2;
   else h = (r - g) / d + 4;
+
   return { h: ((h * 60) + 360) % 360, s, l };
 }
 
@@ -93,6 +106,7 @@ export function hsl2rgb(h: number, s: number, l: number): RGB {
   const x = c * (1 - Math.abs((((h / 60) % 2) - 1)));
   const m = l - c / 2;
   const seg = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+
   return { r: Math.round((seg[0] + m) * 255), g: Math.round((seg[1] + m) * 255), b: Math.round((seg[2] + m) * 255) };
 }
 
@@ -104,8 +118,10 @@ const clampByte = (n: number) => Math.max(0, Math.min(255, Math.round(Number.isF
  *  调用方（prefs / 输入框）据此拒绝写盘或拒绝改色，不猜也不静默取 0。 */
 export function parseHex(s: string): RGB | null {
   const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(s ?? "").trim());
+
   if (!m) return null;
   const t = m[1].length === 3 ? [...m[1]].map((ch) => ch + ch).join("") : m[1];
+
   return { r: parseInt(t.slice(0, 2), 16), g: parseInt(t.slice(2, 4), 16), b: parseInt(t.slice(4, 6), 16) };
 }
 
@@ -122,8 +138,10 @@ export const isHexColor = (v: unknown): boolean => parseHex(String(v ?? "")) !==
 export function rgb2cmyk(c: RGB): CMYK {
   const r = clampByte(c.r) / 255, g = clampByte(c.g) / 255, b = clampByte(c.b) / 255;
   const k = 1 - Math.max(r, g, b);
+
   if (k >= 1) return { c: 0, m: 0, y: 0, k: 1 };
   const d = 1 - k;
+
   return { c: (1 - r - k) / d, m: (1 - g - k) / d, y: (1 - b - k) / d, k };
 }
 
@@ -131,6 +149,7 @@ export function rgb2cmyk(c: RGB): CMYK {
 export function cmyk2rgb(v: CMYK): RGB {
   const f = (n: number) => Math.max(0, Math.min(1, Number.isFinite(n) ? n : 0));
   const c = f(v.c), m = f(v.m), y = f(v.y), k = f(v.k);
+
   return {
     r: clampByte(255 * (1 - c) * (1 - k)),
     g: clampByte(255 * (1 - m) * (1 - k)),
@@ -145,6 +164,7 @@ export function toBarColors(c: RGB | null) {
   const s = hsl.s < 0.12 ? Math.min(0.18, hsl.s * 1.5) : Math.max(hsl.s, 0.5);
   const fill = hsl2rgb(hsl.h, s, 0.6); // 中亮度：深色文字压在上面仍有 ~6:1 对比
   const line = hsl2rgb(hsl.h, Math.min(1, s * 1.15), 0.4);
+
   return {
     soft: `rgb(${fill.r},${fill.g},${fill.b})`,
     line: `rgb(${line.r},${line.g},${line.b})`,
@@ -163,6 +183,7 @@ export function toUiColors(c: RGB | null) {
   const s = hsl.s < 0.12 ? Math.min(0.18, hsl.s * 1.5) : Math.max(hsl.s, 0.5);
   const accent = hsl2rgb(hsl.h, s, 0.5);
   const glow = hsl2rgb(hsl.h, Math.min(1, s * 1.05), 0.62);
+
   return {
     accent: `rgb(${accent.r},${accent.g},${accent.b})`,
     glow: `rgb(${glow.r},${glow.g},${glow.b})`,
@@ -171,13 +192,17 @@ export function toUiColors(c: RGB | null) {
 
 export async function extractCoverColor(url: string): Promise<RGB | null> {
   if (!url) return null;
+
   if (cache.has(url)) return cache.get(url)!;
   let out: RGB | null = null;
+
   try {
     out = await loadPixelColor(toPixelSrc(url));
   } catch {
     out = null; // 中继不可用（如壳层 file:// 直开）：退回默认青色
   }
+
   cacheSet(url, out);
+
   return out;
 }

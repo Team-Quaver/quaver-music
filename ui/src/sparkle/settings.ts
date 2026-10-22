@@ -24,13 +24,11 @@ import {
   activateStyle, onStyleChange, resetStyle, setStyleSuspended, stylePacks, styleState,
 } from "./style-layer";
 
-interface MarketEntry {
-  id: string; name: string; version: string; author?: string; description?: string;
-  minHostVersion?: string; allowBeta?: boolean; category?: string; download: string; homepage?: string; hash?: string;
-}
+type MarketEntry = SparkleMarketPluginEntry;
 
 /** 索引条目分类；未知/缺省/旧 extension 一律按 plugin（主题是显式声明才有的分类） */
 type MarketCategory = "theme" | "plugin";
+
 const catOf = (c: string | undefined): MarketCategory => (c === "theme" ? "theme" : "plugin");
 const CAT_LABEL: Record<MarketCategory, string> = { theme: "主题", plugin: "插件" };
 
@@ -73,8 +71,10 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     d.className = "sparkle-catpanel";
     d.dataset.cat = cat;
     d.hidden = cat !== "theme";
+
     return d;
   };
+
   const themePanel = mkPanel("theme");
   const pluginPanel = mkPanel("plugin");
   const marketPanel = mkPanel("market");
@@ -133,6 +133,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
   // 面板顶上明说一句 —— 否则用户只会看到开关点不动，以为坏了。
   const safeMode = sparkRedflag();
   const SAFE_MODE_LOCK = "安全模式（QUAVER_REDFLAG=1）已开启：仅预装插件可用，第三方插件全部禁用";
+
   if (safeMode) {
     const note = document.createElement("p");
     note.className = "muted sparkle-warn sparkle-lock-note";
@@ -158,14 +159,18 @@ export function mountSparklePanel(section: HTMLElement): () => void {
       name,
       render: (box) => {
         const entries = sparkleSettingsSections().filter((e) => e.pluginId === pluginId);
+
         if (!entries.length) {
           const empty = document.createElement("div");
           empty.className = "sparkle-empty";
           empty.textContent = sparkRecordOf(pluginId) ? "该插件没有提供设置项" : "插件未启用，启用后可在这里配置";
           box.append(empty);
+
           return;
         }
+
         const cleanups: (() => void)[] = [];
+
         for (const entry of entries) {
           const wrap = document.createElement("div");
           wrap.style.marginBottom = "12px";
@@ -174,6 +179,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
           title.textContent = entry.section.title;
           const body = document.createElement("div");
           wrap.append(title, body);
+
           try {
             entry.cleanup = entry.section.render(body) ?? null;
             cleanups.push(() => { entry.cleanup?.(); entry.cleanup = null; });
@@ -181,8 +187,10 @@ export function mountSparklePanel(section: HTMLElement): () => void {
             body.innerHTML = `<div class="sparkle-empty">设置区渲染失败（见控制台）</div>`;
             console.warn(`[sparkle:${entry.pluginId}] 设置区渲染失败`, e);
           }
+
           box.append(wrap);
         }
+
         return () => { for (const fn of [...cleanups].reverse()) { try { fn(); } catch { /* 尽力 */ } } };
       },
     });
@@ -196,6 +204,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     b.setAttribute("aria-label", `${name} 设置`);
     b.innerHTML = GEAR_SVG;
     b.onclick = () => openSettings(pluginId, name);
+
     return b;
   };
 
@@ -222,10 +231,12 @@ export function mountSparklePanel(section: HTMLElement): () => void {
       </div>
       <div class="sparkle-actions"></div>`;
     const actions = el.querySelector<HTMLElement>(".sparkle-actions")!;
+
     // 追加顺序 = 视觉顺序 = Tab 顺序：齿轮 → 卸载 → 开关。
     // 卸载插在中间而不是末尾：开关是行的视觉锚点（恒在最右），而卸载只有部分行有
     // （预装没有），放末尾会把开关这一列整排推走（.sparkle-actions 的三列定宽兜住这点）。
     if (o.showGear) actions.append(gearBtn(o.pluginId, o.name));
+
     if (o.onUninstall) {
       const btn = document.createElement("button");
       btn.type = "button";
@@ -236,12 +247,15 @@ export function mountSparklePanel(section: HTMLElement): () => void {
       btn.onclick = () => o.onUninstall!();
       actions.append(btn);
     }
+
     if (!o.broken) {
       const sw = document.createElement("label");
       sw.className = "sparkle-switch";
+
       if (o.lock) sw.classList.add("is-locked");
       sw.innerHTML = `<input type="checkbox"${o.enabled ? " checked" : ""}${o.lock ? " disabled" : ""}/> ${o.lock ? esc(o.lock) : o.enabled ? "已启用" : "已停用"}`;
       const input = sw.querySelector<HTMLInputElement>("input")!;
+
       if (o.lock) {
         sw.title = o.lock;
         input.title = o.lock;
@@ -252,17 +266,22 @@ export function mountSparklePanel(section: HTMLElement): () => void {
           o.onToggle(input.checked);
         };
       }
+
       actions.append(sw);
     }
+
     return el;
   };
 
   /** 第三方行为什么锁着（安全模式优先）；null = 不锁。事实源在 policy.ts，这里只是回显。 */
   const rowLock = (id: string): string | null => {
     if (safeMode) return "安全模式：第三方插件已禁用";
+
     if (sparkIdBlacklisted(id)) return "已在 [Sparkle] Blacklist 黑名单里";
+
     return null;
   };
+
   /** 预装行的锁：只有黑名单（安全模式不拦预装）。歌词渲染器不在这里 —— 它是宿主内置功能
    *  （src/lyrics/amll.ts），不是可停用的插件，设置页没有它那一行。 */
   const officialLock = (id: string): string | null =>
@@ -272,7 +291,9 @@ export function mountSparklePanel(section: HTMLElement): () => void {
   const toggleThird = async (inst: InstalledPlugin, on: boolean) => {
     // 兜底：UI 上开关已锁，但键盘/脚本仍可能触发；真正的事实源在 host.enableSparklePlugin
     const why = rowLock(inst.id);
+
     if (on && why) { toast(why, "err"); return; }
+
     try {
       if (on) await enableSparklePlugin(await loadThirdParty(inst));
       else disableSparklePlugin(inst.id);
@@ -280,14 +301,17 @@ export function mountSparklePanel(section: HTMLElement): () => void {
       toast(`插件 ${inst.id} 切换失败`, "err");
       console.warn(e);
     }
+
     renderRows();
   };
 
   const uninstallThird = async (inst: InstalledPlugin) => {
     const bridge = window.quaverSparkle;
+
     if (!bridge) return;
     disableSparklePlugin(inst.id); // 未启用时是幂等 no-op
     const r = await bridge.uninstall({ id: inst.id });
+
     if (!r?.ok) toast(r?.error || "卸载失败", "err");
     installedThird = await listInstalledThirdParty();
     renderRows();
@@ -300,6 +324,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     const pluginLive = !!sparkRecordOf(inst.id);
     const hasSections = sparkleSettingsSections().some((e) => e.pluginId === inst.id);
     const lock = rowLock(inst.id) ?? undefined;
+
     return manageRow({
       id: inst.id,
       name: String(inst.manifest?.name ?? inst.id),
@@ -323,17 +348,21 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     b.type = "button";
     b.className = "sparkle-pack" + (on ? " is-on" : "");
     b.title = title ?? label;
+
     const dots = swatches.length
       ? `<span class="sparkle-pack-dots">${swatches.slice(0, 5).map((c) => `<i style="background:${esc(c)}"></i>`).join("")}</span>`
       : "";
+
     b.innerHTML = `${dots}<span>${esc(label)}</span>`;
     b.onclick = onClick;
+
     return b;
   };
 
   const renderPacks = () => {
     packsBox.innerHTML = "";
     const packs = stylePacks();
+
     if (!packs.length) return; // 没有主题包：整块不出现，不占视觉空间
     const st = styleState();
 
@@ -345,6 +374,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     const row = document.createElement("div");
     row.className = "sparkle-pack-row";
     row.append(packChip("默认外观", !st.packId, [], () => { resetStyle(); renderPacks(); }, "宿主内置外观（不加载任何插件样式）"));
+
     for (const { pack } of packs) {
       for (const v of pack.variants) {
         const on = st.packId === pack.id && (st.variantId ?? pack.variants[0]?.id) === v.id;
@@ -357,6 +387,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
         ));
       }
     }
+
     packsBox.append(row);
 
     // 总闸：样式把界面搞得没法用时的救命出口。必须显眼 —— 它是唯一不依赖任何
@@ -370,6 +401,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
         setStyleSuspended(input.checked);
         renderPacks();
       };
+
       const danger = document.createElement("div");
       danger.className = "sparkle-pack-danger";
       danger.append(sw);
@@ -385,15 +417,18 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     // ① 主题：category=theme 的已装插件（齿轮仅在该插件提供设置区时出现）
     themeRows.innerHTML = "";
     const themeInst = installedThird.filter((i) => installedCategory(i) === "theme");
+
     if (!themeInst.length) {
       themeRows.innerHTML = `<div class="sparkle-empty">没有已安装的主题 —— 从 Marketplace 安装；提供主题的插件启用后，到 设置 → 外观 切换</div>`;
     }
+
     for (const inst of themeInst) themeRows.append(thirdRow(inst, sourceBadge(inst.manifest?.author), { gearOnlyWithSections: true }));
     renderPacks();
 
     // ② 插件：官方 + 非主题的第三方（旧 extension 也归在这里）
     pluginRows.innerHTML = "";
     const enabled = new Set(sparkEnabledIds());
+
     for (const meta of OFFICIAL_META) {
       const broken = sparkIsBroken(meta.id) && !sparkRecordOf(meta.id);
       const offLock = officialLock(meta.id) ?? undefined;
@@ -406,6 +441,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
         onToggle: async (on) => {
           // UI 已锁，这里再兜一层（与 host 的中央闸口同口径）
           if (on && offLock) { toast(offLock, "err"); return; }
+
           try {
             if (on) await enableSparklePlugin(await loadOfficial(meta.id));
             else disableSparklePlugin(meta.id);
@@ -413,17 +449,21 @@ export function mountSparklePanel(section: HTMLElement): () => void {
             toast(`插件 ${meta.name} 切换失败`, "err");
             console.warn(e);
           }
+
           renderRows();
         },
       }));
     }
+
     const plainThird = installedThird.filter((i) => installedCategory(i) !== "theme");
+
     if (!plainThird.length && !installedThird.length) {
       const empty = document.createElement("div");
       empty.className = "sparkle-empty";
       empty.textContent = "没有已安装的第三方插件（可用 QUAVER_SPARKLE_DIR 指定开发目录，从 Marketplace 安装，或点「添加本地插件」）";
       pluginRows.append(empty);
     }
+
     for (const inst of plainThird) pluginRows.append(thirdRow(inst, sourceBadge(inst.manifest?.author)));
   };
 
@@ -447,79 +487,105 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     btn.type = "button";
     btn.className = "ghost-btn ghost-btn--quiet sparkle-install";
     btn.textContent = hostVersionError ? "版本不满足" : safeMode ? "安全模式" : isInstalled ? "重新安装" : "安装";
+
     if (hostVersionError || safeMode) {
       btn.disabled = true;
       btn.title = hostVersionError || SAFE_MODE_LOCK;
     }
+
     btn.onclick = async () => {
       const bridge = window.quaverSparkle;
+
       if (!bridge || hostVersionError || safeMode) {
         if (hostVersionError) toast(hostVersionError, "err");
         else if (safeMode) toast(SAFE_MODE_LOCK, "err");
+
         return;
       }
+
       btn.disabled = true;
       btn.textContent = "下载中…";
+
       try {
         const res = await bridge.install({
           url: entry.download,
           sha256: entry.hash,
           meta: { id: entry.id, name: entry.name, version: entry.version, minHostVersion: entry.minHostVersion, allowBeta: entry.allowBeta, author: entry.author, description: entry.description, category: cat },
         });
+
         if (!res?.ok) toast(res?.error || "安装失败", "err");
         else toast(`已安装 ${entry.name || entry.id}（默认关闭，请在「${CAT_LABEL[cat]}」标签启用）`);
       } catch (e) {
         toast("安装失败", "err");
         console.warn(e);
       }
+
       await refreshAll();
     };
+
     actions.append(btn);
+
     return el;
   };
 
   const renderMarket = () => {
     const bridge = window.quaverSparkle;
     marketList.innerHTML = "";
+
     if (!bridge) {
       marketList.innerHTML = `<div class="sparkle-empty">当前环境不支持花火插件功能（浏览器 dev / 未升级的 Electron 壳层），Marketplace 不可用</div>`;
+
       return;
     }
+
     if (market.loading) {
       marketList.innerHTML = `<div class="sparkle-empty">读取索引中…</div>`;
+
       return;
     }
+
     if (market.error) {
       marketList.innerHTML = `<div class="sparkle-empty">索引读取失败：${esc(market.error)}</div>`;
+
       return;
     }
+
     const entries = market.entries.filter((e) => mcat === "all" || catOf(e.category) === mcat);
+
     if (!entries.length) {
       marketList.innerHTML = `<div class="sparkle-empty">${mcat === "all" ? "索引里还没有内容" : `「${CAT_LABEL[mcat]}」分类暂无内容`}</div>`;
+
       return;
     }
+
     const installedIds = new Set(installedThird.map((x) => x.id));
+
     for (const entry of entries) marketList.append(marketRow(entry, installedIds.has(entry.id)));
   };
 
   const refreshMarket = async () => {
     const bridge = window.quaverSparkle;
+
     if (!bridge) {
       market = { loading: false, error: null, entries: [] };
       renderMarket();
+
       return;
     }
+
     market = { loading: true, error: null, entries: [] };
     renderMarket();
+
     try {
       const r = await bridge.market({ url: DEFAULT_MARKET_URL });
-      const entries = (r?.index as { plugins?: MarketEntry[] } | undefined)?.plugins ?? [];
+      const entries = r?.index?.plugins ?? [];
       market = r?.ok
         ? { loading: false, error: null, entries }
         : { loading: false, error: r?.error ?? "未知错误", entries: [] };
     } catch (e) {
       market = { loading: false, error: String(e), entries: [] };
     }
+
     renderMarket();
   };
 
@@ -533,52 +599,71 @@ export function mountSparklePanel(section: HTMLElement): () => void {
 
   const installLocalFlow = async () => {
     const bridge = window.quaverSparkle;
+
     if (!bridge) return;
+
     // 安全模式：主进程的安装闸口会拒，但别让用户先走完 5 秒警告再吃一个错误 —— UI 直接上锁
     if (safeMode) { toast(SAFE_MODE_LOCK, "err"); return; }
+
     showLocalPluginDialog(async () => {
       const picked = await bridge.pickLocal().catch((e) => {
         console.warn("[sparkle] 本地插件读取失败", e);
+
         return null;
       });
+
       if (!picked?.ok) { toast(picked?.error || "读取插件文件失败", "err"); return; }
+
       if (picked.canceled || !picked.dataBase64) return;
       // 元数据取自插件本体（default export）：经 blob URL 动态 import 读出并做形状校验，
       // 不合法就原地拒绝（不落任何盘）。注意 import 会执行插件顶层代码 —— 这正是警告弹窗存在的意义。
       const url = URL.createObjectURL(new Blob([base64ToBytes(picked.dataBase64)], { type: "text/javascript" }));
-      let meta: Record<string, unknown>;
+      let meta: SparklePluginManifest;
+
       try {
         const mod = await import(/* @vite-ignore */ url);
         const plugin = validatePlugin(mod?.default ?? mod?.plugin);
+
         if (!plugin) {
           toast("插件格式不合法", "err");
+
           return;
         }
+
         const hostVersionError = getSparkleHostVersionError(__APP_VERSION__, plugin.minHostVersion, plugin.allowBeta);
+
         if (hostVersionError) {
           toast(hostVersionError, "err");
+
           return;
         }
+
         meta = { id: plugin.id, name: plugin.name, version: plugin.version, minHostVersion: plugin.minHostVersion, allowBeta: plugin.allowBeta, author: plugin.author, description: plugin.description };
       } catch (e) {
         toast("插件加载失败（不是合法的 ESM 单文件插件？）", "err");
         console.warn(e);
+
         return;
       } finally {
         URL.revokeObjectURL(url);
       }
+
       try {
         const res = await bridge.installLocal({ dataBase64: picked.dataBase64, meta });
+
         if (!res?.ok) toast(res?.error || "安装失败", "err");
         else toast(`已安装 ${String(meta.name)}（默认关闭，请在「插件」标签启用）`);
       } catch (e) {
         toast("安装失败", "err");
         console.warn(e);
       }
+
       await refreshAll();
     });
   };
+
   localBtn.onclick = () => { void installLocalFlow(); };
+
   if (!window.quaverSparkle) {
     localBtn.disabled = true;
     localBtn.title = "浏览器 dev 环境不支持花火插件功能";
@@ -586,7 +671,9 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     localBtn.disabled = true;
     localBtn.title = SAFE_MODE_LOCK;
   }
+
   marketRefresh.onclick = () => { void refreshAll(); };
+
   // Marketplace 内部分类筛选：chips 只过滤列表，不改变「一份索引一处拉取」的结构
   marketGroup.querySelectorAll<HTMLButtonElement>(".sparkle-mkt-chip").forEach((chip) => {
     chip.onclick = () => {

@@ -39,6 +39,7 @@ const COVER_SIZE = 300;
 
 /** 封面档当前生效的图源：同曲重复触发不重取（extractCoverColor 有缓存，这是省一层 promise）。 */
 let coverPic = "";
+
 /** 当前封面色属于哪条策略：host=用户四档里的封面档；preset=主题方案的 "cover" 哨兵档。
  *  同一张封面从一条策略切到另一条时也要重画（只比对图源会漏掉这次切换）。 */
 let coverSource: "host" | "preset" | "" = "";
@@ -74,6 +75,7 @@ function writeVar(name: string, value: string | null) {
   if (writtenTint.has(name) && writtenTint.get(name) === value) return;
   writtenTint.set(name, value);
   const style = document.documentElement.style;
+
   if (value === null) style.removeProperty(name);
   else style.setProperty(name, value);
 }
@@ -81,10 +83,13 @@ function writeVar(name: string, value: string | null) {
 /** 写变量。无颜色（未播放 / 中继不可用 / 让位给主题）时全部移除，CSS 回落到主题默认色。 */
 function paint(rgb: RGB | null) {
   const ui = toUiColors(rgb);
+
   if (!ui) {
     for (const v of TINT_VARS) writeVar(v, null);
+
     return;
   }
+
   // 进度条的色对与 UI 高亮不同源（亮度各调各的）：从同一个 rgb 派生出两套，色相一致
   const bar = toBarColors(rgb);
   writeVar("--cvg-accent", ui.accent);
@@ -105,8 +110,10 @@ export function applyTint() {
     coverSource = "";
     syncAccentWatch(false);
     paint(null);
+
     return;
   }
+
   // 主题自带方案：用用户挑好的那套（没挑过 = 第一个）。
   // 方案的 color 可以是哨兵值："system" = 系统强调色，"cover" = 当前封面主色。
   if (policy.mode === "presets") {
@@ -116,23 +123,29 @@ export function applyTint() {
     if (chosen?.color === TINT_PRESET_COVER) {
       syncAccentWatch(false);
       const pic = player.current ? coverUrl(player.current, COVER_SIZE) : "";
+
       if (!pic) {
         // 没在播时明确回到无色，不沿用上一档/上一曲的颜色。
         coverPic = "";
         coverSource = "";
         paint(null);
+
         return;
       }
+
       if (pic === coverPic && coverSource === "preset") return; // 同一图源且策略未变：空转
       coverPic = pic;
       coverSource = "preset";
       void extractCoverColor(pic).then((rgb) => {
         // 取色在途时主题 / 方案可能已切换；回调按当时的选中项复检，防止旧图源抢写颜色。
         const now = tintPolicyOf(activeSparkTheme());
+
         if (now.mode !== "presets") return;
         const nowChosen = pickPreset(now.presets, sparkTintChoice(now.themeId));
+
         if (coverPic === pic && coverSource === "preset" && nowChosen?.color === TINT_PRESET_COVER) paint(rgb);
       });
+
       return;
     }
 
@@ -141,14 +154,18 @@ export function applyTint() {
     const hex = chosen ? resolvePresetColor(chosen.color, currentAccent()?.color ?? null) : null;
     // 哨兵方案要开着轮询（读到了会重算）；纯色方案用不上系统强调色，顺手停表。
     syncAccentWatch(chosen?.color === TINT_PRESET_SYSTEM);
+
     if (hex) {
       paint(parseHex(hex));
+
       return;
     }
+
     // 读不到系统色（或方案色非法，validPresets 已挡了一道，这是双保险）：回落第一套非哨兵方案；
     // 一套都没有 = 无色（--cvg-accent 回落 :root，主题自己的强调色显出来）。
     const fb = policy.presets.find((p) => p.color !== TINT_PRESET_SYSTEM && p.color !== TINT_PRESET_COVER);
     paint(fb ? parseHex(fb.color) : null);
+
     return;
   }
 
@@ -158,26 +175,33 @@ export function applyTint() {
   if (mode !== "cover") {
     coverPic = ""; // 离开封面档：作废在途取色（下面的回调还会复检一次档位）
     coverSource = "";
+
     if (mode === "system") {
       // 系统强调色：同步读缓存（第一次要等 /api/accent 回来，期间先用默认青色顶着，
       // watchAccent 的回调会在值到达时重算一次）。读不到也回落默认青色 —— 不能停在上一档的颜色上。
       syncAccentWatch(true);
       paint(parseHex(currentAccent()?.color ?? "") ?? parseHex(TINT_DEFAULT_COLOR));
+
       return;
     }
+
     syncAccentWatch(false);
     paint(parseHex(mode === "custom" ? getTintColor() : TINT_DEFAULT_COLOR));
+
     return;
   }
 
   syncAccentWatch(false);
   const pic = player.current ? coverUrl(player.current, COVER_SIZE) : "";
+
   if (!pic) {
     // 封面档但没有曲目：不是「保持不变」，而是明确回到无色（否则会停在上一档写下的颜色上）
     coverPic = "";
     paint(null);
+
     return;
   }
+
   if (pic === coverPic && coverSource === "host") return; // 同一图源且策略未变：空转
   coverPic = pic;
   coverSource = "host";

@@ -46,8 +46,10 @@ export async function refreshAccent(): Promise<SystemAccent | null> {
   inflight = (async () => {
     try {
       const r = await fetch(ACCENT_ROUTE, { cache: "no-store" });
+
       if (!r.ok) return last;
       const v = (await r.json()) as Partial<SystemAccent> | null;
+
       if (v && typeof v === "object" && (v.color === null || typeof v.color === "string")) {
         last = {
           color: v.color && /^#[0-9a-f]{6}$/.test(v.color) ? v.color : null, // 探测端已规范过，这里再守一道
@@ -57,6 +59,7 @@ export async function refreshAccent(): Promise<SystemAccent | null> {
           mode: v.mode === "light" ? "light" : "dark",
         };
       }
+
       return last;
     } catch {
       return last;
@@ -64,6 +67,7 @@ export async function refreshAccent(): Promise<SystemAccent | null> {
       inflight = null;
     }
   })();
+
   return inflight;
 }
 
@@ -74,6 +78,7 @@ export async function refreshAccent(): Promise<SystemAccent | null> {
  */
 export function watchAccent(onChange: (a: SystemAccent) => void): () => void {
   listeners.add(onChange);
+
   if (!timer) {
     void refreshAccent().then((a) => { if (a) notify(); });
     timer = setInterval(() => {
@@ -81,8 +86,10 @@ export function watchAccent(onChange: (a: SystemAccent) => void): () => void {
     }, POLL_MS);
     timer.unref?.(); // 只在有人订阅时才存在，但还是不许拽住事件循环
   }
+
   return () => {
     listeners.delete(onChange);
+
     if (!listeners.size && timer) {
       clearInterval(timer);
       timer = null;
@@ -94,8 +101,10 @@ export function watchAccent(onChange: (a: SystemAccent) => void): () => void {
 function notify() {
   const prev = notifyPrev;
   const now = last;
+
   if (prev && now && prev.color === now.color && prev.source === now.source) return;
   notifyPrev = now ? { ...now } : now;
+
   for (const fn of listeners) {
     try { fn(now as SystemAccent); } catch (e) { console.warn("accent listener failed", e); }
   }

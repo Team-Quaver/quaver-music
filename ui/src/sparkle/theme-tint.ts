@@ -50,15 +50,20 @@ export function validPresets(list: unknown): SparkleTintPreset[] {
   if (!Array.isArray(list)) return [];
   const out: SparkleTintPreset[] = [];
   const seen = new Set<string>();
+
   for (const raw of list) {
     const p = raw as Partial<SparkleTintPreset> | null | undefined;
+
     if (!p || typeof p.id !== "string" || !p.id || seen.has(p.id)) continue;
+
     if (typeof p.label !== "string" || !p.label) continue;
+
     if (typeof p.color !== "string" ||
         (p.color !== TINT_PRESET_SYSTEM && p.color !== TINT_PRESET_COVER && !parseHex(p.color))) continue;
     seen.add(p.id);
     out.push({ id: p.id, label: p.label, color: p.color });
   }
+
   return out;
 }
 
@@ -70,13 +75,18 @@ export function validPresets(list: unknown): SparkleTintPreset[] {
 export function resolvePresetColor(color: string, sysHex: string | null, coverHex: string | null = null): string | null {
   if (color === TINT_PRESET_SYSTEM) {
     const c = sysHex ? parseHex(sysHex) : null;
+
     return c ? toHex(c) : null;
   }
+
   if (color === TINT_PRESET_COVER) {
     const c = coverHex ? parseHex(coverHex) : null;
+
     return c ? toHex(c) : null;
   }
+
   const c = parseHex(color);
+
   return c ? toHex(c) : null;
 }
 
@@ -89,21 +99,27 @@ export function resolvePresetColor(color: string, sysHex: string | null, coverHe
 export function tintPolicyOf(theme: SparkleTheme | null | undefined): SparkTintPolicy {
   if (!theme) return { mode: "host", presets: [], themeId: null };
   const t = theme.tint;
+
   if (!t || (t.mode !== "host" && t.mode !== "presets")) {
     return { mode: "off", presets: [], themeId: theme.id };
   }
+
   if (t.mode === "presets") {
     const presets = validPresets(t.presets);
+
     // 声明了 presets 却一套合法方案都没有：用户没得挑，降级成 host
     if (!presets.length) return { mode: "host", presets: [], themeId: theme.id };
+
     return { mode: "presets", presets, themeId: theme.id };
   }
+
   return { mode: "host", presets: [], themeId: theme.id };
 }
 
 /** 从（已校验的）方案里挑生效的那一套：用户选过的，否则第一个（与主题包的 variants 同口径）。 */
 export function pickPreset(presets: SparkleTintPreset[], chosenId: string | null): SparkleTintPreset | null {
   if (!presets.length) return null;
+
   return presets.find((p) => p.id === chosenId) ?? presets[0];
 }
 
@@ -116,6 +132,7 @@ function readChoices(): Record<string, string> {
   try {
     const raw = globalThis.localStorage?.getItem(PRESET_KEY) ?? "{}";
     const v = JSON.parse(raw) as unknown;
+
     return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, string>) : {};
   } catch {
     return {};
@@ -126,14 +143,17 @@ function readChoices(): Record<string, string> {
 export function sparkTintChoice(themeId: string | null): string | null {
   if (!themeId) return null;
   const v = readChoices()[themeId];
+
   return typeof v === "string" ? v : null;
 }
 
 export function sparkSetTintChoice(themeId: string, presetId: string | null): void {
   if (!themeId) return;
   const all = readChoices();
+
   if (presetId) all[themeId] = presetId;
   else delete all[themeId];
+
   try {
     globalThis.localStorage?.setItem(PRESET_KEY, JSON.stringify(all));
   } catch {

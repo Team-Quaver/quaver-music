@@ -68,6 +68,7 @@ export function songListTools(opts: SongListToolsOptions): SongListTools {
   const nameOf = (s: any) => songTitle(s);
   // 合唱/合作：整串参与排序，别只看第一位歌手
   const singerOf = (s: any) => (s.singer ?? []).map((x: any) => x?.name ?? "").join(" / ");
+
   // \u0001 分隔，免得「名字末尾 + 歌手开头」拼出跨字段的假命中
   const hayOf = (s: any) =>
     [songTitle(s), s.name, songSubtitle(s), singerOf(s), s.album?.name ?? ""].join("\u0001").toLowerCase();
@@ -76,10 +77,12 @@ export function songListTools(opts: SongListToolsOptions): SongListTools {
     const all = opts.source();
     const q = kw.trim().toLowerCase();
     const list = q ? all.filter((s) => hayOf(s).includes(q)) : all.slice();
+
     if (sortKey === "default") return list; // 原序原样返回
     const key = sortKey === "name" ? nameOf : singerOf;
     // 主键相同再用曲名兜底：顺序稳定可预期（同名不同版本相邻）
     const sorted = list.sort((a, b) => COLLATOR.compare(key(a), key(b)) || COLLATOR.compare(nameOf(a), nameOf(b)));
+
     return desc ? sorted.reverse() : sorted;
   }
 
@@ -90,6 +93,7 @@ export function songListTools(opts: SongListToolsOptions): SongListTools {
   function paint() {
     window.clearTimeout(timer); // 立即画的场合（点击/清空）把排队中的那次吃掉，别画两遍
     timer = 0;
+
     for (const b of sortBtns) {
       const on = b.dataset.sort === sortKey;
       // .sel 给样式（与歌手页分类标签共用 .tag.sel 这一套），.on 留给校验脚本/后续钩子
@@ -97,8 +101,10 @@ export function songListTools(opts: SongListToolsOptions): SongListTools {
       b.classList.toggle("on", on);
       b.setAttribute("aria-pressed", String(on));
       const dir = b.querySelector<HTMLElement>(".dir");
+
       if (dir) dir.textContent = on && sortKey !== "default" ? (desc ? "↓" : "↑") : "";
     }
+
     clrEl.hidden = !kw;
     refreshCount();
     opts.paint(visible(), { filtering: !!kw.trim() });
@@ -118,11 +124,14 @@ export function songListTools(opts: SongListToolsOptions): SongListTools {
     paint();
   });
   clrEl.addEventListener("click", () => { kwEl.value = ""; kw = ""; kwEl.focus(); paint(); });
+
   for (const b of sortBtns) {
     b.addEventListener("click", () => {
       const key = b.dataset.sort as RowSortKey;
+
       if (key === sortKey) { if (key !== "default") desc = !desc; } // 同一个键再点 = 正/倒对调
       else { sortKey = key; desc = false; }
+
       paint();
     });
   }

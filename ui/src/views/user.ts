@@ -3,16 +3,21 @@ import { api, escHtml, identityBadges } from "../lib/api";
 import { vipCardHtml, watchVip } from "../lib/vip.ts";
 import type { UserMeResp } from "./_shared";
 import { exitMe, h, settleIn } from "./_shared";
+
 export default async function userView(root: HTMLElement) {
   const wrap = h("div", "me");
   root.append(wrap);
+
   try {
     const [home, vip] = await Promise.all([
       api<UserMeResp>("/user/me"),
       api<unknown>("/user/vip").catch(() => null),
     ]);
+
     const base = home?.base_info;
+
     if (!base?.name) { location.hash = "#/login"; return; }
+
     // 会员权益卡（到期时间 + 档位明细 + 续费指路）由 lib/vip.ts 生成：字段口径与上游模型对齐，
     // 这里只负责挂进页面。vip 为 null（上游没响应）时卡片自己说明读不到。
     wrap.innerHTML = `
@@ -22,14 +27,18 @@ export default async function userView(root: HTMLElement) {
       <p class="muted">UID: ${escHtml(base.encrypted_uin ?? "")}</p>
       ${vipCardHtml(vip)}
       <button id="logout" class="ghost-btn danger">退出登录</button>`;
+
     const stopVip = watchVip(vip, () => {
       const badges = wrap.querySelector<HTMLElement>(".badges")!;
       const badgeHtml = identityBadges(home, vip);
+
       if (badges.innerHTML !== badgeHtml) badges.innerHTML = badgeHtml;
       const card = wrap.querySelector<HTMLElement>(".vip-card")!;
       const cardHtml = vipCardHtml(vip);
+
       if (card.outerHTML !== cardHtml) card.outerHTML = cardHtml;
     });
+
     const btn = wrap.querySelector<HTMLButtonElement>("#logout")!;
     let leaving = false;
     btn.onclick = async () => {
@@ -42,6 +51,7 @@ export default async function userView(root: HTMLElement) {
       await Promise.all([exitMe(wrap), settleIn(api("/login/logout", { method: "POST" }), 1500)]);
       location.href = "/login.html";
     };
+
     return stopVip;
   } catch {
     location.hash = "#/login";

@@ -33,31 +33,38 @@ export function bindHResizer(handle: HTMLElement, hooks: HResizerHooks) {
     const onMove = (ev: PointerEvent) => {
       if (ev.pointerId !== pid) return;
       const dx = ev.clientX - startX;
+
       if (!dragging) {
         if (Math.abs(dx) < MOVE_THRESHOLD) return;
         dragging = true;
         document.body.classList.add("col-resizing");
       }
+
       ev.preventDefault();
       hooks.move(base + (hooks.invert ? -dx : dx));
     };
+
     const finish = (ev: PointerEvent) => {
       if (ev.pointerId !== pid) return;
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onCancel);
+
       if (dragging) {
         document.body.classList.remove("col-resizing");
         hooks.end?.();
       }
     };
+
     const onUp = (ev: PointerEvent) => finish(ev);
     const onCancel = (ev: PointerEvent) => finish(ev);
 
     try { handle.setPointerCapture(pid); } catch { /* 合成事件降级 */ }
+
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onCancel);
   });
+
   if (hooks.dbl) handle.addEventListener("dblclick", () => hooks.dbl!());
 }

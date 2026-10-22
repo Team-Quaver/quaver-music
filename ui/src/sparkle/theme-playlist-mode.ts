@@ -19,6 +19,7 @@ export interface SparkPlaylistModePolicy {
 export function playlistModePolicyOf(theme: SparkleTheme | null | undefined): SparkPlaylistModePolicy {
   if (!theme) return { mode: "host", themeId: null };
   const m = theme.playlistMode;
+
   return m?.mode === "menu" || m?.mode === "collection"
     ? { mode: m.mode, themeId: theme.id }
     : { mode: "host", themeId: null };

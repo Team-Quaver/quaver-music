@@ -16,6 +16,7 @@ const BUILTIN = [
 ] as const;
 
 type Runtime = typeof import("./audio-spectrum");
+
 type Renderer = typeof import("./spectrum-render");
 
 let runtime: Runtime | null = null;
@@ -31,6 +32,7 @@ function loadRuntime(): Promise<Runtime | null> {
     .then((m) => { runtime = m; status = m.audioSpectrum.status(); return m; })
     .catch((e) => { console.warn("[spectrum] 分析器加载失败", e); status = "unavailable"; return null; })
     .finally(() => { runtimeFlight = null; });
+
   return runtimeFlight;
 }
 
@@ -40,16 +42,19 @@ export function loadSpectrumStyles(): Promise<void> {
     .then(() => {})
     .catch((e) => { console.warn("[spectrum] 样式加载失败", e); })
     .finally(() => { styleFlight = null; });
+
   return styleFlight;
 }
 
 function loadRenderer(): Promise<Renderer | null> {
   void loadSpectrumStyles();
+
   if (renderer) return Promise.resolve(renderer);
   rendererFlight ??= import("./spectrum-render")
     .then((m) => { renderer = m; return m; })
     .catch((e) => { console.warn("[spectrum] 绘制器加载失败", e); return null; })
     .finally(() => { rendererFlight = null; });
+
   return rendererFlight;
 }
 
@@ -63,6 +68,7 @@ export function spectrumModes(): { id: string; label: string }[] {
 /** 当前形态：持久化值不存在（插件被停用/卸载）时回落 bars。 */
 export function currentSpectrumMode(): string {
   const id = getSpectrumMode();
+
   return spectrumModes().some((m) => m.id === id) ? id : "bars";
 }
 
@@ -70,8 +76,10 @@ export function currentSpectrumMode(): string {
 export async function spectrumMode(id: string): Promise<SparkleNpSpectrumMode | null> {
   await loadSpectrumStyles();
   const plugin = sparkleNpSpectrumModes().find((m) => m.id === id);
+
   if (plugin) return plugin;
   const r = await loadRenderer();
+
   return r?.builtinSpectrumModes.find((m) => m.id === id) ?? null;
 }
 
@@ -80,24 +88,30 @@ export const spectrumFacade: SparkleSpectrumFacade = {
   setEnabled: (on) => {
     if (on === getSpectrumEnabled()) return;
     setSpectrumEnabled(on);
+
     if (on) { void loadSpectrumStyles(); void loadRuntime(); }
+
     player.notifyPublic();
   },
   status: () => {
     if (runtime) status = runtime.audioSpectrum.status();
+
     return status;
   },
   mode: () => currentSpectrumMode(),
   modes: () => spectrumModes(),
   setMode: (id) => {
     if (!spectrumModes().some((m) => m.id === id)) return;
+
     if (id === getSpectrumMode()) return;
     setSpectrumMode(id);
     player.notifyPublic();
   },
   frame: () => {
     if (!runtime) { status = "starting"; void loadRuntime(); return null; }
+
     status = runtime.audioSpectrum.status();
+
     return runtime.audioSpectrum.frame();
   },
   onFrame: (cb) => {
@@ -109,6 +123,7 @@ export const spectrumFacade: SparkleSpectrumFacade = {
       unsub = r.audioSpectrum.onFrame(cb);
       status = r.audioSpectrum.status();
     });
+
     return () => {
       canceled = true;
       unsub?.();

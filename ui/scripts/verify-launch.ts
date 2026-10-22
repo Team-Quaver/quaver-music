@@ -21,10 +21,12 @@ const CONFIG = join(UI, "vite.config.ts");
 
 let pass = 0, fail = 0;
 const section = (t: string) => console.log(`\n=== ${t} ===`);
+
 function check(name: string, cond: boolean, detail = "") {
   if (cond) { pass++; console.log(`  ✅ ${name}`); }
   else { fail++; console.log(`  ❌ ${name}${detail ? ` — ${detail}` : ""}`); }
 }
+
 const eq = (name: string, got: unknown, want: unknown) =>
   check(name, JSON.stringify(got) === JSON.stringify(want), `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
 
@@ -32,6 +34,7 @@ const eq = (name: string, got: unknown, want: unknown) =>
 async function resolveFrom(dir: string) {
   const back = process.cwd();
   process.chdir(dir);
+
   try {
     return await resolveConfig({ configFile: CONFIG }, "serve", "production", "production", true);
   } finally {
@@ -40,17 +43,27 @@ async function resolveFrom(dir: string) {
 }
 
 section("root 与 cwd 解耦（preview 的真相）");
+
 const fromUI = await resolveFrom(UI);
+
 eq("cwd=ui → root 是 ui/", fromUI.root, UI);
+
 const fromHome = await resolveFrom(tmpdir());
+
 eq("cwd=/tmp（模拟启动器）→ root 仍是 ui/", fromHome.root, UI);
+
 const fromRoot = await resolveFrom("/");
+
 eq("cwd=/ → root 仍是 ui/", fromRoot.root, UI);
 
 section("产物与静态目录跟着 root 走（不是 cwd）");
+
 const outDir = resolve(fromHome.root, fromHome.environments.client.build.outDir);
+
 eq("outDir 落在 ui/dist", outDir, join(UI, "dist"));
+
 eq("publicDir 是 ui/public", fromHome.publicDir, join(UI, "public"));
 
 console.log(`\n${fail === 0 ? "✅" : "❌"} verify-launch: ${pass} passed, ${fail} failed`);
+
 process.exit(fail === 0 ? 0 : 1);

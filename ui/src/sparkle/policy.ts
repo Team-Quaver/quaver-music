@@ -12,7 +12,7 @@ import { getSparkleBlacklist } from "../lib/prefs";
 /** 安全模式（干净载入）：主进程按 QUAVER_REDFLAG=1 钉住，经 preload 的 quaverRedflag 下发。
  *  浏览器 dev / 未开时恒为 false。 */
 export const sparkRedflag = (): boolean =>
-  (window as unknown as { quaverRedflag?: boolean }).quaverRedflag === true;
+  window.quaverRedflag === true;
 
 /** 插件 id 是否在 [Sparkle] Blacklist 里（预装插件与第三方一视同仁）。 */
 export const sparkIdBlacklisted = (id: string): boolean => getSparkleBlacklist().includes(id);
@@ -21,6 +21,8 @@ export const sparkIdBlacklisted = (id: string): boolean => getSparkleBlacklist()
  *  安全模式只拦外置（kind === "third-party"）—— 预装插件随宿主打包，不受影响。 */
 export function sparkBlockReason(plugin: Pick<SparklePlugin, "id" | "kind">): string | null {
   if (plugin.kind === "third-party" && sparkRedflag()) return "安全模式（QUAVER_REDFLAG=1）已禁用全部第三方插件";
+
   if (sparkIdBlacklisted(plugin.id)) return `插件 ${plugin.id} 在 [Sparkle] Blacklist 黑名单里`;
+
   return null;
 }

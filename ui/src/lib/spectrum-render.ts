@@ -11,16 +11,20 @@ type Ctx2D = CanvasRenderingContext2D;
 
 function accentColor(): string {
   const root = getComputedStyle(document.documentElement);
+
   return root.getPropertyValue("--cvg-accent").trim() || root.getPropertyValue("--cyan").trim() || "#19c2d8";
 }
 
 /** Canvas 的 fillStyle 不保证认 color-mix()；内置渐变只处理 hex，其它形态退回原色。 */
 function withAlpha(color: string, alpha: number): string {
   const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim());
+
   if (!m) return color;
   let hex = m[1];
+
   if (hex.length === 3) hex = hex.split("").map((x) => x + x).join("");
   const n = Number.parseInt(hex, 16);
+
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
 
@@ -34,8 +38,10 @@ function mountCanvas(
   canvas.setAttribute("aria-hidden", "true");
   host.append(canvas);
   const c = canvas.getContext("2d");
+
   if (!c) return () => canvas.remove();
   let w = 1, h = 1;
+
   const size = () => {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     w = Math.max(1, Math.round(host.clientWidth));
@@ -46,17 +52,22 @@ function mountCanvas(
     canvas.style.height = `${h}px`;
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
   };
+
   size();
   const ro = new ResizeObserver(size);
   ro.observe(host);
   let last: SparkleSpectrumFrame | null = ctx.frame();
+
   const drawNow = (frame: SparkleSpectrumFrame) => {
     last = frame;
     c.clearRect(0, 0, w, h);
     draw(c, w, h, frame);
   };
+
   const unsub = ctx.onFrame(drawNow);
+
   if (last) drawNow(last);
+
   return () => {
     unsub();
     ro.disconnect();
@@ -67,14 +78,17 @@ function mountCanvas(
 /** 把 1024 个线性频点压成 count 个对数频带峰值（低频不挤成一根，高频不占半屏）。 */
 function levelsFor(frame: SparkleSpectrumFrame | null, out: Float32Array): void {
   if (!frame?.bins.length) { out.fill(0); return; }
+
   const n = frame.bins.length;
   const lo = 1;
   const hi = Math.max(lo + 1, Math.floor(n * 0.74));
+
   for (let i = 0; i < out.length; i++) {
     const span = Math.max(1, out.length - 1);
     const a = Math.max(lo, Math.floor(lo * Math.pow(hi / lo, i / span)));
     const b = Math.max(a + 1, Math.floor(lo * Math.pow(hi / lo, Math.min(1, (i + 1) / span))));
     let peak = 0;
+
     for (let j = a; j < Math.min(n, b); j++) peak = Math.max(peak, frame.bins[j] || 0);
     out[i] = Math.pow(peak, 0.82);
   }
@@ -86,12 +100,15 @@ const bars: SparkleNpSpectrumMode = {
   render(host, ctx) {
     let levels = new Float32Array(96);
     let next = new Float32Array(96);
+
     return mountCanvas(host, ctx, (c, w, h, frame) => {
       const count = Math.max(20, Math.min(96, Math.round(w / 7.2)));
+
       if (levels.length !== count) {
         levels = new Float32Array(count);
         next = new Float32Array(count);
       }
+
       levelsFor(frame, next);
       const accent = accentColor();
       const gap = count > 70 ? 1.5 : 2.4;
@@ -104,6 +121,7 @@ const bars: SparkleNpSpectrumMode = {
       c.fillStyle = grad;
       c.shadowColor = accent;
       c.shadowBlur = 9;
+
       for (let i = 0; i < count; i++) {
         levels[i] = levels[i] * 0.68 + next[i] * 0.32;
         const bh = Math.max(1.5, levels[i] * (h - 9));
@@ -113,6 +131,7 @@ const bars: SparkleNpSpectrumMode = {
         c.roundRect(x, base - bh, bw, bh, Math.min(bw / 2, 2.5));
         c.fill();
       }
+
       c.globalAlpha = 0.28;
       c.shadowBlur = 0;
       c.fillStyle = accent;
@@ -128,12 +147,15 @@ const mirror: SparkleNpSpectrumMode = {
   render(host, ctx) {
     let levels = new Float32Array(96);
     let next = new Float32Array(96);
+
     return mountCanvas(host, ctx, (c, w, h, frame) => {
       const count = Math.max(18, Math.min(80, Math.round(w / 8)));
+
       if (levels.length !== count) {
         levels = new Float32Array(count);
         next = new Float32Array(count);
       }
+
       levelsFor(frame, next);
       const accent = accentColor();
       const gap = 2;
@@ -142,6 +164,7 @@ const mirror: SparkleNpSpectrumMode = {
       c.fillStyle = accent;
       c.shadowColor = accent;
       c.shadowBlur = 10;
+
       for (let i = 0; i < count; i++) {
         levels[i] = levels[i] * 0.68 + next[i] * 0.32;
         const bh = Math.max(1.5, levels[i] * (h * 0.43));
@@ -154,6 +177,7 @@ const mirror: SparkleNpSpectrumMode = {
         c.roundRect(x, mid, bw, bh, Math.min(bw / 2, 2));
         c.fill();
       }
+
       c.globalAlpha = 0.5;
       c.shadowBlur = 0;
       c.fillRect(0, mid, w, 1);
@@ -171,18 +195,24 @@ const wave: SparkleNpSpectrumMode = {
       const mid = h * 0.5;
       const n = frame?.wave.length ?? 0;
       const samples = Math.max(2, Math.min(Math.round(w), n || 2));
+
       const yAt = (x: number) => {
         if (!n) return mid;
         const i = Math.min(n - 1, Math.floor((x / samples) * (n - 1)));
+
         return mid + Math.max(-1, Math.min(1, frame!.wave[i] * 1.8)) * (h * 0.4);
       };
+
       const trace = () => {
         c.beginPath();
+
         for (let x = 0; x <= samples; x++) {
           const px = (x / samples) * w;
+
           if (x === 0) c.moveTo(px, yAt(x)); else c.lineTo(px, yAt(x));
         }
       };
+
       c.strokeStyle = accent;
       c.lineWidth = 1.4;
       c.shadowColor = accent;

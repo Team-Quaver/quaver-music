@@ -2,6 +2,7 @@
 import { api } from "../lib/api";
 import type { LoginChannel, QrResp, QrStatusResp } from "./_shared";
 import { errText } from "./_shared";
+
 // —— 登录页（扫码），内容区视图 ——
 export default async function loginView(root: HTMLElement) {
   root.innerHTML = `
@@ -39,13 +40,16 @@ export default async function loginView(root: HTMLElement) {
     qr.innerHTML = `<div class="muted">生成中…</div>`;
     lstate.textContent = "";
     let d: QrResp;
+
     try {
       d = await api<QrResp>(`/login/qrcode/${loginChannel}`);
     } catch (e) {
       if (stopped || current !== generation) return;
       qr.innerHTML = `<div class="muted">${/429|backoff|频繁/.test(errText(e)) ? "操作太快，等 60-90s 再重试" : errText(e)}</div>`;
+
       return;
     }
+
     if (stopped || current !== generation) return;
     qr.innerHTML = `<img src="${d.img}" alt="登录二维码"/>`;
     lstate.textContent = "等待扫码…";
@@ -53,18 +57,28 @@ export default async function loginView(root: HTMLElement) {
     timer = window.setInterval(async () => {
       if (stopped || current !== generation || polling) return;
       polling = true;
+
       try {
         const c = await api<QrStatusResp>(`/login/qrcode/${loginChannel}/status?identifier=${encodeURIComponent(d.identifier ?? "")}`);
+
         if (stopped || current !== generation) return;
+
         if (c.error) {
           lstate.textContent = c.error;
+
           if (c.done) window.clearInterval(timer);
+
           return;
         }
+
         if (c.event === 1) { lstate.textContent = "等待扫码…"; return; } // SCAN
+
         if (c.event === 2) { lstate.textContent = "已扫码，请在手机上确认"; return; }
+
         if (c.event === 3) { lstate.textContent = "二维码已过期，点「重新生成」"; window.clearInterval(timer); return; }
+
         if (c.event === 4) { lstate.textContent = "已拒绝登录"; window.clearInterval(timer); return; }
+
         if (c.event === 0 && c.done) {
           window.clearInterval(timer);
           lstate.textContent = "✅ 登录成功，正在返回…";
@@ -83,16 +97,20 @@ export default async function loginView(root: HTMLElement) {
   for (const b of tabs) {
     b.addEventListener("click", () => {
       const ch = b.dataset.ch as LoginChannel;
+
       if (ch === channel) return; // 重复点当前档不重开
       channel = ch;
+
       for (const x of tabs) {
         const on = x === b;
         x.classList.toggle("sel", on);
         x.setAttribute("aria-selected", String(on));
       }
+
       void start();
     });
   }
+
   root.querySelector<HTMLElement>("#refresh")!.onclick = () => void start();
   void start();
 

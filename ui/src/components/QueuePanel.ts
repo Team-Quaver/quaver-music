@@ -30,6 +30,7 @@ export function QueuePanel(): HTMLElement {
   const list = el.querySelector<HTMLElement>("#qp-list")!;
   const cnt = el.querySelector<HTMLElement>("#qp-cnt")!;
   el.querySelector<HTMLElement>("#qp-close")!.onclick = () => { player.queueOpen = false; player.notifyPublic(); };
+
   el.querySelector<HTMLElement>("#qp-clear")!.onclick = () => player.clearQueue();
 
   // —— 形态查询（停靠宽度、开合、全屏态都要用，先于宽度块定义） ——
@@ -51,14 +52,19 @@ export function QueuePanel(): HTMLElement {
     if (!el.classList.contains("float")) {
       el.style.removeProperty("right");
       el.style.removeProperty("bottom");
+
       return;
     }
+
     const qr = queueBtn()?.getBoundingClientRect();
+
     if (!qr || qr.width < 1 || qr.height < 1) {
       el.style.removeProperty("right");
       el.style.removeProperty("bottom");
+
       return;
     }
+
     const edge = 14; // 与窗口边缘至少留出的呼吸位
     const panelW = el.offsetWidth || 320;
     const maxRight = Math.max(edge, window.innerWidth - panelW - edge);
@@ -82,6 +88,7 @@ export function QueuePanel(): HTMLElement {
    *  面板（flex-basis/width/min-width）与 .content::before（吸顶底按面板左缘收边）都从它继承，
    *  两边必须读同一个值 —— 写在面板身上就分成两份、吸顶底再也够不着（踩过）。 */
   const setQpW = (px: number) => { contentEl()?.style.setProperty("--qp-w", `${px}px`); };
+
   setQpW(qpW);
   const qpResizer = document.createElement("div");
   qpResizer.className = "qp-resizer";
@@ -124,11 +131,14 @@ export function QueuePanel(): HTMLElement {
     el.classList.toggle("dock", dock);
     el.classList.toggle("float", !dock);
     const want = dock ? contentBody() : document.body;
+
     if (!want || el.parentElement === want) {
       if (!dock) qpResizer.remove(); // 浮窗态分隔条不跟随（挪回 body 时摘掉）
       positionFloat();
+
       return false;
     }
+
     if (dock) {
       // 先 resizer 后面板：DOM 序 = route | resizer | panel，分隔条的 border box 恰好落在面板
       // 左缘 10px 之上（margin-right:-10px 抵平自身占位），靠 z-index 浮起收指针 ——
@@ -138,7 +148,9 @@ export function QueuePanel(): HTMLElement {
       want.append(el);
       qpResizer.remove(); // 浮窗态分隔条不跟随
     }
+
     positionFloat();
+
     return true;
   }
 
@@ -161,22 +173,28 @@ export function QueuePanel(): HTMLElement {
     if (applyLayout()) {
       el.classList.remove("open");
       requestAnimationFrame(applyOpen);
+
       return;
     }
+
     applyOpen();
   }
+
   // 关闭时也让形态跟着宽度走：否则窗口尺寸变过之后的下一次展开又会「边换父节点边开」
   const ro = new ResizeObserver(syncMount);
   const contentBox = contentEl();
+
   if (contentBox) ro.observe(contentBox);
   syncMount();
   // 本组件构造时节点还没进 DOM（壳层随后才 append），等一帧再补一次定形态。
   requestAnimationFrame(syncMount);
   const playerBox = playerEl();
+
   if (playerBox) ro.observe(playerBox);
   // ResizeObserver 只报尺寸，不报纯位移：悬浮条在「内容区居中 ⇄ 窗口居中」之间切位置时
   // 宽高可能没变，但按钮已经移动。等 transition 落定再量一次，浮窗不会留在旧位置。
   const onBarMotion = (ev: Event) => { if (ev.target === playerBox) positionFloat(); };
+
   playerBox?.addEventListener("transitionend", onBarMotion);
   playerBox?.addEventListener("animationend", onBarMotion);
   window.addEventListener("resize", positionFloat, { passive: true });
@@ -190,10 +208,13 @@ export function QueuePanel(): HTMLElement {
 
   function render() {
     list.innerHTML = "";
+
     if (!player.queue.length) {
       list.innerHTML = `<div class="qp-empty">队列为空<span>播放一首歌，或用「下一首播放」加入</span></div>`;
+
       return;
     }
+
     player.queue.forEach((q, i) => list.append(rowOf(q, i)));
     revealCurrent();
   }
@@ -205,14 +226,17 @@ export function QueuePanel(): HTMLElement {
     // （宽度变化由 ResizeObserver 独立覆盖，expanded/queueOpen 在签名里）。
     const s = player.queueVersion + "#" + player.index + "#" + player.playing + "#"
       + player.loading + "#" + player.expanded + "#" + player.queueOpen + "#" + player.radioActive;
+
     if (s === sig) return; // 内容没变不重建
     sig = s;
     syncMount();
     cnt.textContent = player.queue.length ? `${player.queue.length} 首` : "";
+
     // 拖拽中**绝不重建**：整表重画会把正在拖的那一行连节点带监听一起换掉，表现就是
     // 「拖到一半突然不动了」—— notify 是 4Hz 的位置广播，随时可能踩进来（缓冲完成、
     // 播放态翻转都会改 sig）。推迟到松手再补：拖拽期间队列本身不会变，晚一会儿重画无感。
     if (dragRow) { pendingRebuild = true; return; }
+
     render();
   });
 
@@ -227,9 +251,11 @@ export function QueuePanel(): HTMLElement {
    *  所以这里用 rect 差值自己滚，绝不碰祖先。 */
   function revealCurrent() {
     const row = list.querySelector<HTMLElement>(".cur");
+
     if (!row) return;
     const lr = list.getBoundingClientRect();
     const rr = row.getBoundingClientRect();
+
     if (rr.top < lr.top) list.scrollTop -= lr.top - rr.top;
     else if (rr.bottom > lr.bottom) list.scrollTop += rr.bottom - lr.bottom;
   }
@@ -250,6 +276,7 @@ export function QueuePanel(): HTMLElement {
     `;
     row.addEventListener("click", (e) => {
       if ((e.target as HTMLElement).closest(".qi-grip, .qi-del")) return; // 把手/删除钮不触发切歌
+
       if (suppressClick) return;
       player.jump(i);
     });
@@ -258,6 +285,7 @@ export function QueuePanel(): HTMLElement {
       player.removeAt(i);
     });
     bindDrag(row, i);
+
     return row;
   }
 
@@ -285,15 +313,19 @@ export function QueuePanel(): HTMLElement {
   const contentY = (viewportY: number) => viewportY - list.getBoundingClientRect().top + list.scrollTop;
 
   const shifts = new WeakMap<HTMLElement, Animation>();
+
   /** 邻行让位动画：换位前量一次、换位后量一次，让每行从旧位置滑到新位置。
    *  量的是**当前视觉位置**（可能正在上一次滑动的中途），所以连续换位会平滑接上，不跳。 */
   function squeeze(others: HTMLElement[], mutate: () => void) {
     const before = others.map((el) => el.getBoundingClientRect().top);
     mutate();
+
     if (reduceMotion()) return;
+
     for (let i = 0; i < others.length; i++) {
       const el = others[i];
       const d = before[i] - el.getBoundingClientRect().top;
+
       if (Math.abs(d) < 0.5) continue; // 没动过的行不要挂空动画
       shifts.get(el)?.cancel(); // 上一次还没滑完就被再次挤开：直接接上新目标
       shifts.set(el, el.animate(
@@ -308,7 +340,9 @@ export function QueuePanel(): HTMLElement {
   function bindDrag(row: HTMLElement, fromIdx: number) {
     row.addEventListener("pointerdown", (e) => {
       if (e.button !== 0) return;
+
       if ((e.target as HTMLElement).closest(".qi-del")) return; // 删除钮：不参与拖拽
+
       if (dragRow) return; // 一次只拖一行
       const pid = e.pointerId;
       const startY = e.clientY;
@@ -324,26 +358,33 @@ export function QueuePanel(): HTMLElement {
         const flowTop = row.getBoundingClientRect().top;
         row.style.transform = `translateY(${lastY - grabOffset - flowTop}px)`;
       };
+
       /** 落点变了才动 DOM；动就走 squeeze，让被挤开的邻行滑过去 */
       const reorder = () => {
         const kids = [...list.children] as HTMLElement[];
         const at = kids.indexOf(row);
         const boxes = kids.map((el) => { const r = el.getBoundingClientRect(); return { top: r.top, height: r.height }; });
         const slot = dropSlot(boxes, at, lastY);
+
         if (slot === at) return;
         const others = kids.filter((el) => el !== row);
         squeeze(others, () => list.insertBefore(row, others[slot] ?? null));
       };
+
       /** 每帧结算一次：贴边自动滚动 + 落点 + 位移（不在 pointermove 里直接算，
        *  指针事件来得多快就重排多少次没必要，而且贴边悬停不动也得继续滚） */
       const frame = () => {
         const lr = list.getBoundingClientRect();
         const sp = edgeSpeed(lastY, lr.top, lr.bottom);
         let scrolled = false;
+
         if (sp) { const b = list.scrollTop; list.scrollTop += sp; scrolled = list.scrollTop !== b; }
+
         if (scrolled || dirty) { dirty = false; reorder(); layout(); }
+
         raf = requestAnimationFrame(frame);
       };
+
       /** 松手/取消：落回最终槽位并提交 */
       const finish = (commit: boolean) => {
         window.removeEventListener("pointermove", onMove);
@@ -351,6 +392,7 @@ export function QueuePanel(): HTMLElement {
         window.removeEventListener("pointercancel", onCancel);
         window.removeEventListener("keydown", onKey);
         cancelAnimationFrame(raf);
+
         if (!dragging) return;
         const to = [...list.children].indexOf(row);
         const from = contentY(row.getBoundingClientRect().top); // 松手瞬间的视觉位置（内容坐标）
@@ -360,6 +402,7 @@ export function QueuePanel(): HTMLElement {
         list.classList.remove("reordering");
         row.style.transform = "";
         setTimeout(() => { suppressClick = false; }, 0); // click 在 pointerup 之后补发，只吞这一发
+
         if (commit && to !== fromIdx && !pendingRebuild) {
           // pendingRebuild = 拖拽期间队列变过（4Hz 广播里插进来的一首/删掉的一首）：
           // 这时 DOM 里的行下标已经不对应 player.queue，硬提交会把**别的**歌挪走 —— 宁可作废。
@@ -368,21 +411,27 @@ export function QueuePanel(): HTMLElement {
         } else if (pendingRebuild) {
           render(); // 顺序作废 / 队列变过 → 按最新队列重画
         }
+
         pendingRebuild = false;
       };
+
       /** 松手后列表已重建：把落在最终槽位的新行从松手位置滑回去（否则是硬闪一下） */
       const settle = (to: number, fromTop: number) => {
         const el = list.children[to] as HTMLElement | undefined;
+
         if (!el || reduceMotion()) return;
         const d = fromTop - contentY(el.getBoundingClientRect().top);
+
         if (Math.abs(d) < 1) return;
         shifts.get(el)?.cancel();
         el.animate([{ transform: `translateY(${d}px)` }, { transform: "translateY(0)" }],
           { duration: SETTLE_MS, easing: EASE });
       };
+
       const onMove = (ev: PointerEvent) => {
         if (ev.pointerId !== pid) return;
         lastY = ev.clientY;
+
         if (!dragging) {
           if (Math.abs(ev.clientY - startY) < DRAG_THRESHOLD) return; // 位移阈值：点了不走不算拖
           dragging = true;
@@ -392,25 +441,32 @@ export function QueuePanel(): HTMLElement {
           list.classList.add("reordering");
           raf = requestAnimationFrame(frame);
         }
+
         dirty = true;
       };
+
       const onUp = (ev: PointerEvent) => { if (ev.pointerId === pid) finish(true); };
       const onCancel = (ev: PointerEvent) => { if (ev.pointerId === pid) finish(false); };
+
       /** Esc 取消：先挪回原位再收尾（finish 里 to === fromIdx，不会提交） */
       const onKey = (ev: KeyboardEvent) => {
         if (ev.key !== "Escape") return;
         ev.preventDefault();
         const kids = [...list.children] as HTMLElement[];
         const at = kids.indexOf(row);
+
         if (at !== fromIdx) {
           const others = kids.filter((el) => el !== row);
           squeeze(others, () => list.insertBefore(row, others[fromIdx] ?? null));
         }
+
         finish(false);
       };
+
       // 捕获仍要设：指针滑出面板/窗口时事件照样回得来（贴边滚动靠它续命）；
       // 丢了也没关系 —— 上面三个监听全挂在 window 上。
       try { row.setPointerCapture(pid); } catch { /* 合成事件降级 */ }
+
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onCancel);

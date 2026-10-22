@@ -27,63 +27,89 @@ const css = src("src/style.css");
 const icons = src("src/lib/icons.ts");
 
 let pass = 0, fail = 0;
+
 const check = (name: string, cond: unknown, detail = "") => {
   if (cond) { pass++; console.log(`  ✅ ${name}`); }
   else { fail++; console.log(`  ❌ ${name}${detail ? ` — ${detail}` : ""}`); }
 };
+
 const section = (t: string) => console.log(`\n=== ${t} ===`);
+
 /** 取某个选择器自己那条规则的规则体（`\n.sel {` 到下一个 `\n}`）；取不到返回空串 */
 const ruleOf = (s: string, sel: string) => {
   const i = s.indexOf(`\n${sel} {`);
+
   if (i < 0) return "";
   const j = s.indexOf("\n}", i);
+
   return j < 0 ? "" : s.slice(i, j);
 };
 
 // ——— 源码接线：判据与锚点 ———
 section("源码接线（纯 Node）");
+
 const focusGuard = (s: string) => /document\.activeElement\s*[=!]==\s*vol\b/.test(s);
+
 check("滑杆不再拿焦点当「用户正在编辑」的判据（焦点判据 = 滚轮/热键/MPRIS 全冻住）",
   !focusGuard(bar), bar.match(/document\.activeElement[^\n]*/)?.[0] ?? "");
+
 check("…反向：焦点判据写法会被逮住", focusGuard("if (document.activeElement === vol) paint();"));
+
 check("改完的判据是指针态（volEditing 由 pointerdown 起、松手/失焦收）",
   /let volEditing = false;/.test(bar)
   && /vol\.addEventListener\("pointerdown", \(\) => \{ volEditing = true; \}\)/.test(bar)
   && /window\.addEventListener\("pointerup", endVolEdit\)/.test(bar)
   && /vol\.addEventListener\("lostpointercapture", endVolEdit\)/.test(bar));
+
 check("paintVol 与 notify 回写都读指针态",
   /const v = volEditing \? Number\(vol\.value\) \/ 100 :/.test(bar)
   && /if \(!volEditing\) vol\.value = String\(Math\.round\(/.test(bar));
+
 check("松手立刻回到播放器真值（拖中被滚轮改过也不留假读数）",
   /volEditing = false;[\s\S]{0,240}?vol\.value = String\(Math\.round\(\(player\.muted \? 0 : player\.volume\) \* 100\)\);\s*\n\s*paintVol\(\);/.test(bar));
+
 // 音量图标曾只画到 x=13（24 视窗），视觉面积比旁边的红心/队列小一圈。四档喇叭本体
 // 必须统一从 x=2 起笔，高音量三层声波铺到 x≈21；同时锁住旧的小号路径不再回来。
 const volumeIcons = [...icons.matchAll(/vol(?:Mute|Low|Mid|High): svg\('<path d="([^"]+)"/g)].map((m) => m[1]);
+
 check("四档音量图标都存在且使用大视窗喇叭本体", volumeIcons.length === 4 && volumeIcons.every((d) => d.startsWith("M11 4.5 6.5 8H2v8h4.5L11 19.5z")));
+
 check("高音量图标铺满横向视窗（不再明显小于相邻图标）", /volHigh: svg\('[^']*M21 4\.3a12\.2 12\.2 0 0 1 0 15\.4/.test(icons));
+
 check("旧版只到 x=13 的小号喇叭路径已移除", !icons.includes("M4 9v6h4l5 4V5L8 9H4z"));
 
 const volpopRule = ruleOf(css, ".pb-volpop");
+
 check(".pb-volpop 规则取得到（防失配让下面全绿）", volpopRule.length > 80, String(volpopRule.length));
+
 const rightAnchor = (r: string) => /(^|[;{\s])right:\s*\d/.test(r);
+
 check("浮窗不再锚在 Bar 右缘（贴右缘 = 悬浮态甩到队列那一排上）",
   !rightAnchor(volpopRule), volpopRule.replace(/\s+/g, " ").slice(0, 120));
+
 check("…反向：旧的 right: 8px 锚点会被逮住",
   rightAnchor(ruleOf("\n.pb-volpop {\n  position: absolute; right: 8px; bottom: calc(100% + 10px);\n}", ".pb-volpop")));
+
 check("浮窗锚在音量钮上方（left 负一个内边距 = 1px 描边 + 12px 内边距，喇叭正好压准）",
   /position: absolute; left: -13px;/.test(volpopRule));
+
 check("竖向余量按 --control-bar-height 算（锚点换成钮后 100% 不再是条高，漏了会压住条顶）",
   /bottom: calc\(100% \+ \(var\(--control-bar-height, 64px\) - 100%\) \/ 2 \+ 10px\)/.test(volpopRule),
   volpopRule.replace(/\s+/g, " ").slice(0, 200));
+
 check("定位锚 .pb-volhost 存在且就是一条定位规则",
   /\.pb-volhost \{ position: relative; display: flex; \}/.test(css));
+
 check("DOM：音量浮窗是 .pb-volhost 里音量钮的兄弟（锚点跟着钮走）",
   /<div class="pb-volhost">\s*<button[^>]*id="pb-mute"[\s\S]*?<div class="pb-volpop" id="pb-volpop"/.test(bar));
+
 check("DOM：整条 .player 下只有一份浮窗节点（不再另挂在条上）",
   (bar.match(/class="pb-volpop"/g) ?? []).length === 1);
+
 check("越界修正：显示前量一次余量，只往左退、不退过条的左内缘",
   /const clampVolPop = \(\) => \{[\s\S]*?pop\.style\.left = "";[\s\S]*?pr\.right - \(br\.right - 10\)[\s\S]*?pr\.left - \(br\.left \+ 10\)/.test(bar)
   && /const showPop = \(\) => \{ window\.clearTimeout\(hideTimer\); clampVolPop\(\);/.test(bar));
+
 check("玻璃仍走共享规则（浮窗自己不许写 background/backdrop-filter —— verify-menu-glass 同一条）",
   !/backdrop-filter/.test(volpopRule) && !/background:/.test(volpopRule));
 
@@ -91,12 +117,15 @@ check("玻璃仍走共享规则（浮窗自己不许写 background/backdrop-filt
 const BASE = process.env.QBASE || "http://127.0.0.1:5173";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const { default: puppeteer } = await import("puppeteer-core");
+
 const browser = await puppeteer.launch({
   executablePath: "/usr/bin/google-chrome", headless: "new",
   args: ["--no-sandbox", "--disable-gpu"],
 });
+
 const page = await browser.newPage();
 const pageErrors: string[] = [];
+
 page.on("pageerror", (e) => pageErrors.push(String(e)));
 
 /** 打开某档尺寸/停靠态，把指针悬到音量钮上（走真实的 pointerenter → showPop → clampVolPop） */
@@ -113,23 +142,30 @@ async function hoverVolume(w: number, h: number, mode: string) {
       const q = document.querySelector("#pb-queue")!;
       q.parentNode!.insertBefore(dl, q);
     }
+
     document.body.style.setProperty("--side-w", "222px"); // 与真机默认档同宽（拖拽过的用户会另有一档）
     document.body.dataset.controlBar = m;
     document.body.classList.toggle("control-bar-floating", m === "floating");
   }, mode);
   await sleep(500);
+
   const m = await page.evaluate(() => {
     const r = document.querySelector("#pb-mute")!.getBoundingClientRect();
+
     return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
   });
+
   await page.mouse.move(m.x - 80, m.y - 80);
   await page.mouse.move(m.x, m.y);
   await sleep(350);
+
   return page.evaluate(() => {
     const g = (s: string) => {
       const r = document.querySelector(s)!.getBoundingClientRect();
+
       return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, cx: r.x + r.width / 2, cy: r.y + r.height / 2 };
     };
+
     return {
       open: document.querySelector(".player")!.classList.contains("vol-open"),
       player: g(".player"), pop: g(".pb-volpop"), mute: g("#pb-mute"), mute2: g("#pb-mute2"),
@@ -139,7 +175,9 @@ async function hoverVolume(w: number, h: number, mode: string) {
 }
 
 section("活体 · 浮窗位置（停靠/悬浮 × 宽窄）");
+
 const SIZES: [number, number][] = [[1536, 864], [1280, 800], [1000, 720], [900, 700], [780, 600], [760, 560]];
+
 for (const mode of ["bottom", "floating"]) {
   for (const [w, h] of SIZES) {
     const label = `${mode} ${w}x${h}`;
@@ -162,41 +200,60 @@ for (const mode of ["bottom", "floating"]) {
 }
 
 section("活体 · 滚轮/外部改音量要跟着更新（悬浮态）");
+
+/** 渲染层调试全局（src/main.ts 挂 window.__player，供探针/量测直读写） */
+interface PlayerWindow extends Window {
+  __player: { volume: number; setVolume(v: number): void };
+}
+
 const read = () => page.evaluate(() => {
   const vol = document.querySelector("#pb-vol") as HTMLInputElement;
+
   return {
-    pv: Math.round((window as unknown as { __player: { volume: number } }).__player.volume * 100),
+    // SAFETY: __player 由 src/main.ts 在启动时挂上（页内调试缝，契约见 verify-launch）
+    pv: Math.round((window as PlayerWindow).__player.volume * 100),
     val: Number(vol.value),
     css: parseInt(vol.style.getPropertyValue("--v"), 10),
     num: parseInt((document.querySelector("#pb-volnum") as HTMLElement).textContent ?? "", 10),
     active: document.activeElement?.id || document.activeElement?.tagName,
   };
 });
+
 type Snap = Awaited<ReturnType<typeof read>>;
+
 const agrees = (r: Snap) => r.pv === r.val && r.val === r.css && r.css === r.num;
+
 const at = (sel: string, dx = 0) => page.evaluate((s: string, off: number) => {
   const r = (document.querySelector(s) as HTMLElement).getBoundingClientRect();
+
   return { x: (s === ".player" ? r.x + off : r.x + r.width / 2), y: r.y + r.height / 2 };
 }, sel, dx);
+
 const wheelAt = async (pt: { x: number; y: number }, dy: number) => {
   await page.mouse.move(pt.x, pt.y);
   await page.mouse.wheel({ deltaY: dy });
   await sleep(160);
 };
+
 await hoverVolume(1536, 864, "floating");
+
 const barPoint = await at(".player", 150);
 const sliderPoint = await at("#pb-vol");
+
 const rehover = async () => {
   const m = await at("#pb-mute");
   await page.mouse.move(m.x - 80, m.y - 80); await sleep(260);
   await page.mouse.move(m.x, m.y); await sleep(260);
-  await page.evaluate(() => (window as unknown as { __player: { setVolume(v: number): void } }).__player.setVolume(0.5));
+  // SAFETY: __player 由 src/main.ts 挂载（页内调试缝）
+  await page.evaluate(() => (window as PlayerWindow).__player.setVolume(0.5));
 };
+
 await rehover();
 
 for (const [name, focus] of [["未聚焦", false], ["滑杆已聚焦（回归点）", true]] as [string, boolean][]) {
   await page.evaluate((f) => {
     const v = document.querySelector("#pb-vol") as HTMLInputElement;
+
     if (f) v.focus(); else v.blur();
   }, focus);
   const before = await read();
@@ -212,14 +269,17 @@ for (const [name, focus] of [["未聚焦", false], ["滑杆已聚焦（回归点
     agrees(a2) && a2.pv === b2.pv - 4, JSON.stringify({ b2, a2 }));
   await rehover();
 }
+
 {
   const before = await read();
-  await page.evaluate(() => (window as unknown as { __player: { setVolume(v: number): void } }).__player.setVolume(0.15));
+  // SAFETY: __player 由 src/main.ts 挂载（页内调试缝）
+  await page.evaluate(() => (window as PlayerWindow).__player.setVolume(0.15));
   await sleep(160);
   const after = await read();
   check("外部直接 setVolume（热键 / MPRIS / 设置页同一条 notify）→ 滑杆与读数跟上",
     agrees(after) && after.pv === 15, JSON.stringify({ before, after }));
 }
+
 {
   // 拖动期间滑杆说了算（不被 notify 的 4Hz 回写打断）；松手立刻回到播放器真值
   const s = await at("#pb-vol");
@@ -243,8 +303,11 @@ for (const [name, focus] of [["未聚焦", false], ["滑杆已聚焦（回归点
 }
 
 section("活体 · 无脚本错误");
+
 check("全程无 pageerror", pageErrors.length === 0, pageErrors.join(" | "));
 
 await browser.close();
+
 console.log(`\n${fail === 0 ? "✅" : "❌"} verify-volume-bar: ${pass} passed, ${fail} failed`);
+
 process.exit(fail === 0 ? 0 : 1);

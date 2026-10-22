@@ -34,9 +34,12 @@ import { ASSETS, MACOS_FLOOR } from "./mpv-assets.ts";
 // （静态链接）。mpv.pdb 是调试符号（>200MB），一律剥掉。
 
 function die(msg) { console.error(`✗ ${msg}`); process.exit(1); }
+
 function sh(bin, args, opts = {}) {
   const r = spawnSync(bin, args, { stdio: ["ignore", "ignore", "pipe"], encoding: "utf8", ...opts });
+
   if (r.status !== 0) die(`${bin} ${args.join(" ")} 失败（exit=${r.status}）:\n${r.stderr}`);
+
   return r;
 }
 
@@ -47,26 +50,34 @@ function extractZip(zip, dir) {
     ["bsdtar", ["-xf", zip, "-C", dir]],
     ["tar", ["-xf", zip, "-C", dir]],   // bsdtar 装在 PATH 里时叫 tar（macOS 自带、windows System32）
   ];
+
   let lastErr = "";
+
   for (const [bin, args] of attempts) {
     const r = spawnSync(bin, args, { stdio: ["ignore", "ignore", "pipe"], encoding: "utf8" });
+
     if (r.status === 0) return;
     lastErr = `${bin}: ${(r.stderr || "").trim().split("\n")[0]}`;
   }
+
   if (process.platform === "win32") {
     const winPath = (p) => spawnSync("cygpath", ["-w", p], { encoding: "utf8" }).stdout?.trim() ?? p;
+
     const r = spawnSync("powershell", [
       "-NoProfile", "-Command",
       `Expand-Archive -LiteralPath '${winPath(zip)}' -DestinationPath '${winPath(dir)}' -Force`,
     ], { stdio: ["ignore", "ignore", "pipe"], encoding: "utf8" });
+
     if (r.status === 0) return;
     lastErr = `powershell Expand-Archive: ${(r.stderr || "").trim()}`;
   }
+
   die(`zip 解包失败（${zip}）\n  最后错误：${lastErr}`);
 }
 
 async function download(url, dest) {
   const res = await fetch(url, { redirect: "follow" });
+
   if (!res.ok) die(`下载失败 ${res.status}: ${url}`);
   await pipeline(res.body, createWriteStream(dest));
 }
@@ -82,19 +93,24 @@ async function fetchAndExtract(asset, dir) {
   console.log(`→ 下载 ${asset.url.split("/").pop()}`);
   await download(asset.url, zipPath);
   const got = sha256File(zipPath);
+
   if (got !== asset.sha256) die(`sha256 不匹配（上游重打包或下载损坏）\n  期望 ${asset.sha256}\n  实得 ${got}`);
   console.log("→ 校验 sha256 OK");
   extractZip(zipPath, dir);
   rmSync(zipPath, { force: true });
   // 嵌套层：win mingw 外层 zip 里还有一个 mpv-git-*.zip；mac 外层里是 mpv.tar.gz
   const nestedZip = readdirSync(dir).find((n) => n.endsWith(".zip"));
+
   if (nestedZip) {
     const inner = join(dir, nestedZip);
     extractZip(inner, dir);
     rmSync(inner, { force: true });
   }
+
   const nestedTgz = readdirSync(dir).find((n) => n.endsWith(".tar.gz"));
+
   if (nestedTgz) sh("tar", ["-xzf", join(dir, nestedTgz), "--no-same-owner", "-C", dir]);
+
   return dir;
 }
 
@@ -102,8 +118,10 @@ async function fetchAndExtract(asset, dir) {
 function checkPE(exe, want) { // want: 0x8664 | 0xaa64
   const b = readFileSync(exe);
   const off = b.readUInt32LE(0x3c);
+
   if (b.toString("ascii", off, off + 4) !== "PE\0\0") die(`${exe} 不是 PE 文件`);
   const machine = b.readUInt16LE(off + 4);
+
   if (machine !== want) die(`${exe} 机器码 0x${machine.toString(16)} ≠ 0x${want.toString(16)}`);
 }
 
@@ -114,8 +132,10 @@ function checkPE(exe, want) { // want: 0x8664 | 0xaa64
  *  顺带把实际门槛打进日志：将来升级 mpv 时，要能一眼看出地板有没有被抬高。 */
 function assertMacOSFloor(payload) {
   const min = machOMinOs(payload);
+
   if (!min) die(`${payload} 读不到 Mach-O 最低系统版本（布局变了？）`);
   console.log(`→ 载荷最低系统版本：macOS ${formatOsVersion(min)}`);
+
   if (osVersionGt(min, MACOS_FLOOR)) {
     die(`随包 mpv 要求 macOS ${formatOsVersion(min)}，高于本项目地板 macOS ${formatOsVersion(MACOS_FLOOR)}`
       + `\n  上游换更高版本的构建了？把 ASSETS 里 darwin/arm64 指向编号最低的那份资产，`
@@ -128,15 +148,22 @@ const USAGE = "用法: node scripts/stage-mpv-official.ts [win32|darwin] [x64|ar
 const plat = process.argv[2] ?? hostPlatform;
 const arch = process.argv[3] ?? (hostArch === "arm64" ? "arm64" : "x64");
 const destRoot = process.argv[4] ?? join(import.meta.dirname, "..", "build-res", "audio");
+
 if (plat !== "win32" && plat !== "darwin") die(USAGE);
+
 if (arch !== "x64" && arch !== "arm64") die(USAGE);
+
 const key = `${plat}/${arch}`;
+
 if (!ASSETS[key]) die(`本脚本没有 ${key} 的随包方案（Linux 用 stage-mpv.sh）`);
 
 const dest = join(destRoot, "mpv");
 const work = join(destRoot, ".work-mpv-official");
+
 rmSync(work, { recursive: true, force: true });
+
 mkdirSync(work, { recursive: true });
+
 try {
   const tree = await fetchAndExtract(ASSETS[key], join(work, key.replace("/", "-")));
 
@@ -146,14 +173,17 @@ try {
     mkdirSync(dest, { recursive: true });
     cpSync(tree, dest, { recursive: true, filter: (s) => {
       const base = s.split(/[\\/]/).pop();
+
       return !base.endsWith(".pdb") && !base.endsWith(".zip") && !base.endsWith(".bat");
     } });
     const exe = join(dest, "mpv.exe");
+
     if (!existsSync(exe)) die(`载荷缺失：${exe}`);
     checkPE(exe, arch === "arm64" ? 0xaa64 : 0x8664);
     console.log(`✓ 落盘 ${dest}（mpv.exe + 运行时 DLL）`);
   } else {
     const app = join(tree, "mpv.app");
+
     if (!existsSync(app)) die(`mpv.app 缺失：${app}`);
     // cpSync 是「dest 变成 src 的拷贝」语义：必须落进 dest/mpv.app，
     // 保持 bins.ts 约定的 <声源根>/mpv/mpv.app/Contents/MacOS/mpv 布局
@@ -163,6 +193,7 @@ try {
     assertMacOSFloor(join(dest, "mpv.app", "Contents", "MacOS", "mpv"));
     console.log(`✓ 落盘 ${dest}（mpv.app）`);
   }
+
   console.log(`✓ 完成。验证：cd ui && node electron/audio/bins.ts --check ${destRoot}`);
 } finally {
   rmSync(work, { recursive: true, force: true });

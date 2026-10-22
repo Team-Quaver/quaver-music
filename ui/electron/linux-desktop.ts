@@ -48,12 +48,14 @@ export const DESKTOP_ID = "red.0w0.quaver"; // = appId = app_id = WM_CLASS（.de
 /** 用户级 XDG data 根：$XDG_DATA_HOME 优先，默认 ~/.local/share。 */
 export function xdgDataHome(env = process.env, home = homedir()) {
   const xdg = String(env.XDG_DATA_HOME ?? "").trim();
+
   return xdg || join(home, ".local", "share");
 }
 
 /** 系统级 XDG data 根：$XDG_DATA_DIRS 优先，默认 /usr/local/share:/usr/share（XDG 规范的默认值）。 */
 export function xdgDataDirs(env = process.env) {
   const dirs = String(env.XDG_DATA_DIRS ?? "").trim();
+
   return (dirs || "/usr/local/share:/usr/share").split(":").filter(Boolean);
 }
 
@@ -67,12 +69,16 @@ export function xdgDataDirs(env = process.env) {
 export function findSystemDesktopEntry(desktopId, env = process.env) {
   for (const root of xdgDataDirs(env)) {
     const file = join(root, "applications", `${desktopId}.desktop`);
+
     try {
       if (!existsSync(file)) continue;
+
       if (readDesktopHidden(readFileSync(file, "utf8"))) continue;
+
       return file;
     } catch { /* 读不动就当这个根没有，继续看下一个 */ }
   }
+
   return null;
 }
 
@@ -102,6 +108,7 @@ export function desktopEntryContent({ desktopId, name, comment, exec, icon = des
     `StartupWMClass=${escapeEntryValue(desktopId)}`,
     "X-Quaver-Managed=true",
   ];
+
   return lines.join("\n") + "\n";
 }
 
@@ -114,15 +121,22 @@ export function readDesktopIcon(text) {
 export function readDesktopEntryValue(text, key) {
   const want = String(key).toLowerCase();
   let inEntry = false;
+
   for (const line of String(text ?? "").split("\n")) {
     const t = line.trim();
+
     if (!t || t.startsWith("#")) continue;
+
     if (t.startsWith("[")) { inEntry = t === "[Desktop Entry]"; continue; }
+
     if (!inEntry) continue;
     const eq = t.indexOf("=");
+
     if (eq <= 0) continue;
+
     if (t.slice(0, eq).trim().toLowerCase() === want) return t.slice(eq + 1).trim();
   }
+
   return null;
 }
 
@@ -156,18 +170,22 @@ function refreshIconCache(hicolorDir) {
 async function syncHicolorIcons({ iconSourceDir, dataHome, desktopId }) {
   const written = [];
   let files = [];
+
   try {
     files = await readdirAsync(iconSourceDir);
   } catch {
     return written; // 素材目录缺失（打包漏配/开发态刚拉仓库）：静默跳过，图标走 fallback
   }
+
   for (const name of files) {
     const m = SIZE_RE.exec(name);
+
     if (!m) continue;
     const sizeDir = `${m[1]}x${m[1]}`;
     const src = join(iconSourceDir, name);
     const destDir = join(dataHome, "icons", "hicolor", sizeDir, "apps");
     const dest = join(destDir, `${desktopId}.png`);
+
     try {
       if (existsSync(dest) && readFileSync(dest).equals(readFileSync(src))) continue;
       mkdirSync(destDir, { recursive: true, mode: 0o755 });
@@ -177,6 +195,7 @@ async function syncHicolorIcons({ iconSourceDir, dataHome, desktopId }) {
       // 单个尺寸失败不挡其余尺寸（比如目录只读）
     }
   }
+
   return written;
 }
 
@@ -210,9 +229,11 @@ export async function installLinuxDesktopIntegration({
   // 清理**只认自己那枚标记**：用户复制系统条目、自己改启动参数的那份没有 X-Quaver-Managed，
   // 一律不碰（它本来就该赢 —— 用户目录优先正是这么用的）。
   const systemEntry = findSystemDesktopEntry(desktopId, env);
+
   if (systemEntry) {
     result.systemDesktopFile = systemEntry;
     result.desktopAction = "system";
+
     try {
       if (existsSync(file) && readDesktopEntryValue(readFileSync(file, "utf8"), "X-Quaver-Managed") === "true") {
         rmSync(file, { force: true });
@@ -221,14 +242,18 @@ export async function installLinuxDesktopIntegration({
     } catch (e) {
       log("[quaver] linux-desktop: 清理被系统条目盖住的旧副本失败:", String(e));
     }
+
     return result;
   }
+
   try {
     result.iconsWritten = await syncHicolorIcons({ iconSourceDir, dataHome, desktopId });
+
     if (result.iconsWritten.length && refreshCache) refreshIconCache(join(dataHome, "icons", "hicolor"));
   } catch (e) {
     log("[quaver] linux-desktop: hicolor 图标同步失败:", String(e));
   }
+
   try {
     const content = desktopEntryContent({ desktopId, name, comment, exec, categories });
     const existing = existsSync(file) ? readFileSync(file, "utf8") : null;
@@ -239,6 +264,7 @@ export async function installLinuxDesktopIntegration({
     // 隐藏条目必须收编：Noctalia 整条丢弃它们，app_id 反查不到就丢图标（#4626），Icon 再对也没用。
     const managed = existing != null && readDesktopEntryValue(existing, "X-Quaver-Managed") === "true";
     const hidden = existing != null && readDesktopHidden(existing);
+
     if (existing === content) {
       result.desktopAction = "kept";
     } else if (existing != null && !managed && !hidden && existingIcon === desktopId) {
@@ -253,6 +279,7 @@ export async function installLinuxDesktopIntegration({
   } catch (e) {
     log("[quaver] linux-desktop: desktop 文件安装失败:", String(e));
   }
+
   return result;
 }
 
@@ -272,15 +299,19 @@ export function removeDevManagedDesktopEntry({
 }) {
   const file = join(dataHome, "applications", `${desktopId}.desktop`);
   const result = { desktopFile: file, removed: false };
+
   try {
     if (!devMarker || !existsSync(file)) return result;
     const text = readFileSync(file, "utf8");
+
     if (readDesktopEntryValue(text, "X-Quaver-Managed") !== "true") return result;
+
     if (!(readDesktopEntryValue(text, "Exec") ?? "").includes(devMarker)) return result;
     rmSync(file, { force: true });
     result.removed = true;
   } catch {
     // 删不动不致命：条目原地留着，下次开发态启动再试（或由打包态整份对齐接管）
   }
+
   return result;
 }

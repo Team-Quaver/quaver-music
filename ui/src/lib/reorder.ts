@@ -25,10 +25,13 @@ export interface SlotRow {
  */
 export function dropSlot(rows: SlotRow[], self: number, pointerY: number): number {
   let slot = 0;
+
   for (let i = 0; i < rows.length; i++) {
     if (i === self) continue;
+
     if (pointerY >= rows[i].top + rows[i].height / 2) slot++;
   }
+
   return slot;
 }
 
@@ -48,7 +51,10 @@ export function edgeSpeed(
   max = 14,
 ): number {
   if (bottom - top < zone * 2) return 0;
+
   if (pointerY < top + zone) return -Math.min(max, (top + zone - pointerY) / 2);
+
   if (pointerY > bottom - zone) return Math.min(max, (pointerY - (bottom - zone)) / 2);
+
   return 0;
 }

@@ -13,14 +13,18 @@ declare global {
     };
   }
 }
+
 const code = readFileSync(process.env.FLOWSCAPE_PLUGIN_PATH ?? new URL("../../vendor/Sparkle/dist/site/sparkle/plugins/flowscape.js", import.meta.url), "utf8");
 const themeCode = readFileSync(new URL("../../vendor/Sparkle/dist/site/sparkle/plugins/md3.js", import.meta.url), "utf8");
 const snapshots = process.env.FLOWSCAPE_SHOTS;
+
 if (snapshots) mkdirSync(snapshots, { recursive: true });
+
 const browser = await puppeteer.launch({
   executablePath: process.env.CHROME_BIN ?? "/usr/bin/google-chrome", headless: true,
   args: ["--no-sandbox", "--disable-gpu"],
 });
+
 try {
   const page = await browser.newPage();
   await page.setViewport({ width: 900, height: 800, deviceScaleFactor: 1 });
@@ -32,12 +36,14 @@ try {
     const state = { time: -0.2, karaoke: true, trans: true, rows: "1", radio: false, radioLoading: false, radioError: "" };
     const song = { mid: "fixture", name: "Tourdion of Silver Seagulls", singer: [{ name: "HOYO-MiX" }] };
     const neighbor = (mid: string, name: string) => ({ mid, name, singer: [{ name: "Fixture Artist" }] });
+
     const neighbors: Record<number, ReturnType<typeof neighbor>> = {
       [-2]: neighbor("prev2", "上上首"),
       [-1]: neighbor("prev1", "上一首"),
       1: neighbor("next1", "下一首"),
       2: neighbor("next2", "下下首"),
     };
+
     const lines = [
       { startTime: 0, endTime: 2000, words: [{ word: "银鸥的回旋 Tourdion of Silver Seagulls - HOYO-MiX", startTime: 0, endTime: 2000 }], translatedLyric: "银鸥的回旋 · 混排与换行测试" },
       { startTime: 3000, endTime: 5000, words: [
@@ -52,11 +58,14 @@ try {
         { word: "の", startTime: 7500, endTime: 8000 },
       ], translatedLyric: "你的" },
     ];
+
     plugin.setup({
       storage: { get: (key: string) => key === "lyrows" ? state.rows : null, set: () => {} },
       registerNowPlayingView: (v: NonNullable<typeof view>) => { view = v; }, registerSettingsSection: () => {},
     });
+
     if (!view) throw new Error("Flowscape 未注册播放页");
+
     const dispose = view.render(document.querySelector<HTMLElement>("#host")!, {
       current: () => song,
       songAt: (offset: number) => state.radio
@@ -72,57 +81,72 @@ try {
       lyrics: () => lines.map((l) => ({ t: l.startTime / 1000, text: l.words.map((w) => w.word).join(""), trans: l.translatedLyric })),
       onNotify: (fn: () => void) => { notify = fn; return () => {}; },
     });
+
     window.flowscapeFixture = { state, notify: () => notify(), dispose };
   }, code);
   const settle = () => page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+
   const update = async (state: Partial<Window["flowscapeFixture"]["state"]>) => {
     await page.evaluate((patch) => { Object.assign(window.flowscapeFixture.state, patch); window.flowscapeFixture.notify(); }, state);
     await settle();
   };
+
   // 在浏览器里解码真实截图，无额外图片依赖。
   const pixels = async (image: string) => page.evaluate(async (src) => {
     const img = new Image(); img.src = `data:image/png;base64,${src}`; await img.decode();
     const canvas = document.createElement("canvas"); canvas.width = img.width; canvas.height = img.height;
     const ctx = canvas.getContext("2d")!; ctx.drawImage(img, 0, 0);
+
     return Array.from(ctx.getImageData(0, 0, img.width, img.height).data);
   }, image);
+
   const capture = async (selector: string, name?: string) => {
     const el = await page.$(selector); assert.ok(el);
     const png = Buffer.from(await el.screenshot());
+
     if (snapshots && name) writeFileSync(`${snapshots}/${name}.png`, png);
+
     return pixels(png.toString("base64"));
   };
+
   await settle();
   assert.equal(await page.$eval(".fs-ll.cur", (el) => el.textContent),
     "银鸥的回旋 Tourdion of Silver Seagulls - HOYO-MiX银鸥的回旋 · 混排与换行测试");
+
   // 进度不仅要更新 CSS 变量，实际高亮像素也必须随时间增长（包含折成多行的长词）。
   for (const width of [900, 420]) {
     await page.setViewport({ width, height: 800 });
     const highlighted: number[] = [];
+
     for (const [time, expected] of [[-0.2, "0"], [0.8, "0.5"], [1.8, "1"]] as const) {
       await update({ time });
       assert.equal(await page.$eval(".fs-ll.cur .kw", (el) => (el as HTMLElement).style.getPropertyValue("--p")), expected);
       const data = await capture(".fs-ll.cur .t1");
       let count = 0;
+
       for (let i = 0; i < data.length; i += 4) if (data[i + 2] > 100 && data[i + 2] - data[i] > 25) count++;
       highlighted.push(count);
     }
+
     assert.equal(highlighted[0], 0);
     assert.ok(highlighted[1] > 50 && highlighted[2] > highlighted[1] * 1.3, `扫色没有增长：${highlighted}`);
     console.log(`PASS ${width}px 未唱 / 半词 / 唱完的实际扫色像素：${highlighted.join(" / ")}`);
   }
 
   // 唱完的字形应与同一字体的普通文字一致；抓住双层排字的基线/换行错位。
-  const shapeStyle = await page.addStyleTag({ content: ".fs-ll.cur .t1{filter:none!important;text-shadow:none!important} .fs-root{--fs-acc:#fff}" });
+  const glyphStyle = await page.addStyleTag({ content: ".fs-ll.cur .t1{filter:none!important;text-shadow:none!important} .fs-root{--fs-acc:#fff}" });
+
   for (const family of ["serif", "sans-serif"]) {
     for (const width of [900, 420]) {
       await page.setViewport({ width, height: 800 });
       await page.evaluate((font) => document.documentElement.style.setProperty("--font-lyric", font), family);
       await settle();
+
       if (width === 420) {
         const fragments = await page.$eval(".fs-ll.cur .kw", (el) => el.getClientRects().length);
         assert.ok(fragments > 1, "窄窗样例必须实际折行");
       }
+
       const actual = await capture(".fs-ll.cur .t1", `${family}-${width}-actual`);
       const referenceStyle = await page.addStyleTag({ content: ".fs-ll.cur .kw{background:none!important;color:#fff!important;-webkit-text-fill-color:#fff!important}" });
       const reference = await capture(".fs-ll.cur .t1", `${family}-${width}-reference`);
@@ -131,18 +155,23 @@ try {
       const difference = actual.reduce((sum, value, i) => sum + Math.abs(value - reference[i]), 0) / actual.length;
       // background-clip 与普通文本的抗锯齿不同；比较字形覆盖范围并容忍边缘灰度差。
       let union = 0, mismatch = 0;
+
       for (let i = 0; i < actual.length; i += 4) {
         const a = Math.max(actual[i], actual[i + 1], actual[i + 2]) > 64;
         const b = Math.max(reference[i], reference[i + 1], reference[i + 2]) > 64;
+
         if (a || b) union++;
+
         if (a !== b) mismatch++;
       }
+
       assert.ok(difference < 3 && mismatch / union < 0.06,
         `${family} / ${width}px 字形错位：像素差 ${difference}，轮廓差 ${mismatch / union}`);
       console.log(`PASS ${family} / ${width}px 混排与折行，字形像素差 ${difference.toFixed(3)}`);
     }
   }
-  await shapeStyle.evaluate((el) => el.remove());
+
+  await glyphStyle.evaluate((el) => el.remove());
   await page.setViewport({ width: 900, height: 800 });
   await update({ time: 0.8 });
   await capture(".fs-ll.cur", "dark-progress");
@@ -159,6 +188,7 @@ try {
     });
     document.documentElement.dataset.sparkleTheme = "md3";
   }, themeCode);
+
   const colors = () => page.evaluate(() => {
     const line = document.querySelector<HTMLElement>(".fs-ll.cur")!;
     const main = getComputedStyle(line.querySelector(".t1")!);
@@ -166,13 +196,17 @@ try {
     const background = getComputedStyle(document.querySelector(".np")!).backgroundColor;
     const canvas = document.createElement("canvas"); canvas.width = canvas.height = 1;
     const ctx = canvas.getContext("2d")!;
+
     const swatch = (color: string, opacity = 1) => {
       ctx.globalAlpha = 1; ctx.fillStyle = background; ctx.fillRect(0, 0, 1, 1);
       ctx.globalAlpha = opacity; ctx.fillStyle = color; ctx.fillRect(0, 0, 1, 1);
+
       return Array.from(ctx.getImageData(0, 0, 1, 1).data).slice(0, 3);
     };
+
     const probe = document.createElement("span"); line.append(probe);
     const resolve = (color: string) => { probe.style.color = color; return getComputedStyle(probe).color; };
+
     const result = {
       background: swatch(background),
       unsung: swatch(resolve("var(--fs-lyric-unsung,#ffffffa6)")),
@@ -181,16 +215,22 @@ try {
       color: getComputedStyle(line).color,
       filter: main.filter, shadow: translation.textShadow,
     };
+
     probe.remove();
+
     return result;
   });
+
   const luminance = (rgb: number[]) => rgb.map((n) => {
     const c = n / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
   }).reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
+
   const contrast = (a: number[], b: number[]) => {
     const x = luminance(a), y = luminance(b);
+
     return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
   };
+
   for (const scheme of ["light", "dark"]) {
     for (const source of ["#6750a4", "#f4cf32", "#ffffff"]) {
       await page.evaluate(({ scheme, source }) => {
@@ -201,20 +241,25 @@ try {
       const st = await colors();
       assert.equal(st.filter, "none");
       assert.equal(st.shadow, "none");
+
       for (const rgb of [st.unsung, st.sung, st.translation]) {
         assert.ok(contrast(rgb, st.background) >= 4.5, `${scheme} / ${source} 歌词对比不足：${contrast(rgb, st.background)}`);
       }
+
       console.log(`PASS Lumen ${scheme} / ${source} 无阴影，未唱 / 已唱 / 翻译对比均 ≥ 4.5`);
     }
   }
+
   await page.evaluate(() => {
     document.documentElement.dataset.theme = "light";
     document.documentElement.style.setProperty("--cvg-bar-line", "#6750a4");
   });
+
   for (const [time, label] of [[-0.2, "unsung"], [0.8, "progress"], [1.8, "sung"]] as const) {
     await update({ time });
     await capture(".fs-ll.cur", `light-${label}`);
   }
+
   // 应用浅色时，深空黑和关闭接管仍使用亮字，不能误套浅色页面的深色歌词。
   for (const [mode, value] of [["md3NpColor", "deep"], ["md3Np", "off"]] as const) {
     await page.evaluate(({ mode, value }) => { document.documentElement.dataset[mode] = value; }, { mode, value });
@@ -225,15 +270,18 @@ try {
     assert.ok(contrast(st.sung, st.background) >= 4.5);
     console.log(`PASS 浅色应用的 ${value} 播放页保持亮字与柔阴影`);
   }
+
   await page.evaluate(() => {
     document.documentElement.dataset.md3Np = "on";
     document.documentElement.dataset.md3NpColor = "theme";
   });
   // QRCKana：振假名必须真的排在词上方，并沿用 ruby 自己的时间轴扫色。
   await update({ time: 6.3 });
+
   const rubyLayout = await page.$eval(".fs-ll.cur .kw.has-ruby", (el) => {
     const ruby = el.querySelector<HTMLElement>(".kw-ruby")!;
     const base = el.querySelector<HTMLElement>(".kw-base")!;
+
     return {
       ruby: ruby.textContent,
       base: base.textContent,
@@ -242,24 +290,30 @@ try {
       rubyProgress: [...ruby.querySelectorAll<HTMLElement>(".kr")].map((x) => Number(x.style.getPropertyValue("--p"))),
     };
   });
+
   assert.equal(rubyLayout.ruby, "あなた");
   assert.equal(rubyLayout.base, "貴方");
   assert.ok(rubyLayout.rubyBottom <= rubyLayout.baseTop + 1.5,
     `ruby 没排在词上方：rubyBottom=${rubyLayout.rubyBottom} baseTop=${rubyLayout.baseTop}`);
   await update({ time: 6.5 });
+
   const rubyProgress = await page.$eval(".fs-ll.cur .kw.has-ruby .kw-ruby", (el) =>
     [...el.querySelectorAll<HTMLElement>(".kr")].map((x) => Number(x.style.getPropertyValue("--p"))));
+
   assert.ok(rubyProgress[1] > rubyLayout.rubyProgress[1], `ruby 时间轴没有推进：${rubyLayout.rubyProgress} → ${rubyProgress}`);
+
   if (snapshots) writeFileSync(`${snapshots}/qrc-kana-ruby.png`, Buffer.from(await page.screenshot()));
   console.log(`PASS QRCKana ruby 位于词上方且逐片扫色：${rubyProgress.join(" / ")}`);
 
   // 无限电台：左侧历史卡隐藏/禁用，右侧保留下一首；轮末取歌时切换状态文案。
   await update({ radio: true, radioLoading: false, radioError: "" });
   await new Promise((resolve) => setTimeout(resolve, 380)); // 等卡片 opacity 过渡走完
+
   const radioUi = await page.evaluate(() => {
     const badge = document.querySelector<HTMLElement>("#fs-radio")!;
     const left = document.querySelector<HTMLButtonElement>('.fs-card[data-off="-1"]')!;
     const right = document.querySelector<HTMLButtonElement>('.fs-card[data-off="1"]')!;
+
     return {
       badgeHidden: badge.hidden,
       badgeText: badge.textContent,
@@ -272,6 +326,7 @@ try {
       rootRadio: document.querySelector(".fs-root")!.classList.contains("is-radio"),
     };
   });
+
   assert.equal(radioUi.badgeHidden, false);
   assert.ok(radioUi.badgeText?.includes("无限电台"));
   assert.equal(radioUi.leftEmpty, true);
@@ -281,15 +336,19 @@ try {
   assert.equal(radioUi.rightDisabled, false);
   assert.equal(radioUi.rightOpacity, "1");
   assert.equal(radioUi.rootRadio, true);
+
   if (snapshots) writeFileSync(`${snapshots}/infinite-radio.png`, Buffer.from(await page.screenshot()));
   await update({ radioLoading: true });
   assert.ok((await page.$eval("#fs-radio-text", (el) => el.textContent))?.includes("正在续上下一轮"));
+
   const waitingCard = await page.$eval('.fs-card[data-off="1"]', (el) => ({
     waiting: el.classList.contains("radio-wait"),
     empty: el.classList.contains("empty"),
     disabled: (el as HTMLButtonElement).disabled,
   }));
+
   assert.deepEqual(waitingCard, { waiting: true, empty: false, disabled: true });
+
   if (snapshots) writeFileSync(`${snapshots}/infinite-radio-loading.png`, Buffer.from(await page.screenshot()));
   await update({ radioLoading: false, radio: false });
   assert.equal(await page.$eval("#fs-radio", (el) => (el as HTMLElement).hidden), true);

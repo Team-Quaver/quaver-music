@@ -14,6 +14,7 @@ const HISTORY_MAX = 10;
 export function readHistory(): string[] {
   try {
     const raw = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+
     return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string" && x.trim() !== "") : [];
   } catch {
     return [];
@@ -22,6 +23,7 @@ export function readHistory(): string[] {
 
 export function pushHistory(kw: string) {
   const k = kw.trim();
+
   if (!k) return;
   const list = [k, ...readHistory().filter((x) => x !== k)].slice(0, HISTORY_MAX);
   localStorage.setItem(HISTORY_KEY, JSON.stringify(list));
@@ -85,35 +87,46 @@ export function SearchBox(): HTMLElement {
   async function suggest() {
     if (document.activeElement !== input) return; // 失焦后迟到的 debounce：不再弹出面板
     const kw = input.value.trim();
+
     if (!kw) {
       const hist = readHistory().map((k): Suggest => ({ kind: "history", label: k, keyword: k }));
+
       if (!hist.length) return close();
       items = hist;
+
       return renderDrop();
     }
+
     const my = ++seq;
+
     try {
       const d: any = await api(`/search/complete?keyword=${encodeURIComponent(kw)}`);
+
       if (my !== seq) return;
       const mapped: Suggest[] = [];
+
       for (const x of d?.items ?? []) {
         const label = untag(String(x.hint ?? ""));
+
         if (!label) continue;
         const type = Number(x.type ?? 0);
         const kind: Suggest["kind"] = type === 1 ? "singer" : type === 3 ? "songlist" : type === 2 ? "album" : "song";
         mapped.push({ kind, label, keyword: label });
       }
+
       if (mapped[0]?.keyword !== kw) mapped.unshift({ kind: "custom", label: kw, keyword: kw });
       items = mapped.slice(0, 8);
     } catch {
       if (my !== seq) return;
       items = [{ kind: "custom", label: kw, keyword: kw }];
     }
+
     renderDrop();
   }
 
   function submit(kw: string) {
     const k = kw.trim();
+
     if (!k) return;
     pushHistory(k);
     input.value = k;

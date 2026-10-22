@@ -44,12 +44,14 @@ import { applyKanaToLines, extractKanaTag, stripKanaTag } from "./qrc-kana";
  *  结构兼容，唯一的差别是 lyric 的类型声明里没有 `ruby` —— 振假名注音由 QRCKana 在对齐时
  *  写进词上（core 的 LyricWord 有 ruby，渲染侧认这个字段），所以转换只在这一处发生。 */
 type KaraLine = SparkleKaraokeLine;
+
 /** 整形行级时用得上的最小形状（AMLL 行与 KaraLine 都满足） */
 interface RawLine { startTime: number; words: Array<{ word: string }>; isBG?: boolean; isDuet?: boolean }
 
 function tryParseQrc(src: string): KaraLine[] | null {
   try {
-    const lines = parseQrc(src) as unknown as KaraLine[];
+    const lines: KaraLine[] = parseQrc(src);
+
     return lines.length ? lines : null;
   } catch {
     return null;
@@ -61,6 +63,7 @@ function tryParseQrc(src: string): KaraLine[] | null {
 function tryParseLrc(src: string): AmlLyricLine[] | null {
   try {
     const lines = parseLrc(src);
+
     return lines.length ? lines : null;
   } catch {
     return null;
@@ -74,6 +77,7 @@ const hasWordTiming = (lines: KaraLine[]) =>
 /** 行级收尾时长：末行没有「下一行」可用，给一段自然时长的整行扫色收尾。
  *  parseLrc 给末行的是 MAX 时间戳（≈16.6h），照单全收会让扫色慢到几乎静止。 */
 const LINE_TAIL_MS = 4000;
+
 /** 单行整行扫色的时长上限：长间奏里一行唱完后停在亮态，别拖成慢镜头 */
 const LINE_MAX_MS = 12000;
 
@@ -81,12 +85,15 @@ const LINE_MAX_MS = 12000;
  *  的伪 QRC 都走这里。行结束 = 下一行开始（末行给固定收尾），再对超长行设上限。 */
 function toLineLevel(lines: RawLine[]): SparkleKaraokeLine[] {
   const sorted = [...lines].sort((a, b) => a.startTime - b.startTime);
+
   return sorted.map((l, i) => {
     const text = l.words.map((w) => w.word).join("");
     const next = sorted[i + 1]?.startTime;
     let end = next ?? l.startTime + LINE_TAIL_MS;
+
     if (end - l.startTime > LINE_MAX_MS) end = l.startTime + LINE_MAX_MS;
     end = Math.max(end, l.startTime + 1);
+
     return {
       words: [{ word: text, startTime: l.startTime, endTime: end }],
       startTime: l.startTime,
@@ -107,32 +114,43 @@ const QRC_WORD_LINE = /^\[\d+,\d+\]/m; // 纯文本 QRC 的行首：[起始,时�
  *  必须在交给 parseQrc 之前摘出来（正文与注音标签共用同一套 `[...]` 行首形状）。 */
 function qrcPayload(src: string): { text: string; kanaTag: string } {
   const c = (src ?? "").trim();
+
   if (!c) return { text: "", kanaTag: "" };
+
   if (/<QrcInfos|<LyricInfo/i.test(c)) {
     // QRC XML 信封：抽出全部歌词正文属性（实测为 LyricContent="…"，旧格式为 Lyrics="…"，
     // 属性内以原文换行/&#10; 分行）。提取器与宿主行级兜底共用，QQ 正文里未转义的引号也不能截断。
     const payload = extractQrcPayload(c);
+
     return { text: payload, kanaTag: extractKanaTag(payload) };
   }
+
   return { text: c, kanaTag: extractKanaTag(c) };
 }
 
 /** 逐字形态的辅助源（XML 信封 / 纯文本 QRC）；普通 LRC 返回 null，交回 parseLrc */
 function parseQrcAuxSource(src: string): KaraLine[] | null {
   const c = (src ?? "").trim();
+
   if (!c) return null;
   const { text } = qrcPayload(c);
+
   if (!text.trim()) return null;
+
   if (/<QrcInfos|<LyricInfo/i.test(c)) return tryParseQrc(stripKanaTag(text));
+
   return QRC_WORD_LINE.test(text) ? tryParseQrc(stripKanaTag(text)) : null;
 }
 
 /** 辅助源 → 行列表：先按逐字解，解不出来退回行级 LRC；空源给空表 */
 function auxLines(src: string): KaraLine[] {
   const c = (src ?? "").trim();
+
   if (!c) return [];
   const q = parseQrcAuxSource(c);
+
   if (q?.length) return q;
+
   // 行级辅助源用保留空占位的解析器：`//` 必须参与匹配，不能因被跳过而让邻行文本借进来。
   return parseTimedAux(c).map(({ t, text }) => ({
     startTime: t * 1000,
@@ -150,20 +168,26 @@ function alignAuxField(
   field: "translatedLyric" | "romanLyric",
 ) {
   const matched = new Map<(typeof lines)[number], { d: number; text: string }>();
+
   for (const t of aux) {
     const text = cleanAuxText(t.words.map((w) => w.word).join(""));
     let best: (typeof lines)[number] | undefined;
     let bd = 1500;
+
     for (const l of lines) {
       const d = Math.abs(t.startTime - l.startTime);
+
       if (d < bd) { bd = d; best = l; }
     }
+
     if (!best) continue;
     const prev = matched.get(best);
+
     if (!prev || bd < prev.d || (bd === prev.d && !text && prev.text)) {
       matched.set(best, { d: bd, text });
     }
   }
+
   for (const [l, hit] of matched) l[field] = hit.text;
 }
 
@@ -178,7 +202,9 @@ function alignAux(
 ) {
   const tr = auxLines(translation);
   const ro = auxLines(romanization);
+
   if (tr.length) alignAuxField(lines, tr, "translatedLyric");
+
   if (ro.length) alignAuxField(lines, ro, "romanLyric");
 }
 
@@ -192,14 +218,17 @@ function alignAux(
  *  因为整形后每行只剩一个覆盖全行的音节 —— 时间与位置仍然正确，只是不再逐字）。 */
 function parseKaraoke(content: string, translation: string, romanization = ""): SparkleKaraokeLine[] | null {
   const c = (content ?? "").trim();
+
   if (!c) return null;
   const kanaTag = extractKanaTag(c); // 纯文本 QRC：标签就在正文里
   // ① 逐字候选：XML 信封 / TTML / 纯文本 QRC
   let word: KaraLine[] | null = null;
   let envelopeKana = kanaTag;
+
   if (/<QrcInfos|<LyricInfo/i.test(c)) {
     const { text, kanaTag: k } = qrcPayload(c);
     envelopeKana = k;
+
     if (text.trim()) word = tryParseQrc(stripKanaTag(text));
   } else if (/<tt[\s>]/i.test(c)) {
     try {
@@ -211,18 +240,25 @@ function parseKaraoke(content: string, translation: string, romanization = ""): 
   } else {
     word = tryParseQrc(stripKanaTag(c));
   }
+
   const kana = kanaTag || envelopeKana;
+
   if (word?.length && hasWordTiming(word)) {
     if (kana) applyKanaToLines(word, kana);
     alignAux(word, translation, romanization);
+
     return word;
   }
+
   // ② 行级：优先普通 LRC，其次是没有词级时间轴的伪 QRC
   const lrc = tryParseLrc(stripKanaTag(c));
   const lineLevel = toLineLevel(lrc?.length ? lrc : (word ?? []));
+
   if (!lineLevel.length) return null;
+
   if (kana && !lrc?.length) applyKanaToLines(lineLevel, kana); // 只有 QRC 本体才带注音标签
   alignAux(lineLevel, translation, romanization);
+
   return lineLevel;
 }
 
@@ -247,7 +283,9 @@ function toCoreLines(lines: SparkleKaraokeLine[], mode: LyricAuxMode): CoreLyric
       const core: CoreLyricLine["words"][number] = {
         word: w.word, startTime: w.startTime, endTime: w.endTime, romanWord: "",
       };
+
       if (w.ruby?.length) core.ruby = w.ruby.map((r) => ({ word: r.word, startTime: r.startTime, endTime: r.endTime }));
+
       return core;
     }),
     startTime: l.startTime,
@@ -287,13 +325,18 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
   // 隐藏已播放行时，当前行顶边对齐封面顶边。锚位由宿主按实际几何算出（0..1）；
   // 缺省 / null 时保持 AMLL 原本的居中锚定，桌面歌词窗等其它宿主不受影响。
   let alignTop: number | null = null;
+
   const applyTopAnchor = () => {
     const want = ctx.lyricTopAnchor?.();
+
     const next = typeof want === "number" && Number.isFinite(want)
       ? Math.max(0, Math.min(1, want)) : null;
+
     if (next === null && alignTop === null) return;
+
     if (next !== null && alignTop !== null && Math.abs(next - alignTop) < 0.002) return;
     alignTop = next;
+
     if (next === null) {
       player.setAlignAnchor(LayoutAlignAnchor.Center);
       player.setAlignPosition(0.35);
@@ -301,6 +344,7 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
       player.setAlignAnchor(LayoutAlignAnchor.Top);
       player.setAlignPosition(next);
     }
+
     player.calcLayout(LayoutReason.ConfigChange);
   };
 
@@ -316,25 +360,34 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
   // 只有超过阈值（真·回退 seek）才放行倒退。
   let lastFedMs = -1;
   let lastDelay = delayMs();
+
   const feedTime = (): number => {
     const d = delayMs();
     const raw = ctx.time() - d;
+
     // 用户在 ⋮ 菜单调延迟（±0.1s 一档）是**意图性**的时钟挪动：直接重锚并重喂，
     // 不能让它落进下面那条「重同步回跳」的钳平带 —— 0.1s 倒退会被钳成原地不动，
     // 歌词时钟先卡住 ~0.5s 再原样续跑，调了等于没调。
     if (d !== lastDelay) { lastDelay = d; lastFedMs = raw; return raw; }
+
     if (lastFedMs >= 0 && raw < lastFedMs && raw > lastFedMs - 250) return lastFedMs;
     lastFedMs = raw;
+
     return raw;
   };
+
   // 播放态只在变化时同步（每帧反复 pause/resume 会持续扰动 AMLL 的跳转推算）
   let lastPaused: boolean | null = null;
+
   const applyPlayState = () => {
     const p = ctx.paused();
+
     if (p === lastPaused) return;
     lastPaused = p;
+
     if (p) player.pause(); else player.resume();
   };
+
   applyPlayState();
 
   const ac = new AbortController();
@@ -342,6 +395,7 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
   // 这里显式 resetScroll，避免滚出去后一直停在旧视口（隐藏档还会因此整列空白）。
   const BROWSE_RETURN_MS = 3000;
   let browseReturnTimer = 0;
+
   const onBrowseWheel = (e: WheelEvent) => {
     if (e.ctrlKey) return; // Ctrl+滚轮是字号缩放，不算翻阅
     window.clearTimeout(browseReturnTimer);
@@ -349,6 +403,7 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
       if (ctx.expanded()) player.resetScroll();
     }, BROWSE_RETURN_MS);
   };
+
   host.addEventListener("wheel", onBrowseWheel, { passive: true });
 
   player.addEventListener("line-click", (e: Event) => {
@@ -356,50 +411,66 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
     // 歌词行自己的时间轴没被动过，动的是驱动时钟（− delay）：要点「屏幕上这行」就得把
     // delay 加回去换回真实播放位（口径同宿主行级视图的行点击；ctx.seek 收真实毫秒）
     const ms = ce.line?.getLine()?.startTime ?? 0;
+
     if (Number.isFinite(ms)) ctx.seek(Math.max(0, ms + delayMs()));
   }, { signal: ac.signal });
 
   let raf = 0;
   let lastFrame = 0;
   let running = false;
+
   function tick(now: number) {
     raf = 0;
+
     if (!ctx.expanded()) { running = false; lastFrame = 0; return; } // 收起：冻结渲染循环
+
     const dt = lastFrame ? Math.min(now - lastFrame, 50) : 16.7;    // 帧增量钳制（标签页切回等）
     lastFrame = now;
     const wantMode = ctx.lyricAux();
+
     if (wantMode !== shownMode) {                                    // 翻译/音译选项变化：重建行表
       shownMode = wantMode;
       player.setLyricLines(toCoreLines(lines, shownMode), feedTime());
     }
+
     const wantHide = ctx.hidePassedLines?.() ?? false;
+
     if (wantHide !== hidePassed) {
       hidePassed = wantHide;
       player.setHidePassedLines(wantHide);
+
       // 翻阅结束、重新隐藏已播放行时，AMLL 不能还停在用户滚出的旧视口里：
       // 否则旧行一隐藏，当前行还在屏幕外，整列就会空白。先退出用户滚动态并回自动对齐。
       if (wantHide) player.resetScroll();
     }
+
     applyPlayState();
     player.setCurrentTime(feedTime());
     player.update(dt);
     raf = window.requestAnimationFrame(tick);
   }
+
   function syncRunning() {
     // 收起时 tick 自停；重新展开必须由宿主 notify 唤醒（否则 AMLL 永久冻结：
     // 时间不跟、歌词不刷，seek 后滚动状态错乱）
     if (ctx.expanded() && !running) { running = true; lastFrame = 0; raf = window.requestAnimationFrame(tick); }
   }
+
   syncRunning();
+
   const onHostNotify = () => {
     syncRunning();
     applyTopAnchor();
   };
+
   const offNotify = ctx.onNotify(onHostNotify);
+
   const anchorObserver = typeof ResizeObserver === "function"
     ? new ResizeObserver(() => applyTopAnchor()) : null;
+
   anchorObserver?.observe(host);
   const cover = host.closest(".np")?.querySelector<HTMLElement>(".np-cover");
+
   if (cover) anchorObserver?.observe(cover);
 
   return () => {
@@ -408,6 +479,7 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
     host.removeEventListener("wheel", onBrowseWheel);
     amllPlayerByHost.delete(host);
     offNotify();
+
     if (raf) window.cancelAnimationFrame(raf);
     raf = 0;
     ac.abort();

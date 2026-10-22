@@ -19,24 +19,35 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function solidPng(r, g, b) {
   const crc32 = (buf) => {
     let c, t = [];
+
     for (let n = 0; n < 256; n++) { c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c; }
+
     let crc = 0xFFFFFFFF;
+
     for (const x of buf) crc = t[(crc ^ x) & 0xFF] ^ (crc >>> 8);
+
     return (crc ^ 0xFFFFFFFF) >>> 0;
   };
+
   const chunk = (type, data) => {
     const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
     const td = Buffer.concat([Buffer.from(type), data]);
     const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(td));
+
     return Buffer.concat([len, td, crc]);
   };
+
   const ihdr = Buffer.from([0, 0, 0, 64, 0, 0, 0, 64, 8, 2, 0, 0, 0]);
   const rows = [];
+
   for (let y = 0; y < 64; y++) {
     const line = Buffer.alloc(1 + 64 * 3);
+
     for (let x = 0; x < 64; x++) { line[1 + x * 3] = r; line[2 + x * 3] = g; line[3 + x * 3] = b; }
+
     rows.push(line);
   }
+
   return Buffer.concat([
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
     chunk("IHDR", ihdr), chunk("IDAT", deflateSync(Buffer.concat(rows))), chunk("IEND", Buffer.alloc(0)),
@@ -50,25 +61,35 @@ const browser = await puppeteer.launch({
   executablePath: "/usr/bin/google-chrome", headless: "new",
   args: ["--no-sandbox", "--disable-gpu", "--autoplay-policy=no-user-gesture-required"],
 });
+
 const page = await browser.newPage();
+
 await page.setViewport({ width: 1280, height: 840 });
+
 page.on("pageerror", (e) => console.log("[pageerror]", String(e)));
+
 // 封面域名拦截为本地 PNG（交替两色，便于确认「换曲真的换了图」）
 let flip = false;
 const inhibitCalls = [];
+
 await page.setRequestInterception(true);
+
 page.on("request", (req) => {
   if (req.url().endsWith("/api/inhibit")) {
     try { inhibitCalls.push(JSON.parse(req.postData() ?? "{}")); } catch { /* invalid test request is asserted by absence */ }
+
     return req.respond({ status: 200, contentType: "application/json", body: JSON.stringify({
       code: 0, msg: "ok", data: { supported: true, active: false, reason: "" },
     }) });
   }
+
   if (req.url().includes("y.gtimg.cn")) { flip = !flip; return req.respond({ status: 200, contentType: "image/png", body: flip ? PNG_A : PNG_B }); }
+
   req.continue();
 });
 
 let fails = 0;
+
 const step = async (name, fn) => {
   try { const note = await fn(); console.log(`PASS ${name}${note ? " — " + note : ""}`); }
   catch (e) { fails++; console.log(`FAIL ${name}: ${e.message}`); }
@@ -76,25 +97,30 @@ const step = async (name, fn) => {
 
 const waitForInhibit = async (mode, active, from = 0) => {
   const end = Date.now() + 8000;
+
   while (Date.now() < end) {
     if (inhibitCalls.slice(from).some((x) => x.mode === mode && x.active === active)) return;
     await sleep(50);
   }
+
   throw new Error(`未收到 mode=${mode} active=${active} 请求`);
 };
 
 const checkTopbar = async (visible: boolean) => {
   const state = await page.evaluate(() => {
     const selectors = [".winbtns", ".win-dragtop", ".content-top", ".searchbar"];
+
     return selectors.map((selector) => {
       const el = document.querySelector<HTMLElement>(selector)!;
       const cs = getComputedStyle(el);
       const r = el.getBoundingClientRect();
       const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+
       return { selector, visible: cs.visibility === "visible" && cs.display !== "none",
         hit: !!hit && el.contains(hit) };
     });
   });
+
   if (state.some((x) => x.visible !== visible || (!visible && x.hit))) {
     throw new Error(`顶栏应${visible ? "显示" : "隐藏且不能命中"}：${JSON.stringify(state)}`);
   }
@@ -103,6 +129,7 @@ const checkTopbar = async (visible: boolean) => {
 /** 桩一首歌进队列并展开本页（行级歌词态；kara 步骤自行挂逐字数据） */
 const setupSong = (mid) => page.evaluate((mid) => {
   const p = window.__player;
+
   if (!p) throw new Error("window.__player 不存在（需要 vite dev，DEV 钩子）");
   p.queue = [{ mid, name: "歌曲" + mid, singer: [{ name: "测试歌手" }], album: { mid: "al" + mid, name: "测试专辑" } }];
   p.index = 0;
@@ -114,28 +141,34 @@ const setupSong = (mid) => page.evaluate((mid) => {
 }, mid);
 
 await page.goto(`${BASE}/index.html#/`, { waitUntil: "networkidle2" });
+
 await sleep(1500); // 等 initSparkle（内置歌词引擎 + 官方插件都是动态 import）
 
 await step("频谱关闭 + 懒加载样式未到位时，打开 ⋮ 不会挤动正在播放页", async () => {
   await setupSong("layout");
   await page.waitForFunction(() => document.querySelector(".np.open .np-inner"), { timeout: 4000 });
   await sleep(350); // 让 np 的展开位移过渡结束，只比较静态布局
+
   const before = await page.evaluate(() => {
     const np = document.querySelector<HTMLElement>(".np")!;
     const inner = document.querySelector<HTMLElement>(".np-inner")!;
+
     return {
       top: inner.getBoundingClientRect().top,
       spectrumOn: np.classList.contains("spectrum-on"),
       spectrumPosition: getComputedStyle(document.querySelector<HTMLElement>(".np-spectrum")!).position,
     };
   });
+
   if (before.spectrumOn) throw new Error("回归用例应保持频谱关闭");
+
   if (before.spectrumPosition !== "absolute") throw new Error(`频谱在懒加载前仍参与 grid 布局: ${before.spectrumPosition}`);
   await page.click("#np-more");
   await page.waitForFunction(() => document.querySelector("#np-menu")?.classList.contains("open"), { timeout: 4000 });
   await page.waitForFunction(() =>
     [...document.styleSheets].some((sheet) => sheet.ownerNode?.textContent?.includes("正在播放页真实音频频谱")), { timeout: 4000 });
   const afterTop = await page.evaluate(() => document.querySelector<HTMLElement>(".np-inner")!.getBoundingClientRect().top);
+
   if (Math.abs(afterTop - before.top) > 1) throw new Error(`⋮ 触发频谱样式加载后页面位移 ${before.top} → ${afterTop}px`);
   await page.click("#np-more");
   await page.waitForFunction(() => !document.querySelector("#np-menu")?.classList.contains("open"), { timeout: 4000 });
@@ -152,11 +185,14 @@ await step("矮窗开启频谱：波形画布不会穿过音质胶囊", async ()
   await setupSong("short");
   await page.waitForFunction(() => document.querySelector(".np.open.spectrum-on"), { timeout: 4000 });
   await sleep(350);
+
   const boxes = await page.evaluate(() => {
     const q = document.querySelector<HTMLElement>("#np-quality")!.getBoundingClientRect();
     const s = document.querySelector<HTMLElement>("#np-spectrum")!.getBoundingClientRect();
+
     return { qualityBottom: q.bottom, qualityTop: q.top, spectrumTop: s.top, spectrumBottom: s.bottom };
   });
+
   if (boxes.qualityBottom >= boxes.spectrumTop) throw new Error(`音质胶囊与频谱相交: ${JSON.stringify(boxes)}`);
   await page.evaluate(async () => {
     const { spectrumFacade } = await import("/src/lib/spectrum-controller.ts");
@@ -178,6 +214,7 @@ await step("主页面：搜索历史候选覆盖吸顶区（含无 backdrop-filt
   });
   await page.click(".searchbar input");
   await page.waitForSelector(".sb-item", { visible: true, timeout: 4000 });
+
   for (const noBackdrop of [false, true]) {
     const hit = await page.evaluate((off) => {
       const content = document.querySelector<HTMLElement>(".content")!;
@@ -187,10 +224,13 @@ await step("主页面：搜索历史候选覆盖吸顶区（含无 backdrop-filt
       const header = document.querySelector(".sticky-head")!.getBoundingClientRect();
       const y = r.y + r.height / 2;
       const target = document.elementFromPoint(r.x + r.width / 2, y);
+
       return { overlaps: y >= header.top && y <= header.bottom, hit: !!target && item.contains(target) };
     }, noBackdrop);
+
     if (!hit.overlaps || !hit.hit) throw new Error(`候选被吸顶区遮挡：${JSON.stringify(hit)}, noBackdrop=${noBackdrop}`);
   }
+
   await page.evaluate(() => { document.querySelector<HTMLElement>(".content")!.style.backdropFilter = ""; });
   await checkTopbar(true);
 });
@@ -199,15 +239,18 @@ await step("展开本页：A 垫底层可见且被压在 scrim 之下", async ()
   await setupSong("A");
   await page.waitForFunction(() => {
     const a = document.querySelector("#np-bg");
+
     return !!a && getComputedStyle(a).opacity === "1" && a.style.backgroundImage.includes("y.gtimg.cn");
   }, { timeout: 8000 });
   const top = await page.evaluate(() => String(document.elementFromPoint(640, 100)?.className ?? ""));
+
   if (top.includes("np-bg")) throw new Error("np-bg 盖在了 scrim 之上（层叠被操纵）");
 });
 
 await step("展开播放页：隐藏顶栏与候选、释放搜索焦点；ESC 收起后恢复", async () => {
   await checkTopbar(false);
   const focused = await page.evaluate(() => !!document.activeElement?.closest(".content-top"));
+
   if (focused) throw new Error("隐藏的搜索框仍占用焦点");
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => !window.__player.expanded, { timeout: 4000 });
@@ -224,7 +267,9 @@ await step("背景层零 z-index 操纵（scrim 渐变蒙版不被顶掉）", as
     b: getComputedStyle(document.querySelector("#np-bg2")).zIndex,
     grad: getComputedStyle(document.querySelector(".np-scrim")).backgroundImage.includes("linear-gradient"),
   }));
+
   if (st.a !== "auto" || st.b !== "auto") throw new Error("背景层 z-index 被操纵: " + JSON.stringify(st));
+
   if (!st.grad) throw new Error("scrim 渐变丢失");
 });
 
@@ -232,15 +277,20 @@ await step("换曲交叉淡化：B 淡入 → 收尾后 A 接管、B 退场", as
   await setupSong("B");
   await page.waitForFunction(() => {
     const b = document.querySelector("#np-bg2");
+
     return !!b && b.classList.contains("show") && b.style.backgroundImage.includes("y.gtimg.cn");
   }, { timeout: 8000 });
   await sleep(750); // settle(520ms) + 淡出过渡
+
   const st = await page.evaluate(() => {
     const a = document.querySelector("#np-bg"), b = document.querySelector("#np-bg2");
+
     return { aShow: a.classList.contains("show"), aImg: a.style.backgroundImage.includes("y.gtimg.cn"),
       bShow: b.classList.contains("show"), bImg: b.style.backgroundImage !== "" };
   });
+
   if (!st.aShow || !st.aImg) throw new Error("A 未接管新图 " + JSON.stringify(st));
+
   if (st.bShow || st.bImg) throw new Error("B 未退场 " + JSON.stringify(st));
 });
 
@@ -249,12 +299,14 @@ await step("kara 模式：AMLL 挂载、行级隐藏、左缘渐变蒙版仍在"
   // 桩 karaoke 清空（真实应用里这步解析真 QRC）。所以这里反复重挂桩数据直到 .np.kara 稳定。
   await page.evaluate(() => {
     const p = window.__player;
+
     const line = (t0, dur, ws, trans = "", roman = "") => ({
       startTime: t0, endTime: t0 + dur,
       words: ws.map(([w, st, d]) => ({ word: w, startTime: t0 + st, endTime: t0 + st + d })),
       translatedLyric: trans,
       romanLyric: roman,
     });
+
     const arm = () => {
       p.lyricState = "ok";
       // 行级与逐字两路辅助行都给数据：第 1 行翻译/音译都有、第 2 行翻译是 `//` 占位、
@@ -269,10 +321,13 @@ await step("kara 模式：AMLL 挂载、行级隐藏、左缘渐变蒙版仍在"
       ];
       p.notifyPublic();
     };
+
     arm();
     const t0 = Date.now();
+
     const iv = setInterval(() => {
       if (document.querySelector(".np.kara") || Date.now() - t0 > 15000) { clearInterval(iv); return; }
+
       arm();
     }, 400);
   });
@@ -281,15 +336,20 @@ await step("kara 模式：AMLL 挂载、行级隐藏、左缘渐变蒙版仍在"
   // AMLL 的行 DOM 在自己的 rAF 首帧后成形：等文本真的上屏再断言
   await page.waitForFunction(() =>
     document.querySelector("#np-karaoke .amll-lyric-player")?.textContent.includes("你好"), { timeout: 8000 });
+
   const st = await page.evaluate(() => {
     const host = document.querySelector("#np-karaoke .amll-lyric-player");
     const r = host.getBoundingClientRect();
+
     return { w: r.width, h: r.height,
       karaDisplay: getComputedStyle(document.querySelector("#np-lyrics")).display,
       leftGrad: getComputedStyle(document.querySelector(".np-scrim")).backgroundImage.includes("90deg") };
   });
+
   if (st.w < 100 || st.h < 100) throw new Error("AMLL 元素无尺寸 " + JSON.stringify(st));
+
   if (st.karaDisplay !== "none") throw new Error("行级歌词未隐藏");
+
   if (!st.leftGrad) throw new Error("kara 左缘渐变蒙版丢失");
 });
 
@@ -298,16 +358,23 @@ await step("kara 辅助行：翻译档优先翻译、音译档优先音译，缺
   const read = () => page.evaluate(() => {
     const host = document.querySelector("#np-karaoke .amll-lyric-player");
     const mains = [...(host?.querySelectorAll('[class*="lyricMainLine"]') ?? [])];
-    const rows = mains.map((m) => {
+
+    const rows = mains.flatMap((m) => {
       const kids = [...(m.parentElement?.children ?? [])].map((c) => (c.textContent ?? "").trim());
-      return { main: kids[0] ?? "", subs: kids.slice(1).filter(Boolean) };
-    }).filter((r) => r.main.includes("你好") || r.main.includes("第二行") || r.main.includes("第三行"));
+      const row = { main: kids[0] ?? "", subs: kids.slice(1).filter(Boolean) };
+
+      return row.main.includes("你好") || row.main.includes("第二行") || row.main.includes("第三行") ? [row] : [];
+    });
+
     return { rows, rubyEls: (host?.querySelectorAll('[class*="rubyWord"]') ?? []).length };
   });
+
   const setMode = (m) => page.evaluate((mode) => { window.__player.setLyricAuxMode(mode); window.__player.notifyPublic(); }, m);
+
   const waitRows = (want) => page.waitForFunction((w) => {
     const host = document.querySelector("#np-karaoke .amll-lyric-player");
     const mains = [...(host?.querySelectorAll('[class*="lyricMainLine"]') ?? [])];
+
     return mains.some((mm) => (mm.parentElement?.textContent ?? "").includes(w));
   }, { timeout: 8000 }, want);
 
@@ -318,9 +385,13 @@ await step("kara 辅助行：翻译档优先翻译、音译档优先音译，缺
   let one = st.rows.find((r) => r.main.includes("你好"));
   let two = st.rows.find((r) => r.main.includes("第二行"));
   let three = st.rows.find((r) => r.main.includes("第三行"));
+
   if (!one || one.subs.join() !== "你好世界（译）") throw new Error("翻译档第 1 行应显翻译 " + JSON.stringify(st.rows));
+
   if (!two || two.subs.join() !== "di er hang") throw new Error("翻译档第 2 行无翻译应回落音译 " + JSON.stringify(st.rows));
+
   if (!three || three.subs.length) throw new Error("翻译档第 3 行两路皆空不应上辅助行 " + JSON.stringify(st.rows));
+
   if (st.rows.some((r) => r.subs.some((s) => /^\/+$/.test(s)))) throw new Error("辅助行占位 // 被上屏 " + JSON.stringify(st.rows));
 
   await setMode("romanization");
@@ -330,18 +401,25 @@ await step("kara 辅助行：翻译档优先翻译、音译档优先音译，缺
   one = st.rows.find((r) => r.main.includes("你好"));
   two = st.rows.find((r) => r.main.includes("第二行"));
   three = st.rows.find((r) => r.main.includes("第三行"));
+
   if (!one || one.subs.join() !== "ni hao shi jie") throw new Error("音译档第 1 行应显音译（且在上一步的翻译之后真的换了一路） " + JSON.stringify(st.rows));
+
   if (!two || two.subs.join() !== "di er hang") throw new Error("音译档第 2 行应保持音译 " + JSON.stringify(st.rows));
+
   if (!three || three.subs.length) throw new Error("音译档第 3 行两路皆空不应上辅助行 " + JSON.stringify(st.rows));
+
   if (st.rubyEls > 0) throw new Error("音译不该出现在词上方（Ruby） " + JSON.stringify(st));
+
   if (st.rows.some((r) => r.subs.length > 1)) throw new Error("辅助行只应有一行 " + JSON.stringify(st.rows));
 
   await setMode("off");
   await waitRows("你好");
   await sleep(350);
   st = await read();
+
   if (st.rows.some((r) => r.subs.length)) throw new Error("关闭档仍残留辅助行 " + JSON.stringify(st.rows));
 });
+
 await step("kara 振假名：QRCKana 解析出的 ruby 画在词上方（不占辅助行位置）", async () => {
   // NowPlaying 只在「换曲 / 歌词状态迁移 / 接管模式切换」时清容器重挂，逐字内容本身变了
   // 不会重建 —— 所以这里走一次 none → ok 的状态迁移，逼宿主用新行表重建 AMLL。
@@ -368,11 +446,13 @@ await step("kara 振假名：QRCKana 解析出的 ruby 画在词上方（不占�
   });
   await page.waitForFunction(() =>
     document.querySelectorAll('#np-karaoke [class*="rubyWord"]').length > 0, { timeout: 8000 });
+
   const st = await page.evaluate(() => {
     const host = document.querySelector("#np-karaoke .amll-lyric-player");
     const ruby = [...(host?.querySelectorAll('[class*="rubyWord"]') ?? [])];
     const mains = [...(host?.querySelectorAll('[class*="lyricMainLine"]') ?? [])];
     const rowOf = (m: Element) => [...(m.parentElement?.children ?? [])].map((c) => (c.textContent ?? "").trim());
+
     return {
       rubyText: ruby.map((e) => (e.textContent ?? "").trim()).join(""),
       // 注音元素在 DOM 里排在主行文字**之前**（词上方），且辅助行仍只有一条
@@ -381,17 +461,21 @@ await step("kara 振假名：QRCKana 解析出的 ruby 画在词上方（不占�
       rows: mains.map(rowOf),
     };
   });
+
   if (!st.rubyText.includes("きさ")) throw new Error("注音没上屏 " + JSON.stringify(st));
+
   if (st.rows.some((r: string[]) => r.filter(Boolean).length > 2)) throw new Error("注音被算成额外的辅助行 " + JSON.stringify(st.rows));
 
   // 收线：把后面两步（行级回退 / 行级辅助行）依赖的桩数据原样放回去
   await page.evaluate(() => {
     const p = window.__player;
+
     const line = (t0: number, dur: number, ws: string[][], trans = "", roman = "") => ({
       startTime: t0, endTime: t0 + dur,
       words: ws.map(([w, s, d]) => ({ word: w, startTime: t0 + Number(s), endTime: t0 + Number(s) + Number(d) })),
       translatedLyric: trans, romanLyric: roman,
     });
+
     p.lyrics = [{ t: 0, text: "第一行", trans: "第一行（译）", roma: "di yi hang" },
       { t: 3, text: "第二行", roma: "di er hang" }];
     p.karaoke = [
@@ -412,12 +496,16 @@ await step("行级回退：karaoke 清空后回行级列表", async () => {
 await step("行级辅助行：与逐字同规则（翻译档优先翻译、音译档优先音译，缺则回落另一路）", async () => {
   const read = () => page.evaluate(() => [...document.querySelectorAll("#np-lyrics .np-ly-line")]
     .map((d) => ({ text: d.querySelector(".l1")?.textContent ?? "", aux: d.querySelector(".l2")?.textContent ?? "" })));
+
   const rows = await read();
+
   if (rows.find((r) => r.text === "第一行")?.aux !== "第一行（译）") throw new Error("翻译档第 1 行应显翻译 " + JSON.stringify(rows));
+
   if (rows.find((r) => r.text === "第二行")?.aux !== "di er hang") throw new Error("翻译档第 2 行无翻译应回落音译 " + JSON.stringify(rows));
   await page.evaluate(() => { const p = window.__player; p.setLyricAuxMode("romanization"); p.notifyPublic(); });
   await page.waitForFunction(() => document.querySelector("#np-lyrics .np-ly-line .l2")?.textContent === "di yi hang", { timeout: 8000 });
   const rows2 = await read();
+
   if (rows2.find((r) => r.text === "第一行")?.aux !== "di yi hang") throw new Error("音译档第 1 行应换到音译 " + JSON.stringify(rows2));
   await page.evaluate(() => { const p = window.__player; p.setLyricAuxMode("off"); p.notifyPublic(); });
   await page.waitForFunction(() => !document.querySelector("#np-lyrics .np-ly-line .l2"), { timeout: 8000 });
@@ -428,19 +516,24 @@ await step("歌词列模式：全高拉伸、频谱避让、隐藏已播放行�
     window.__cfg.set({ "Style.LyricLayout": m });
     window.__player.notifyPublic();
   }, mode);
+
   const geom = () => page.evaluate(() => {
     const np = document.querySelector<HTMLElement>(".np")!;
     const inner = document.querySelector<HTMLElement>(".np-inner")!.getBoundingClientRect();
     const spectrum = document.querySelector<HTMLElement>(".np-spectrum")!.getBoundingClientRect();
+
     return { className: np.className, top: inner.top, bottom: inner.bottom, height: inner.height, spectrumTop: spectrum.top };
   });
+
   await setMode("default"); await sleep(350);
   const normal = await geom();
   await setMode("full"); await sleep(350);
   const full = await geom();
+
   if (!full.className.includes("np-lyrics-full") || full.height < normal.height + 80) {
     throw new Error(`全高档未拉伸歌词列: ${JSON.stringify({ normal, full })}`);
   }
+
   await page.evaluate(async () => {
     const { spectrumFacade } = await import("/src/lib/spectrum-controller.ts");
     spectrumFacade.setEnabled(true);
@@ -448,9 +541,11 @@ await step("歌词列模式：全高拉伸、频谱避让、隐藏已播放行�
   await page.waitForFunction(() => document.querySelector(".np")?.classList.contains("spectrum-on"), { timeout: 5000 });
   await sleep(400);
   const withSpectrum = await geom();
+
   if (withSpectrum.bottom > withSpectrum.spectrumTop - 8) {
     throw new Error(`全高歌词列压到频谱: ${JSON.stringify(withSpectrum)}`);
   }
+
   await page.evaluate(async () => {
     const { spectrumFacade } = await import("/src/lib/spectrum-controller.ts");
     spectrumFacade.setEnabled(false);
@@ -461,17 +556,22 @@ await step("歌词列模式：全高拉伸、频谱避让、隐藏已播放行�
     lines.forEach((line, i) => line.classList.toggle("cur", i === 1));
   });
   await sleep(400);
+
   const before = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("#np-lyrics .np-ly-line")]
     .map((line) => Number(getComputedStyle(line).opacity)));
+
   if (before[0] > 0.02 || before[1] < 0.98) throw new Error(`已播放行未隐藏: ${JSON.stringify(before)}`);
   await page.evaluate(() => document.querySelector("#np-lyrics")!
     .dispatchEvent(new WheelEvent("wheel", { deltaY: 80, bubbles: true })));
   await sleep(400);
+
   const after = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("#np-lyrics .np-ly-line")]
     .map((line) => Number(getComputedStyle(line).opacity)));
+
   if (after[0] < 0.5) throw new Error(`滚轮浏览未恢复已播放行: ${JSON.stringify(after)}`);
   await setMode("default"); await sleep(350);
 });
+
 await step("画廊按钮：开 = 展开并全屏、按钮点亮", async () => {
   await page.evaluate(() => { const p = window.__player; p.expanded = false; p.gallery = false; p.notifyPublic(); });
   await sleep(450);
@@ -480,9 +580,11 @@ await step("画廊按钮：开 = 展开并全屏、按钮点亮", async () => {
   await page.waitForFunction(() => window.__player.expanded && window.__player.gallery
     && document.querySelector(".np").classList.contains("open")
     && document.fullscreenElement != null, { timeout: 8000 });
+
   if (!(await page.$eval("#pb-gallery", (el) => el.classList.contains("on")))) throw new Error("按钮未点亮");
   await checkTopbar(false);
   await waitForInhibit("idle", true, from);
+
   if (inhibitCalls.slice(from).some((x) => x.mode === "sleep" && x.active)) throw new Error("画廊模式不应额外请求 sleep 抑制");
 });
 
@@ -505,6 +607,7 @@ await step("ESC 收起：画廊态下 ESC = 收页 + 退全屏 + 灯灭", async 
     && document.fullscreenElement == null, { timeout: 8000 });
   await waitForInhibit("idle", false, from);
   await checkTopbar(true);
+
   if (await page.$eval("#pb-gallery", (el) => el.classList.contains("on"))) throw new Error("按钮仍点亮");
 });
 
@@ -515,9 +618,12 @@ await step("外部退出全屏：立即结束画廊抑制", async () => {
   await page.evaluate(() => document.exitFullscreen());
   await page.waitForFunction(() => !window.__player.gallery && document.fullscreenElement == null, { timeout: 8000 });
   await waitForInhibit("idle", false, from);
+
   if (await page.$eval("#pb-gallery", (el) => el.classList.contains("on"))) throw new Error("外部退出后画廊按钮仍点亮");
 });
 
 await browser.close();
+
 console.log(`\n${fails === 0 ? "✅" : "❌"} verify-np-gallery: ${fails === 0 ? "ALL PASS" : fails + " FAILURES"}`);
+
 process.exit(fails ? 1 : 0);

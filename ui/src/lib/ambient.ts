@@ -24,16 +24,20 @@ import { backgroundPolicyOf } from "../sparkle/theme-background";
 
 /** 同源背景图端点（dev/preview = src/relay.ts，打包态 = electron/native-server.ts） */
 const BG_ROUTE = "/api/bg";
+
 /** 封面模式的取图尺寸：环境层是模糊铺底，300px 足够（与 shell 的染色取图同口径） */
 const COVER_SIZE = 300;
+
 /** 扩边系数：blur 0 → 1（不裁图）｜70（默认）→ 1.15（与改造前的硬编码值一致）｜120 → 1.26 */
 const SCALE_AT_70 = 0.15;
 const scaleFor = (blur: number) => 1 + (blur / 70) * SCALE_AT_70;
 
 let layer: HTMLElement | null = null;
 let art: HTMLElement | null = null;
+
 /** 当前图源指纹（模式 + 具体来源）：只有它变了才重新取图 —— 拖模糊滑块不该重拉一张 4K 壁纸 */
 let artKey = "";
+
 /** 自定义图的取图序号：同一个路径换了文件（用户替换了原图）也要能击穿缓存 */
 let bgRev = 0;
 
@@ -64,12 +68,14 @@ function hideArt() {
  */
 export function applyBackground() {
   if (!layer || !art) return;
+
   // 主题接管背景：让位 —— 整层不画（否则用户的自定义壁纸会从主题的底色底下透出来），
   // 也顺手作废图源指纹：切回默认主题时要重新取图，不能停在「已加载」的假象上。
   if (backgroundPolicyOf(sparkleActiveTheme()).mode === "off") {
     layer.dataset.mode = "theme";
     artKey = "";
     hideArt();
+
     return;
   }
 
@@ -81,15 +87,20 @@ export function applyBackground() {
 
   const song = player.current;
   const path = getBackgroundImage();
+
   const key = mode === "custom" ? (path ? `custom:${path}` : "")
     : mode === "cover" ? (song ? `cover:${coverUrl(song, COVER_SIZE)}` : "")
     : "";
+
   if (key === artKey) return;
   artKey = key;
+
   if (!key) {
     hideArt();
+
     return;
   }
+
   // 自定义图走后端端点（路径只认 quaver.conf，query 只用来击穿缓存）；
   // 封面直接吃远端 URL（与其它地方的封面图同一个 CDN 缓存条目，不额外拉一次）
   const src = key.startsWith("custom:") ? `${BG_ROUTE}?v=${++bgRev}` : key.slice("cover:".length);
@@ -99,9 +110,11 @@ export function applyBackground() {
     art.style.backgroundImage = `url("${src}")`;
     art.classList.add("ready");
   };
+
   img.onerror = () => {
     // 封面 404 或自定义图读不出来：保持中性底，不闪一下半成品
     if (artKey === key) hideArt();
   };
+
   img.src = src;
 }

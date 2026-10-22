@@ -103,6 +103,7 @@ export class DesktopLyricsController {
     ipcMain.on("quaver:dl-cmd", (e, msg) => {
       if (!this.fromDlWin(e.sender)) return;
       const main = this.deps.getMainWindow();
+
       if (main && !main.isDestroyed()) main.webContents.send("quaver:dl-cmd", msg);
     });
     // DL 窗 → 主进程：窗口级动作（边缘改大小 / 关窗）——挪窗走 CSD 拖拽区，不经这里
@@ -117,13 +118,18 @@ export class DesktopLyricsController {
     // 控制入口：设置页开关 / 托盘菜单（任何窗都可调用；写配置 + 开窗/关窗 + 全窗广播）
     ipcMain.handle("quaver:dl-control", (_e, msg) => {
       const op = String(msg?.op ?? "");
+
       if (op === "get-state") return { ok: true, ...this.state() };
+
       // 控制指令只认主窗（设置页/播放页）；DL 页的合法出路是 quaver:dl-window，浏览器 dev 页一律拒
       if (!this.fromMainWin(_e.sender)) return { ok: false, error: "控制入口仅主窗可用" };
+
       if (op === "set-enabled") {
         this.setEnabled(!!msg?.on);
+
         return { ok: true, ...this.state() };
       }
+
       return { ok: false, error: `unknown op: ${op}` };
     });
   }
@@ -150,12 +156,14 @@ export class DesktopLyricsController {
       return readValues().values;
     } catch (e) {
       this.deps.log("[quaver] desktop-lyrics: 配置读取失败，走默认值:", String(e));
+
       return {};
     }
   }
 
   private fromMainWin(sender: Electron.WebContents): boolean {
     const main = this.deps.getMainWindow();
+
     return !!main && !main.isDestroyed() && main.webContents === sender;
   }
 
@@ -169,6 +177,7 @@ export class DesktopLyricsController {
 
   private broadcastActive(): void {
     const main = this.deps.getMainWindow();
+
     if (main && !main.isDestroyed()) main.webContents.send("quaver:dl-active", this.state());
   }
 
@@ -194,6 +203,7 @@ export class DesktopLyricsController {
   /** 应用启动尾调用：磁盘上开着桌面歌词 → 主窗就绪后把覆盖层也拉起来（位置/大小按记忆恢复）。 */
   boot(): void {
     this.settings = parseSettings(this.readConf());
+
     if (this.settings.enabled) this.open();
   }
 
@@ -204,11 +214,14 @@ export class DesktopLyricsController {
   syncFromConf(): void {
     const next = parseSettings(this.readConf());
     const open = !!this.win && !this.win.isDestroyed();
+
     // 字号/行数/辅助行变了 = 内容容量变了：窗还开着就把高度重新贴合（见 refitHeight）
     const capacityChanged = this.settings.scale !== next.scale
       || this.settings.mode !== next.mode || this.settings.aux !== next.aux;
+
     const lockChanged = this.lockedNow() !== (this.canLock && next.locked);
     this.settings = next;
+
     if (next.enabled && !open) this.open();
     else if (!next.enabled && open) this.closeWindow();
     else if (lockChanged) this.applyInteractionMode();
@@ -220,6 +233,7 @@ export class DesktopLyricsController {
   setEnabled(on: boolean): void {
     this.settings = { ...this.settings, enabled: on };
     this.persistConf({ "DesktopLyrics.Enabled": on ? "True" : "False" });
+
     if (on) this.open();
     else this.closeWindow();
     this.broadcastActive();
@@ -230,8 +244,10 @@ export class DesktopLyricsController {
   setLocked(on: boolean): void {
     if (!this.canLock) {
       this.deps.log("[quaver] desktop-lyrics: 当前会话不支持固定/鼠标透穿，忽略锁定请求");
+
       return;
     }
+
     if (this.settings.locked === on) return;
     this.settings = { ...this.settings, locked: on };
     this.persistConf({ "DesktopLyrics.Locked": on ? "True" : "False" });
@@ -245,17 +261,23 @@ export class DesktopLyricsController {
   private open(): void {
     if (this.win && !this.win.isDestroyed()) return;
     const base = this.deps.getUrl();
+
     if (!base) {
       this.deps.log("[quaver] desktop-lyrics: 应用服务地址未就绪，稍后再开（启用状态已记录）");
+
       return;
     }
+
     let url: URL;
+
     try {
       url = new URL("desktop-lyrics.html", base);
     } catch (e) {
       this.deps.log("[quaver] desktop-lyrics: URL 拼装失败:", String(e), base);
+
       return;
     }
+
     const displays: Rect[] = screen.getAllDisplays().map((d) => d.workArea);
     // 初始尺寸跟着「字号 × 行数」贴内容；记忆里若是用户拖过且合理的尺寸，照旧恢复
     const hint = defaultSizeFor(this.settings);
@@ -264,6 +286,7 @@ export class DesktopLyricsController {
     // 「申请浮窗」：min/max 尺寸提示必须在**构造参数**里给 —— 窗口映射那一刻合成器就按它判浮窗
     // （高度 min == max = 有一条不可变的轴），之后 show 再补就晚了那一帧。机制见 sizeHintsFor。
     const hints = sizeHintsFor(bounds?.height ?? hint.height);
+
     const win = new BrowserWindow({
       width: bounds?.width ?? hint.width,
       height: bounds?.height ?? hint.height,
@@ -294,10 +317,13 @@ export class DesktopLyricsController {
         sandbox: false,
       },
     });
+
     // 屏幕最前（macOS 用 screen-saver 层，能盖全屏应用；X11 落 _NET_WM_STATE_ABOVE；
     // Wayland 无通用「置顶」协议——尽力而为，这也是桌面类应用在所有 Wayland 桌上的共同现状）
     win.setAlwaysOnTop(true, "screen-saver");
+
     try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch { /* 平台不支持则跳过 */ }
+
     // 构造参数只能钉住 movable；输入穿透必须在映射前后都落到原生窗上。锁定是持久偏好，
     // 启动时也要先于 show 生效，否则首帧会短暂挡住桌面。
     this.applyInteractionMode(win);
@@ -309,9 +335,12 @@ export class DesktopLyricsController {
       // 晚到的窗补发最新缓存：曲目歌词，最后时钟
       this.pageReady = true;
       this.applyInteractionMode(win);
+
       if (this.latestTrack) this.toDl("quaver:dl-track", this.latestTrack);
+
       if (this.latestSync) this.toDl("quaver:dl-sync", this.latestSync);
     });
+
     if (this.deps.crotchet) {
       // 调试模式：歌词窗渲染层日志（含未捕获异常）并入同一份文件 —— 与主窗 console-message 同一口径
       win.webContents.on("console-message", (details) => {
@@ -319,6 +348,7 @@ export class DesktopLyricsController {
       });
       win.webContents.on("render-process-gone", (_e, gone) => this.deps.log("[dl-renderer:gone]", JSON.stringify(gone)));
     }
+
     // ——— 「不支持最大化」的兜底 ———
     // maximizable/fullscreenable=false 只拿掉了按钮，挡不住窗口管理器：Windows 拖到顶边的 Aero Snap、
     // KDE/GNOME 的平铺手势与 Super+Up、无边框窗双击拖拽区都能把它整屏化。整屏的覆盖层既读不了歌词
@@ -331,17 +361,24 @@ export class DesktopLyricsController {
     //      最小化这一档更该拦：本窗 skipTaskbar，缩进任务栏外就再也点不回来了（只能靠托盘开关）。
     const rejectState = (what: string): void => {
       if (this.win !== win || win.isDestroyed()) return;
+
       if (!win.isMaximized() && !win.isMinimized() && !win.isFullScreen()) return; // 事件抢跑：已经好了
+
       try {
         if (win.isFullScreen()) win.setFullScreen(false);
+
         if (win.isMaximized()) win.unmaximize();
+
         if (win.isMinimized()) win.restore();
       } catch (e) {
         this.deps.log("[quaver] desktop-lyrics: 还原窗体失败:", String(e));
+
         return;
       }
+
       this.deps.log(`[quaver] desktop-lyrics: 覆盖层不支持${what}，已还原`);
     };
+
     win.on("maximize", () => rejectState("最大化"));
     win.on("enter-full-screen", () => rejectState("全屏"));
     win.on("minimize", () => rejectState("最小化"));
@@ -351,12 +388,14 @@ export class DesktopLyricsController {
       this.win = null;
       this.pageReady = false;
       this.persistBoundsNow();
+
       // 用户主动关掉覆盖层 = 「这次不想看」：启用状态落 False，下次启动不再自动弹回。
       // 随应用退出被连带销毁时**不**写（quitting），否则「带着桌面歌词退出」会被误记成关闭。
       if (!this.deps.isQuitting()) {
         this.settings = { ...this.settings, enabled: false };
         this.persistConf({ "DesktopLyrics.Enabled": "False" });
       }
+
       this.broadcastActive();
       this.deps.refreshTrayMenu();
     });
@@ -374,6 +413,7 @@ export class DesktopLyricsController {
     // 先断引用防重入（'closed' 回调里的再清一次是幂等）
     this.win = null;
     this.pageReady = false;
+
     if (win && !win.isDestroyed()) win.close();
   }
 
@@ -381,13 +421,16 @@ export class DesktopLyricsController {
    *  但锁定时 setIgnoreMouseEvents 已经把拖动/缩放/控制条全部切断，位置自然钉住。 */
   private applyInteractionMode(target: BrowserWindow | null = this.win): void {
     const win = target;
+
     if (!win || win.isDestroyed()) return;
     const locked = this.lockedNow();
+
     try {
       // forward 只在 macOS / Windows 有意义（Linux 会忽略）；锁定状态不需要 hover 提示，
       // 但保留鼠标移动转发可让页面在解锁前维持可预期的 DOM 状态。
       win.setIgnoreMouseEvents(locked, locked ? { forward: true } : undefined);
       win.setMovable(!locked);
+
       if (locked) win.blur();
     } catch (e) {
       this.deps.log("[quaver] desktop-lyrics: 应用固定/鼠标透穿失败:", String(e));
@@ -404,10 +447,12 @@ export class DesktopLyricsController {
    *  setSize 触发 'resized' → 去抖落盘 W/H。 */
   private refitHeight(): void {
     const win = this.win;
+
     if (!win || win.isDestroyed()) return;
     const [w, h] = win.getSize(); // 档位变化时没有拖动，读窗体即可（拖动中另说，见 pinSize）
     const from = this.pinnedHeight || h;
     const want = Math.max(defaultSizeFor(this.settings).height, from);
+
     if (from >= want) return;
     this.pinHeight(w, want);
     this.deps.log(`[quaver] desktop-lyrics: 档位变化，窗高贴合 ${from} -> ${want}`);
@@ -420,6 +465,7 @@ export class DesktopLyricsController {
    *  里补记，构造里置 0）。 */
   private pinHeight(width: number, height: number): void {
     const win = this.win;
+
     if (!win || win.isDestroyed()) return;
     const hints = sizeHintsFor(height);
     win.setMinimumSize(hints.minWidth, hints.minHeight);
@@ -433,6 +479,7 @@ export class DesktopLyricsController {
    *  松手由 releaseWidth() 把宽度放回区间。 */
   private pinSize(width: number, height: number): void {
     const win = this.win;
+
     if (!win || win.isDestroyed()) return;
     const hints = pinnedHintsFor(width, height);
     win.setMinimumSize(hints.minWidth, hints.minHeight);
@@ -445,6 +492,7 @@ export class DesktopLyricsController {
   /** 拖完松手：宽度放回区间（高度继续钉死）—— 常态下窗口的宽度还是交给 WM 拖边。 */
   private releaseWidth(): void {
     const win = this.win;
+
     if (!win || win.isDestroyed()) return;
     const [w, h] = win.getSize();
     this.pinHeight(this.pinnedWidth || w, this.pinnedHeight || h);
@@ -455,11 +503,14 @@ export class DesktopLyricsController {
     // 由合成器/窗口管理器做交互移动（Wayland 下 setPosition 本就无效，只有这条路是真的）。
     // 这里只剩边缘缩放与关窗 —— 都只有原生侧做得了。
     const win = this.win;
+
     if (!win || win.isDestroyed()) return;
+
     switch (String(msg?.op ?? "")) {
       case "resize-by": {
         const dx = Number(msg?.dx) || 0;
         const dy = Number(msg?.dy) || 0;
+
         if (!dx && !dy) return;
         const [w, h] = win.getSize();
         // 两条轴都以我们自己钉的值为基准（见 pinnedWidth/pinnedHeight）：读 win.getSize() 在
@@ -467,11 +518,13 @@ export class DesktopLyricsController {
         const fromW = this.pinnedWidth || w;
         const fromH = this.pinnedHeight || h;
         const size = clampSize(fromW + dx, fromH + dy);
+
         if (size.width === fromW && size.height === fromH) return;
         this.pinSize(size.width, size.height); // 两条轴都推提示：Wayland 下 setSize 跟不上盒子
         this.schedulePersist();
         break;
       }
+
       case "resize-end":
         // 松手：宽度放回区间（见 releaseWidth），高度继续钉死
         this.releaseWidth();
@@ -500,8 +553,11 @@ export class DesktopLyricsController {
       clearTimeout(this.persistTimer);
       this.persistTimer = null;
     }
+
     const win = this.win;
+
     if (!win || win.isDestroyed()) return;
+
     try {
       const b = win.getBounds();
       this.settings = { ...this.settings, bounds: b };

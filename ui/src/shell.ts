@@ -68,6 +68,7 @@ export const state = { content: null as HTMLElement | null, route: null as HTMLE
 export function currentRoute() {
   const h = location.hash.replace(/^#\/?/, "");
   const [path, query = ""] = h.split("?");
+
   return { path: path === "" ? "/" : "/" + path, query: new URLSearchParams(query) };
 }
 
@@ -84,6 +85,7 @@ function syncSidebarActive() {
 }
 
 let mountedCleanup: (() => void) | null = null;
+
 // 动作打断：每次导航自增。晚到的旧渲染（慢视图 await 恢复后）按代际号判定已被打断，
 // 丢弃结果并补跑 cleanup，绝不允许覆盖新导航的页面。
 let renderGen = 0;
@@ -98,10 +100,12 @@ let backBtn: HTMLButtonElement | null = null;
 
 function syncRouteStack() {
   const cur = location.hash || "#/";
+
   if (stackPos >= 0 && routeStack[stackPos] === cur) { /* 同址刷新视图：不动栈 */ }
   else if (stackPos > 0 && routeStack[stackPos - 1] === cur) stackPos--;      // 返回
   else if (stackPos < routeStack.length - 1 && routeStack[stackPos + 1] === cur) stackPos++; // 前进
   else { routeStack.splice(stackPos + 1); routeStack.push(cur); stackPos = routeStack.length - 1; }
+
   if (backBtn) backBtn.hidden = stackPos <= 0;
 }
 
@@ -129,22 +133,29 @@ export async function renderRoute() {
   host.className = "entering";
   state.route.replaceChildren(host);
   state.route.scrollTop = 0;
+
   try {
     // 视图模块按需解析（src/views/index.ts）：首访某页才付那份字节，命中缓存则同步返回。
     // await 之后必须再验一次代 —— 快速连点导航时，晚到的旧一轮只能写进已脱离 DOM 的死容器。
     const view = await loadView(path);
+
     if (gen !== renderGen) return;
     const cleanup = await view(host, query);
+
     if (gen !== renderGen) {
       if (typeof cleanup === "function") cleanup();
+
       return;
     }
+
     if (typeof cleanup === "function") mountedCleanup = cleanup;
   } catch (e) {
     console.error(e);
+
     if (gen !== renderGen) return;
     host.innerHTML = `<div class="muted">页面加载失败：${String((e as Error).message ?? e)}</div>`;
   }
+
   player.markActive();
 }
 
@@ -210,15 +221,19 @@ export function bootShell() {
   const SIDEBAR_DEFAULT_W = 216;
   const SIDEBAR_MIN_W = 180;
   const SIDEBAR_MAX_W = 440;
+
   const applySideW = (px: number | null) => {
     if (px == null) document.body.style.removeProperty("--side-w");
     else document.body.style.setProperty("--side-w", `${px}px`);
   };
+
   let sideW = getSidebarWidth() ?? SIDEBAR_DEFAULT_W;
   applySideW(getSidebarWidth());
+
   // 上限再让一层给窗口：内容区至少留 320px 可用，极窄窗口时上限自动收
   const clampSideW = (w: number) =>
     Math.round(Math.max(SIDEBAR_MIN_W, Math.min(SIDEBAR_MAX_W, window.innerWidth - 320, w)));
+
   const sideResizer = document.createElement("div");
   sideResizer.className = "side-resizer";
   sideResizer.title = "拖拽调整侧栏宽度；双击恢复默认";
@@ -256,6 +271,7 @@ export function bootShell() {
   backBtn.onclick = () => {
     if (stackPos > 0) { stackPos--; history.back(); } // renderRoute/hashchange 不会再压栈（同址判定）
   };
+
   topCenter.append(backBtn, SearchBox());
   // CSD 拖拽把手层：顶带内的独立层（右缘让开窗口按钮簇，几何见 style.css .top-drag 注释）。
   // 放在 .top-center 之前 → DOM 序在后者的下层，搜索组照样收得到指针事件。
@@ -271,8 +287,10 @@ export function bootShell() {
   // 电台已在跑就把正在播放覆盖页收起，回到 Content View 的电台主舞台；首次启动仍由视图取歌。
   frame.querySelector<HTMLAnchorElement>('.nav a[data-route="/guess"]')?.addEventListener("click", (e) => {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+
     if (currentRoute().path !== "/guess") return; // 其它页交给 hashchange → guessView.startRadio()
     e.preventDefault();
+
     if (player.radioActive) {
       player.expanded = false;
       player.notifyPublic();
@@ -282,15 +300,18 @@ export function bootShell() {
   });
 
   window.addEventListener("hashchange", renderRoute);
+
   // —— 路由模块预取：只由交互意图触发 ——
   // 指针落到导航项/卡片链接上就把那一块拉起来（产物在本地磁盘/asar，代价是一次解析），
   // 真点下去时命中缓存、零等待。不做 idle 全量预热：那等于把刚省下的内存吃回去。
   const prefetchFromEvent = (target: EventTarget | null): void => {
     const a = target instanceof Element ? target.closest<HTMLElement>("a[href^='#/']") : null;
     const href = a?.getAttribute("href") ?? "";
+
     if (!href) return;
     prefetchView(href.replace(/^#/, "").split("?")[0] || "/");
   };
+
   window.addEventListener("pointerover", (e) => prefetchFromEvent(e.target), { passive: true });
   window.addEventListener("pointerdown", (e) => prefetchFromEvent(e.target), { passive: true });
 
@@ -298,6 +319,7 @@ export function bootShell() {
   document.querySelectorAll<HTMLElement>("[data-win]").forEach((b) =>
     b.addEventListener("click", () => {
       const csd = (window as any).quaverCSD;
+
       if (csd?.[b.dataset.win!]) csd[b.dataset.win!]();
       else window.dispatchEvent(new CustomEvent("quaver:window", { detail: b.dataset.win }));
     }),
@@ -319,8 +341,10 @@ export function bootShell() {
       fetch: async () => ((await player.loadLoved()) ? (player.likedCache ?? []) : []),
     },
   };
+
   for (const a of frame.querySelectorAll<HTMLAnchorElement>(".nav a")) {
     const v = VIRTUAL_LISTS[a.dataset.route ?? ""];
+
     if (!v) continue;
     // 双击 = 立即播放（单击仍导航进页面；两击的第一次导航先落地，双击随即开播）
     a.addEventListener("dblclick", () => { void playSongsNow(v.title, v.fetch); });
@@ -335,6 +359,7 @@ export function bootShell() {
   // 驱动（启动时的初始 class 已在 main.ts 的 applySidebar() 里挂好，这里只接管交互后同步）。
   // 图标方向靠 CSS 翻转，按钮文案/aria 得跟着状态走，否则缩态下读屏与悬停提示是反的。
   const collapseBtn = frame.querySelector<HTMLButtonElement>("#side-collapse")!;
+
   const syncCollapseBtn = () => {
     const off = document.body.classList.contains("side-collapsed");
     const label = off ? "展开侧栏" : "缩回侧栏";
@@ -342,6 +367,7 @@ export function bootShell() {
     collapseBtn.setAttribute("aria-label", label);
     collapseBtn.setAttribute("aria-expanded", String(!off));
   };
+
   collapseBtn.addEventListener("click", () => {
     setSidebarCollapsed(!getSidebarCollapsed());
     syncCollapseBtn();
@@ -361,6 +387,7 @@ export function addNavItem(item: SparkleNavItem): HTMLElement {
   a.title = item.label;
   a.innerHTML = `${item.iconSvg ?? icons.sparkle}<span>${esc(item.label)}</span>`;
   document.querySelector(".nav")!.append(a);
+
   return a;
 }
 
@@ -386,6 +413,7 @@ function plItem(x: any, sub = "", menu?: { kind: PlaylistMenuOptions["kind"]; on
   a.innerHTML = `<span class="thumb">${pic ? `<img src="${pic}" alt="" loading="lazy"/>` : ""}</span>
     <span class="pname"><span class="ptitle">${esc(title)}</span>${sub ? `<span class="psub">${esc(sub)}</span>` : ""}</span>`;
   a.href = `#/playlist?id=${encodeURIComponent(x.id ?? "")}&name=${encodeURIComponent(x.title ?? "歌单")}`;
+
   if (menu) {
     // 双击 = 直接播放该歌单（单击仍导航进歌单页；两击的第一次导航先落地，双击随即开播）
     a.addEventListener("dblclick", () => { void playPlaylistNow(x); });
@@ -395,6 +423,7 @@ function plItem(x: any, sub = "", menu?: { kind: PlaylistMenuOptions["kind"]; on
       openPlaylistMenu(e.clientX, e.clientY, x, menu, a);
     });
   }
+
   return a;
 }
 
@@ -403,32 +432,40 @@ function renderSidebarPlaylists(box: HTMLElement) {
   const favs = sidebarFavsReady ? favSonglists() : null; // null = 尚未拉回：不画空态，避免闪一下「暂无」
   const sparkGroups = sparkleSonglistGroups().map((g) => ({ label: g.label, items: g.items() }));
   box.innerHTML = "";
+
   if (!sidebarCreated.length && !favs?.length && !sparkGroups.some((g) => g.items.length)) {
     box.innerHTML = `<div class="pl-empty">暂无歌单</div>`;
+
     return;
   }
+
   const group = (label: string, list: any[], sub: (x: any) => string, menu?: { kind: PlaylistMenuOptions["kind"]; onDeleted?: (pl: any) => void }) => {
     if (!list.length) return;
     const head = document.createElement("div");
     head.className = "pl-group";
     head.innerHTML = `<span>${label}</span><span class="pl-cnt">${list.length}</span>`;
     box.append(head);
+
     for (const x of list) box.append(plItem(x, sub(x), menu));
   };
+
   // 自建歌单删除成功后从侧栏数据里摘掉并重画（playlists 数据层缓存由 deleteSonglist 自理）；
   // 正开着被删歌单的详情页则立刻重渲染回上游真实状态，不留「还在」的缓存假象
   group("我创建的歌单", sidebarCreated, () => "", {
     kind: "created",
     onDeleted: (x) => {
       const at = sidebarCreated.indexOf(x);
+
       if (at >= 0) sidebarCreated.splice(at, 1);
       renderSidebarPlaylists(box);
       const { path, query } = currentRoute();
+
       if (path === "/playlist" && String(query.get("id") ?? "") === String(x.id)) void renderRoute();
     },
   });
   // 收藏歌单取消收藏后由 favs 订阅重画（bootSidebar 已挂监听），这里不用回调
   group("收藏的歌单", favs ?? [], (x) => (x.nickname ? `${x.nickname} 创建` : ""), { kind: "fav" });
+
   // 插件自定义歌单组（Sparkle）：条目 href 由插件给定（通常是它自己注册的路由）
   for (const g of sparkGroups) {
     if (!g.items.length) continue;
@@ -436,6 +473,7 @@ function renderSidebarPlaylists(box: HTMLElement) {
     head.className = "pl-group";
     head.innerHTML = `<span>${esc(g.label)}</span><span class="pl-cnt">${g.items.length}</span>`;
     box.append(head);
+
     for (const item of g.items) {
       const a = document.createElement("a");
       a.className = "pl";
@@ -447,6 +485,7 @@ function renderSidebarPlaylists(box: HTMLElement) {
       box.append(a);
     }
   }
+
   syncSidebarActive();
 }
 
@@ -454,22 +493,27 @@ function renderSidebarPlaylists(box: HTMLElement) {
 export function repaintSidebarPlaylists() {
   if (!sidebarPainted) return;
   const box = document.getElementById("playlists");
+
   if (box) renderSidebarPlaylists(box);
 }
 
 async function bootSidebar() {
   try {
     const st: any = await api("/login/status");
+
     if (!st?.logged_in) return; // 未登录：保持占位样式
     // 手机/网页改了收藏后，回到窗口或前台轮询时热更新（收藏歌单 + 我喜欢）
     startAccountSync();
     // 「我喜欢」预载：全站红心态（行内红心/播放条）都读它，登录确认后立刻后台拉回，不阻塞首屏
     void player.loadLoved();
+
     const [me, vip] = await Promise.all([
       api<any>("/user/me").catch(() => null),
       api<any>("/user/vip").catch(() => null),
     ]);
+
     const base = me?.base_info;
+
     if (!base?.name) return;
     document.querySelector("#user-header")!.setAttribute("href", "#/user");
     document.querySelector<HTMLElement>("#avatar")!.innerHTML = base.avatar
@@ -480,6 +524,7 @@ async function bootSidebar() {
     const badges = document.getElementById("badges")!;
     watchVip(vip, () => {
       const html = identityBadges(me, vip);
+
       if (badges.innerHTML !== html) badges.innerHTML = html;
     });
 

@@ -71,24 +71,31 @@ const META_TAG_RE = /^\[([a-zA-Z]+):(.*?)]$/;
  *  返回**最后**一条命中的标签原文（含 `[kana:` 前后缀），没有则空串。 */
 export function extractKanaTag(text: string): string {
   let found = "";
+
   for (const raw of (text ?? "").split(/\r?\n/)) {
     const trimmed = raw.trim();
+
     if (!trimmed.startsWith("[kana:") && !trimmed.startsWith("[KANA:")) continue;
     const m = META_TAG_RE.exec(trimmed);
+
     if (m && m[1].toLowerCase() === "kana") found = trimmed;
   }
+
   return found;
 }
 
 /** 把 `[kana: ...]` 标签行从歌词正文里摘掉：它不是歌词，留着会被逐字解析器当成噪声行。 */
 export function stripKanaTag(text: string): string {
   if (!text) return text;
+
   if (!/\[kana:/i.test(text)) return text;
+
   return text
     .split(/\r?\n/)
     .filter((raw) => {
       const trimmed = raw.trim();
       const m = META_TAG_RE.exec(trimmed);
+
       return !(m && m[1].toLowerCase() === "kana");
     })
     .join("\n");
@@ -107,42 +114,54 @@ export function parseKanaUnits(rawKanaTag: string): KanaUnit[] {
   const content = (rawKanaTag ?? "").replace(/^\[kana:/i, "").replace(/\]$/, "");
   const units: KanaUnit[] = [];
   let charIndex = 0;
+
   while (charIndex < content.length) {
     const currentChar = content[charIndex];
+
     if (currentChar >= "1" && currentChar <= "9") {
       const kanjiCount = parseInt(currentChar, 10);
       charIndex++;
       let kanaText = "";
       const spans: KanaRubySpan[] = [];
+
       while (charIndex < content.length) {
         const nextChar = content[charIndex];
+
         if (nextChar >= "1" && nextChar <= "9") break;
+
         if (nextChar === "(") {
           const closeParenIndex = content.indexOf(")", charIndex);
+
           if (closeParenIndex !== -1) {
             const timeSlice = content.slice(charIndex + 1, closeParenIndex);
             const commaIndex = timeSlice.indexOf(",");
+
             if (commaIndex !== -1) {
               const startMs = parseInt(timeSlice.slice(0, commaIndex), 10);
               const durationMs = parseInt(timeSlice.slice(commaIndex + 1), 10);
+
               if (!Number.isNaN(startMs) && !Number.isNaN(durationMs)) {
                 // 括号属于**紧挨在它前面那个假名**的时间轴
                 const targetChar = kanaText[kanaText.length - 1] || "";
                 spans.push({ word: targetChar, startTime: startMs, endTime: startMs + durationMs });
               }
             }
+
             charIndex = closeParenIndex + 1;
             continue;
           }
         }
+
         kanaText += nextChar;
         charIndex++;
       }
+
       units.push({ kanjiCount, kanaText, spans: spans.length > 0 ? spans : undefined });
     } else {
       charIndex++;
     }
   }
+
   return units;
 }
 
@@ -161,39 +180,49 @@ export function parseKanaUnits(rawKanaTag: string): KanaUnit[] {
 export function applyKanaToLines(lines: KanaRubyLine[], rawKanaTag: string, timingOffset = 0): void {
   if (!rawKanaTag?.includes("[kana:")) return;
   const units = parseKanaUnits(rawKanaTag);
+
   if (units.length === 0) return;
 
   interface KanjiLocation { charIndexInWord: number; charLength: number; wordRef: KanaRubyWord }
+
   const kanjiLocations: KanjiLocation[] = [];
+
   for (const line of lines) {
     for (const wordRef of line.words) {
       const wordText = wordRef.word;
       let charIndex = 0;
+
       while (charIndex < wordText.length) {
         if (KANA_BASE_REGEX.test(wordText[charIndex])) {
           kanjiLocations.push({ charIndexInWord: charIndex, charLength: 1, wordRef });
           charIndex++;
           continue;
         }
+
         // 连续数字串只占一个基字符位（「22/7」= 两个 token，不是三个字符）
         if (DIGIT_REGEX.test(wordText[charIndex])) {
           const firstNumberIndex = charIndex;
+
           while (charIndex < wordText.length && DIGIT_REGEX.test(wordText[charIndex])) charIndex++;
           kanjiLocations.push({ charIndexInWord: firstNumberIndex, charLength: charIndex - firstNumberIndex, wordRef });
           continue;
         }
+
         charIndex++;
       }
     }
   }
+
   if (kanjiLocations.length === 0) return;
 
   let pointer = 0;
+
   for (const unit of units) {
     if (pointer >= kanjiLocations.length) break;
     const matchCount = Math.min(unit.kanjiCount, kanjiLocations.length - pointer);
     const targetKanjiLocs = kanjiLocations.slice(pointer, pointer + matchCount);
     pointer += matchCount;
+
     if (!unit.kanaText) continue;
 
     if (unit.spans && unit.spans.length > 0) {
@@ -213,11 +242,13 @@ export function applyKanaToLines(lines: KanaRubyLine[], rawKanaTag: string, timi
       const totalChars = targetWord.word.length;
       let rubyStartTime = targetWord.startTime;
       let rubyEndTime = targetWord.endTime;
+
       if (totalChars > 1 && rubyEndTime > rubyStartTime) {
         const charDuration = (rubyEndTime - rubyStartTime) / totalChars;
         rubyStartTime = Math.round(targetWord.startTime + singleLoc.charIndexInWord * charDuration);
         rubyEndTime = Math.round(targetWord.startTime + (singleLoc.charIndexInWord + singleLoc.charLength) * charDuration);
       }
+
       (targetWord.ruby ??= []).push({ word: unit.kanaText, startTime: rubyStartTime, endTime: rubyEndTime });
     } else {
       const firstLoc = targetKanjiLocs[0];

@@ -16,24 +16,30 @@ const LS_KEY = "quaver.lyricDelay.v1";
 
 /** −/+ 一档 0.1s（歌词同步微调的常用粒度；长按连调留给以后） */
 export const LYRIC_DELAY_STEP_MS = 100;
+
 /** 值域 ±10s：再大基本是歌词源本身错了，不是同步问题 */
 export const LYRIC_DELAY_MAX_MS = 10_000;
 
 type DelayMap = Record<string, number>;
+
 let cache: DelayMap | null = null;
 
 function load(): DelayMap {
   if (cache) return cache;
   let out: DelayMap = {};
+
   try {
     const raw = JSON.parse(localStorage.getItem(LS_KEY) || "{}");
+
     if (raw && typeof raw === "object") {
       for (const [k, v] of Object.entries(raw)) {
         if (typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= LYRIC_DELAY_MAX_MS) out[k] = Math.round(v);
       }
     }
   } catch { /* 坏档 / 隐私模式：从空表开始，不影响播放 */ }
+
   cache = out;
+
   return cache;
 }
 
@@ -42,8 +48,10 @@ const songKey = (s: { mid?: string } | null | undefined): string => (s?.mid ? St
 /** 当前曲的歌词延迟（毫秒；正 = 歌词延后）。无 mid / 未调过 → 0 */
 export function getLyricDelayMs(s: { mid?: string } | null | undefined): number {
   const k = songKey(s);
+
   if (!k) return 0;
   const v = load()[k];
+
   return typeof v === "number" ? v : 0;
 }
 
@@ -51,11 +59,14 @@ export function getLyricDelayMs(s: { mid?: string } | null | undefined): number 
  *  落盘失败（配额/隐私模式）只在本次会话内生效 —— 与红心收藏同一约定。 */
 export function setLyricDelayMs(s: { mid?: string } | null | undefined, ms: number): void {
   const k = songKey(s);
+
   if (!k) return;
   const map = load();
   const v = Math.round(Math.min(LYRIC_DELAY_MAX_MS, Math.max(-LYRIC_DELAY_MAX_MS, ms)) / LYRIC_DELAY_STEP_MS) * LYRIC_DELAY_STEP_MS;
+
   if (v === 0) delete map[k];
   else map[k] = v;
+
   try { localStorage.setItem(LS_KEY, JSON.stringify(map)); } catch { /* 丢就丢，下次开机重调 */ }
 }
 

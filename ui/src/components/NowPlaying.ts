@@ -34,6 +34,7 @@ import type { SparkleKaraokeProvider, SparkleNpSpectrumRenderCtx } from "@quaver
 import { sparkleKaraokeProvider, onSparkleChange, sparkleNpMenuItems } from "../sparkle/registry";
 import { npSongSnapshot, syncNpView } from "../sparkle/np-view";
 import { currentSpectrumMode, loadSpectrumStyles, spectrumFacade, spectrumMode, spectrumModes } from "../lib/spectrum-controller";
+
 export function NowPlaying(): HTMLElement {
   const el = document.createElement("div");
   el.className = "np";
@@ -91,35 +92,49 @@ export function NowPlaying(): HTMLElement {
     cleanup: (() => void) | null;
     removeTimer: number;
   };
+
   const SPECTRUM_SWAP_MS = 340;
   const SPECTRUM_EXIT_MS = 240;
   const spectrumLayers = new Set<SpectrumLayer>();
   let spectrumMountedId = "";
   let spectrumPendingId = "";
   let spectrumExitTimer = 0;
+
   const reduceSpectrumMotion = () =>
     typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
   function disposeSpectrumLayer(layer: SpectrumLayer) {
     if (!spectrumLayers.delete(layer)) return;
+
     if (layer.removeTimer) window.clearTimeout(layer.removeTimer);
+
     try { layer.cleanup?.(); } catch (e) { console.warn("[np] 频谱模式清理失败", e); }
+
     layer.host.remove();
   }
+
   function retireSpectrumLayer(layer: SpectrumLayer) {
     if (!spectrumLayers.has(layer)) return;
+
     if (reduceSpectrumMotion()) { disposeSpectrumLayer(layer); return; }
+
     layer.host.classList.remove("is-live");
     layer.host.classList.add("is-leaving");
+
     if (layer.removeTimer) window.clearTimeout(layer.removeTimer);
     layer.removeTimer = window.setTimeout(() => disposeSpectrumLayer(layer), SPECTRUM_SWAP_MS);
   }
+
   function unmountSpectrum() {
     if (spectrumExitTimer) { window.clearTimeout(spectrumExitTimer); spectrumExitTimer = 0; }
+
     spectrumMountedId = "";
     spectrumPendingId = "";
+
     for (const layer of [...spectrumLayers]) disposeSpectrumLayer(layer);
     spectrumHost.replaceChildren();
   }
+
   function spectrumRenderCtx(): SparkleNpSpectrumRenderCtx {
     return {
       frame: () => spectrumFacade.frame(),
@@ -129,40 +144,50 @@ export function NowPlaying(): HTMLElement {
       current: () => npSongSnapshot(player.current),
     };
   }
+
   function mountSpectrum(id: string) {
     if (spectrumMountedId === id || spectrumPendingId === id) return;
     spectrumPendingId = id;
     void spectrumMode(id).then((mode) => {
       if (spectrumPendingId !== id) return;
       spectrumPendingId = "";
+
       // 模式块是异步加载的：等回来时用户可能已经关掉本页/切到插件接管态。
       if (!el.classList.contains("spectrum-on") || el.classList.contains("spectrum-closing")) return;
+
       if (!mode) {
         if (id !== "bars") mountSpectrum("bars");
+
         return;
       }
 
       const firstLayer = spectrumLayers.size === 0;
+
       const layer: SpectrumLayer = {
         host: document.createElement("div"),
         cleanup: null,
         removeTimer: 0,
       };
+
       layer.host.className = "np-spectrum-layer";
       layer.host.dataset.mode = mode.id;
       spectrumHost.append(layer.host);
       spectrumLayers.add(layer);
+
       try {
         layer.cleanup = mode.render(layer.host, spectrumRenderCtx()) ?? null;
       } catch (e) {
         console.warn(`[np] 频谱模式 ${id} 渲染失败，回落柱状`, e);
         disposeSpectrumLayer(layer);
+
         if (id !== "bars") mountSpectrum("bars");
+
         return;
       }
 
       spectrumMountedId = mode.id;
       spectrumBox.dataset.mode = mode.id;
+
       for (const old of [...spectrumLayers]) {
         if (old !== layer) retireSpectrumLayer(old);
       }
@@ -178,13 +203,17 @@ export function NowPlaying(): HTMLElement {
       }
     });
   }
+
   function closeSpectrumSurface() {
     if (!el.classList.contains("spectrum-on") || el.classList.contains("spectrum-closing")) return;
+
     if (reduceSpectrumMotion()) {
       el.classList.remove("spectrum-on", "spectrum-closing");
       unmountSpectrum();
+
       return;
     }
+
     if (spectrumExitTimer) window.clearTimeout(spectrumExitTimer);
     el.classList.add("spectrum-closing");
     spectrumExitTimer = window.setTimeout(() => {
@@ -193,10 +222,14 @@ export function NowPlaying(): HTMLElement {
       unmountSpectrum();
     }, SPECTRUM_EXIT_MS);
   }
+
   function syncSpectrumSurface(open: boolean, takenOver: boolean) {
     const show = !!open && !takenOver && spectrumFacade.enabled();
+
     if (!show) { closeSpectrumSurface(); return; }
+
     if (spectrumExitTimer) { window.clearTimeout(spectrumExitTimer); spectrumExitTimer = 0; }
+
     el.classList.remove("spectrum-closing");
     el.classList.add("spectrum-on");
     const id = currentSpectrumMode();
@@ -220,17 +253,21 @@ export function NowPlaying(): HTMLElement {
     const box = $(boxId);
     const inner = box.querySelector<HTMLElement>(".mt")!;
     let sig = "";
+
     function measure() {
       if (!sig) return;
       const over = inner.scrollWidth - box.clientWidth;
       box.classList.toggle("over", over > 1);
+
       if (over > 1) {
         // 溢出在右：终点 = -(over+10)，让尾字完整滚进右缘清晰区（起点的 +10 见 CSS）
         box.style.setProperty("--mx", `${-(over + 10)}px`);
         box.style.setProperty("--md", `${Math.max(5, Math.round((over + 20) / 32))}s`);
       }
     }
+
     new ResizeObserver(measure).observe(box);
+
     return (text: string) => {
       if (text === sig) return;
       sig = text;
@@ -239,6 +276,7 @@ export function NowPlaying(): HTMLElement {
       measure();
     };
   }
+
   const setTitle = marquee("np-title");
   const setArtist = marquee("np-artist");
 
@@ -252,14 +290,17 @@ export function NowPlaying(): HTMLElement {
     el.classList.toggle("np-lyrics-full", npLyricFullHeight());
     el.classList.toggle("np-hide-played", npLyricHidePlayed());
   };
+
   syncLyricLayout();
 
   /** 隐藏已播放行时的当前行锚位 = 封面顶边相对歌词容器顶边的比例。 */
   const lyricTopAnchor = (): number | null => {
     if (!npLyricHidePlayed()) return null;
     const host = karaHost.getBoundingClientRect();
+
     if (host.height <= 0) return null;
     const top = cover.getBoundingClientRect().top - host.top;
+
     return Math.max(0, Math.min(1, top / host.height));
   };
 
@@ -275,11 +316,14 @@ export function NowPlaying(): HTMLElement {
 
   function onDocDownMore(e: PointerEvent) {
     const t = e.target as Node;
+
     if (!moreMenu.contains(t) && !moreBtn.contains(t)) closeMoreMenu();
   }
+
   function onEscMore(e: KeyboardEvent) {
     if (e.key === "Escape") { e.stopPropagation(); closeMoreMenu(); }
   }
+
   function closeMoreMenu() {
     if (!menuOpen()) return;
     moreMenu.classList.remove("open");
@@ -287,6 +331,7 @@ export function NowPlaying(): HTMLElement {
     document.removeEventListener("pointerdown", onDocDownMore, true);
     document.removeEventListener("keydown", onEscMore, true);
   }
+
   /** 跳转类菜单项：先收拢（带动画）再跳目标页 —— 菜单原地消失/瞬间跳页都显得突兀。
    *  关键：正在播放页是铺满全窗的常驻悬浮层（player.expanded 驱动），只在底下换路由
    *  它仍盖在最上面 —— 必须把页面一起收起（同播放条收起钮的 expanded=false + notify）。 */
@@ -298,20 +343,26 @@ export function NowPlaying(): HTMLElement {
       run();
     }, MENU_CLOSE_MS);
   }
+
   function menuRow(label: string, disabled: boolean, run?: () => void) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "np-menu-item";
     b.textContent = label;
     b.disabled = disabled;
+
     if (run) b.onclick = () => collapseThenRun(run);
+
     return b;
   }
+
   /** 歌词接管模式是否生效（有解析出的行 + 提供器在位且启用）——菜单的歌词大小行据此显隐 */
   const karaModeNow = () => {
     const provider = sparkleKaraokeProvider();
+
     return player.karaoke.length > 0 && !!provider && (provider.enabled?.() ?? true);
   };
+
   function syncAuxButtons() {
     for (const [mode, b] of auxButtons) {
       const sel = player.lyricAux === mode;
@@ -319,25 +370,31 @@ export function NowPlaying(): HTMLElement {
       b.setAttribute("aria-checked", String(sel));
     }
   }
+
   function syncSpectrumMenu() {
     const on = spectrumFacade.enabled();
+
     if (spectrumToggleBtn) {
       spectrumToggleBtn.classList.toggle("on", on);
       spectrumToggleBtn.setAttribute("aria-checked", String(on));
       spectrumToggleBtn.title = on ? "关闭真实音频频谱" : "开启真实音频频谱";
     }
+
     if (spectrumModeRow) spectrumModeRow.hidden = !on;
     const cur = currentSpectrumMode();
+
     for (const [id, b] of spectrumModeButtons) {
       const sel = id === cur;
       b.classList.toggle("sel", sel);
       b.setAttribute("aria-checked", String(sel));
     }
   }
+
   function openMoreMenu() {
     void loadSpectrumStyles();
     const s = player.current;
     moreMenu.innerHTML = "";
+
     if (s) {
       const name = songTitle(s) || "这首歌";
       // 同名搜索
@@ -346,12 +403,15 @@ export function NowPlaying(): HTMLElement {
       }));
       // 跳转歌手：多歌手逐项列出
       const singers = (s.singer ?? []).filter((a) => !!a?.mid);
+
       if (!singers.length) moreMenu.append(menuRow("跳转歌手", true));
+
       for (const a of singers) {
         moreMenu.append(menuRow(singers.length > 1 ? `跳转歌手：${stripEm(a.name) || "未知歌手"}` : "跳转歌手", false, () => {
           location.hash = `#/singer?mid=${encodeURIComponent(a.mid!)}&name=${encodeURIComponent(stripEm(a.name) || "歌手")}`;
         }));
       }
+
       // 跳转专辑
       const alb = s.album;
       const hasAlb = !!(alb?.mid || alb?.pmid);
@@ -365,6 +425,7 @@ export function NowPlaying(): HTMLElement {
       empty.textContent = "未在播放";
       moreMenu.append(empty);
     }
+
     // 翻译选项：三档按钮（关闭 / 翻译 / 音译）。点击后由 4Hz/notify 同步选中态
     const auxRow = document.createElement("div");
     auxRow.className = "np-menu-option";
@@ -373,6 +434,7 @@ export function NowPlaying(): HTMLElement {
     auxRow.innerHTML = `<span>翻译选项</span><div class="np-menu-opts"></div>`;
     const opts = auxRow.querySelector<HTMLElement>(".np-menu-opts")!;
     auxButtons = new Map();
+
     for (const mode of LYRIC_AUX_MODES) {
       const b = document.createElement("button");
       b.type = "button";
@@ -385,6 +447,7 @@ export function NowPlaying(): HTMLElement {
       auxButtons.set(mode, b);
       opts.append(b);
     }
+
     syncAuxButtons();
     moreMenu.append(auxRow);
     // 真实音频频谱：总开关 + 形态。开关/形态和 Sparkle ctx 共用同一份持久化偏好；
@@ -403,6 +466,7 @@ export function NowPlaying(): HTMLElement {
     spectrumModeRow.innerHTML = `<span>频谱模式</span><div class="np-menu-opts"></div>`;
     const specOpts = spectrumModeRow.querySelector<HTMLElement>(".np-menu-opts")!;
     spectrumModeButtons = new Map();
+
     for (const m of spectrumModes()) {
       const b = document.createElement("button");
       b.type = "button";
@@ -414,8 +478,10 @@ export function NowPlaying(): HTMLElement {
       spectrumModeButtons.set(m.id, b);
       specOpts.append(b);
     }
+
     moreMenu.append(spectrumModeRow);
     syncSpectrumMenu();
+
     // 歌词大小：−/+ 步进（任何渲染模式下歌词就位时都出现 —— 行级与 AMLL 逐字/行级都吃
     // --np-ly-scale，见 style.css 的 .np-kara-host）。菜单开着时 Ctrl+滚轮缩放 →
     // zoomLyric 里的 syncSizeRow 会原地更新读数与禁用态。
@@ -432,6 +498,7 @@ export function NowPlaying(): HTMLElement {
       moreMenu.append(size);
       syncSizeRow(); // 先入树再同步：禁用态要在行上生效（syncSizeRow 查的是 moreMenu 内的行）
     }
+
     // 歌词延迟：−/+ 步进（0.1s 一档，±10s），点数值归零。**按歌曲**保存在 localStorage
     // （lib/lyric-delay.ts），宿主只负责把值现读透传 —— 内置 AMLL / 插件提供器 / 接管视图
     // 经 ctx.lyricDelay() 自取，行级兜底视图在 notify 里以同口径扣减；正数 = 歌词更晚出现。
@@ -449,20 +516,25 @@ export function NowPlaying(): HTMLElement {
       moreMenu.append(delay);
       syncDelayRow();
     }
+
     // Sparkle 插件追加项（⋮ 是扁平列表：label / disabled / run / danger / note 生效，
     // sub 与缩略图在这个面上不渲染 —— 契约见 SDK 的 SparkleNpMenuCtx）。
     // ctx 每次打开现算，带的是当时那首曲的只读快照（没在播时是 null）。
     for (const it of sparkleNpMenuItems({ song: s ?? null })) {
       const b = menuRow(it.label, it.disabled === true, it.run);
+
       if (it.note) b.title = it.note;
+
       if (it.danger) b.classList.add("danger");
       moreMenu.append(b);
     }
+
     moreMenu.classList.add("open");
     moreBtn.setAttribute("aria-expanded", "true");
     document.addEventListener("pointerdown", onDocDownMore, true);
     document.addEventListener("keydown", onEscMore, true);
   }
+
   moreBtn.addEventListener("click", () => (menuOpen() ? closeMoreMenu() : openMoreMenu()));
 
   // —— 音质胶囊 + 音频流信息浮窗（⋮ 旁）：胶囊显示最后实际应用的档位（lastStream，未播放
@@ -473,22 +545,30 @@ export function NowPlaying(): HTMLElement {
   const qinfoOpen = () => qInfo.classList.contains("open");
   let lastQLabel = ""; // 胶囊文案签名（4Hz notify 里防重复写 DOM）
   let qFillSig = "";   // 浮窗内容签名
+
   // 探测/格式化整条链路只在用户点开浮窗时才需要；别让 7KB 解析器常驻首屏。
   type StreamInfoApi = typeof import("../lib/streaminfo");
+
   let streamInfoApi: Promise<StreamInfoApi> | null = null;
   let streamInfoFmt: StreamInfoApi | null = null;
+
   const loadStreamInfoApi = async (): Promise<StreamInfoApi> => {
     streamInfoApi ??= import("../lib/streaminfo");
     streamInfoFmt = await streamInfoApi;
+
     return streamInfoFmt;
   };
+
   function onDocDownQ(e: PointerEvent) {
     const t = e.target as Node;
+
     if (!qInfo.contains(t) && !qPill.contains(t)) closeQInfo();
   }
+
   function onEscQ(e: KeyboardEvent) {
     if (e.key === "Escape") { e.stopPropagation(); closeQInfo(); }
   }
+
   function closeQInfo() {
     if (!qinfoOpen()) return;
     qInfo.classList.remove("open");
@@ -496,6 +576,7 @@ export function NowPlaying(): HTMLElement {
     document.removeEventListener("pointerdown", onDocDownQ, true);
     document.removeEventListener("keydown", onEscQ, true);
   }
+
   function qiRow(label: string, value: string) {
     const d = document.createElement("div");
     d.className = "qi-row";
@@ -504,14 +585,18 @@ export function NowPlaying(): HTMLElement {
     const v = document.createElement("b");
     v.textContent = value;
     d.append(l, v);
+
     return d;
   }
+
   function qiEmpty(text: string) {
     const d = document.createElement("div");
     d.className = "qi-empty";
     d.textContent = text;
+
     return d;
   }
+
   function qiHead(): HTMLElement {
     const d = document.createElement("div");
     d.className = "qi-title";
@@ -519,26 +604,36 @@ export function NowPlaying(): HTMLElement {
     t.textContent = "音频流信息";
     d.append(t);
     const ls = getLastStream();
+
     if (player.current && ls) {
       const tier = document.createElement("span");
       tier.className = "qi-tier";
       tier.textContent = ls.degraded ? `${ls.label}（已回退）` : ls.label;
       d.append(tier);
     }
+
     return d;
   }
+
   function fillQInfo(url: string, info: StreamInfo | null | "none" | "pending") {
     const sig = url + "|" + (typeof info === "string" ? info
       : info ? `${info.codec}|${info.sampleRate ?? ""}|${info.bitDepth ?? ""}|${Math.round(info.bitrate ?? 0)}|${info.channels ?? ""}` : "null");
+
     if (sig === qFillSig && qInfo.childElementCount) return; // notify 4Hz：内容没变不重建 DOM
     qFillSig = sig;
     qInfo.innerHTML = "";
     qInfo.append(qiHead());
+
     if (info === "none") { qInfo.append(qiEmpty(player.current ? "等待播放流…" : "未在播放")); return; }
+
     if (info === "pending") { qInfo.append(qiEmpty("探测中…")); return; }
+
     if (!info) { qInfo.append(qiEmpty("流信息不可用")); return; }
+
     const fmt = streamInfoFmt;
+
     if (!fmt) { qInfo.append(qiEmpty("流信息不可用")); return; }
+
     qInfo.append(
       qiRow("编码格式", info.codec),
       qiRow("采样率", fmt.fmtSampleRate(info.sampleRate)),
@@ -547,23 +642,33 @@ export function NowPlaying(): HTMLElement {
       qiRow("声道", fmt.fmtChannels(info.channels)),
     );
   }
+
   /** 打开/刷新浮窗内容：先画即时态，探测回来后（仍开着且还是同一条流）再落最终行 */
   async function syncQInfo() {
     const url = player.streamUrl;
+
     if (!player.current || !url) { fillQInfo("", "none"); return; }
+
     const fmt = await loadStreamInfoApi();
     const cached = fmt.cachedStreamInfo(url);
+
     if (cached) {
       const info = await cached;
+
       if (qinfoOpen() && player.streamUrl === url) fillQInfo(url, info);
+
       return;
     }
+
     fillQInfo(url, "pending");
     const info = await fmt.probeStreamInfo(url, { duration: player.duration });
+
     if (qinfoOpen() && player.streamUrl === url) fillQInfo(url, info);
   }
+
   qPill.addEventListener("click", () => {
     if (qinfoOpen()) { closeQInfo(); return; }
+
     closeMoreMenu(); // 两个浮窗同锚区：只开一个
     qInfo.classList.add("open");
     qPill.setAttribute("aria-expanded", "true");
@@ -577,7 +682,9 @@ export function NowPlaying(): HTMLElement {
   // 输入框里的 ESC 只清输入不收页；队列拖拽的 ESC 已 preventDefault，同样不抢。
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape" || e.defaultPrevented) return;
+
     if ((e.target as HTMLElement | null)?.closest?.("input, textarea")) return;
+
     if (!player.expanded) return;
     player.expanded = false;
     player.notifyPublic();
@@ -601,10 +708,12 @@ export function NowPlaying(): HTMLElement {
 
   function disposeKara() {
     if (karaCleanup) { try { karaCleanup(); } catch (e) { console.warn("[np] 逐字渲染清理失败", e); } }
+
     karaCleanup = null;
     karaProvider = null;
     karaHost.innerHTML = ""; // 容器内容整个交给 provider，清理时兜底清空
   }
+
   // 隐藏已播放行时，普通滚轮进入临时浏览态：先把已播放行放出来，停手 3 秒再收回。
   // 只调整隐藏开关，不接管 AMLL 自己的滚动引擎，所以鼠标滚轮/触控板手势仍按原逻辑工作。
   const LYRIC_BROWSE_MS = 3000;
@@ -613,6 +722,7 @@ export function NowPlaying(): HTMLElement {
   function buildKara() {
     disposeKara();
     const provider = sparkleKaraokeProvider();
+
     if (!provider) return;
     karaProvider = provider;
     karaCleanup = provider.render(karaHost, player.karaoke, {
@@ -635,11 +745,14 @@ export function NowPlaying(): HTMLElement {
   // 浏览态给列表挂 .browse：整列去模糊提亮（翻阅是为了读，雾化只属于跟随态的氛围）。
   let browsing = false;
   let browseTimer = 0;
+
   const setBrowse = (v: boolean) => {
     browsing = v;
     lyrics.classList.toggle("browse", v);
+
     if (!v) window.clearTimeout(browseTimer);
   };
+
   const enterBrowse = () => {
     window.clearTimeout(browseTimer);
     setBrowse(true);
@@ -648,6 +761,7 @@ export function NowPlaying(): HTMLElement {
       followCurrent(); // 回到跟随态：立刻把当前句滚回中心
     }, LYRIC_BROWSE_MS);
   };
+
   lyrics.addEventListener("wheel", (e) => { if (!e.ctrlKey) enterBrowse(); }, { passive: true });
   lyrics.addEventListener("pointerdown", enterBrowse, { passive: true });
   // 逐字歌词的滚轮由 AMLL 自己接管；这里只推迟“隐藏已播放行”的恢复，不拦截事件。
@@ -667,67 +781,87 @@ export function NowPlaying(): HTMLElement {
   //    AMLL（.np-kara-host）同吃这一系数：字体基准 × --np-ly-scale，故菜单行两种模式都出现。 ——
   let lyScale = getLyricScale();
   el.style.setProperty("--np-ly-scale", lyScale.toFixed(2));
+
   function syncSizeRow() {
     const val = moreMenu.querySelector<HTMLElement>(".np-size-val");
+
     if (!val) return;
     val.textContent = `${Math.round(lyScale * 100)}%`;
     const dec = moreMenu.querySelector<HTMLButtonElement>(".np-size-dec");
     const inc = moreMenu.querySelector<HTMLButtonElement>(".np-size-inc");
+
     if (dec) dec.disabled = lyScale <= LYRIC_SCALE_MIN + 1e-9;
+
     if (inc) inc.disabled = lyScale >= LYRIC_SCALE_MAX - 1e-9;
   }
+
   function zoomLyric(dir: 1 | -1) {
     const clamped = Math.min(LYRIC_SCALE_MAX, Math.max(LYRIC_SCALE_MIN, Math.round((lyScale + dir * LYRIC_SCALE_STEP) * 100) / 100));
+
     if (clamped === lyScale) return;
     lyScale = clamped;
     setLyricScale(lyScale);
     el.style.setProperty("--np-ly-scale", lyScale.toFixed(2));
     syncSizeRow();
+
     if (!browsing) followCurrent(); // 行高变了：把当前句重新带回中心
   }
+
   // —— 歌词延迟（当前曲）：读数/禁用态同步 + 写入。不重建歌词 DOM —— 逐字（AMLL/插件）每帧
   //    现读 ctx.lyricDelay()，行级走 notify 里的同一表达式；补一刀 notifyPublic 是为了
   //    「暂停时调延迟」也立刻反映（暂停中 4Hz 广播不在，高亮行号得靠这次事件挪动）。
   function syncDelayRow() {
     const val = moreMenu.querySelector<HTMLElement>(".np-delay-val");
+
     if (!val) return;
     const ms = getLyricDelayMs(player.current);
     val.textContent = fmtLyricDelay(ms);
     const dec = moreMenu.querySelector<HTMLButtonElement>(".np-delay-dec");
     const inc = moreMenu.querySelector<HTMLButtonElement>(".np-delay-inc");
+
     if (dec) dec.disabled = ms <= -LYRIC_DELAY_MAX_MS;
+
     if (inc) inc.disabled = ms >= LYRIC_DELAY_MAX_MS;
   }
+
   function applyLyricDelay(ms: number) {
     const v = Math.round(Math.min(LYRIC_DELAY_MAX_MS, Math.max(-LYRIC_DELAY_MAX_MS, ms)) / LYRIC_DELAY_STEP_MS) * LYRIC_DELAY_STEP_MS;
+
     if (v === getLyricDelayMs(player.current)) return;
     setLyricDelayMs(player.current, v);
     syncDelayRow();
     player.notifyPublic();
   }
+
   const stepLyricDelay = (dir: 1 | -1) => applyLyricDelay(getLyricDelayMs(player.current) + dir * LYRIC_DELAY_STEP_MS);
   let lastZoomAt = 0;
+
   const onZoomWheel = (e: WheelEvent) => {
     if (!e.ctrlKey) return; // 行级列上普通滚轮走翻阅（上面的 passive 监听）
     e.preventDefault();     // 先顶掉浏览器页面缩放；节流只影响步进不影响拦截
     const now = performance.now();
+
     if (now - lastZoomAt < 100) return; // 触控板捏合事件密集，节流成可控的档位步进
     lastZoomAt = now;
     zoomLyric(e.deltaY < 0 ? 1 : -1);   // 上滚放大
   };
+
   // 行级列与 AMLL 容器都接：kara 模式下 .np-lyrics 是 display:none，滚轮事件落不到它上面。
   lyrics.addEventListener("wheel", onZoomWheel, { passive: false });
   karaHost.addEventListener("wheel", onZoomWheel, { passive: false });
 
   function followCurrent() {
     const line = lineEls[lastIdx];
+
     if (!line) return;
     const lr = lyrics.getBoundingClientRect();
     const lineRect = line.getBoundingClientRect();
+
     // 隐藏已播放行时，当前行顶边与封面顶边同高；其余档位保持原来的居中跟随。
     const anchorTop = npLyricHidePlayed()
       ? cover.getBoundingClientRect().top - lr.top
       : (lyrics.clientHeight - lineRect.height) / 2;
+
     const top = lyrics.scrollTop + lineRect.top - lr.top - anchorTop;
     lyrics.scrollTo({ top, behavior: "smooth" });
   }
@@ -736,10 +870,15 @@ export function NowPlaying(): HTMLElement {
     lastMid = s?.mid ?? "";
     lastIdx = -1;
     setBrowse(false);
+
     if (!s) { lyrics.innerHTML = `<div class="np-ly-empty">未在播放</div>`; lineEls = []; return; }
+
     if (player.lyricState === "loading" || (player.lyricState === "idle" && !player.lyrics.length)) { lyrics.innerHTML = `<div class="np-ly-empty">歌词加载中…</div>`; lineEls = []; return; }
+
     if (!player.lyrics.length) { lyrics.innerHTML = `<div class="np-ly-empty">暂无歌词</div>`; lineEls = []; return; }
+
     lyrics.innerHTML = "";
+
     for (const line of player.lyrics) {
       const d = document.createElement("div");
       d.className = "np-ly-line";
@@ -749,8 +888,10 @@ export function NowPlaying(): HTMLElement {
       // 点击跳回该行并恢复跟随：屏幕上的行是被延迟挪出来的一行，落要点回真实播放位
       // （line.t 单位秒，delay 毫秒 → /1000）
       d.onclick = () => { player.seek(line.t + getLyricDelayMs(player.current) / 1000); setBrowse(false); };
+
       lyrics.append(d);
     }
+
     lineEls = [...lyrics.querySelectorAll<HTMLElement>(".np-ly-line")];
   }
 
@@ -768,6 +909,7 @@ export function NowPlaying(): HTMLElement {
   let bgWant = "";   // 最近一次请求的封面 URL
   let bgFailed = ""; // 加载失败过的封面 URL：notify 4Hz 会反复进来，别对着 404 封面刷请求
   let bgSettle = 0;  // 淡入完成后的收尾定时器（A 换新图 + B 退场）
+
   const settleBg = (pic: string) => {
     bgHold = pic;
     bgFade = "";
@@ -776,8 +918,10 @@ export function NowPlaying(): HTMLElement {
     bgB.classList.remove("show");
     bgB.style.backgroundImage = ""; // 释放 B 上的位图（A 已接管）
   };
+
   function applyBg(pic: string) {
     bgWant = pic;
+
     if (!pic) {
       window.clearTimeout(bgSettle);
       bgHold = bgFade = "";
@@ -785,8 +929,10 @@ export function NowPlaying(): HTMLElement {
       bgA.style.backgroundImage = "";
       bgB.classList.remove("show");
       bgB.style.backgroundImage = "";
+
       return;
     }
+
     if (pic === bgHold || pic === bgFade || pic === bgFailed) return; // 已在屏 / 已在淡入 / 已知失败（不动进行中的收尾）
     window.clearTimeout(bgSettle); // 真要换图：作废上一轮收尾，避免它把新图当旧图换掉
     const img = new Image();
@@ -797,7 +943,9 @@ export function NowPlaying(): HTMLElement {
       bgB.classList.add("show"); // .45s 淡入（CSS 过渡），盖在 A 的旧图上
       bgSettle = window.setTimeout(() => settleBg(pic), 520);
     };
+
     img.onerror = () => { if (bgWant === pic) { bgFailed = pic; applyBg(""); } }; // 封面 404：回到无背景态（固体底色兜底）
+
     img.src = pic;
   }
 
@@ -811,6 +959,7 @@ export function NowPlaying(): HTMLElement {
     // 外部进入且画廊开着且本页开着 → 视作本页接管
     if (!on) {
       npFullscreen = false;
+
       if (player.gallery) {
         player.gallery = false;
         player.notifyPublic(); // 立即释放 idle 抑制并熄灭播放条按钮
@@ -824,6 +973,7 @@ export function NowPlaying(): HTMLElement {
     const open = player.expanded;
     const hidePlayedChanged = el.classList.contains("np-hide-played") !== npLyricHidePlayed();
     syncLyricLayout();
+
     // 画廊模式联动。放在早退之前：无歌收起也要能退出全屏。
     //  - 展开迁移：画廊开着 → 进全屏；收起 → 画廊会话结束，本页带的全屏随之退出
     //  - 无展开迁移但 gallery 刚被播放条置真（本页已开着）→ 立即进全屏
@@ -831,36 +981,46 @@ export function NowPlaying(): HTMLElement {
       lastExpanded = open;
       // 顶栏随播放页展开而隐藏：释放搜索焦点，让候选关闭、ESC 交回播放页。
       const focused = document.activeElement;
+
       if (open && focused instanceof HTMLElement && focused.closest(".content-top")) focused.blur();
+
       if (open && player.gallery && !isFullscreen()) { npFullscreen = true; setFullscreen(true); }
       else if (!open) {
         player.gallery = false;
+
         if (npFullscreen) { npFullscreen = false; setFullscreen(false); }
+
         closeQInfo();
       }
     } else if (player.gallery && open && !npFullscreen && !isFullscreen()) {
       npFullscreen = true;
       setFullscreen(true);
     }
+
     el.classList.toggle("open", open);
     el.classList.toggle("queue-open", player.queueOpen);
     el.classList.toggle("hide-trans", !player.showTrans);
     // 封面悬浮感的开关：只在真的在放（有歌 + 未暂停）时挂 .playing，
     // 暂停/无歌收掉投影（CSS 侧过渡到透明，见 .np-cover-wrap::before）
     el.classList.toggle("playing", !!s && player.playing);
+
     // 菜单开着时同步翻译选项（外部插件 toggleTrans 等别的改法也能跟上）
     if (menuOpen()) { syncAuxButtons(); syncSpectrumMenu(); }
+
     // 音质胶囊：直接显示最后实际应用的档位（lastStream；未在播放时回落到当前设置）——
     // 与播放条胶囊同口径，↓ = 该流是被回退降档的
     const ls = getLastStream();
+
     const qLabel = player.current && ls
       ? (ls.degraded ? "↓" : "") + (QUALITY_SHORT[ls.tier] ?? ls.label)
       : (QUALITY_SHORT[effectiveQuality()] ?? "音质");
+
     if (qLabel !== lastQLabel) {
       lastQLabel = qLabel;
       qPill.textContent = qLabel;
       qPill.title = `音质：${qLabel}${player.current && ls ? "（实际档位）" : "（当前设置）"}；点看这条流的采样率/位深/编码/码率/声道`;
     }
+
     if (qinfoOpen()) void syncQInfo();
 
     // —— Sparkle 整页接管（np-view.ts）：插件自绘整页，宿主默认布局整块让位。
@@ -870,6 +1030,7 @@ export function NowPlaying(): HTMLElement {
     //    漏算一次就等于播放条再也回不来。
     const npTakenOver = syncNpView(el, npViewHost);
     syncSpectrumSurface(open, npTakenOver);
+
     if (npTakenOver) {
       disposeKara();
       lastKaraMode = false;
@@ -880,20 +1041,24 @@ export function NowPlaying(): HTMLElement {
       bgWant = bgHold = bgFade = bgFailed = "";
       bgA.classList.remove("show"); bgA.style.backgroundImage = "";
       bgB.classList.remove("show"); bgB.style.backgroundImage = "";
+
       return;
     }
+
     if (!open && !s) return;
 
     // 背景：封面模糊放大（交叉淡化，见 applyBg）；侧栏封面同一张图。
     // 封面 img 按 src 守卫：notify 是 4Hz 广播，无条件重建 <img> 会反复触发重解码
     const pic = s ? coverUrl(s, 300) : "";
     applyBg(pic);
+
     if (pic !== lastCover) { lastCover = pic; cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : `<div class="np-cover-ph">${icons.disc ?? ""}</div>`; }
 
     // 换曲 / 歌词内容替换 / 状态迁移 / 接管模式切换（重导入同曲时状态仍是 ok，只靠版本号识别）
     const st: "idle" | "loading" | "ok" | "none" = player.lyrics.length ? "ok" : player.lyricState;
     const karaMode = karaModeNow();
     el.classList.toggle("kara", karaMode);
+
     if (s?.mid !== lastMid || st !== lastLyricState || player.lyricRevision !== lastLyricRevision
       || karaMode !== lastKaraMode
       || player.lyricAux !== lastAuxMode // 换翻译/音译档：行级的辅助行文本要重挑一遍
@@ -901,9 +1066,11 @@ export function NowPlaying(): HTMLElement {
       lastKaraMode = karaMode;
       lastAuxMode = player.lyricAux;
       lastLyricRevision = player.lyricRevision;
+
       if (karaMode) { lastMid = s?.mid ?? ""; lastIdx = -1; buildKara(); }
       else { disposeKara(); buildLyricDom(s); }
     }
+
     lastLyricState = st;
     setTitle(s ? songTitle(s) : "未在播放");
     const albumName = (s as any)?.album?.name ?? "";
@@ -914,13 +1081,17 @@ export function NowPlaying(): HTMLElement {
       // 歌词时钟 = 播放钟 + 0.2s 补偿 − 用户按曲延迟（与内置 AMLL 从 ctx 扣的口径一致）
       const t = player.time + 0.2 - getLyricDelayMs(player.current) / 1000;
       let idx = -1;
+
       for (let i = 0; i < player.lyrics.length; i++) {
         if (player.lyrics[i].t <= t) idx = i; else break;
       }
+
       if (idx !== lastIdx) {
         if (lastIdx >= 0 && lineEls[lastIdx]) lineEls[lastIdx].classList.remove("cur");
+
         if (idx >= 0 && lineEls[idx]) lineEls[idx].classList.add("cur");
         lastIdx = idx;
+
         if (!browsing && idx >= 0) followCurrent();
       } else if (hidePlayedChanged && !browsing && lastIdx >= 0) {
         followCurrent();
@@ -936,7 +1107,9 @@ export function NowPlaying(): HTMLElement {
   onSparkleChange(() => {
     const takenOver = syncNpView(el, npViewHost);
     syncSpectrumSurface(player.expanded, takenOver);
+
     if (menuOpen()) closeMoreMenu(); // 插件模式表变了：下次打开按新表重建
+
     if (takenOver) {
       disposeKara();
       lastKaraMode = false;
@@ -948,6 +1121,7 @@ export function NowPlaying(): HTMLElement {
   });
 
   syncSpectrumSurface(player.expanded, el.classList.contains("np-taken-over"));
+
   return el;
 }
 

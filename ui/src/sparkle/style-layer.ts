@@ -65,25 +65,33 @@ const dropStyle = (key: string) => {
 function plan(): { key: string; css: string; order: number; seq: number }[] {
   const out: { key: string; css: string; order: number; seq: number }[] = [];
   let seq = 0;
+
   // 常驻层：全部注入（除非总闸拉下）
   for (const e of sparkleStyleLayers() as StyleLayerEntry[]) {
     const css = cssOf(e.layer.css);
+
     if (!css) continue;
     out.push({ key: e.key, css, order: e.layer.order ?? 0, seq: seq++ });
   }
+
   // 主题风格：仅当前选中的那一张
   const st = state();
+
   if (st.packId && !st.suspended) {
     const entry = (sparkleThemePacks() as { pluginId: string; pack: SparkleThemePack }[])
       .find((e) => e.pack.id === st.packId);
+
     if (entry) {
       const v = entry.pack.variants.find((x) => x.id === st.variantId) ?? entry.pack.variants[0];
+
       if (v) {
         const css = cssOf(v.css);
+
         if (css) out.push({ key: `variant:${entry.pack.id}/${v.id}`, css, order: v.order ?? VARIANT_ORDER_BASE, seq: seq++ });
       }
     }
   }
+
   return out.sort((a, b) => a.order - b.order || a.seq - b.seq);
 }
 
@@ -103,6 +111,7 @@ function apply() {
   for (const key of [...injected.keys()]) {
     if (!wantKeys.has(key)) dropStyle(key);
   }
+
   // 全摘重挂（保序）
   for (const key of [...injected.keys()]) injected.get(key)!.remove();
   injected.clear();
@@ -129,13 +138,18 @@ function apply() {
 function syncScheme() {
   const root = document.documentElement;
   const st = state();
+
   if (st.suspended || !st.packId) {
     delete root.dataset.sparkleScheme;
+
     return;
   }
+
   const entry = (sparkleThemePacks() as { pluginId: string; pack: SparkleThemePack }[])
     .find((e) => e.pack.id === st.packId);
+
   const v = entry?.pack.variants.find((x) => x.id === st.variantId) ?? entry?.pack.variants[0];
+
   if (v?.scheme) root.dataset.sparkleScheme = v.scheme;
   else delete root.dataset.sparkleScheme;
 }
@@ -143,26 +157,32 @@ function syncScheme() {
 // —— 变化订阅 ——
 
 const listeners = new Set<(s: SparkleStyleState) => void>();
+
 const emit = () => {
   const st = state();
+
   for (const cb of [...listeners]) { try { cb(st); } catch (e) { console.warn("[sparkle] 样式订阅回调抛错", e); } }
 };
 
 export const styleState = (): SparkleStyleState => state();
+
 export const stylePacks = (): { pluginId: string; pack: SparkleThemePack }[] =>
   (sparkleThemePacks() as { pluginId: string; pack: SparkleThemePack }[]).map((e) => ({ ...e }));
 
 export function activateStyle(packId: string, variantId?: string): SparkleStyleState {
   const entry = (sparkleThemePacks() as { pluginId: string; pack: SparkleThemePack }[])
     .find((e) => e.pack.id === packId);
+
   // 目标不存在：静默回落当前态（插件可能正基于旧状态做判断，不该被 activate 抛崩）
   if (!entry) return state();
   const v = variantId ? entry.pack.variants.find((x) => x.id === variantId) : entry.pack.variants[0];
   const resolved = v ?? entry.pack.variants[0];
+
   if (!resolved) return state();
   localStorage.setItem(PACK_KEY, entry.pack.id);
   localStorage.setItem(VARIANT_KEY, resolved.id);
   apply();
+
   return state();
 }
 
@@ -170,6 +190,7 @@ export function resetStyle(): SparkleStyleState {
   localStorage.removeItem(PACK_KEY);
   localStorage.removeItem(VARIANT_KEY);
   apply();
+
   return state();
 }
 
@@ -177,12 +198,14 @@ export function setStyleSuspended(v: boolean): SparkleStyleState {
   if (v) localStorage.setItem(SUSPEND_KEY, "1");
   else localStorage.removeItem(SUSPEND_KEY);
   apply();
+
   return state();
 }
 
 /** 订阅样式状态变化 */
 export function onStyleChange(cb: (s: SparkleStyleState) => void): () => void {
   listeners.add(cb);
+
   return () => { listeners.delete(cb); };
 }
 
@@ -198,11 +221,13 @@ export function onStyleChange(cb: (s: SparkleStyleState) => void): () => void {
 export function initStyleLayer() {
   onSparkleChange(() => {
     const st = state();
+
     if (st.packId && !sparkleThemePacks().some((e) => e.pack.id === st.packId)) {
       // 选中的包已经没人提供了（插件停用/卸载）→ 静默回落，不弹 toast 打扰
       localStorage.removeItem(PACK_KEY);
       localStorage.removeItem(VARIANT_KEY);
     }
+
     apply();
   });
   apply();
@@ -213,6 +238,7 @@ export function initStyleLayer() {
  *  key 由 registry 生成（带序号，插件侧拼不出来），必须用它反查，别自己拼 id。 */
 export function mountStyleLayer(pluginId: string, layer: SparkleStyleLayer): () => void {
   const key = sparkRegisterStyleLayer(pluginId, layer);
+
   // 登记即触发 onSparkleChange → apply()，把 style 挂上；这里只记下反注册所需的 key。
   return () => {
     dropStyle(key);

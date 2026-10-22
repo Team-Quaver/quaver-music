@@ -55,13 +55,18 @@ export function normalizeVersion(s: string): string {
  */
 export function parseVersion(s: string): ParsedVersion | null {
   const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-(.+))?$/.exec((s ?? "").trim());
+
   if (!m) return null;
   const semver: [number, number, number] = [Number(m[1]), Number(m[2]), Number(m[3])];
   const pre = (m[4] ?? "").toLowerCase();
+
   if (!pre) return { semver, pre: "", sha: "", nightly: false, beta: false };
   const nm = /^([0-9a-f]{7,10})(?:-nightly)?$/.exec(pre);
+
   if (nm) return { semver, pre, sha: nm[1], nightly: true, beta: false };
+
   if (pre.includes("beta")) return { semver, pre, sha: "", nightly: false, beta: true };
+
   return null;
 }
 
@@ -69,6 +74,7 @@ export function cmpSemver(a: [number, number, number], b: [number, number, numbe
   for (let i = 0; i < 3; i++) {
     if (a[i] !== b[i]) return a[i] > b[i] ? 1 : -1;
   }
+
   return 0;
 }
 
@@ -76,20 +82,27 @@ export function cmpSemver(a: [number, number, number], b: [number, number, numbe
  *  空 prerelease = 正式版，大于任何 prerelease（1.2.3 > 1.2.3-beta.2）。 */
 export function cmpPre(a: string, b: string): number {
   if (a === b) return 0;
+
   if (!a) return 1;
+
   if (!b) return -1;
   const as = a.split(".");
   const bs = b.split(".");
+
   for (let i = 0; i < Math.max(as.length, bs.length); i++) {
     const x = as[i];
     const y = bs[i];
+
     if (x === undefined) return -1;
+
     if (y === undefined) return 1;
     const xn = /^\d+$/.test(x);
     const yn = /^\d+$/.test(y);
+
     if (xn && yn) {
       const nx = Number(x);
       const ny = Number(y);
+
       if (nx !== ny) return nx > ny ? 1 : -1;
     } else if (xn !== yn) {
       return xn ? -1 : 1;
@@ -97,12 +110,14 @@ export function cmpPre(a: string, b: string): number {
       return x < y ? -1 : 1;
     }
   }
+
   return 0;
 }
 
 /** semver 完整比较（含 prerelease 段）：beta 渠道靠它区分同版号的 beta.1 / beta.2。 */
 export function cmpVersion(a: ParsedVersion, b: ParsedVersion): number {
   const c = cmpSemver(a.semver, b.semver);
+
   return c !== 0 ? c : cmpPre(a.pre, b.pre);
 }
 
@@ -122,16 +137,21 @@ function parsedChannel(p: ParsedVersion): UpdateChannel {
  */
 export function buildChannel(version: string): UpdateChannel {
   const p = parseVersion(version);
+
   return p ? parsedChannel(p) : "stable";
 }
 
 /** 构建的展示描述（渠道 + 版本，nightly 带短 sha、beta 带 prerelease）—— 设置页状态行与更新弹窗共用。 */
 export function describeBuild(version: string): string {
   const p = parseVersion(version);
+
   if (!p) return normalizeVersion(version);
   const v = p.semver.join(".");
+
   if (p.nightly) return `Nightly ${v}-${p.sha}`;
+
   if (p.beta) return `Beta v${v}-${p.pre}`;
+
   return `Stable v${v}`;
 }
 
@@ -180,13 +200,18 @@ export function normalizeRelease(raw: any): ReleaseInfo {
  */
 export function pickBetaRelease(raws: unknown): ReleaseInfo | null {
   let best: { rel: ReleaseInfo; v: ParsedVersion } | null = null;
+
   for (const raw of Array.isArray(raws) ? raws : []) {
     const rel = normalizeRelease(raw);
+
     if (!rel.prerelease || !/beta/i.test(rel.tag)) continue;
     const v = parseVersion(rel.tag);
+
     if (!v?.beta) continue;
+
     if (!best || cmpVersion(v, best.v) > 0) best = { rel, v };
   }
+
   return best?.rel ?? null;
 }
 
@@ -242,6 +267,7 @@ export function decideUpdate(
   opts?: { switch?: boolean },
 ): UpdateDecision | { error: string } {
   const cur = parseVersion(current);
+
   if (!cur) return { error: `无法解析当前版本号「${current}」` };
   const from = parsedChannel(cur);
   const switching = !!opts?.switch;
@@ -251,9 +277,11 @@ export function decideUpdate(
 
   if (channel === "stable") {
     const latest = parseVersion(release.tag);
+
     if (!latest || latest.nightly || latest.beta) return { error: `无法解析发布版本号「${release.tag}」` };
     const rel = relationOf(latest.semver, cur.semver);
     const label = `v${latest.semver.join(".")}`;
+
     return {
       available: crossChannel || rel === "upgrade",
       latestDisplay: label,
@@ -267,12 +295,15 @@ export function decideUpdate(
   if (channel === "beta") {
     // beta：Release 是打了 prerelease 的 v* tag（tag 里含 beta），身份与版本号都在 tag 里
     const latest = parseVersion(release.tag);
+
     if (!latest) return { error: `无法解析 Beta 版本号「${release.tag}」` };
+
     if (!latest.beta || !release.prerelease) return { error: "Beta 渠道只接受 tag 含 beta 的预发布版本" };
     const rel = relationFromCmp(cmpVersion(latest, cur));
     const label = `v${latest.semver.join(".")}-${latest.pre}`;
     // 同一份 beta = 同一份 release（换渠道时当前不是 beta → 恒不同）
     const sameBuild = from === "beta" && rel === "same";
+
     return {
       available: crossChannel ? !sameBuild : rel === "upgrade",
       latestDisplay: label,
@@ -286,12 +317,14 @@ export function decideUpdate(
 
   // nightly：Release 名是恒定的「nightly」，构建身份（pkg 版本 + 短 sha）埋在产物名里
   const latest = release.assets.map((a) => versionFromAssetName(a.name)).find(Boolean) ?? null;
+
   if (!latest) return { error: "未能从 Nightly 产物文件名解析出构建标识" };
   const rel = relationOf(latest.semver, cur.semver);
   // 同一份 nightly 构建 = 版号与短 sha 都相同（换渠道时当前非 nightly、没有 sha → 恒不同）
   const sameBuild = from === "nightly" && rel === "same" && !!latest.sha && latest.sha === cur.sha;
   const newer = rel === "upgrade" || (rel === "same" && !!latest.sha && latest.sha !== cur.sha);
   const id = `${latest.semver.join(".")}-${latest.sha}`;
+
   return {
     available: crossChannel ? !sameBuild : newer,
     latestDisplay: "Nightly",
@@ -330,7 +363,9 @@ export function pickAsset(
   platform: string, arch: string, assets: ReleaseAsset[], prefer?: AssetKind | null,
 ): { asset: ReleaseAsset; kind: AssetKind } | null {
   const re = ARCH_WORDS[arch];
+
   if (!re) return null;
+
   const kinds: Array<{ ext: string; kind: AssetKind; platform: string }> = [
     { ext: ".AppImage", kind: "appimage", platform: "linux" },
     { ext: ".exe", kind: "exe", platform: "win32" },
@@ -339,11 +374,15 @@ export function pickAsset(
     { ext: ".rpm", kind: "rpm", platform: "linux" },
     { ext: ".flatpak", kind: "flatpak", platform: "linux" },
   ];
+
   const pool = kinds.filter((k) => k.platform === platform && (!prefer || k.kind === prefer));
+
   for (const k of pool) {
     const hit = assets.find((a) => a.name.endsWith(k.ext) && re.test(a.name));
+
     if (hit) return { asset: hit, kind: k.kind };
   }
+
   return null;
 }
 
@@ -358,6 +397,7 @@ const escHtml = (s: string) =>
 /** 从 HTML 属性串里取属性值（GitHub release 手写 <img> 常见形态）。 */
 const pickAttr = (attrs: string, name: string): string | null => {
   const m = new RegExp(`${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, "i").exec(attrs);
+
   return m ? (m[1] ?? m[2] ?? m[3] ?? null) : null;
 };
 
@@ -367,21 +407,28 @@ const safeSize = (v: string | null): string | null => (v && /^\d{1,4}%?$/.test(v
 function inlineMd(raw: string): string {
   const tokens: string[] = [];
   const keep = (html: string) => `\u0000${tokens.push(html) - 1}\u0000`;
+
   // 白名单 HTML 图片（在整体转义**之前**抽取）：GitHub release 的截图常以
   // <img src="…" width="…"> 形态出现，markdown 语法覆盖不到。src 只认 https 白名单
   // 字符集，宽高只认数字/百分比，其余属性（onerror 等）一律丢弃。
   let s = raw.replace(/<img\s([^>]*?)\/?>/gi, (_m, attrs: string) => {
     const src = pickAttr(attrs, "src") ?? "";
+
     if (!/^https:\/\/[\w.\-/?:=&%+#~,']+$/.test(src)) return "";
     const out = [`src="${src}"`, 'loading="lazy"'];
     const alt = pickAttr(attrs, "alt");
+
     if (alt) out.push(`alt="${alt.replace(/["<>]/g, "")}"`);
     const w = safeSize(pickAttr(attrs, "width"));
+
     if (w) out.push(`width="${w}"`);
     const hgt = safeSize(pickAttr(attrs, "height"));
+
     if (hgt) out.push(`height="${hgt}"`);
+
     return keep(`<img ${out.join(" ")} />`);
   });
+
   // 整体转义后再按白名单拼标记；链接只放行 http(s) —— release body 是第三方内容，
   // 这里渲染进主界面，绝不能有注入面。
   s = escHtml(s);
@@ -397,6 +444,7 @@ function inlineMd(raw: string): string {
   s = s.replace(/(^|[\s(])(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/g, (_m, p, u) =>
     `${p}${keep(`<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`)}`);
   s = s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+
   return s.replace(/\u0000(\d+)\u0000/g, (_m, i) => tokens[Number(i)]);
 }
 
@@ -407,18 +455,22 @@ export function renderNotes(md: string): string {
   let list: string[] | null = null;
   let quote: string[] | null = null;
   let fence: string[] | null = null;
+
   const flushPara = () => {
     if (para.length) html += `<p>${inlineMd(para.join(" "))}</p>`;
     para = [];
   };
+
   const flushList = () => {
     if (list) html += `<ul>${list.map((li) => `<li>${inlineMd(li)}</li>`).join("")}</ul>`;
     list = null;
   };
+
   const flushQuote = () => {
     if (quote) html += `<blockquote>${quote.map((q) => `<p>${inlineMd(q)}</p>`).join("")}</blockquote>`;
     quote = null;
   };
+
   const flushAll = () => { flushPara(); flushList(); flushQuote(); };
 
   for (const line of lines) {
@@ -429,18 +481,29 @@ export function renderNotes(md: string): string {
       } else fence.push(line);
       continue;
     }
-    if (/^```/.test(line)) { flushAll(); fence = []; continue; }
+
+    if (line.startsWith('```')) { flushAll(); fence = []; continue; }
+
     if (/^\s*$/.test(line)) { flushAll(); continue; }
+
     const qm = /^\s*>\s?(.*)$/.exec(line);
+
     if (qm) { flushPara(); flushList(); (quote ??= []).push(qm[1]); continue; }
+
     const hm = /^#{1,6}\s+(.*)$/.exec(line);
+
     if (hm) { flushAll(); html += `<h4>${inlineMd(hm[1])}</h4>`; continue; }
+
     const lm = /^\s*[-*+]\s+(.*)$/.exec(line);
+
     if (lm) { flushPara(); flushQuote(); (list ??= []).push(lm[1]); continue; }
+
     flushList(); flushQuote();
     para.push(line.trim());
   }
+
   if (fence) html += `<pre><code>${escHtml(fence.join("\n"))}</code></pre>`;
   flushAll();
+
   return html || "<p><span class=\"muted\">（本次发布没有填写更新说明）</span></p>";
 }

@@ -27,9 +27,11 @@ type HotkeyInfo = { state?: string; reason?: string; wayland?: boolean } | null;
 
 export function mountHotkeysPanel(host: HTMLElement): () => void {
   const conf = configInfo();
+
   const hotkeyInfo = conf.bridged
     ? ((window as any).quaverHotkeys?.infoSync?.() as HotkeyInfo)
     : null;
+
   const wayland = hotkeyInfo?.wayland === true;
 
   const group = (scope: HotkeyScope, title: string, note: string, actions: HotkeyAction[], hint: string) => {
@@ -38,6 +40,7 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
     g.innerHTML = `
       <div class="set-label">${title} <span class="set-note-inline">${note}</span></div>
       <p class="muted set-hint" data-hint>${esc(hint)}</p>`;
+
     for (const action of actions) {
       const row = document.createElement("div");
       row.className = "set-row";
@@ -46,6 +49,7 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
         <div class="set-row__ctrl"><button class="hk-btn" type="button" data-scope="${scope}" data-action="${action}"></button></div>`;
       g.append(row);
     }
+
     return g;
   };
 
@@ -54,6 +58,7 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
       ? "由系统注册，当键位为空时，该功能不生效"
       : "Linux 经 XDG 桌面门户注册"
     : "浏览器开发态没有 shell 层，全局热键不生效";
+
   const waylandHint = "Wayland 下全局快捷键由桌面环境统一管理。请到系统设置的「键盘 / 快捷键」中，通过 XDG GlobalShortcuts 桌面门户为 Quaver 绑定；应用内不再提供全局快捷键录制。";
 
   const portalNotice = () => {
@@ -62,6 +67,7 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
     g.innerHTML = `
       <div class="set-label">全局热键 <span class="set-note-inline">由桌面门户管理</span></div>
       <p class="muted set-hint" data-hint>${esc(waylandHint)}</p>`;
+
     return g;
   };
 
@@ -74,6 +80,7 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
   // 门户注册现状（Linux + Electron 壳层）：一行实时状态，排障用。Wayland 下挂在提示末尾，
   // 既保留排障信息，也不把已被桌面接管的键位重新包装成应用内设置。
   const portalLine = host.querySelector<HTMLElement>('[data-hint]')!; // 全局提示（或门户说明）的第一条 hint
+
   if (conf.bridged && !isMac && (window as any).quaverHotkeys?.info) {
     void Promise.resolve((window as any).quaverHotkeys.info()).then((info: HotkeyInfo) => {
       if (!info?.state || ["idle", "ready"].includes(info.state)) return;
@@ -89,6 +96,7 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
   const paint = () => {
     host.querySelectorAll<HTMLButtonElement>(".hk-btn").forEach((btn) => {
       const accel = getHotkey(btn.dataset.scope as HotkeyScope, btn.dataset.action as HotkeyAction);
+
       if (btn === recording) { btn.textContent = recordLabel; btn.classList.add("capturing"); btn.classList.toggle("empty", !accel); }
       else {
         btn.classList.remove("capturing");
@@ -102,14 +110,20 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
   const groupHint = (scope: HotkeyScope): HTMLElement | null =>
     host.querySelector<HTMLElement>(`.hk-btn[data-scope="${scope}"]`)
       ?.closest(".set-group")?.querySelector<HTMLElement>("[data-hint]") ?? null;
+
   const baseHints = new Map<HotkeyScope, string>();
+
   for (const scope of ["Global", "Focus"] as HotkeyScope[]) {
     const el = groupHint(scope);
+
     if (el) baseHints.set(scope, el.textContent ?? "");
   }
+
   const hintTimers = new Map<HotkeyScope, number>(); // 每组各一个：共用会把别组待恢复的定时器清掉
+
   const flashHint = (scope: HotkeyScope, msg: string) => {
     const el = groupHint(scope);
+
     if (!el) return;
     el.textContent = msg;
     window.clearTimeout(hintTimers.get(scope));
@@ -118,10 +132,13 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
 
   const clearHints = () => {
     for (const t of hintTimers.values()) window.clearTimeout(t);
+
     for (const [scope, base] of baseHints) {
       const el = groupHint(scope);
+
       if (el) el.textContent = base;
     }
+
     hintTimers.clear();
   };
 
@@ -137,26 +154,36 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
     if (!recording) return;
     e.preventDefault();
     e.stopPropagation();
+
     if (e.repeat) return;
     const scope = recording.dataset.scope as HotkeyScope;
     const action = recording.dataset.action as HotkeyAction;
+
     if (e.key === "Escape") { stopRecording(); return; }
+
     // 退格/删除（不带修饰）：清除绑定 = 停用该热键
     if (!e.ctrlKey && !e.altKey && !e.metaKey && (e.key === "Backspace" || e.key === "Delete")) {
       setHotkey(scope, action, "");
       stopRecording();
+
       return;
     }
+
     const accel = acceleratorFromEvent(e);
+
     if (!accel) { flashHint(scope, "录不上：需要「修饰键 + 键名」组合（Ctrl / Alt / Shift / Super，Super 在 Mac 上是 ⌘）"); return; }
+
     setHotkey(scope, action, accel);
     stopRecording();
   };
 
   host.addEventListener("click", (e) => {
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".hk-btn");
+
     if (!btn) return;
+
     if (btn === recording) { stopRecording(); return; } // 再点一次 = 取消
+
     stopRecording();
     recording = btn;
     recordLabel = "按下新组合键…";
@@ -166,5 +193,6 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
   });
 
   paint();
+
   return () => { stopRecording(); clearHints(); }; // 视图卸载收尾（录制监听 + 闪现的提示一并清掉）
 }

@@ -35,6 +35,8 @@ export interface SparkMenuPolicy {
 export function menuGlassPolicyOf(theme: SparkleTheme | null | undefined): SparkMenuPolicy {
   if (!theme) return { mode: "host", themeId: null };
   const m = theme.menus;
+
   if (!m || m.mode !== "host") return { mode: "off", themeId: theme.id };
+
   return { mode: "host", themeId: theme.id };
 }

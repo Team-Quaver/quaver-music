@@ -54,9 +54,11 @@ export const DL_SIZE_MAX: { width: number; height: number } = { width: 2560, hei
 /** 覆盖层字号基准（px）：src/desktop-lyrics.ts 的 applyStyle 写 `--dl-font-size = 24 × Scale`，
  *  默认尺寸与它同源（verify-desktop-lyrics 有一条正则钉住那边的 24 字面量，改一处两处都会红）。 */
 export const DL_FONT_BASE_PX = 24;
+
 /** 默认窗宽（px）：一条横带的口径。长句另有横向滚动兜着，不跟着字号变。
  *  宽度是**唯一留给用户拖**的那条轴（高度自本版起由 app 独占，见 sizeHintsFor）。 */
 export const DL_DEFAULT_WIDTH = 560;
+
 /* 文字块容量 —— 下面几个系数是**实测标定**的（headless Chromium 跑 desktop-lyrics.html，
  * 按档位量 __dl.stripDiag().applied = 条带高），不是拍脑袋：
  *   字号24 单行·无辅助 47 ｜ 单行·带辅助 62 ｜ 双行·无辅助 94 ｜ 双行·带辅助 128
@@ -68,8 +70,10 @@ const EM_MAIN_ROW = 1.5;
 const EM_AUX_ROW = 0.65;
 const AUX_ROW_MIN_PX = 14;
 const EM_BAND_PAD = 0.5;
+
 /** 容量之上的留量：极端档位（字号 2 + 双行 + 两路辅助）实测比线性估算高几像素，留 5% 不切字。 */
 const CAPACITY_MARGIN = 1.05;
+
 /** 条带之外的落位余量（px）：进度线/右下角把手贴窗体下缘，字也不该顶到窗边 ——
  *  这是「不切字的那口气」，不是给控制条单独留的一条带（留了就没有贴着一条字的紧凑感了；
  *  悬停控制条本来就浮在内容之上，见 src/desktop-lyrics.css 的 #dl-tools）。 */
@@ -80,6 +84,7 @@ export function blockHeightFor(scale: number, mode: DlMode, aux: boolean): numbe
   const font = DL_FONT_BASE_PX * normalizeScale(String(scale));
   const rows = mode === "dual" ? 2 : 1;
   const auxRowPx = Math.max(EM_AUX_ROW * font, AUX_ROW_MIN_PX);
+
   return rows * EM_MAIN_ROW * font + (aux ? rows * auxRowPx : 0) + EM_BAND_PAD * font;
 }
 
@@ -88,6 +93,7 @@ export function blockHeightFor(scale: number, mode: DlMode, aux: boolean): numbe
  *  不给留位就会被条带切掉；某一首歌恰好没有翻译，只是多留一点白，不影响正确性。 */
 export function defaultHeightFor(scale: number, mode: DlMode = "single", aux = true): number {
   const h = Math.round(blockHeightFor(scale, mode, aux) * CAPACITY_MARGIN) + CHROME_PX;
+
   return Math.min(DL_SIZE_MAX.height, Math.max(DL_SIZE_MIN.height, h));
 }
 
@@ -103,8 +109,11 @@ const FALSY = /^(false|0|no)$/i;
 /** 布尔配置解析（与 prefs 其余布尔项同一判据）；无法识别的值回落到传入默认。 */
 export function confBool(v: string | undefined, dflt: boolean): boolean {
   const s = String(v ?? "").trim();
+
   if (TRUTHY.test(s)) return true;
+
   if (FALSY.test(s)) return false;
+
   return dflt;
 }
 
@@ -112,14 +121,18 @@ export function confBool(v: string | undefined, dflt: boolean): boolean {
  *  注意 Number("") === 0 —— 空串必须先短路，否则「没配」会被当成「配了个 0」夹成下限）。 */
 export function normalizeScale(v: string | undefined): number {
   const t = String(v ?? "").trim();
+
   if (!t) return 1;
   const n = Number(t);
+
   if (!Number.isFinite(n)) return 1;
+
   return Math.min(2, Math.max(0.5, Math.round(n * 100) / 100));
 }
 
 /** 行数档位（与 [DesktopLyrics] Mode、渲染层 src/lib/prefs.ts 的 DlMode 同规：别的值回落单行）。 */
 export type DlMode = "single" | "dual";
+
 export function normalizeMode(v: string | undefined): DlMode {
   return String(v ?? "").trim() === "dual" ? "dual" : "single";
 }
@@ -150,11 +163,16 @@ export function supportsDlLock(
   env: Record<string, string | undefined> = process.env,
 ): boolean {
   if (platform === "darwin" || platform === "win32") return true;
+
   if (platform !== "linux") return false;
   const session = String(env.XDG_SESSION_TYPE ?? "").trim().toLowerCase();
+
   if (session === "wayland") return false;
+
   if (session === "x11") return true;
+
   if (String(env.WAYLAND_DISPLAY ?? "").trim()) return false;
+
   return !!String(env.DISPLAY ?? "").trim();
 }
 
@@ -165,26 +183,34 @@ export function supportsDlLock(
  */
 export function normalizeOpacity(v: string | undefined): number {
   const t = String(v ?? "").trim();
+
   if (!t) return 1;
   const n = Number(t);
+
   if (!Number.isFinite(n)) return 1;
+
   return Math.min(1, Math.max(0.1, Math.round(n * 100) / 100));
 }
 
 export function parseSettings(values: Record<string, string>): DlSettings {
   const num = (k: string): number | null => {
     const s = String(values[k] ?? "").trim();
+
     if (!s) return null;
     const n = Number(s);
+
     return Number.isFinite(n) ? Math.round(n) : null;
   };
+
   const x = num("DesktopLyrics.X");
   const y = num("DesktopLyrics.Y");
   const width = num("DesktopLyrics.W");
   const height = num("DesktopLyrics.H");
+
   const bounds = x !== null && y !== null && width !== null && height !== null
     ? { x, y, width, height }
     : null;
+
   return {
     enabled: confBool(values["DesktopLyrics.Enabled"], false),
     locked: confBool(values["DesktopLyrics.Locked"], false),
@@ -200,6 +226,7 @@ export function parseSettings(values: Record<string, string>): DlSettings {
  *  磁盘上的记忆尺寸正好等于它 = 默认值被原样落过盘，不当作用户偏好：位置照旧恢复，尺寸换成
  *  新的贴合值。真有人手动拖成 720×150 的概率约等于零，而且新算法也可能算出同一个数（无害）。 */
 const DL_LEGACY_DEFAULT_SIZE = { width: 720, height: 150 };
+
 export function isLegacyDefaultSize(b: Rect | null): boolean {
   return !!b && b.width === DL_LEGACY_DEFAULT_SIZE.width && b.height === DL_LEGACY_DEFAULT_SIZE.height;
 }
@@ -255,6 +282,7 @@ export function sizeHintsFor(height: number): {
   minWidth: number; maxWidth: number; minHeight: number; maxHeight: number;
 } {
   const h = clampHeight(height);
+
   return { minWidth: DL_SIZE_MIN.width, maxWidth: DL_SIZE_MAX.width, minHeight: h, maxHeight: h };
 }
 
@@ -271,6 +299,7 @@ export function pinnedHintsFor(width: number, height: number): {
 } {
   const h = clampHeight(height);
   const w = clampSize(width, h).width;
+
   return { minWidth: w, maxWidth: w, minHeight: h, maxHeight: h };
 }
 
@@ -296,6 +325,7 @@ function intersects(a: Rect, b: Rect): boolean {
 export function defaultBounds(area: Rect, size?: { width: number; height: number }): Rect {
   const width = Math.min(size?.width ?? DL_DEFAULT_SIZE.width, Math.max(DL_SIZE_MIN.width, area.width));
   const height = Math.min(size?.height ?? DL_DEFAULT_SIZE.height, Math.max(DL_SIZE_MIN.height, area.height));
+
   return {
     x: Math.round(area.x + (area.width - width) / 2),
     y: Math.round(area.y + area.height - height - Math.min(120, area.height * 0.1)),
@@ -321,10 +351,13 @@ export function pickBounds(
   // 记忆尺寸优先（两条轴都合理 + 不是旧的 720×150 空带），回落当前的贴合值
   const kept = usableSavedSize(saved);
   const size = clampSize(kept?.width ?? hint.width, kept?.height ?? hint.height);
+
   if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
     const rect: Rect = { x: Math.round(saved.x), y: Math.round(saved.y), ...size };
+
     if (displays.some((d) => intersects(rect, d))) return rect;
   }
+
   return defaultBounds(displays[0]!, size);
 }
 

@@ -15,14 +15,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { viewsSource } from "./views-source.ts";
+
 const existsSync0 = (p: string): boolean => { try { readFileSync(p); return true; } catch { return false; } };
 
 let pass = 0, fail = 0;
 const section = (t: string) => console.log(`\n=== ${t} ===`);
+
 function check(name: string, cond: unknown, detail = "") {
   if (cond) { pass++; console.log(`  ✅ ${name}`); }
   else { fail++; console.log(`  ❌ ${name}${detail ? ` — ${detail}` : ""}`); }
 }
+
 const eq = (name: string, got: unknown, want: unknown) =>
   check(name, JSON.stringify(got) === JSON.stringify(want), `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
 
@@ -34,24 +37,32 @@ const syncsafe = (n: number) => Buffer.from([(n >> 21) & 0x7f, (n >> 14) & 0x7f,
 const be32 = (n: number) => { const b = Buffer.alloc(4); b.writeUInt32BE(n >>> 0); return b; };
 const le32 = (n: number) => { const b = Buffer.alloc(4); b.writeUInt32LE(n >>> 0); return b; };
 const fourcc = (s: string) => Buffer.from(s, "latin1");
+
 function txtFrame(id: string, text: string): Buffer {
   const body = Buffer.from([3, ...Buffer.from(text, "utf8")]);
+
   return Buffer.concat([fourcc(id), be32(body.length), Buffer.from([0, 0]), body]);
 }
+
 function id3Tag(frames: Buffer[]): { buf: Buffer; size: number } {
   const all = Buffer.concat(frames);
   const buf = Buffer.concat([fourcc("ID3"), Buffer.from([3, 0, 0]), syncsafe(all.length), all]);
+
   return { buf, size: 10 + all.length };
 }
+
 function mp3Frame(bitIdx = 13): Buffer {
   const h = Buffer.alloc(4);
   h[0] = 0xff; h[1] = 0xfb; h[2] = (bitIdx << 4); h[3] = 0xc0;
   const kbps = [0,32,40,48,56,64,80,96,112,128,160,192,224,256,320,0][bitIdx];
   const f = Buffer.alloc(Math.floor((144 * kbps * 1000) / 44100));
   h.copy(f);
+
   return f;
 }
+
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(400, 9), Buffer.from([0xff, 0xd9])]);
+
 function flacFile(opts: { fields?: [string, string][]; picture?: Buffer } = {}): Buffer {
   const si = Buffer.alloc(34);
   si[10] = (44100 >> 12) & 0xff; si[11] = (44100 >> 4) & 0xff; si[12] = ((44100 & 0xf) << 4) | (2 >> 1);
@@ -61,24 +72,34 @@ function flacFile(opts: { fields?: [string, string][]; picture?: Buffer } = {}):
   const entries = (opts.fields ?? []).map(([k, v]) => Buffer.from(`${k}=${v}`, "utf8"));
   const vendor = fourcc("quaver");
   const vc = Buffer.concat([le32(vendor.length), vendor, be32v(entries.length), ...entries.map((e) => Buffer.concat([le32(e.length), e]))]);
+
   function be32v(n: number) { const b = Buffer.alloc(4); b.writeUInt32LE(n); return b; }
+
   const blk = (type: number, last: boolean, body: Buffer) =>
     Buffer.concat([Buffer.from([(last ? 0x80 : 0) | type, (body.length >> 16) & 0xff, (body.length >> 8) & 0xff, body.length & 0xff]), body]);
+
   const pic = opts.picture ? picBlock(opts.picture) : null;
+
   function picBlock(jpg: Buffer): Buffer {
     return blk(6, !pic_after_comment(), Buffer.concat([
       be32(3), be32("image/jpeg".length), fourcc("image/jpeg"), be32(0), Buffer.alloc(16), be32(jpg.length), jpg,
     ]));
   }
+
   function pic_after_comment(): boolean { return false; }
+
   const blocks: Buffer[] = [blk(0, false, si), blk(4, pic == null, vc)];
+
   if (pic) { blocks[1] = blk(4, false, vc); blocks.push(pic); blocks[blocks.length - 1] = Buffer.concat([Buffer.from([blocks[blocks.length - 1][0] | 0x80]), blocks[blocks.length - 1].subarray(1)]); }
+
   return Buffer.concat([fourcc("fLaC"), ...blocks]);
 }
 
 // ———————————————————————— 1. 解析层纯单测 ————————————————————————
 const T = await import("../electron/local/tags.ts");
+
 section("标签解析（纯单测）");
+
 {
   const { buf } = id3Tag([txtFrame("TIT2", "夜船"), txtFrame("TPE1", "歌手X"), txtFrame("TALB", "霓虹专"), txtFrame("TDRC", "2024")]);
   const full = Buffer.concat([buf, ...Array(20).fill(null).map(() => mp3Frame(14))]);
@@ -96,7 +117,9 @@ section("标签解析（纯单测）");
   eq("文件名兜底", T.parseFilename("03. 周杰伦 - 稻香.flac"), { title: "稻香", artist: "周杰伦", trackNo: 3 });
   eq("isAudioFile", [T.isAudioFile("a.flac"), T.isAudioFile("a.txt"), T.isAudioFile("no_ext")], [true, false, false]);
 }
+
 const L = await import("../electron/local/library.ts");
+
 {
   section("歌词解码 + 路由安全（纯单测）");
   eq("LRC UTF-8 直通", L.decodeLrc(Buffer.from("[00:01.00]啊", "utf8")).includes("啊"), true);
@@ -120,6 +143,7 @@ const L = await import("../electron/local/library.ts");
 
 // ———————————————————————— 2. 端到端真 HTTP ————————————————————————
 const ROOT = mkdtempSync(join(tmpdir(), "quaver-local-"));
+
 process.env.QUAVER_CONFIG_DIR = join(ROOT, "cfg");
 
 // 假 sidecar（搜索 + 歌词）与假 WebDAV（Basic + Range + PROPFIND）合并在一个 http server 里。
@@ -127,23 +151,30 @@ const DAV_USER = "quaver", DAV_PASS = "s3cret";
 const davMp3 = (() => { const { buf } = id3Tag([txtFrame("TIT2", "NAS 曲"), txtFrame("TPE1", "网络歌手"), txtFrame("TALB", "云专辑")]); return Buffer.concat([buf, ...Array(30).fill(null).map(() => mp3Frame(14))]); })();
 const davLrc = Buffer.from("[00:01.00]来自 NAS 的 sidecar 歌词\n");
 const files: Record<string, Buffer> = { "/davroot/music/NAS 曲.mp3": davMp3, "/davroot/music/NAS 曲.lrc": davLrc };
+
 const sidecar = createServer(async (req, res) => {
   const u = new URL(req.url ?? "/", "http://x");
   const auth = String(req.headers.authorization ?? "");
+
   if (u.pathname.startsWith("/davroot")) {
     if (auth !== "Basic " + Buffer.from(`${DAV_USER}:${DAV_PASS}`).toString("base64")) {
       res.statusCode = 401; return res.end("no");
     }
+
     if (req.method === "PROPFIND") {
       const dir = decodeURIComponent(u.pathname);
       const items = Object.keys(files).filter((p) => p.startsWith(dir.endsWith("/") ? dir : dir + "/") && !p.slice(dir.length + 1).includes("/"));
       const xml = `<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">${[dir.endsWith("/") ? dir : dir + "/"].map((p) => `<d:response><d:href>${p}</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response>`).join("")}${items.map((p) => `<d:response><d:href>${encodeURI(p)}</d:href><d:propstat><d:prop><d:getcontentlength>${files[p].length}</d:getcontentlength><d:getlastmodified>Tue, 13 Oct 2026 10:00:00 GMT</d:getlastmodified></d:prop></d:propstat></d:response>`).join("")}</d:multistatus>`;
       res.statusCode = 207; res.setHeader("content-type", "application/xml"); return res.end(xml);
     }
+
     const p = decodeURIComponent(u.pathname);
     const body = files[p];
+
     if (!body || req.method === "PROPFIND") { res.statusCode = 404; return res.end("nf"); }
+
     const range = /^bytes=(\d+)-(\d*)$/.exec(String(req.headers.range ?? ""));
+
     if (range) {
       const from = Number(range[1]);
       const to = range[2] === "" ? body.length - 1 : Math.min(Number(range[2]), body.length - 1);
@@ -151,40 +182,60 @@ const sidecar = createServer(async (req, res) => {
       res.setHeader("content-range", `bytes ${from}-${to}/${body.length}`);
       res.setHeader("content-length", String(to - from + 1));
       res.setHeader("accept-ranges", "bytes");
+
       return res.end(body.subarray(from, to + 1));
     }
+
     res.setHeader("content-length", String(body.length));
+
     return res.end(body);
   }
+
   res.setHeader("content-type", "application/json");
+
   if (u.pathname === "/search") {
     const kw = u.searchParams.get("keyword") ?? "";
+
     if (kw.includes("随手曲")) {
       return res.end(JSON.stringify({ code: 0, msg: "ok", data: { song: [{ mid: "QQMID1", title: "随手曲", name: "随手曲", interval: 205, singer: [{ name: "未知歌", mid: "SG1" }], album: { name: "", mid: "AL1", pmid: "AL1_00" } }], total_num: 1 } }));
     }
+
     if (kw.includes("改名曲")) {
       return res.end(JSON.stringify({ code: 0, msg: "ok", data: { song: [{ mid: "ZZ003", title: "改名曲", name: "改名曲", interval: 99, singer: [{ name: "在线歌手", mid: "SG3" }], album: { name: "", mid: "A3", pmid: "A3_9" } }], total_num: 1 } }));
     }
+
     return res.end(JSON.stringify({ code: 0, msg: "ok", data: { song: [] } }));
   }
+
   if (/^\/song\/(QQMID1|ZZ003)\/lyric$/.test(u.pathname)) {
     return res.end(JSON.stringify({ code: 0, msg: "ok", data: { lyric: "[00:03.00]刮削到的歌词", trans: "[00:03.00]scraped", roma: "" } }));
   }
+
   res.statusCode = 404;
   res.end(JSON.stringify({ code: -1, msg: "nope" }));
 });
+
 await new Promise<void>((r) => sidecar.listen(0, "127.0.0.1", r));
+
 process.env.QUAVER_API = `http://127.0.0.1:${(sidecar.address() as { port: number }).port}`;
 
 // 音乐目录（folder 源素材）：嵌套 + 两个同名文件（relPath 必须保住目录段 → id 不冲突）
 const MUS = join(ROOT, "music");
+
 mkdirSync(join(MUS, "艺人A/专辑B"), { recursive: true });
+
 mkdirSync(join(MUS, "艺人C/专辑D"), { recursive: true });
+
 const tagged = (() => { const { buf } = id3Tag([txtFrame("TIT2", "带标曲"), txtFrame("TPE1", "甲"), txtFrame("TALB", "专辑B")]); return Buffer.concat([buf, ...Array(20).fill(null).map(() => mp3Frame(14))]); })();
+
 writeFileSync(join(MUS, "艺人A/专辑B/带标曲.mp3"), tagged);
+
 writeFileSync(join(MUS, "艺人A/专辑B/带标曲.lrc"), "[00:02.00]sidecar词第一行\n");
+
 writeFileSync(join(MUS, "艺人C/专辑D/带标曲.mp3"), flacFile({ fields: [["TITLE", "重名曲"]], picture: JPEG })); // 同名不同目录
+
 writeFileSync(join(MUS, "艺人C/专辑D/随手曲.mp3"), mp3Frame(14)); // 无标签 → 文件名兜底 → 刮削目标
+
 writeFileSync(join(MUS, "艺人C/专辑D/.hidden.mp3"), mp3Frame(14)); // 隐藏文件必须被跳过
 
 const { startQuaverServer } = await import("../electron/native-server.ts");
@@ -192,16 +243,20 @@ const { server: app, url: appUrl } = await startQuaverServer({ dist: join(ROOT, 
 const base = appUrl + "api";
 const jget = async (p: string) => { const r = await fetch(base + p); return { status: r.status, ct: r.headers.get("content-type"), body: await r.json().catch(() => null) }; };
 const jpost = async (p: string, b: unknown) => { const r = await fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }); return { status: r.status, body: await r.json().catch(() => null) }; };
+
 const waitIdle = async (what: "scan" | "scrape") => {
   for (let i = 0; i < 200; i++) {
     const s = await jget(`/local/${what}`);
+
     if (s.body?.data?.running === false) return s.body.data;
     await new Promise((r) => setTimeout(r, 50));
   }
+
   throw new Error(`${what} 超时`);
 };
 
 section("端到端：添加源 → 扫描 → 播放流");
+
 {
   const add = await jpost("/local/source/add", { kind: "folder", name: "本机音乐", path: MUS });
   check("folder 源添加成功", add.status === 200 && !!add.body?.data?.source?.id, JSON.stringify(add.body));
@@ -242,6 +297,7 @@ section("端到端：添加源 → 扫描 → 播放流");
 }
 
 section("端到端：WebDAV 源");
+
 {
   const add = await jpost("/local/source/add", { kind: "webdav", name: "假NAS", url: appHostPath(sidecar, "/davroot/music"), username: DAV_USER, password: DAV_PASS });
   check("webdav 源添加（PROPFIND 探测通过）", add.status === 200 && !!add.body?.data?.source?.id, JSON.stringify(add.body));
@@ -264,12 +320,16 @@ section("端到端：WebDAV 源");
 }
 
 function exists0(p: string): boolean { try { return readFileSync(p).length > 0; } catch { return false; } }
-function appHostPath(srv: { address(): unknown }, p: string): string {
+
+function appHostPath(srv: { address(): string | { port: number } | null }, p: string): string {
+  // SAFETY: 测试服务恒为 TCP 监听，address() 必返回带 port 的对象
   const a = srv.address() as { port: number };
+
   return `http://127.0.0.1:${a.port}${p}`;
 }
 
 section("端到端：扫描自动刮削（假 sidecar）→ QRC 前置条件落库");
+
 {
   // 两轮扫描都发现了新歌 → 服务端在扫描收尾**自动**kick 了未匹配刮削；等它收线直接验收
   await waitIdle("scrape");
@@ -290,6 +350,7 @@ section("端到端：扫描自动刮削（假 sidecar）→ QRC 前置条件落�
 }
 
 section("端到端：手动导入歌词/封面 + 元数据校正（右键菜单的服务面）");
+
 {
   const lib = (await jget("/local/library")).body.data;
   const tagged = lib.tracks.find((t: any) => t.title === "带标曲");   // 有 sidecar .lrc —— 测试「导入恒胜」
@@ -342,6 +403,7 @@ section("端到端：手动导入歌词/封面 + 元数据校正（右键菜单�
 }
 
 section("端到端：移除源清库");
+
 {
   const lib = (await jget("/local/library")).body.data;
   const nasSrc = lib.sources.find((x: any) => x.kind === "webdav");
@@ -352,11 +414,14 @@ section("端到端：移除源清库");
 }
 
 (app as any).close?.();
+
 sidecar.close();
+
 rmSync(ROOT, { recursive: true, force: true });
 
 // ———————————————————————— 3. 源码接线断言 ————————————————————————
 section("源码接线：双服务端同构挂载");
+
 {
   const relay = src("src/relay.ts"), native = src("electron/native-server.ts");
   check("relay 挂 /api/local", /path === "local" \|\| path\.startsWith\("local\/"\)/.test(relay));
@@ -367,7 +432,9 @@ section("源码接线：双服务端同构挂载");
   // 反向样本：删掉挂载行 → 断言必须为 false
   check("反向：去掉挂载则测不到", !/path === "local"/.test(relay.replace(/path === "local" \|/, "")));
 }
+
 section("源码接线：player/渲染层绕开 QQ 通路");
+
 {
   const player = src("src/player.ts");
   check("Song 类型带 local 指纹", /local\?:\s*LocalSongFingerprint/.test(player));
@@ -406,7 +473,9 @@ section("源码接线：player/渲染层绕开 QQ 通路");
   // 反向：qqMid 判空写坏成恒真/恒假都要能红
   check("反向：把 qqMid 分支删掉即测不到", !/const qqMid = local \? \(local\.lyricImport \? "" : String\(local\.qqMid \?\? ""\)\) : s\.mid/.test(player.replace('const qqMid = local ? (local.lyricImport ? "" : String(local.qqMid ?? "")) : s.mid;', "")));
 }
+
 section("源码接线：路由/导航/桥");
+
 {
   const shell = src("src/shell.ts"), views = viewsSource();
   check("侧栏导航含本地音乐", /\{ path: "#\/local", label: "本地音乐", icon: "folder" \}/.test(shell));
@@ -419,7 +488,9 @@ section("源码接线：路由/导航/桥");
   const main = src("electron/main.ts");
   check("主进程处理 pick-folder 与 reveal", /op === "pick-folder"/.test(main) && /revealTarget\(String\(msg\?\.id/.test(main));
 }
+
 section("安全红线：路径只从库来");
+
 {
   const lib = src("electron/local/library.ts");
   check("流/封面/歌词只认 t_<12hex> id", /stream\\\/\(t_\[0-9a-f\]\{12\}\)/.test(lib) && /TRACK_ID_RE/.test(lib));
@@ -429,4 +500,5 @@ section("安全红线：路径只从库来");
 }
 
 console.log(`\n=== 合计 ${pass} 通过 / ${fail} 失败 ===`);
+
 process.exit(fail ? 1 : 0);

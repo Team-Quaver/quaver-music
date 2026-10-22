@@ -35,20 +35,26 @@ function loadTiers() {
     .catch(() => { tierCache = []; })
     .finally(() => {
       tierFlight = null;
+
       // 档位是异步到的：主动广播一次，插件不必等下一个播放事件
       if (tierCache) player.notifyPublic();
     });
 }
+
 void loadTiers();
 
 /** 可选档位：过滤掉当前曲无源的（与播放条音质浮窗同口径），locked 档照常列出；
  *  本地/NAS 曲目恒空 —— 没有在线档位阶梯可切，档位表对它是纯粹的误导 */
 function availableTiers(): SparkleQualityTier[] {
   loadTiers();
+
   if (isLocalSong(player.current)) return [];
+
   if (!tierCache?.length) return [];
   const missing = songMissingTiers(player.current);
+
   if (!missing) return tierCache;
+
   return tierCache.filter((t) => !missing.has(t.id as Quality));
 }
 
@@ -57,7 +63,8 @@ function availableTiers(): SparkleQualityTier[] {
 export const npSongSnapshot = (s: Song | undefined | null): SparkleSongSnapshot | null => {
   if (!s) return null;
   const local = isLocalSong(s) ? s.local : null;
-  return {
+
+  const snap: SparkleSongSnapshot = {
     mid: s.mid,
     name: songTitle(s) || "未知歌曲",
     // mid 一定要带上：「跳转歌手」这类动作需要它拼路由参数，只给名字的话插件做不了
@@ -67,8 +74,11 @@ export const npSongSnapshot = (s: Song | undefined | null): SparkleSongSnapshot 
     // 来源与本地封面：接管视图（Flowscape）据此收掉音质档位与红心、换同源封面。
     // album.mid/pmid 是刮削命中的 QQ 侧信息，本地曲也照带 —— 命中的曲插件仍可回落 CDN 封面。
     src: local ? (local.kind === "webdav" ? "nas" : "local") : "online",
-    ...(local ? { localCover: local.hasCover ? localCoverPath(local.id) : "" } : {}),
   };
+
+  if (local) snap.localCover = local.hasCover ? localCoverPath(local.id) : "";
+
+  return snap;
 };
 
 // —— ctx 工厂 ——
@@ -122,6 +132,7 @@ export function npViewCtx(): SparkleNpViewCtx {
     karaoke: () => player.karaoke,
     karaokeActive: () => {
       const provider = sparkleKaraokeProvider();
+
       return player.karaoke.length > 0 && !!provider && (provider.enabled?.() ?? true);
     },
 
@@ -136,6 +147,7 @@ export function npViewCtx(): SparkleNpViewCtx {
       // lastStream 是全局的，刚切到本地曲的瞬间可能还挂着上一首在线曲的档，不能信
       if (isLocalSong(player.current)) return localSongStreamUrl(player.current).label;
       const ls = getLastStream();
+
       return player.current && ls
         ? (ls.degraded ? "↓" : "") + (QUALITY_SHORT[ls.tier] ?? ls.label)
         : (QUALITY_SHORT[effectiveQuality()] ?? "音质");
@@ -157,8 +169,10 @@ export function npViewCtx(): SparkleNpViewCtx {
     loved: (mid) => player.loved.has(mid),
     toggleLove: () => {
       const s = player.current;
+
       if (!s) return false;
       player.toggleLove(s);
+
       return player.loved.has(s.mid);
     },
   };
@@ -193,14 +207,17 @@ export function syncNpView(npRoot: HTMLElement, host: HTMLElement): boolean {
 
   if (mounted && mounted.view !== want) {
     try { mounted.cleanup?.(); } catch (e) { console.warn("[sparkle] np 视图清理失败", e); }
+
     mounted.host.remove();
     mounted = null;
   }
+
   if (want && !mounted) {
     const box = document.createElement("div");
     box.className = "np-view-root";
     box.dataset.plugin = want.id;
     host.append(box);
+
     try {
       // render 返回 undefined 是合法的（插件声明「无清理」）——用「抛没抛」判定成败，
       // 不要拿返回值 truthy 当成功标志（那会把无清理的正常插件误判成失败）。
@@ -212,12 +229,15 @@ export function syncNpView(npRoot: HTMLElement, host: HTMLElement): boolean {
       box.remove();
       npRoot.classList.remove("np-taken-over");
       setBodyFlag(false);
+
       return false;
     }
   }
+
   // 生效 = 挂上了 **且** 正在播放页展开（收起时插件视图留着但不接管，播放条照常）
   const active = !!mounted && player.expanded;
   npRoot.classList.toggle("np-taken-over", active);
   setBodyFlag(active);
+
   return active;
 }

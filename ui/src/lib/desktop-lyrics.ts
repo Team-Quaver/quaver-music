@@ -33,27 +33,33 @@ import type { SparkleKaraokeLine } from "@quaver/sparkle";
 import {
   CLOCK_COMP_MS, type DlCmd, type DlLine, type DlStateSnapshot, type DlSyncPayload, type DlTrackPayload,
 } from "./desktop-lyrics-protocol";
+
 export { CLOCK_COMP_MS };
+
 export type { DlCmd, DlLine, DlStateSnapshot, DlSyncPayload, DlTrackPayload };
 
 
 let started = false;
 let active = false;
 let lastTrackFp = "";
+
 /** 封面色异步补刀：换曲先置空回落白字，取色完成后按当前曲对号入座重推整包。 */
 let coverAccent: string | null = null;
 let coverJobKey = "";
 let lastKey = "";
+
 /** 系统强调色轮询句柄：只在覆盖层在线时订阅（离窗即停表，不养常驻定时器 —— 与 tint 同规矩） */
 let accentStop: (() => void) | null = null;
 
 const currentKey = (): string => {
   const c = player.current;
+
   return c ? String(c._key ?? c.mid) : "";
 };
 
 function trackPayload(): DlTrackPayload {
   const c = player.current;
+
   return {
     v: 1,
     key: currentKey(),
@@ -78,20 +84,25 @@ function refreshCoverAccent(): void {
   const c = player.current;
   const key = currentKey();
   const next = c ? coverUrl(c, 300) : "";
+
   if (coverJobKey === key && (next || !c)) return; // 同一曲（或无曲）不重取
   coverJobKey = key;
   coverAccent = null; // 换曲先回落白字：拿上一首的颜色糊这一首是错的
+
   if (!next) return;
   void (async () => {
     const rgb = await extractCoverColor(next);
+
     if (coverJobKey !== currentKey()) return; // 期间又换了曲
     coverAccent = rgb ? toUiColors(rgb)?.accent ?? null : null;
+
     if (active) window.quaverDesktopLyrics?.sendTrack(trackPayload()); // 迟到补推（覆盖层按 payload 现取色，不重渲染）
   })();
 }
 
 function syncPayload(): DlSyncPayload {
   const c = player.current;
+
   return {
     v: 1,
     posMs: Math.max(0, (player.time || 0) * 1000),
@@ -110,18 +121,23 @@ function trackFp(t: DlTrackPayload): string {
 
 function pushAll(): void {
   const b = window.quaverDesktopLyrics;
+
   if (!b) return;
   const t = trackPayload();
+
   // 换曲先于歌词到达也先把「颜色期待」挂上：取色 job 与歌词管线并行，各自到货各自推
   if (t.key !== lastKey) {
     lastKey = t.key;
     refreshCoverAccent();
   }
+
   const fp = trackFp(t);
+
   if (fp !== lastTrackFp) {
     lastTrackFp = fp;
     b.sendTrack(t);
   }
+
   b.sendSync(syncPayload());
 }
 
@@ -141,6 +157,7 @@ function syncAccentWatch(on: boolean): void {
 /** 覆盖层命令的执行端（与 MPRIS / mediaSession 同一语义面：prev 走 prevPress 遵循 PrevReplay）。 */
 function handleCmd(msg: unknown): void {
   const cmd = (msg ?? {}) as DlCmd & Record<string, unknown>;
+
   switch (cmd.cmd) {
     case "playpause":
       player.toggle();
@@ -153,37 +170,45 @@ function handleCmd(msg: unknown): void {
       break;
     case "seek": {
       const ms = Number(cmd.ms);
+
       if (Number.isFinite(ms) && ms >= 0) player.seek(ms / 1000);
       break;
     }
+
     case "delay": {
       // 钳制/量化口径与 NowPlaying.applyLyricDelay 完全一致（±10s、0.1s 一档）；
       // notifyPublic 让行级视图与延迟读数即时挪动（暂停中没有 4Hz 广播，这一刀必须补）。
       const cur = getLyricDelayMs(player.current);
       const want = cmd.op === "zero" ? 0 : cur + (cmd.dir === -1 ? -1 : 1) * LYRIC_DELAY_STEP_MS;
       const v = Math.round(Math.min(LYRIC_DELAY_MAX_MS, Math.max(-LYRIC_DELAY_MAX_MS, want)) / LYRIC_DELAY_STEP_MS) * LYRIC_DELAY_STEP_MS;
+
       if (v !== cur) setLyricDelayMs(player.current, v);
       player.notifyPublic();
       break;
     }
+
     case "scale": {
       // 字号倍率与设置页滑条同一存储（quaver.conf 的 DesktopLyrics.Scale）：这里写 →
       // config 广播 → 覆盖层 loadConfig + applyStyle 即时生效；步长 0.1 与滑条 step=5(%) 同档
       const cur = getDesktopLyricsScale();
       const step = cmd.dir === -1 ? -0.1 : 0.1;
       const next = Math.min(DL_SCALE_MAX, Math.max(DL_SCALE_MIN, Math.round((cur + step) * 10) / 10));
+
       if (next !== cur) setDesktopLyricsScale(next);
       break;
     }
+
     case "weight": {
       // 与字号同一套：控件只发意图，主窗写 [DesktopLyrics] Weight，配置广播回覆盖层落地。
       // 顶部控制条只放一个紧凑档位键；设置页滑条才能连续调到任意 10 的倍数。
       const cur = getDesktopLyricsWeight();
       const steps = [300, 400, 500, 600, 700, 800, 900];
       const next = steps.find((v) => v > cur) ?? steps[0]!;
+
       if (next !== cur) setDesktopLyricsWeight(next);
       break;
     }
+
     default:
       break;
   }
@@ -192,21 +217,26 @@ function handleCmd(msg: unknown): void {
 /** 主窗启动调用（src/main.ts）：Electron 壳层外（浏览器 dev）桥不存在 → 直接 no-op。 */
 export function startDesktopLyricsBridge(): void {
   const b = window.quaverDesktopLyrics;
+
   if (!b || started) return;
   started = true;
 
   let wasOpen = false;
+
   try {
     wasOpen = !!b.activeSync?.()?.open;
   } catch { /* 桥 handler 未就位：等事件 */ }
+
   active = wasOpen;
 
   b.onActive?.((s) => {
-    const open = !!(s as DlStateSnapshot)?.open;
+    const open = !!s?.open;
+
     if (open && !wasOpen) lastTrackFp = ""; // 覆盖层晚到：当前包必须重推一遍
     wasOpen = open;
     active = open;
     syncAccentWatch(open);
+
     if (open) pushAll();
   });
 

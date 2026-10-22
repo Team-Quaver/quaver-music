@@ -9,13 +9,17 @@
 
 export function isFullscreen(): boolean {
   const bridge = (window as any).quaverCSD;
+
   if (bridge?.isFullscreen) return !!bridge.isFullscreen();
+
   return document.fullscreenElement != null;
 }
 
 export function setFullscreen(on: boolean): void {
   const bridge = (window as any).quaverCSD;
+
   if (bridge?.fullscreen) { bridge.fullscreen(on); return; }
+
   if (on) void document.documentElement.requestFullscreen?.().catch(() => { /* 拒绝全屏：保持现状 */ });
   else if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => { /* noop */ });
 }
@@ -28,6 +32,7 @@ export function onFullscreenChange(cb: (on: boolean) => void): () => void {
   const dom = () => fire(document.fullscreenElement != null);
   document.addEventListener("fullscreenchange", dom);
   fire(isFullscreen()); // 订阅即对齐：让订阅者免于自己查初始态
+
   return () => {
     off?.();
     document.removeEventListener("fullscreenchange", dom);

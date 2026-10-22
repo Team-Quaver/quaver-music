@@ -34,6 +34,7 @@ import {
 
 const ENABLED_KEY = "quaver.sparkle.enabled.v1";
 const THEME_KEY = "quaver.sparkle.theme.v1";
+
 /** 官方插件被用户显式停用的标记（string[]；新官方插件默认启用时跳过这些 id） */
 const OFFICIAL_OFF_KEY = "quaver.sparkle.official-off.v1";
 
@@ -44,11 +45,13 @@ export const sparkSetOfficialOffIds = (ids: string[]) => localStorage.setItem(OF
 const readList = (key: string): string[] => {
   try {
     const v = JSON.parse(localStorage.getItem(key) ?? "[]");
+
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
   } catch {
     return [];
   }
 };
+
 const writeEnabled = (ids: string[]) => localStorage.setItem(ENABLED_KEY, JSON.stringify(ids));
 
 export const sparkEnabledIds = () => readList(ENABLED_KEY);
@@ -56,6 +59,7 @@ export const sparkSetEnabledIds = (ids: string[]) => writeEnabled([...new Set(id
 
 /** 激活中的 sparkle 主题 id（null = 未激活） */
 export const sparkActiveThemeId = (): string | null => localStorage.getItem(THEME_KEY);
+
 export const sparkActivateTheme = (id: string | null) => {
   if (id) localStorage.setItem(THEME_KEY, id);
   else localStorage.removeItem(THEME_KEY);
@@ -68,6 +72,7 @@ function applySparkleTheme() {
   const active = sparkActiveThemeId();
   const root = document.documentElement;
   const known = active && sparkleThemes().some((t) => t.id === active) ? active : null;
+
   if (known) root.dataset.sparkleTheme = known;
   else delete root.dataset.sparkleTheme;
   // 主题会决定这些归谁：高亮色（tint）、背景（background）、浮层菜单的外观（menus）、
@@ -85,6 +90,7 @@ function injectThemeStyle(t: SparkleTheme) {
   style.dataset.sparkleThemeStyle = t.id;
   style.textContent = `html[data-sparkle-theme="${t.id}"]{${t.css}}`;
   document.head.append(style);
+
   return () => style.remove();
 }
 
@@ -93,6 +99,7 @@ function injectThemeStyle(t: SparkleTheme) {
 const playerFacade: SparklePlayerFacade = {
   get current() {
     const s = player.current;
+
     return s ? { mid: s.mid, name: s.name, singer: s.singer, album: s.album, interval: s.interval } : null;
   },
   get time() { return player.time; },
@@ -117,7 +124,9 @@ function makeContext(pluginId: string): SparkleContext {
     warn: (...a: unknown[]) => console.warn(`[sparkle:${pluginId}]`, ...a),
     error: (...a: unknown[]) => console.error(`[sparkle:${pluginId}]`, ...a),
   };
+
   const pfx = `sparkle.${pluginId}.`;
+
   return {
     pluginId,
     registerView: (path, view) => sparkRegisterView(pluginId, path, view),
@@ -139,6 +148,7 @@ function makeContext(pluginId: string): SparkleContext {
       applySparkleTheme(); // 若停用的正是激活主题，applySparkleTheme 已在 teardown 里回落
       sparkRecordOf(pluginId)?.teardown.push(() => {
         remove();
+
         if (sparkActiveThemeId() === theme.id) sparkActivateTheme(null);
         else applySparkleTheme();
       });
@@ -151,17 +161,20 @@ function makeContext(pluginId: string): SparkleContext {
     registerNowPlayingWidget: (widget) => {
       const mount = (w: SparkleNpWidget) => {
         const slot = document.getElementById("np-plugin-widgets");
+
         if (!slot) return null; // 正在播放页还没挂（理论上 initSparkle 晚于 bootShell，不会发生）
         const box = document.createElement("div");
         box.className = "np-widget";
         box.dataset.plugin = pluginId;
         slot.append(box);
         const cleanup = w.render(box) ?? null;
+
         return () => {
           cleanup?.();
           box.remove();
         };
       };
+
       sparkRegisterNpWidget(pluginId, widget, mount);
     },
     // 整页接管：不立即挂载 —— 由 np-view.ts 在正在播放页的 notify 里按 enabled() 决定
@@ -178,10 +191,13 @@ function makeContext(pluginId: string): SparkleContext {
       remove: (k) => localStorage.removeItem(pfx + k),
       keys: () => {
         const out: string[] = [];
+
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
+
           if (key?.startsWith(pfx)) out.push(key.slice(pfx.length));
         }
+
         return out;
       },
     },
@@ -212,31 +228,41 @@ export const isSparkleActive = (id: string) => !!sparkRecordOf(id);
 /** 启用插件：加载 → 校验 → setup。返回是否成功；失败不打断调用方（init 逐个续跑） */
 export async function enableSparklePlugin(plugin: SparklePlugin): Promise<boolean> {
   const { id } = plugin;
+
   if (sparkRecordOf(id) || broken.has(id)) return sparkRecordOf(id) !== undefined;
   // 加载策略（安全模式 / [Sparkle] Blacklist）的唯一闸口：init 的启动路径与设置页的手动
   // 开关都从这儿过。放在 setup 之前 —— 被拦的插件一行代码都不执行。
   const blocked = sparkBlockReason(plugin);
+
   if (blocked) {
     console.warn(`[sparkle:${id}] 拒绝加载：${blocked}`);
+
     return false;
   }
+
   const record: SparklePluginRecord = { pluginId: id, teardown: [] };
   sparkRecordInit(record); // 先入表：setup 内 register* 的 teardown 才有落点
+
   try {
     const dispose = plugin.setup(makeContext(id));
+
     if (typeof dispose === "function") record.dispose = dispose;
     sparkSetEnabledIds([...sparkEnabledIds(), id]);
+
     if (OFFICIAL_META.some((m) => m.id === id)) {
       localStorage.setItem(OFFICIAL_OFF_KEY, JSON.stringify(sparkOfficialOffIds().filter((x) => x !== id)));
     }
+
     return true;
   } catch (e) {
     // 回滚已注册的半截资源，标记 broken；宿主各接入点自动回到无插件形态
     for (const fn of [...record.teardown].reverse()) { try { fn(); } catch { /* 尽力清理 */ } }
+
     sparkRecordDrop(id);
     broken.add(id);
     console.error(`[sparkle:${id}] setup 失败`, e);
     toast(`插件 ${plugin.name ?? id} 启动失败`, "err");
+
     return false;
   }
 }
@@ -246,18 +272,24 @@ export async function enableSparklePlugin(plugin: SparklePlugin): Promise<boolea
  *  插件停用只是撤掉它自己的提供器，sparkleKaraokeProvider() 自动落回内置 AMLL。 */
 export function disableSparklePlugin(id: string) {
   const record = sparkRecordOf(id);
+
   if (!record) return;
   // 当前路由若属于该插件 → 先跳走（views 表随后查不到，shell 的回落只对未知路径兜底，
   // 但留在插件页上时页面内容不会被自动清掉，主动跳走更干净）
   const cur = "/" + location.hash.replace(/^#\//, "").split("?")[0];
   const routes = sparklePluginRoutes(id);
+
   for (const fn of [...record.teardown].reverse()) { try { fn(); } catch (e) { console.warn(`[sparkle:${id}] teardown`, e); } }
+
   try { record.dispose?.(); } catch (e) { console.warn(`[sparkle:${id}] dispose`, e); }
+
   sparkRecordDrop(id);
   sparkSetEnabledIds(sparkEnabledIds().filter((x) => x !== id));
+
   if (OFFICIAL_META.some((m) => m.id === id)) {
     localStorage.setItem(OFFICIAL_OFF_KEY, JSON.stringify([...new Set([...sparkOfficialOffIds(), id])]));
   }
+
   if (routes.includes(cur)) location.hash = "#/";
   applySparkleTheme(); // 激活主题若属于该插件，teardown 已清掉 style；这里兜底回落默认
 }

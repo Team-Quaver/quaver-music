@@ -29,8 +29,11 @@ const res = await viteBuild({
     lib: { entry: join(OUT_DIR, "entry.ts"), formats: ["es"], fileName: () => "bundle.mjs" },
   },
 });
+
 const chunk = res[0].output.find((o) => o.type === "chunk");
+
 writeFileSync(OUT, chunk.code);
+
 const C = await import(OUT);
 
 let failed = 0;
@@ -39,13 +42,16 @@ const check = (name, ok, extra = "") => { console.log(`${ok ? "✓" : "✗"} ${n
 const eq = (name, got, want) => check(name, JSON.stringify(got) === JSON.stringify(want), `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
 const has = (src, n) => src.includes(n);
 const re = (src, rx) => rx.test(src);
+
 // 注释里提到某个标识符会被 includes 命中（踩过），源码级断言一律先剥注释
 const noComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 const readSrc = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+
 /** 取 A 到 B 之间的源码（跨函数断言用，避免命中同名的别处） */
 const slice = (src, a, b) => {
   const i = src.indexOf(a);
   const j = i < 0 ? -1 : src.indexOf(b, i);
+
   return i < 0 || j < 0 ? "" : src.slice(i, j);
 };
 
@@ -57,28 +63,47 @@ const rel = (tag, assets = [], extra = {}) => ({
 
 // ——— 版本解析 ———
 section("版本解析");
+
 eq("纯 semver", C.parseVersion("1.2.3"), { semver: [1, 2, 3], pre: "", sha: "", nightly: false, beta: false });
+
 eq("容忍 v 前缀（git describe 态的 __APP_VERSION__）", C.parseVersion("v1.2.3"), { semver: [1, 2, 3], pre: "", sha: "", nightly: false, beta: false });
+
 eq("nightly 完整形态（resolve-version 输出）", C.parseVersion("1.2.0-abc1234-nightly"), { semver: [1, 2, 0], pre: "abc1234-nightly", sha: "abc1234", nightly: true, beta: false });
+
 eq("nightly 产物名形态（无 -nightly 后缀）", C.parseVersion("1.2.0-abc1234"), { semver: [1, 2, 0], pre: "abc1234", sha: "abc1234", nightly: true, beta: false });
+
 eq("beta 带序号", C.parseVersion("v1.5.0-beta.1"), { semver: [1, 5, 0], pre: "beta.1", sha: "", nightly: false, beta: true });
+
 eq("beta 大小写不敏感、无序号也认", C.parseVersion("1.5.0-Beta"), { semver: [1, 5, 0], pre: "beta", sha: "", nightly: false, beta: true });
+
 check("非版本串返回 null", C.parseVersion("nightly") === null && C.parseVersion("") === null);
+
 check("未知 prerelease（rc 等）保守返回 null，不误判成 stable", C.parseVersion("1.2.3-rc1") === null);
+
 eq("展示规范化去 v", C.normalizeVersion("v1.2.2"), "1.2.2");
+
 check("1.2.10 > 1.2.9（数值比较不是字符串）", C.cmpSemver([1, 2, 10], [1, 2, 9]) > 0);
+
 check("2.0.0 > 1.99.99", C.cmpSemver([2, 0, 0], [1, 99, 99]) > 0);
+
 eq("相等", C.cmpSemver([1, 2, 3], [1, 2, 3]), 0);
+
 // prerelease 段比较（semver §11）：正式版 > 预发布；beta.2 > beta.1；数字 < 字母数字
 check("正式版 > 预发布", C.cmpPre("", "beta.1") > 0);
+
 check("beta.2 > beta.1", C.cmpPre("beta.2", "beta.1") > 0);
+
 check("beta.10 > beta.9（数值比较）", C.cmpPre("beta.10", "beta.9") > 0);
+
 check("beta > beta.1（同前缀短者更小）", C.cmpPre("beta.1", "beta") > 0);
+
 check("完整版本比较含 prerelease", C.cmpVersion(C.parseVersion("1.5.0-beta.2"), C.parseVersion("1.5.0-beta.1")) > 0);
+
 check("同版号正式版 > beta", C.cmpVersion(C.parseVersion("1.5.0"), C.parseVersion("1.5.0-beta.1")) > 0);
 
 // ——— 更新判定：stable ———
 section("stable 渠道判定");
+
 {
   const d = C.decideUpdate("1.2.0", "stable", C.normalizeRelease({ tag_name: "v1.2.3" }));
   check("低版本 → 有更新", d.available === true && d.latestDisplay === "v1.2.3" && d.key === "stable:v1.2.3", JSON.stringify(d));
@@ -91,6 +116,7 @@ section("stable 渠道判定");
 
 // ——— 更新判定：nightly ———
 section("nightly 渠道判定");
+
 {
   const assets = [["Quaver-1.2.0-bbb2222-x86_64.AppImage", 100], ["Quaver-1.2.0-bbb2222-aarch64.AppImage", 100]];
   const r = C.normalizeRelease({ tag_name: "nightly", prerelease: true, published_at: "2026-10-07T02:00:00Z", assets: assets.map(([n, s]) => ({ name: n, size: s, browser_download_url: `https://x/${n}` })) });
@@ -108,6 +134,7 @@ section("nightly 渠道判定");
 
 // ——— 更新判定：beta ———
 section("beta 渠道判定");
+
 {
   const betaRel = (tag, opts = {}) => C.normalizeRelease({
     tag_name: tag, prerelease: true, published_at: "2026-10-07T02:00:00Z",
@@ -131,11 +158,13 @@ section("beta 渠道判定");
 
 // ——— beta 渠道选版（GitHub 没有 latest-prerelease 接口，自己从列表里挑）———
 section("beta 渠道选版");
+
 {
   const raw = (tag, prerelease, published = "2026-10-07T02:00:00Z") => ({
     tag_name: tag, prerelease, published_at: published, body: "",
     assets: [{ name: `Quaver-${tag.replace(/^v/, "")}-x86_64.AppImage`, size: 1, browser_download_url: `https://x/${tag}` }],
   });
+
   const list = [
     raw("v1.5.0", false),                                 // 正式版 → 排除
     raw("nightly", true),                                 // 每夜版（tag 不含 beta）→ 排除
@@ -143,6 +172,7 @@ section("beta 渠道选版");
     raw("v1.5.0-beta.2", true, "2026-10-05T00:00:00Z"),
     raw("v1.4.0-beta.9", true, "2026-10-08T00:00:00Z"),   // 发布时间更晚但版本更低
   ];
+
   const picked = C.pickBetaRelease(list);
   check("只认 prerelease 且 tag 含 beta", picked?.tag === "v1.5.0-beta.2", JSON.stringify(picked?.tag));
   check("取 semver 最大（不按发布时间先后）", picked?.tag === "v1.5.0-beta.2");
@@ -152,6 +182,7 @@ section("beta 渠道选版");
 
 // ——— 安装包匹配（平台 × 架构；CI 产物命名见 build.yml）———
 section("安装包匹配");
+
 {
   const full = [
     ["Quaver-1.2.3-x86_64.AppImage", 1],
@@ -161,6 +192,7 @@ section("安装包匹配");
     ["Quaver-1.2.3-arm64.dmg", 1],
     ["Quaver-1.2.3-loong64.deb", 1],
   ];
+
   const A = (list) => C.normalizeRelease({ tag_name: "v1", assets: list.map(([n, s]) => ({ name: n, size: s, browser_download_url: `https://x/${n}` })) }).assets;
   eq("linux x64 → x86_64 AppImage", C.pickAsset("linux", "x64", A(full))?.asset.name, "Quaver-1.2.3-x86_64.AppImage");
   eq("linux arm64 → aarch64 AppImage", C.pickAsset("linux", "arm64", A(full))?.asset.name, "Quaver-1.2.3-aarch64.AppImage");
@@ -179,6 +211,7 @@ section("安装包匹配");
     ["Quaver-1.2.3-amd64.deb", 1],     // deb 的 ${arch} 宏 = amd64
     ["Quaver-1.2.3-x86_64.rpm", 1],    // rpm 的 ${arch} 宏 = x86_64
   ]);
+
   eq("AppImage 运行（无 prefer）→ 仍挑 AppImage", C.pickAsset("linux", "x64", distro)?.kind, "appimage");
   eq("deb 安装（prefer=deb）→ 挑 deb", C.pickAsset("linux", "x64", distro, "deb")?.asset.name, "Quaver-1.2.3-amd64.deb");
   eq("rpm 安装（prefer=rpm）→ 挑 rpm", C.pickAsset("linux", "x64", distro, "rpm")?.asset.name, "Quaver-1.2.3-x86_64.rpm");
@@ -192,6 +225,7 @@ section("安装包匹配");
     ["Quaver-1.2.3-x86_64.flatpak", 1],
     ["Quaver-1.2.3-aarch64.flatpak", 1],
   ]);
+
   eq("flatpak 安装（prefer=flatpak）→ 挑 x86_64 bundle", C.pickAsset("linux", "x64", fp, "flatpak")?.asset.name, "Quaver-1.2.3-x86_64.flatpak");
   eq("flatpak arm64 → aarch64 bundle", C.pickAsset("linux", "arm64", fp, "flatpak")?.asset.name, "Quaver-1.2.3-aarch64.flatpak");
   check("prefer=flatpak 但无 flatpak → null（不回退 deb/AppImage）", C.pickAsset("linux", "x64", A([["Quaver-1.2.3-x86_64.AppImage", 1], ["Quaver-1.2.3-amd64.deb", 1]]), "flatpak") === null);
@@ -203,6 +237,7 @@ section("安装包匹配");
     { name: "Quaver-1.2.3-amd64.deb", size: 1, browser_download_url: "https://x/d" },
     { name: "Quaver-1.2.3-x86_64.rpm", size: 1, browser_download_url: "https://x/r", digest: "sha512:not-this-algo" },
   ] }).assets;
+
   eq("digest 去前缀、小写落进 sha256", withDigest[0].sha256, "deadbeefdeadbeef00112233445566778899aabbccddeeff0011223344556677");
   eq("无 digest → 空串", withDigest[1].sha256, "");
   eq("非 sha256 digest → 空串", withDigest[2].sha256, "");
@@ -210,6 +245,7 @@ section("安装包匹配");
 
 // ——— release notes 迷你渲染（第三方内容，注入面必须为零）———
 section("更新日志渲染");
+
 {
   const md = [
     "# What's Changed",
@@ -221,6 +257,7 @@ section("更新日志渲染");
     "echo \"**不渲染**\"",
     "```",
   ].join("\n");
+
   const html = C.renderNotes(md);
   check("标题", html.includes("<h4>What&#39;s Changed</h4>"), html);
   check("列表", html.includes("<li>"), html);
@@ -240,6 +277,7 @@ section("更新日志渲染");
   check("非 http(s) 图片不生成 <img>", C.renderNotes("![x](javascript:alert(1))").includes("<img") === false);
   check("HTML <img> 标签渲染（GitHub 手写截图）", (() => {
     const h = C.renderNotes('<img src="https://github.com/user-attachments/assets/abc" width="360" alt="截图">');
+
     return h.includes('src="https://github.com/user-attachments/assets/abc"')
       && h.includes('width="360"') && h.includes('alt="截图"') && h.includes('loading="lazy"') && h.includes("<img ");
   })());
@@ -251,27 +289,37 @@ section("更新日志渲染");
     check("引用块", q.includes("<blockquote><p>注意这是<b>引用</b></p><p>第二行</p></blockquote>"), q);
     check("引用后接段落", q.trimEnd().endsWith("<p>正文</p>"), q);
   }
+
   check("空 body 有占位", C.renderNotes("").includes("没有填写更新说明"));
 }
 
 // ——— 构建渠道判定（当前构建属于哪个渠道）———
 section("构建渠道判定");
+
 check("纯 semver → stable（含 v 前缀）", C.buildChannel("1.2.3") === "stable" && C.buildChannel("v1.2.3") === "stable");
+
 check("带短 sha → nightly（两种写法都认）", C.buildChannel("1.2.0-abc1234-nightly") === "nightly" && C.buildChannel("1.2.0-abc1234") === "nightly");
+
 check("带 beta 段 → beta", C.buildChannel("v1.5.0-beta.1") === "beta" && C.buildChannel("1.5.0-Beta") === "beta");
+
 check("解析不出的脏串保守按 stable（例如 dev 的 git describe 残次品）", C.buildChannel("nightly") === "stable" && C.buildChannel("") === "stable");
+
 eq("构建描述：正式版", C.describeBuild("v1.2.3"), "Stable v1.2.3");
+
 eq("构建描述：nightly 带短 sha", C.describeBuild("1.2.0-abc1234-nightly"), "Nightly 1.2.0-abc1234");
+
 eq("构建描述：beta 带 prerelease 序号", C.describeBuild("1.5.0-beta.1"), "Beta v1.5.0-beta.1");
 
 // ——— 渠道切换判定（decideUpdate opts.switch）———
 // 与同渠道升级是两套判据：换渠道只排除「同一份构建」，同版号 / 回退都要能提示。
 section("渠道切换判定");
+
 {
   const nightlyRel = C.normalizeRelease({
     tag_name: "nightly", prerelease: true, published_at: "2026-10-07T02:00:00Z",
     assets: [{ name: "Quaver-1.2.0-bbb2222-x86_64.AppImage", size: 100, browser_download_url: "https://x/1" }],
   });
+
   const st = (v) => C.normalizeRelease({ tag_name: v });
 
   // 核心回归：nightly 构建同版号切回 stable。不 switch 时按同渠道升级语义（不提示），
@@ -303,6 +351,7 @@ section("渠道切换判定");
     tag_name: "v1.2.0-beta.1", prerelease: true, published_at: "2026-10-07T02:00:00Z",
     assets: [{ name: "Quaver-1.2.0-beta.1-x86_64.AppImage", size: 100, browser_download_url: "https://x/b1" }],
   });
+
   const toB = C.decideUpdate("1.2.0", "beta", betaRel, { switch: true });
   check("stable 同版号 → 切到 beta：提示（beta 有版号，标回退）", toB.available === true && toB.switching === true && toB.relation === "downgrade", JSON.stringify(toB));
   eq("beta 切换目标标识", toB.targetLabel, "v1.2.0-beta.1");
@@ -324,6 +373,7 @@ section("渠道切换判定");
 
 // ——— 接线（源码级）：渠道切换这条链拆在三个文件里，纯逻辑单测覆盖不到「有没有接上」———
 section("渠道切换接线");
+
 {
   const updater = noComments(readSrc("src/lib/updater.ts"));
   const dialog = noComments(readSrc("src/components/UpdateDialog.ts"));
@@ -355,6 +405,7 @@ section("渠道切换接线");
 
 // ——— 接线（源码级）：安装收尾的平台特性，别在重构里被悄悄抹掉 ———
 section("安装收尾接线");
+
 {
   const up = noComments(readSrc("electron/update.ts"));
   const updater = noComments(readSrc("src/lib/updater.ts"));
@@ -396,6 +447,7 @@ section("安装收尾接线");
 
 // ——— 接线（源码级）：sha256 完整性校验 / 去重 / 商店托管（星火·如意玲珑）———
 section("完整性校验与商店托管接线");
+
 {
   const up = noComments(readSrc("electron/update.ts"));
   const updater = noComments(readSrc("src/lib/updater.ts"));
@@ -428,6 +480,7 @@ section("完整性校验与商店托管接线");
 }
 
 console.log(failed ? `\n${failed} 项断言失败` : "\n全部通过");
+
 process.exit(failed ? 1 : 0);
 
 // 清理（放不到 finally 就手动跑；失败时保留现场也无妨）

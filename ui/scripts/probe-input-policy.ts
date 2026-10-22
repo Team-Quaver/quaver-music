@@ -17,11 +17,15 @@ const browser = await puppeteer.launch({
   executablePath: "/usr/bin/google-chrome", headless: "new",
   args: ["--no-sandbox", "--disable-gpu"],
 });
+
 const page = await browser.newPage();
+
 await page.setViewport({ width: 1280, height: 840 });
+
 page.on("pageerror", (e) => console.log("[pageerror]", String(e)));
 
 let fails = 0;
+
 const step = async (name, fn) => {
   try { const note = await fn(); console.log(`PASS ${name}${note ? " — " + note : ""}`); }
   catch (e) { fails++; console.log(`FAIL ${name}: ${e.message}`); }
@@ -31,11 +35,14 @@ await page.goto(`${BASE}/index.html#/`, { waitUntil: "networkidle2" }).catch(asy
   // dev server 可能绑在 ::1：换 IPv6 字面量再试一次
   await page.goto(BASE.replace("127.0.0.1", "[::1]") + "/index.html#/", { waitUntil: "networkidle2" });
 });
+
 await sleep(800);
 
 const linkSel = '.nav a[href="#/settings"], a.side-btn.settings[href="#/settings"]';
+
 await step("页面就绪：侧栏/设置链接存在", async () => {
   const n = await page.$$eval(linkSel, (els) => els.length);
+
   if (!n) throw new Error("no settings link found");
 });
 
@@ -47,7 +54,9 @@ await step("中键点链接：不开新页面、当前页不跳转", async () =>
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: "middle" });
   await sleep(600);
   const after = await browser.pages();
+
   if (after.length !== before.length) throw new Error(`new target opened (${before.length} -> ${after.length})`);
+
   if (page.url() !== urlBefore) throw new Error(`current page navigated: ${page.url()}`);
 });
 
@@ -56,35 +65,43 @@ await step("左键点链接：导航照常发生，但焦点不落在链接上",
   const box = await el.boundingBox();
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: "left" });
   await sleep(600);
+
   const r = await page.evaluate(() => ({
     hash: location.hash,
     focused: document.activeElement?.tagName ?? "null",
     isLink: document.activeElement?.closest?.("a") != null,
   }));
+
   if (r.hash !== "#/settings") throw new Error(`navigation broken, hash=${r.hash}`);
+
   if (r.isLink || r.focused === "A") throw new Error(`focus stayed on link (${r.focused})`);
 });
 
 await step("左键点按钮（设置页里的真 <button>）：焦点不落在按钮上", async () => {
   const okBtn = await page.$("button");
+
   if (!okBtn) throw new Error("no button on settings page");
   const box = await okBtn.boundingBox();
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: "left" });
   await sleep(200);
+
   const r = await page.evaluate(() => ({
     focused: document.activeElement?.tagName ?? "null",
     isBtn: document.activeElement?.closest?.("button") != null,
   }));
+
   if (r.isBtn || r.focused === "BUTTON") throw new Error(`focus stayed on button (${r.focused})`);
 });
 
 await step("左键点输入框：焦点照常落上去（搜索框要能打字）", async () => {
   const input = await page.$(".content-top input[type=search], .content-top input#q");
+
   if (!input) throw new Error("search input not found");
   const box = await input.boundingBox();
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: "left" });
   await sleep(200);
   const r = await page.evaluate(() => document.activeElement?.tagName);
+
   if (r !== "INPUT") throw new Error(`input not focused, activeElement=${r}`);
 });
 
@@ -93,9 +110,12 @@ await step("Tab 键：焦点不动（既有全局拦截）", async () => {
   await page.keyboard.press("Tab");
   await sleep(150);
   const after = await page.evaluate(() => document.activeElement?.tagName ?? "null");
+
   if (before !== after) throw new Error(`Tab moved focus: ${before} -> ${after}`);
 });
 
 await browser.close();
+
 console.log(`\n${fails ? `${fails} FAILED` : "all passed"}`);
+
 process.exit(fails ? 1 : 0);

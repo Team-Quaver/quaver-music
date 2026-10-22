@@ -23,6 +23,7 @@ const plainText = (s: unknown) => String(s ?? "")
 
 function monthLabel(key: string): string {
   const m = /^(\d{4})-(\d{2})$/.exec(key);
+
   return m ? `${m[1]} 年 ${Number(m[2])} 月` : "其他";
 }
 
@@ -31,8 +32,10 @@ export default async function toplistView(root: HTMLElement, q: URLSearchParams)
   const name = q.get("name") || "排行榜";
   const initialPeriod = q.get("period") || "";
   let historyEnabled = q.get("history") !== "0";
+
   if (!/^\d+$/.test(id)) {
     root.innerHTML = `<div class="muted">榜单 id 无效</div>`;
+
     return;
   }
 
@@ -40,25 +43,32 @@ export default async function toplistView(root: HTMLElement, q: URLSearchParams)
     const first = await api<ToplistDetailResp>(
       `/top/${encodeURIComponent(id)}/detail?page=1&num=100${period ? `&period=${encodeURIComponent(period)}` : ""}`,
     ) ?? {};
+
     const songs: Song[] = [...(first.songs ?? [])];
     const total = Number(first.total ?? first.info?.songnum ?? songs.length) || songs.length;
+
     for (let page = 2; songs.length < total && page <= 4; page++) {
       const next = await api<ToplistDetailResp>(
         `/top/${encodeURIComponent(id)}/detail?page=${page}&num=100${period ? `&period=${encodeURIComponent(period)}` : ""}`,
       ) ?? {};
+
       const batch = next.songs ?? [];
+
       if (!batch.length) break;
       songs.push(...batch);
     }
+
     return { ...first, songs };
   };
 
   root.innerHTML = `<div class="muted">加载中…</div>`;
   let first: ToplistDetailResp & { songs: Song[] };
+
   try {
     first = await fetchChart(initialPeriod);
   } catch (e) {
     root.innerHTML = `<div class="muted">榜单加载失败：${errText(e)}</div>`;
+
     return;
   }
 
@@ -70,12 +80,14 @@ export default async function toplistView(root: HTMLElement, q: URLSearchParams)
 
   const cover = upPic(info.picurl || "");
   const artHtml = cover ? `<img src="${cover}" alt=""/>` : "";
+
   const head = mountHead(root, {
     artHtml,
     name: info.title || name,
     meta: "",
     desc: plainText(info.desc || info.title_share || ""),
   });
+
   const sticky = mountStickyBar(root, { artHtml, name: info.title || name });
   const headMeta = head.querySelector<HTMLElement>(".pl-meta");
 
@@ -99,6 +111,7 @@ export default async function toplistView(root: HTMLElement, q: URLSearchParams)
   const paintMeta = () => {
     const listens = compactCount(info.listennum);
     const caption = periodCaption(info.period);
+
     if (headMeta) {
       headMeta.textContent = [
         info.update_tips || (Number(info.update_type) === 0 ? "每周更新" : "每日更新"),
@@ -111,10 +124,13 @@ export default async function toplistView(root: HTMLElement, q: URLSearchParams)
 
   const paintSongs = () => {
     playAll.sync();
+
     if (!songs.length) {
       rows.innerHTML = `<div class="muted">这一期暂时没有歌曲</div>`;
+
       return;
     }
+
     renderSongRows(rows, songs, {
       showAlbum: true,
       onPlay: (_song, index, all) => player.playList(all, index),
@@ -125,27 +141,34 @@ export default async function toplistView(root: HTMLElement, q: URLSearchParams)
   const paintOptions = (preferred = "") => {
     if (!historyEnabled) return;
     const periods = recentTopPeriods(info, new Date());
+
     if (preferred && !periods.some((p) => p.value === preferred)) {
       periods.unshift({ value: preferred, label: periodCaption(preferred), month: preferred.slice(0, 7) });
     }
+
     select.innerHTML = "";
     const groups = new Map<string, ChartPeriod[]>();
+
     for (const p of periods) {
       const list = groups.get(p.month) ?? [];
       list.push(p);
       groups.set(p.month, list);
     }
+
     for (const [month, list] of groups) {
       const og = document.createElement("optgroup");
       og.label = monthLabel(month);
+
       for (const p of list) {
         const option = document.createElement("option");
         option.value = p.value;
         option.textContent = p.label;
         og.append(option);
       }
+
       select.append(og);
     }
+
     select.disabled = !periods.length;
     select.value = periods.some((p) => p.value === info.period)
       ? String(info.period)
@@ -154,6 +177,7 @@ export default async function toplistView(root: HTMLElement, q: URLSearchParams)
 
   const replacePeriodInHash = (period: string) => {
     const params = new URLSearchParams({ id, name: info.title || name });
+
     if (period) params.set("period", period);
     history.replaceState(history.state, "", `#/toplist?${params.toString()}`);
   };
@@ -163,18 +187,23 @@ export default async function toplistView(root: HTMLElement, q: URLSearchParams)
     const period = select.value;
     select.disabled = true;
     rows.innerHTML = `<div class="muted">加载中…</div>`;
+
     try {
       const next = await fetchChart(period);
+
       if (dead || current !== request) return;
       const returnedPeriod = String(next.info?.period ?? "");
+
       if (period && returnedPeriod && period !== returnedPeriod) {
         historyEnabled = false;
         paintHistoryControl();
         select.value = String(info.period ?? "");
         paintMeta();
         paintSongs();
+
         return;
       }
+
       info = next.info ?? info;
       songs = next.songs;
       replacePeriodInHash(String(info.period || period));
@@ -194,6 +223,7 @@ export default async function toplistView(root: HTMLElement, q: URLSearchParams)
   paintHistoryControl();
   paintOptions(initialPeriod || String(info.period || ""));
   paintSongs();
+
   return () => {
     dead = true;
     request++;

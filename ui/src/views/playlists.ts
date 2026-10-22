@@ -15,6 +15,7 @@ import { cardPlay, errText, h, navCard, routeScroller, trackStuck } from "./_sha
 // 卡片落地路由：自建与收藏共用 disstid/tid + name（与侧栏条目同一套口径）
 const hrefOf = (id: number | string, title: string) =>
   `#/playlist?id=${encodeURIComponent(String(id))}&name=${encodeURIComponent(title)}`;
+
 // 卡片副行：曲目数（自建/收藏都带 songnum）；缺了就退回「歌单」
 const subOf = (songnum: unknown) => (Number(songnum) > 0 ? `${Number(songnum)} 首` : "歌单");
 
@@ -22,6 +23,7 @@ export default async function playlistsView(root: HTMLElement) {
   const head = h("div", "sticky-head home-pagehead", `
     <h1 class="page-title">歌单</h1>
     <p class="muted">我创建的歌单与我收藏的歌单</p>`);
+
   root.append(head);
   const offHead = trackStuck(head, routeScroller(root));
 
@@ -32,8 +34,10 @@ export default async function playlistsView(root: HTMLElement) {
     sec.innerHTML = `<div class="sec-head"><h2>${title}</h2></div>`;
     const grid = h("div", "grid playlist-grid", `<div class="muted">加载中…</div>`);
     sec.append(grid);
+
     return { sec, grid };
   };
+
   const created = section("我创建的歌单");
   const faved = section("我收藏的歌单");
   root.append(created.sec, faved.sec);
@@ -42,7 +46,9 @@ export default async function playlistsView(root: HTMLElement) {
   const paintCreated = () => {
     const list = mySonglists();
     created.grid.innerHTML = "";
+
     if (!list.length) { created.grid.innerHTML = `<div class="muted">还没有创建的歌单</div>`; return; }
+
     for (const x of list) {
       const href = hrefOf(x.id, x.title);
       const card = navCard(href, upPic(x.picurl), x.title, subOf(x.songnum), () => cardPlay("playlist", String(x.id), href));
@@ -60,11 +66,15 @@ export default async function playlistsView(root: HTMLElement) {
   const paintFaved = () => {
     const list = favSonglists();
     faved.grid.innerHTML = "";
+
     if (!list.length) { faved.grid.innerHTML = `<div class="muted">还没有收藏的歌单</div>`; return; }
+
     for (const x of list) {
       const href = hrefOf(x.id, String(x.title ?? "歌单"));
+
       const card = navCard(href, upPic(String(x.picurl ?? "")), String(x.title ?? "歌单"), subOf(x.songnum),
         () => cardPlay("playlist", String(x.id), href));
+
       card.addEventListener("contextmenu", (e) => {
         e.preventDefault();
         openPlaylistMenu(e.clientX, e.clientY,

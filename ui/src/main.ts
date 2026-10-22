@@ -12,13 +12,19 @@ import { startHotkeysBridge } from "./lib/hotkeys";
 import { initSparkle } from "./sparkle/init";
 
 applyTheme();
+
 applyFonts();
+
 applyDecor();
+
 bootControlBar();
+
 // 歌单显示模式（菜单栏 / 歌单集合页）同理：bootShell 前把 body[data-playlist-mode] 定下来
 bootPlaylistMode();
+
 // 侧栏缩态在 bootShell 之前先挂到 body 上：壳层一注入就是最终形态，不会先展开再收
 applySidebar();
+
 syncCloseAction(); // 把「关闭按钮行为」偏好推给 Electron 主进程（tray/quit）
 
 // 关闭「Tab 键遍历」（浏览器默认的焦点循环）：桌面音乐客户端用不上，
@@ -40,8 +46,10 @@ window.addEventListener(
 //    音量条等原生控件也依赖焦点）。焦点只留给未来的键盘导航系统显式落焦。
 const interactive = (t: EventTarget | null) =>
   t instanceof Element && t.closest("button, [role=\"button\"], a");
+
 const linkish = (t: EventTarget | null) =>
   t instanceof Element && t.closest("a[href]");
+
 window.addEventListener(
   "mousedown",
   (e) => {
@@ -50,6 +58,7 @@ window.addEventListener(
   },
   { capture: true },
 );
+
 window.addEventListener(
   "auxclick",
   (e) => { if (e.button === 1 && linkish(e.target)) e.preventDefault(); },
@@ -57,14 +66,21 @@ window.addEventListener(
 );
 
 if (!location.hash) location.replace("#/");
+
 bootShell();
+
 // Sparkle 插件系统：必须在 bootShell 之后（要操作 nav DOM / np 插槽 / views 查表）；
 // void 不阻塞首帧 —— 插件视图/侧栏项在首帧后补挂，属渐进增强
 void initSparkle();
+
 startMprisBridge(); // Electron 壳层才有桥；浏览器 dev 下为 no-op
+
 startDesktopLyricsBridge(); // 桌面歌词镜像桥（同样仅 Electron 壳层生效）
+
 startHotkeysBridge(); // 全局热键回程 + 焦点内热键 keydown（后者浏览器 dev 也生效）
+
 startInhibitBridge(); // 播放音频时睡眠禁止（[Playing] InhibitSleep；播放态 → sidecar /api/inhibit）
+
 // 启动延迟检查更新（[Update] AutoCheck 默认开；发现新版先弹窗提醒，绝不静默安装）。
 // 3s 后才需要的东西不配占首屏：updater + update-core + UpdateDialog 约 22KB，到点再动态拉。
 // 时间口径与拆分前一致 —— 延时的归属从模块内挪到了这条缝上。

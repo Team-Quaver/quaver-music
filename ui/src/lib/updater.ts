@@ -49,6 +49,7 @@ export interface PlatformInfo {
 
 export async function getPlatformInfo(): Promise<PlatformInfo | null> {
   const r = await bridge()?.invoke?.({ op: "platform" }).catch(() => null);
+
   return r?.ok ? (r as PlatformInfo) : null;
 }
 
@@ -57,6 +58,7 @@ function guessPlatform(): { platform: string; arch: string } {
   const ua = navigator.userAgent;
   const platform = /Win/.test(ua) ? "win32" : /Mac/.test(ua) ? "darwin" : "linux";
   const arch = /(aarch64|arm64)/i.test(ua) ? "arm64" : "x64";
+
   return { platform, arch };
 }
 
@@ -99,6 +101,7 @@ const noReleaseText = (channel: UpdateChannel): string =>
 async function fetchChannelRelease(channel: UpdateChannel, raw: unknown): Promise<{ release?: ReleaseInfo; error?: string }> {
   if (channel !== "beta") return { release: normalizeRelease(raw) };
   const release = pickBetaRelease(raw);
+
   return release ? { release } : { error: noReleaseText(channel) };
 }
 
@@ -108,8 +111,10 @@ export async function checkUpdate(channel: UpdateChannel = getUpdateChannel()): 
     // 平台档案与 release 请求互不依赖，并发发出去（平台档案还要定「当前构建渠道」）
     const pfP: Promise<PlatformInfo | null> = b?.invoke ? getPlatformInfo() : Promise.resolve(null);
     let raw: any;
+
     if (b?.invoke) {
       const r = await b.invoke({ op: "fetch-release", channel });
+
       if (!r?.ok) return { status: "error", channel, error: r?.error ?? "GitHub API 请求失败" };
       // beta 走列表（主进程不认版本号，原样递上来由渲染层挑）；其余是单个 release
       raw = channel === "beta" ? r.releases : r.release;
@@ -117,16 +122,20 @@ export async function checkUpdate(channel: UpdateChannel = getUpdateChannel()): 
       // 浏览器 dev：api.github.com 允许跨域，检查这一步仍然能跑（下载/安装需壳层）
       // stable=latest（自动排除 prerelease）；nightly=精确 tag；beta=releases 列表
       const path = channel === "nightly" ? "releases/tags/nightly" : channel === "beta" ? "releases?per_page=100" : "releases/latest";
+
       const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/${path}`, {
         headers: { Accept: "application/vnd.github+json" },
         signal: AbortSignal.timeout(15000),
       });
+
       if (res.status === 404) return { status: "error", channel, error: noReleaseText(channel) };
+
       if (!res.ok) return { status: "error", channel, error: `GitHub API HTTP ${res.status}` };
       raw = await res.json();
     }
 
     const fetched = await fetchChannelRelease(channel, raw);
+
     if (!fetched.release) return { status: "error", channel, error: fetched.error ?? "GitHub API 请求失败" };
     const release = fetched.release;
 
@@ -139,6 +148,7 @@ export async function checkUpdate(channel: UpdateChannel = getUpdateChannel()): 
     const switching = channel !== installedChannel;
 
     const decision = decideUpdate(current, channel, release, { switch: switching });
+
     if ("error" in decision) return { status: "error", channel, error: decision.error };
 
     return {
@@ -172,6 +182,7 @@ export async function checkUpdate(channel: UpdateChannel = getUpdateChannel()): 
 
 /** 进度按整百分比从主进程推上来，这里按下载 id 分发给当前订阅者（弹窗）。 */
 const progressCbs = new Map<string, (received: number, total: number) => void>();
+
 if (typeof window !== "undefined") {
   window.quaverUpdate?.onProgress((p) => progressCbs.get(p.id)?.(p.received, p.total));
 }
@@ -191,25 +202,31 @@ export interface DownloadHandle {
  */
 export function downloadUpdate(info: UpdateInfo, onProgress: (received: number, total: number) => void): DownloadHandle {
   const id = `upd-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
+
   const promise = (async () => {
     try {
       if (!bridge()?.invoke) throw new Error("下载更新需要在桌面端运行");
       progressCbs.set(id, onProgress);
       const pf = await getPlatformInfo();
       const kind = info.picked!.kind;
+
       const mode = kind === "appimage" && pf?.appimage ? "replace-appimage"
         : kind === "deb" || kind === "rpm" || kind === "flatpak" ? "downloads"
         : "installer";
+
       const r = await bridge().invoke({
         op: "download", id, url: info.picked!.asset.url, mode,
         sha256: info.picked!.asset.sha256 || undefined,
       });
+
       if (!r?.ok) throw new Error(r?.error ?? "下载失败");
+
       return { path: String(r.path), deduped: !!r.deduped, alreadyReplaced: !!r.alreadyReplaced };
     } finally {
       progressCbs.delete(id);
     }
   })();
+
   return {
     id,
     promise,
@@ -228,27 +245,36 @@ export type InstallStep =
  *  dmg 交给系统挂载。绝不自动拉起安装器 —— 安装包类更新的「打开安装包 / 打开所在目录」由弹窗驱动。 */
 export async function finalizeInstall(info: UpdateInfo, path: string, deduped = false): Promise<InstallStep> {
   const kind = info.picked!.kind;
+
   if (kind === "appimage") {
     const r = await bridge().invoke({ op: "apply-appimage", path });
+
     if (!r?.ok) throw new Error(r?.error ?? "AppImage 替换失败");
+
     return { type: "appimage-replaced" };
   }
+
   if (kind === "exe") return { type: "installer-ready", path };
+
   if (kind === "deb" || kind === "rpm" || kind === "flatpak") return { type: "installer-downloaded", path, deduped };
   const r = await bridge().invoke({ op: "open-path", path });
+
   if (!r?.ok) throw new Error(r?.error ?? "无法打开安装包");
+
   return { type: "installer-opened" };
 }
 
 /** 交系统默认应用打开（Linux 走 xdg-open）：deb/rpm 的安装包本体，或它所在的目录。 */
 export async function openPath(path: string): Promise<void> {
   const r = await bridge().invoke({ op: "open-path", path });
+
   if (!r?.ok) throw new Error(r?.error ?? "无法打开");
 }
 
 /** Windows：拉起 NSIS 静默安装并退出应用（安装器装完会自行启动新版）。 */
 export async function quitAndInstallWindows(path: string): Promise<void> {
   const r = await bridge().invoke({ op: "install-windows", path });
+
   if (!r?.ok) throw new Error(r?.error ?? "无法启动安装程序");
   await bridge().invoke({ op: "quit" });
 }
@@ -261,8 +287,10 @@ export function relaunchApp(): void {
 export async function openReleases(channel: UpdateChannel): Promise<void> {
   if (bridge()?.invoke) {
     await bridge().invoke({ op: "open-releases", channel });
+
     return;
   }
+
   window.open(channel === "stable"
     ? `https://github.com/${GITHUB_REPO}/releases/latest`
     : `https://github.com/${GITHUB_REPO}/releases`, "_blank");
@@ -281,9 +309,12 @@ export async function checkAndPrompt(
   opts?: { auto?: boolean },
 ): Promise<CheckResult> {
   const r = await checkUpdate(channel);
+
   if (r.status !== "available") return r;
+
   if (opts?.auto && (r.info.skipped || (r.info.switching && !r.info.packaged))) return r;
   showUpdateDialog(r.info);
+
   return r;
 }
 

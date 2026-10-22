@@ -43,9 +43,11 @@ function makeSilentWavDataUri(): string {
   const n = SAMPLE_RATE; // 1 秒
   const buf = new ArrayBuffer(44 + n * 2);
   const v = new DataView(buf);
+
   const ascii = (off: number, s: string) => {
     for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i));
   };
+
   // 标准 44 字节 RIFF/WAVE 头
   ascii(0, "RIFF");
   v.setUint32(4, 36 + n * 2, true);
@@ -60,15 +62,19 @@ function makeSilentWavDataUri(): string {
   v.setUint16(34, 16, true); // bits per sample
   ascii(36, "data");
   v.setUint32(40, n * 2, true);
+
   for (let i = 0; i < n; i++) {
     v.setInt16(44 + i * 2, Math.round(AMPLITUDE * Math.sin((2 * Math.PI * CYCLES * i) / n)), true);
   }
+
   // btoa 分块编码：16 KB 一次 apply 会撞参数上限
   const bytes = new Uint8Array(buf);
   let bin = "";
+
   for (let i = 0; i < bytes.length; i += 8192) {
     bin += String.fromCharCode(...bytes.subarray(i, i + 8192));
   }
+
   return "data:audio/wav;base64," + btoa(bin);
 }
 
@@ -86,6 +92,7 @@ function ensureEl(): HTMLAudioElement {
     }
   });
   el = a;
+
   return a;
 }
 
@@ -93,14 +100,18 @@ function ensureEl(): HTMLAudioElement {
  *  开销可忽略）。backend !== "mpv" 时必停——防止循环假音频抢走真实 <audio> 的媒体会话。 */
 function sync(): void {
   const want = player.backend === "mpv" && !!player.current && !player.paused;
+
   if (!want) {
     if (el && !el.paused) el.pause();
+
     return;
   }
+
   if (el && !el.paused) return;
   // 自愈：want 播放但元素不在播（首次创建 / play() 曾失败 / 异常被打断）→ 1s 退避重试，
   // 防 4Hz notify 疯狂重试刷日志
   const now = Date.now();
+
   if (now - lastPlayAttempt < RETRY_MS) return;
   lastPlayAttempt = now;
   const a = ensureEl();
