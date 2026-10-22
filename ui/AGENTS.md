@@ -10,10 +10,10 @@ pnpm run dev -- --port 5173 --strictPort --host 127.0.0.1
 `curl -s http://127.0.0.1:5173/api/login/status` 验证中继（需 sidecar :3200 在跑，
 否则返回 502 JSON 也算中继活着）。
 
-## TypeScript 与 Node 24（全仓无构建步骤）
+## TypeScript 与 Node 24.22.1（全仓无构建步骤）
 
 `ui/` 下**没有裸 JS 源码**：`electron/**`、`scripts/**` 全是 `.ts`，`src/**` 本来就是。运行方式
-靠 Node 24 的原生类型剥离（strip-only）——`node scripts/verify-x.ts`、`electron .` 直接跑源码，
+靠 Node 24.22.1 的原生类型剥离（strip-only）——`node scripts/verify-x.ts`、`electron .` 直接跑源码，
 **没有 tsc 产物、没有 outDir**。三条硬约束（写错就是启动时炸，不是类型报错）：
 
 - **相对导入必须写全 `.ts` 扩展名**：Node 的剥离不做路径改写，`"./config.js"` 或裸 `"./config"`

@@ -22,7 +22,7 @@ AutoReqProv:    no
 
 %description
 Quaver 是一款第三方 QQ 音乐客户端。音频引擎不随包，安装后由发行版 mpv 提供；
-Electron 使用 LoongArch64 ABI 2.0 社区构建。
+Electron 使用 darkyzhou/electron-loong64 社区构建（glibc >= 2.38）。
 
 %prep
 rm -rf "%{_builddir}/quaver-%{version}"

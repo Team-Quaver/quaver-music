@@ -1,7 +1,7 @@
 {
   // Quaver — Node 侧（Electron 主进程 + 校验脚本）的 TS 工程。
   //
-  // 这里**不产出任何 JS**：Electron 44 内置 Node 24.21、开发机/CI 用 Node 24，都原生支持
+  // 这里**不产出任何 JS**：Electron 44.9.3 内置 Node 24.22.0、开发机/CI 用 Node 24.22.1，都原生支持
   // 类型剥离（strip-only），直接 `node scripts/x.ts` / `electron .` 即可运行源码。
   // 因此：
   //   - 相对导入**必须写全 `.ts` 扩展名**（Node 的类型剥离不做路径改写，`.js` 或裸名一律
