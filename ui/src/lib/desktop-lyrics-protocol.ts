@@ -41,6 +41,8 @@ export interface DlTrackPayload {
 export interface DlSyncPayload {
   v: 1;
   posMs: number;
+  /** 当前后端对应的歌词时钟补偿（毫秒）；缺省时覆盖层回落 CLOCK_COMP_MS。 */
+  clockCompMs?: number;
   playing: boolean;
   /** 当前曲「歌词延迟」（毫秒，正=歌词延后）；覆盖层的 −/+ 遥控最终也回这里取数 */
   delayMs: number;

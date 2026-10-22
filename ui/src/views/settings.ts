@@ -218,11 +218,11 @@ export default async function settingsView(root: HTMLElement) {
       </div>
 
       <div class="set-group">
-        <div class="set-label">播放引擎 <span class="set-note-inline" id="engine-note">- 默认 MPV，可选浏览器</span></div>
+        <div class="set-label">播放引擎 <span class="set-note-inline" id="engine-note">- 默认 MPV，可选原生兼容 / 浏览器</span></div>
         <div class="opt-radios" id="decode-radios">
-          ${decodeRow("MPV", "原生引擎")}${decodeRow("Blink", "浏览器")}
+          ${decodeRow("MPV", "原生直出")}${decodeRow("MPVCompat", "原生（兼容）")}${decodeRow("Blink", "浏览器")}
         </div>
-        <p class="muted set-hint" id="engine-hint">原生引擎基于 MPV 实现，可带来无与伦比的视听体验；浏览器：使用渲染层播放，仅用于 Fallback 使用</p>
+        <p class="muted set-hint" id="engine-hint">原生直出：MPV 自己打开音频设备，音质优先；原生（兼容）：MPV 解码后经渲染层出声，语音/录屏软件可捕获；浏览器：<code>&lt;audio&gt;</code> 兜底</p>
       </div>
 
       <div class="set-group">
@@ -1340,7 +1340,7 @@ export default async function settingsView(root: HTMLElement) {
     location.reload(); // 重置后整页重来，省得逐项刷 UI 状态
   };
 
-  // —— 播放引擎：MPV（默认，原生）/ Blink（浏览器 <audio>）。热切换当前曲目换轨续播。
+  // —— 播放引擎：MPV 原生直出 / MPVCompat 原生（兼容）/ Blink 浏览器。热切换保留当前曲目进度。
   const radios = wrap.querySelectorAll<HTMLInputElement>("#decode-radios input");
   const devSel = wrap.querySelector<HTMLSelectElement>("#audio-backend")!;
   const devHint = wrap.querySelector<HTMLElement>("#audio-device-hint")!;
@@ -1352,14 +1352,21 @@ export default async function settingsView(root: HTMLElement) {
   async function paintBackend() {
     const st = await player.probeEngine();
     radios.forEach((r) => {
-      r.disabled = r.value === "MPV" && !st.available;
+      r.disabled = (r.value === "MPV" || r.value === "MPVCompat") && !st.available;
       r.checked = r.value === getDecode();
-      r.onchange = () => { if (r.checked) void player.setBackend(r.value as "MPV" | "Blink").then(paintAll); };
+      r.onchange = () => {
+        const v = r.value;
+
+        if (!r.checked || (v !== "MPV" && v !== "MPVCompat" && v !== "Blink")) return;
+        void player.setBackend(v).then(paintAll);
+      };
     });
     const src = MPV_SOURCE_LABEL[st.source] ?? "";
     engNote.textContent = player.backend === "mpv"
-      ? `- MPV 运行中${src ? "（" + src + "）" : ""}`
-      : st.available ? `- 默认 MPV（${src}），当前浏览器兜底` : "- " + (st.reason || "mpv 不可用，已回退浏览器音频");
+      ? `- 原生直出运行中${src ? "（" + src + "）" : ""}`
+      : player.backend === "mpv-compat"
+        ? `- 原生（兼容）运行中${src ? "（" + src + "）" : ""}`
+        : st.available ? `- 默认 MPV（${src}），当前浏览器兜底` : "- " + (st.reason || "mpv 不可用，已回退浏览器音频");
   }
 
   async function paintDevices() {
@@ -1368,7 +1375,10 @@ export default async function settingsView(root: HTMLElement) {
     const r = await player.listAudioDevices();
     if (!r) {
       devSel.innerHTML = `<option>系统默认</option>`;
-      devHint.textContent = "浏览器 <audio> 后端：跟随系统输出设备；切换到 MPV 引擎后可在此直选设备。";
+      devHint.textContent = player.backend === "mpv-compat"
+        ? "原生（兼容）由渲染层跟随系统输出设备；切到原生直出后可在此直选设备。"
+        : "浏览器 <audio> 后端：跟随系统输出设备；切到原生直出后可在此直选设备。";
+
       return;
     }
     devSel.innerHTML = `<option value="auto">系统默认</option>`

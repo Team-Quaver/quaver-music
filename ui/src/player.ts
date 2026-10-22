@@ -43,7 +43,7 @@ export type Song = {
 /** 播放模式只剩循环两档：「顺序播放（off）」已移除 —— 列表到尾一律回绕。 */
 export type Mode = "all" | "one";
 /** 实际生效的播放管线（transport.kind 投影；设置页据此展示） */
-export type ActiveBackend = "mpv" | "web";
+export type ActiveBackend = "mpv" | "mpv-compat" | "web";
 
 type Listener = () => void;
 
@@ -141,7 +141,7 @@ class Player {
   lyricAux: LyricAuxMode = getLyricAux(); // 歌词辅助行：off/translation/romanization
   /** 行级/插件门面：非 off 即显示辅助行（翻译档优先翻译、音译档优先音译，缺则回落另一路） */
   get showTrans(): boolean { return this.lyricAux !== "off"; }
-  /** 实际生效后端（"mpv"=原生引擎；"web"=浏览器 <audio>） */
+  /** 实际生效后端（"mpv"=原生直出；"mpv-compat"=MPV 解码 + renderer 出声；"web"=浏览器 <audio>） */
   backend: ActiveBackend = "web";
   /** 当前已挂载播放流的 URL（/api/stream/<token> 或插件源；运行时态，不进存档）。
    *  流信息探测（lib/streaminfo）据此取头字节；打断/换曲即失效。 */
@@ -253,18 +253,24 @@ class Player {
 
   /** 启动时的后端选择：偏好 MPV 且引擎可用 → 热切到引擎传输（此时通常还没开播，无损替换） */
   private async initBackend() {
-    if (getDecode() !== "MPV" || !window.quaverAudio) return;
+    const pref = getDecode();
+
+    if (pref === "Blink" || !window.quaverAudio) return;
+
     try {
       const st = await window.quaverAudio.invoke({ cmd: "status" });
       if (!st?.ok || !st.available) {
         this.backendNotice = st?.reason || "mpv 不可用，已回退浏览器音频";
         return;
       }
-      const t = new EngineTransport(window.quaverAudio);
+
+      const mode = pref === "MPVCompat" ? "pcm" : "native";
+      const t = new EngineTransport(window.quaverAudio, { mode });
       const dev = getAudioDevice();
-      if (dev) void t.setDevice?.(dev).catch(() => {});
+
+      if (mode === "native" && dev) void t.setDevice?.(dev).catch(() => {});
       const resume = this.swapTransport(t);
-      this.backend = "mpv";
+      this.backend = mode === "pcm" ? "mpv-compat" : "mpv";
       this.engineVersion = String(st.version ?? "");
       await resume; // 启动竞态里已有歌在播：换传输后从原进度续播
     } catch {
@@ -367,6 +373,9 @@ class Player {
     const wasPlaying = !this.transport.paused;
     const hadStream = !!this.transport.src || this.loading;
     try { this.transport.stop(); } catch { /* noop */ }
+
+    try { this.transport.dispose?.(); } catch { /* noop */ }
+
     this.pendingSeek = 0;
     this.bindTransport(t);
     this.applyVolume();
@@ -374,13 +383,14 @@ class Player {
     return this.startCurrent(at > 1 ? at : 0, wasPlaying);
   }
 
-  /** 设置页切换后端（默认 MPV / Blink 浏览器）：立即生效，当前曲目换轨续播、保留播放态 */
+  /** 设置页切换播放模式：MPV 原生 / 原生（兼容）/ Blink 浏览器。
+   *  热切换当前曲目换轨续播、保留播放态；兼容模式由 MPV 解码、renderer 打开音频设备。 */
   async setBackend(kind: DecodeBackend): Promise<void> {
     setDecode(kind);
-    const wantEngine = kind === "MPV";
-    const isEngine = this.transport.kind === "engine";
-    if (wantEngine === isEngine) { this.notify(); return; }
-    if (!wantEngine) {
+
+    if (kind === "Blink") {
+      if (this.backend === "web") { this.notify(); return; }
+
       await this.swapTransport(new WebTransport());
       this.backend = "web";
       this.backendNotice = "";
@@ -393,6 +403,17 @@ class Player {
       this.notify();
       return;
     }
+
+    const mode = kind === "MPVCompat" ? "pcm" : "native";
+
+    if (this.transport.kind === "engine" && this.transport.mode === mode) {
+      this.backend = mode === "pcm" ? "mpv-compat" : "mpv";
+      this.backendNotice = "";
+      this.notify();
+
+      return;
+    }
+
     try {
       const st = await window.quaverAudio.invoke({ cmd: "status" });
       if (!st?.ok || !st.available) {
@@ -400,11 +421,13 @@ class Player {
         this.notify();
         return;
       }
-      const t = new EngineTransport(window.quaverAudio);
+
+      const t = new EngineTransport(window.quaverAudio, { mode });
       const dev = getAudioDevice();
-      if (dev) void t.setDevice?.(dev).catch(() => {});
+
+      if (mode === "native" && dev) void t.setDevice?.(dev).catch(() => {});
       await this.swapTransport(t);
-      this.backend = "mpv";
+      this.backend = mode === "pcm" ? "mpv-compat" : "mpv";
       this.engineVersion = String(st.version ?? "");
       this.backendNotice = "";
     } catch (e: any) {
@@ -427,13 +450,20 @@ class Player {
   /** 音频设备列表（仅引擎传输支持；web 返回 null） */
   async listAudioDevices(): Promise<{ current: string; devices: AudioDeviceInfo[] } | null> {
     if (!this.transport.listDevices) return null;
+
+    // 兼容模式设备由 renderer AudioContext 决定（当前跟随系统默认），MPV 的
+    // audio-device 列表在这里没有意义，别把用户引到无效开关上。
+    if (this.backend === "mpv-compat") return null;
+
     try { return await this.transport.listDevices(); } catch { return null; }
   }
 
   /** 选择音频设备（持久化 + 应用到引擎） */
   async selectAudioDevice(id: string): Promise<boolean> {
     setAudioDevice(id);
-    if (!this.transport.setDevice) return false;
+
+    if (this.backend === "mpv-compat" || !this.transport.setDevice) return false;
+
     try { await this.transport.setDevice(id); return true; } catch { return false; }
   }
 
@@ -470,6 +500,8 @@ class Player {
   /** 上一曲是否可用：电台只向前走，必须把按钮/媒体键的入口一并关掉，不能只藏 UI */
   get canPrev() { return this.queue.length > 0 && !this.radioOn; }
   get time() { return this.transport.position; }
+  /** 歌词时钟补偿（秒）：native/web 沿用现有 +0.2s；PCM 兼容模式启动有预缓冲，不能再叠这一层。 */
+  get lyricComp() { return this.backend === "mpv-compat" ? 0 : 0.2; }
   get duration() { return this.transport.duration || this.current?.interval || 0; }
   /** 供 MPRIS/外部控制的暂停（与 toggle 分离：不带重试/取消语义） */
   pause() { if (!this.transport.paused) this.transport.pause(); }
@@ -796,8 +828,13 @@ class Player {
       if (seq !== this.playSeq || this.current !== s) return;
       this.streamUrl = r.url;
       setLastStream({ tier: r.tier, label: r.label, degraded: r.degraded });
-      await this.transport.load(r.url, { paused: !autoplay }); // web: 赋 src；engine: loadfile replace
-      if (resumeTo > 1) this.pendingSeek = resumeTo; // 换音质/换后端：时长就绪后从旧进度续播
+      const startAt = resumeTo > 1 ? resumeTo : 0;
+      // engine 直接把 start= 交给 mpv，避免「先从头加载再 seek」多一次重拉；
+      // web 仍需等元数据就绪后由 consumePendingSeek 跳转。
+      await this.transport.load(r.url, { paused: !autoplay, startAt });
+
+      if (startAt > 1 && this.transport.kind === "web") this.pendingSeek = startAt;
+
       if (autoplay) {
         try {
           await this.transport.play();

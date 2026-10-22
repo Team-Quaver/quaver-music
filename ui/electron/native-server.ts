@@ -205,6 +205,17 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
       const range = req.headers["range"];
       if (range) headers.set("range", range); // 播放流 Range 中继必须透传
 
+      // Sec-Fetch-* 透传：sidecar 的版权闸门靠它区分「<audio> 元素 / 页面 fetch / 原生客户端」
+      // （vendor/Typhoeus-go/server/stream_guard.go；Electron 中继不转发的话，sidecar 会把
+      // 所有请求都当成原生客户端）。渲染层伪造不了这两个头：Chromium 的 forbidden headers。
+      const sfd = req.headers["sec-fetch-dest"];
+
+      if (sfd) headers.set("sec-fetch-dest", String(sfd));
+
+      const sfm = req.headers["sec-fetch-mode"];
+
+      if (sfm) headers.set("sec-fetch-mode", String(sfm));
+
       // 客户端断线（切歌 removeAttribute(src)+load()、seek、关页面）→ 立刻掐掉上游 fetch。
       // 不掐的话会留下继续把整首歌拉完的僵尸流（流量白烧），且它被上游中断时 undici 抛
       // TypeError: terminated —— 那正是主进程弹框的根因。abort 由 res 的 close 驱动。

@@ -119,6 +119,8 @@ P.setTheme("light");    eq("ThemeMode.light → light", conf()["Style.Style"], "
 P.setTheme("dark");     eq("ThemeMode.dark → dark", conf()["Style.Style"], "dark");
 P.setDecode("Blink");   eq("Blink → Chromium", conf()["Playing.Backend"], "Chromium");
 P.setDecode("MPV");     eq("MPV → MPV", conf()["Playing.Backend"], "MPV");
+
+P.setDecode("MPVCompat"); eq("MPVCompat → 原生兼容", conf()["Playing.Backend"], "MPVCompat");
 P.setFallbackSort("rank");  eq("rank → FallbackToQMAtmos=True", conf()["Quality.FallbackToQMAtmos"], "True");
 P.setFallbackSort("no-atmos"); eq("no-atmos → False", conf()["Quality.FallbackToQMAtmos"], "False");
 P.setDecor("ssd");      eq("Decor 键名", conf()["Window.Decor"], "ssd");
@@ -325,6 +327,11 @@ await reload({ "Playing.Backend": "Chromium" });
 eq("Chromium → Blink", P.getDecode(), "Blink");
 await reload({ "Playing.Backend": "Blink" });
 eq("旧值 Blink 仍认（向后兼容）", P.getDecode(), "Blink");
+
+await reload({ "Playing.Backend": "MPVCompat" });
+
+eq("MPVCompat → 原生兼容", P.getDecode(), "MPVCompat");
+
 await reload({ "Playing.Backend": "mpv" });
 eq("大小写不符的取值回落 MPV", P.getDecode(), "MPV");
 await reload({ "Quality.FallbackToQMAtmos": "True" });

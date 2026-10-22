@@ -17,7 +17,8 @@
 // 不碰本模块的 player 依赖链。
 // 时间口径（对齐 NowPlaying 组 ctx 的两处 `+0.2` 字面量，三处必须同规）：
 //   sync.posMs = player.time * 1000（裸播放头，不含补偿不含延迟）；
-//   覆盖层 ctx.time() = posMs + 外推 + CLOCK_COMP_MS；歌词时钟 = ctx.time() − lyricDelay()。
+//   覆盖层 ctx.time() = posMs + 外推 + clockCompMs（兼容模式为 0，native/web 为 200）；
+//   歌词时钟 = ctx.time() − lyricDelay()。
 import { player } from "../player";
 import { coverUrl } from "./api";
 import { extractCoverColor, toUiColors } from "./color";
@@ -87,6 +88,7 @@ function syncPayload(): DlSyncPayload {
   return {
     v: 1,
     posMs: Math.max(0, (player.time || 0) * 1000),
+    clockCompMs: Math.round(player.lyricComp * 1000),
     playing: player.playing,
     delayMs: getLyricDelayMs(c),
     durationSec: Math.round((c?.interval ?? player.duration) || 0),

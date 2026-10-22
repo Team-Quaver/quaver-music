@@ -1,6 +1,6 @@
 // Quaver — 假音频保活（win/mac SMTC / Now Playing 专用）
 //
-// 为什么需要它：mpv 后端下渲染层没有任何音频元素，Chromium 的媒体会话从未激活，
+// 为什么需要它：引擎后端（原生直出 / 原生兼容）下渲染层没有可复用的媒体元素，Chromium 的媒体会话从未激活，
 // SMTC / Now Playing 压根不注册（Blink 后端有真实 <audio> 所以正常）。解法是业界
 // 成熟 workaround：渲染层循环播放一段运行时生成的近静音 WAV，让媒体会话保持激活；
 // SMTC 显示的元数据/播放态/时间线仍完全由 mpris.ts 的快照推送驱动（来源是 mpv 的
@@ -92,7 +92,7 @@ function ensureEl(): HTMLAudioElement {
 /** 幂等同步：want 三条件缺一不可。每次 player notify 都跑（4Hz 级，两次布尔比较，
  *  开销可忽略）。backend !== "mpv" 时必停——防止循环假音频抢走真实 <audio> 的媒体会话。 */
 function sync(): void {
-  const want = player.backend === "mpv" && !!player.current && !player.paused;
+  const want = (player.backend === "mpv" || player.backend === "mpv-compat") && !!player.current && !player.paused;
   if (!want) {
     if (el && !el.paused) el.pause();
     return;

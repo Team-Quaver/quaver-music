@@ -182,6 +182,16 @@ export function apiRelay(): Connect.NextHandleFunction {
     const range = req.headers["range"];
     if (range) headers.set("range", range); // 播放流 Range 中继必须透传
 
+    // Sec-Fetch-* 透传（与打包态 native-server.ts 同构）：sidecar 版权闸门要按它分类客户端，
+    // 开发态漏转 = 「开发者模式」下整段 fetch 会漏网。详见 vendor/Typhoeus-go/server/stream_guard.go。
+    const sfd = req.headers["sec-fetch-dest"];
+
+    if (sfd) headers.set("sec-fetch-dest", String(sfd));
+
+    const sfm = req.headers["sec-fetch-mode"];
+
+    if (sfm) headers.set("sec-fetch-mode", String(sfm));
+
     // 客户端断线（切歌 removeAttribute(src)+load()、seek、关页面）→ 立刻掐掉上游 fetch。
     // 不掐的话会留下继续把整首歌拉完的僵尸流（流量白烧），且它被上游中断时 undici 抛
     // TypeError: terminated —— 那正是主进程弹框的根因。abort 由 res 的 close 驱动。

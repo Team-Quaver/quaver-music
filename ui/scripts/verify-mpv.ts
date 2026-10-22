@@ -131,6 +131,38 @@ check("失败原因进日志（含 macOS 门槛 vs 本机的对照）",
 check("找不运行时把随包失败原因一并说清（别只说「未找到 mpv」）",
   /未找到 mpv 可执行文件[\s\S]{0,80}this\.binNote/.test(engineSrc));
 
+const ipcSrc = readFileSync(join(UI, "electron", "audio", "mpv-ipc.ts"), "utf8");
+const pipeSrc = readFileSync(join(UI, "electron", "audio", "pcm-pipe.ts"), "utf8");
+const sinkSrc = readFileSync(join(UI, "src", "lib", "pcm-sink.ts"), "utf8");
+
+check("原生兼容接入 mpv --ao=pcm（不走 mpv 自己的音频设备）",
+  /--ao=pcm/.test(ipcSrc) && /--ao-pcm-file=/.test(ipcSrc) && /--audio-format=float/.test(ipcSrc));
+
+check("PCM 固定 48k/stereo，与 renderer sink 的 48k/2ch 口径一致",
+  /--audio-samplerate=48000/.test(ipcSrc) && /--audio-channels=stereo/.test(ipcSrc) && /PCM_RATE = 48000/.test(sinkSrc));
+
+check("管道默认暂停，由 renderer pcm-ready 恢复（背压而不是整首预解码）",
+  /private paused = true/.test(pipeSrc) && /case "pcm-ready"/.test(engineSrc) && /pcmPipe\?\.resume/.test(engineSrc));
+
+check("pcm EOF 等 renderer 队列播完再发 ended", /pcm-eof/.test(engineSrc) && /markEof/.test(sinkSrc) && /availableFrames === 0/.test(sinkSrc));
+
+check("pcm-progress 回推 state（不能只信 mpv 不动的 time-pos）",
+  /case "pcm-progress"[\s\S]{0,700}pushState\(true\)/.test(engineSrc) && /pcm-ended/.test(engineSrc));
+
+check("pcm 硬预读窗口防止 mpv 先写完整首进 idle", /PCM_MAX_AHEAD_SEC/.test(engineSrc) && /drainPcm\(/.test(engineSrc));
+
+check("pcm 音量走 renderer GainNode（不让 mpv 预写缓冲区造成半拍延迟）",
+  /pcm-gain/.test(engineSrc) && /setGain\(/.test(sinkSrc) && /this\.pcm\?\.setGain/.test(readFileSync(join(UI, "src", "lib", "transport.ts"), "utf8")));
+
+check("pcm seek 重拉 MPV + 管道，丢弃 FIFO 旧帧", /restartPcmAt/.test(engineSrc) && /loadfile[\s\S]{0,100}start=/.test(engineSrc));
+
+check("pcm 换歌/换音质也重开 MPV，避免上一首 FIFO 尾巴混入",
+  /mode === "pcm" && this\.lastUrl[\s\S]{0,160}this\.stopMpv\(\)/.test(engineSrc));
+
+check("pcm 块 50ms，降低 AudioBuffer/IPC 调度频率", /PCM_RATE \/ 20/.test(engineSrc));
+check("pcm renderer 使用单个 AudioWorklet ring buffer（不再按块建 source node）",
+  /AudioWorkletNode/.test(sinkSrc) && /quaver-pcm/.test(readFileSync(join(UI, "public", "pcm-worklet.js"), "utf8")));
+
 const binsSrc = readFileSync(join(UI, "electron", "audio", "bins.ts"), "utf8");
 check("bins.ts 导出 probeRuntime（CI --check 与运行期共用同一判据）",
   /export function probeRuntime\(/.test(binsSrc) && /const probe = probeRuntime\(found\)/.test(binsSrc));

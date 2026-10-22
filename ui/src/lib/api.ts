@@ -198,7 +198,7 @@ export interface StreamResult extends LastStream { url: string }
 
 const RESOLVE_TIMEOUT_MS = 12000; // 上游取链+嗅探偶发挂起：超时报错，让 UI 出可重试的错误态而不是永久转圈
 
-async function postResolve(body: { mid: string; media_mid: string; tier: string; auto: boolean; deprioritize: string[] }): Promise<StreamResolved> {
+async function postResolve(body: { mid: string; media_mid: string; tier: string; auto: boolean; deprioritize: string[]; duration_ms: number }): Promise<StreamResolved> {
   try {
     return await api<StreamResolved>("/stream/resolve", {
       method: "POST",
@@ -214,6 +214,15 @@ async function postResolve(body: { mid: string; media_mid: string; tier: string;
   }
 }
 
+/** 曲长提示（毫秒）：后端版权闸门的限速按「≈3× 实时码率」推算（见
+ *  vendor/Typhoeus-go/server/stream_guard.go）。interval 缺失时给 0，后端退到
+ *  「整曲全速下载 ≥2 分钟」的兜底限速 —— 只影响限速倍率，不影响能否播放。 */
+function durationHintMs(song: any): number {
+  const sec = Number(song?.interval ?? 0);
+
+  return sec > 0 && sec < 86_400 ? Math.round(sec * 1000) : 0;
+}
+
 /** 协商一条可播流：永远带 Fallback（auto_downgrade）——高档被会员/加密/无源挡住时沿回退链
  *  降到最优可播明文档，degraded 标记实际降档；配合播放条音质胶囊（会话级、不持久化）。 */
 export async function resolveStreamUrl(song: any, quality: Quality | "auto" = effectiveQuality()): Promise<StreamResult> {
@@ -223,12 +232,12 @@ export async function resolveStreamUrl(song: any, quality: Quality | "auto" = ef
   // 回退排序开关（设置页）：默认不把「臻品全景声（5.1 / 7.1）」当作优先降档落点（压到链尾兜底）
   const deprioritize = getFallbackSort() === "no-atmos" ? ["atmos51", "atmos71"] : [];
   try {
-    const r = await postResolve({ mid: song.mid, media_mid: mediaId, tier, auto: true, deprioritize });
+    const r = await postResolve({ mid: song.mid, media_mid: mediaId, tier, auto: true, deprioritize, duration_ms: durationHintMs(song) });
     return { url: "/api" + r.path, tier: r.tier, label: r.tier_label, degraded: r.degraded };
   } catch (e: any) {
     // 目标档本身取不到（会员/加密在 auto 模式已被后端裁剪，走到这里多为无源/网络）→ 兜底标准档
     if (tier !== "128") {
-      const r = await postResolve({ mid: song.mid, media_mid: mediaId, tier: "128", auto: true, deprioritize });
+      const r = await postResolve({ mid: song.mid, media_mid: mediaId, tier: "128", auto: true, deprioritize, duration_ms: durationHintMs(song) });
       return { url: "/api" + r.path, tier: "128", label: "标准音质", degraded: true };
     }
     throw e;
