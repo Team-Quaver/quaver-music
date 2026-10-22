@@ -58,7 +58,7 @@ ok("封面: Accent 渐变的日历图标，日期只取本地当天的 dd",
   has(views, "const dailyCover = (day: string)")
   && re(code, /new Date\(\)/) && re(code, /getDate\(\)\)\.padStart\(2, "0"\)/)
   && has(views, 'class="daily-cover__calendar"') && has(views, 'class="daily-cover__day"')
-  && re(styleCss, /\.daily-cover\s*\{[^}]*linear-gradient\(145deg,[^}]*var\(--cvg-accent/));
+  && re(styleCss, /\.daily-cover(?:\s*,\s*\.liked-cover)?\s*\{[^}]*linear-gradient\(145deg,[^}]*var\(--cvg-accent/));
 ok("说明文案: 服务端那句编辑语（info.desc）进入歌单式信息头",
   re(code, /desc = d\.info\?\.desc \?\? ""/) && re(code, /mountHead\(root,[\s\S]{0,220}desc: desc \|\|/));
 ok("空态: 列表为空给可读提示（没生成 / 未登录），不是白屏",

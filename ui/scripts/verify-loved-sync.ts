@@ -83,7 +83,7 @@ const waitUpstream = async (want, ms = 60000) => {
 };
 const rows = () => page.evaluate(() => ({
   n: document.querySelectorAll(".rows .row").length,
-  cnt: document.querySelector(".page-title .cnt")?.textContent?.trim() ?? "",
+  cnt: document.querySelector(".pl-meta")?.textContent?.trim() ?? "",
 }));
 const rowPresent = (mid) => page.evaluate(
   (m) => !!document.querySelector(`.rows .row[data-songkey="${m}"]`), mid,

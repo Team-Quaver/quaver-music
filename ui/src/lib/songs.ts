@@ -9,6 +9,8 @@ export interface RowHooks {
   // 点击行内歌手/专辑链接跳视图
   showArtist?: boolean;
   showAlbum?: boolean;
+  /** 是否显示行首歌曲封面（专辑页本身已有大封面，列表里不再重复） */
+  showCover?: boolean;
   /** 红心切换落定后回调（loved = 写接口终态，失败已在 player 侧回滚）。
    *  「我喜欢」页据此把取消收藏的行移出列表。 */
   onLove?: (song: any, loved: boolean) => void;
@@ -69,13 +71,14 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
   // 整列先在**离屏 fragment** 里拼好，最后一次性换入。对已挂载的活容器逐行 append 会让浏览器
   // 为每次插入登记样式失效（长列表下累积成反复的重算样式 / 布局）；fragment 只在末尾产生一次。
   const frag = document.createDocumentFragment();
+  const showCover = hooks.showCover !== false;
   for (const [i, s] of songs.entries()) {
     s._key = s.mid ?? String(s.id ?? Math.random());
     const row = document.createElement("div");
     row.className = "row";
     row.dataset.songkey = s._key;
     row.title = "双击播放 · 右键更多";
-    const pic = coverUrl(s, 150);
+    const pic = showCover ? coverUrl(s, 150) : "";
     const artistLine = hooks.showArtist === false ? "" :
       `<span class="ra">${(s.singer ?? []).length ? artistLinks(s.singer) : ""}</span>`;
     const albumLine = hooks.showAlbum ? `<span class="ral">${s.album?.name ? linkTo("album", s.album, s.album.name) : ""}</span>` : "";
@@ -88,7 +91,7 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
     // 标题 = title（主名 + 版本后缀）；subtitle 是独立的一句话说明，跟在标题后做次级文本
     const sub = songSubtitle(s);
     row.innerHTML = `<span class="idx">${i + 1}</span>
-      <span class="rthumb">${pic ? `<img src="${pic}" alt="" loading="lazy"/>` : ""}</span>
+      ${showCover ? `<span class="rthumb">${pic ? `<img src="${pic}" alt="" loading="lazy"/>` : ""}</span>` : ""}
       <span class="rmeta"><span class="rt" style="display:block">${esc(songTitle(s))}${sub ? `<span class="rt-sub">${esc(sub)}</span>` : ""}</span>${artistLine}${albumLine}</span>
       ${loveBtn}
       <span class="dur">${durText}</span>`;
@@ -109,7 +112,7 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
       hooks.onPlay?.(s, rows.indexOf(row), all);
     });
     // 触屏/快速点按场景兜底：单击封面 = 选中 + 预加载（不直接起播，防误触；双击起播）
-    row.querySelector(".rthumb")!.addEventListener("click", () => player.prefetchSong(s));
+    row.querySelector(".rthumb")?.addEventListener("click", () => player.prefetchSong(s));
     row.querySelector("[data-love]")?.addEventListener("click", async (e) => {
       e.stopPropagation();
       const btn = e.currentTarget as HTMLElement;

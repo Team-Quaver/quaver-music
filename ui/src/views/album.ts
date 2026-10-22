@@ -48,7 +48,7 @@ export default async function albumView(root: HTMLElement, q: URLSearchParams) {
     }
     const playAll = playAllButton(() => songs); // 专辑序固定（发行序），整张一键开播
     sticky.right.append(playAll.el);
-    renderSongRows(box, songs, { showArtist: true, showAlbum: false, onPlay: (s, i, all) => player.playList(all, i) });
+    renderSongRows(box, songs, { showArtist: true, showAlbum: false, showCover: false, onPlay: (s, i, all) => player.playList(all, i) });
     return sticky.off;
   } catch (e) {
     root.innerHTML = ""; root.append(h("div", "rows muted", `加载失败：${errText(e)}`));

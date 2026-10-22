@@ -73,7 +73,7 @@ const rows = () => page.evaluate(() => ({
   n: document.querySelectorAll(".rows .row").length,
   on: document.querySelectorAll(".rows .row .row-love.on").length,
   firstMid: document.querySelector(".rows .row")?.dataset.songkey ?? "",
-  cnt: document.querySelector(".page-title .cnt")?.textContent?.trim() ?? "",
+  cnt: document.querySelector(".pl-meta")?.textContent?.trim() ?? "",
 }));
 // 注意：不能拿「文本里有『加载中』」判定未就绪——本账号就有一首叫「天使加载中…」的歌，
 // 会误判成还在加载。改用结构性判定：出现 .row 即为已渲染。
