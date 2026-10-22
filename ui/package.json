@@ -16,7 +16,7 @@
   "type": "module",
   "main": "electron/main.ts",
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=24.22.1"
   },
   "scripts": {
     "dev": "vite",
@@ -82,7 +82,7 @@
     "@applemusic-like-lyrics/core": "^0.6.0",
     "@applemusic-like-lyrics/lyric": "^1.1.0",
     "@types/node": "^24.19.1",
-    "electron": "^44.3.0",
+    "electron": "44.9.3",
     "electron-builder": "^26.15.3",
     "opencc-js": "^1.4.2",
     "puppeteer-core": "^25.10.0",

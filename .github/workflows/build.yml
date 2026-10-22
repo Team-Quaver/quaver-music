@@ -8,8 +8,8 @@
 #            不随包 mpv，依赖字段只有 mpv（音源走发行版，bins.ts 三级兜底自动落宿主 PATH）
 #   windows  x64 + arm64      → NSIS（前端全在 x64 上交叉打包）
 #   macos    arm64 → dmg（x86 构建已裁撤）
-#   linux    loong64 → sidecar 二进制 + 客户端 deb/rpm（Electron 用 loongson/electron
-#             社区构建，ABI 2.0；音频引擎 mpv 不随包，交给发行版解析；electron-builder
+#   linux    loong64 → sidecar 二进制 + 客户端 deb/rpm（Electron 用 darkyzhou/electron-loong64
+#             社区构建，new-world ABI 2.0；音频引擎 mpv 不随包，交给发行版解析；electron-builder
 #             不支持 loong64，deb 手工组装、RPM 用独立 spec）
 #
 # 打包配置：
@@ -114,7 +114,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: stable
+          go-version: "1.27.3"
           cache-dependency-path: vendor/Typhoeus-go/go.sum
 
       # qmc 与 unlock-music 的跨语言对拍向量 + zzc 签名对拍 —— 编译前先拦住算法回归
@@ -203,7 +203,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "24.22.1"
           cache: pnpm
           cache-dependency-path: |
             ui/pnpm-lock.yaml
@@ -418,7 +418,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "24.22.1"
           cache: pnpm
           cache-dependency-path: |
             ui/pnpm-lock.yaml
@@ -504,8 +504,9 @@ jobs:
           if-no-files-found: error
 
   # 龙芯客户端：Electron 官方 / electron-builder 两方都不支持 loong64 ——
-  #   Electron 用 loongson/electron 社区构建（版本钉在 packages/debian-loong/electron.env，
-  #   LoongArch64 ABI 2.0）；音频引擎 mpv 不随包捆绑：deb Depends / RPM Requires 只声明 mpv。
+  #   Electron 用 darkyzhou/electron-loong64 社区构建（版本钉在 packages/debian-loong/electron.env，
+  #   new-world LoongArch64 / glibc >= 2.38 + LSX）；音频引擎 mpv 不随包捆绑：
+  #   deb Depends / RPM Requires 只声明 mpv。
   #   electron-builder 无 loong64 目标 → deb 手工 dpkg-deb、RPM 用 packages/rpm-loong/quaver.spec。
   #   /opt/quaver（electron dist + app.asar + resources 等价物）+ /usr/bin/quaver + 桌面项。
   #   运行环境需 ABI 2.0（new world：Debian sid / loongnix / openKylin 等）。
@@ -522,7 +523,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "24.22.1"
           cache: pnpm
           cache-dependency-path: |
             ui/pnpm-lock.yaml
@@ -564,9 +565,13 @@ jobs:
         run: |
           set -euo pipefail
           source ../packages/debian-loong/electron.env
-          curl -fsSL --retry 3 \
-            "https://github.com/loongson/electron/releases/download/v${ELECTRON_VERSION}/electron-v${ELECTRON_VERSION}-linux-loong64.zip" \
-            -o /tmp/electron-loong64.zip
+          zip_name="electron-v${ELECTRON_VERSION}-linux-loong64.zip"
+          release_url="https://github.com/${ELECTRON_REPO}/releases/download/v${ELECTRON_VERSION}"
+          curl -fsSL --retry 3 "$release_url/$zip_name" -o /tmp/electron-loong64.zip
+          curl -fsSL --retry 3 "$release_url/SHASUMS256.txt" -o /tmp/electron-loong64.SHASUMS256.txt
+          expected=$(awk -v name="$zip_name" '$2 == name || $2 == "*" name { print $1 }' /tmp/electron-loong64.SHASUMS256.txt)
+          test -n "$expected"
+          printf '%s  /tmp/electron-loong64.zip\n' "$expected" | sha256sum -c -
           printf '%s' "$ELECTRON_VERSION" > /tmp/electron-version
 
       - name: Install RPM build tools
@@ -583,7 +588,7 @@ jobs:
           STAGE=$(mktemp -d)
           PKG="$STAGE/pkg"
 
-          # 统一 payload：Electron 34 主进程只能读 TS（Node type-stripping）；asar 内容
+          # 统一 payload：Electron 43 内置 Node 24，支持原生 type-stripping；asar 内容
           # 与 x64/arm64 的 electron-builder asar 相同口径。resources 由 tar 载入 deb/RPM。
           APP="$STAGE/app"
           mkdir -p "$APP"
@@ -699,7 +704,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "24.22.1"
           cache: pnpm
           cache-dependency-path: |
             ui/pnpm-lock.yaml
@@ -780,7 +785,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "24.22.1"
           cache: pnpm
           cache-dependency-path: |
             ui/pnpm-lock.yaml
