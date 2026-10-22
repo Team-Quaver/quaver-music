@@ -224,6 +224,37 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
 - 验证：`pnpm run verify:volume-bar`（源码接线 + 反向自证 + 活体：两种形态 × 六档尺寸的锚点与
   越界退位、滚轮四态四值一致、拖动跟手与松手回写；活体段需 dev server，`QBASE` 可指别处）。
 
+## Quark EQ（图形均衡器 · 仅 MPV）
+
+设置 → 播放的「图形均衡器」与音量浮窗右侧的快捷入口打开同一个 body 常驻模态浮窗
+（`.eq-overlay` 遮罩 + 可拖拽 `.eq-float`；`src/components/EqualizerDialog.ts` +
+`equalizer.css`，均按需动态 import）。点遮罩空白处 / Esc 关闭。遮罩必须自己消费
+`--shell-filter`，否则会变成 backdrop root、面板只采到纯色遮罩，设置里的毛玻璃像被关掉。红线：
+
+- **只有 MPV 后端可编辑**：浏览器 / Blink 能让浮窗打开看结构，但控件锁定并写明
+  「当前不是 MPV 播放模式」；不要偷偷对 `<audio>` 做另一套实现。
+- 模型分两层：`electron/audio/eq-config.ts` 是首屏共享的轻量层（0 点默认 / 10 点上限、normalize、
+  `af` 串生成）；`electron/audio/eq-core.ts` 才放曲线计算与 APO 解析（懒加载块）。
+  整窗 CSS 也必须留在 `src/components/equalizer.css` —— 塞回 `style.css` 会顶爆首屏预算。
+- 声音真相：渲染层把节点曲线以约 40ms 节流经 `EngineTransport.setEqualizer` 下发；主进程
+  `AudioEngine` 存状态并原子替换 mpv `af`。`af` 运行时可换，不重挂流；mpv 重拉后
+  `ensureStarted` 必须重新套用。bypass = `af=""`，不能留旧滤镜。
+- 节点交互：点空白新建、拖动同时改频率/增益、双击/右键/Delete 删除、滚轮调 Q；默认 **0 点**，
+  最多 10 点，不是预铺 10 段。频率 20..20000、增益/前级 ±24dB、Q 0.1..18。
+  类型含 Bell、Low/High Shelf、High-Pass/Low-Pass；LP/HP 的 gain 固定 0，只沿频率轴拖。
+- 频谱：`audioSpectrum` 的 MPV 静音镜像 FFT 驱动 canvas，画 Peak（峰值保持线）+
+  Loudness（平滑能量填充），SVG 折线 EQ 与节点叠在上层。显示口径是 **Post-Fader**：
+  每个频点叠加当前音量推子（含 mute）与 EQ 响应后再进入 Loudness/Peak，图头直接标
+  `POST-FADER`，不要再退回成只看原始流的 pre-fader 图。只有 MPV 打开浮窗时才订阅，
+  关闭/切回 Blink 要退订，别留镜像音频在后台跑。
+- 内置预设：`electron/audio/eq-presets.ts` 保存 13 组固定的 10 Band 曲线（32Hz..16kHz）。
+  应用预设会替换节点、启用 EQ，但保留 preamp；手动改任一节点后下拉回落「自定义」。
+- APO 导入：支持 `Preamp`、`PK/PEAK`、`LS/LSC`、`HS/HSC`、`LP`、`HP` 与 `GraphicEQ:` 行；
+  未支持类型（Notch/AllPass…）必须进 warnings，不许静默冒充。超过 10 点的 GraphicEQ
+  要在对数频率轴上重采样成 10 点，**不许只截前 10 点**（那样会丢掉整段高频）。导入后会启用 EQ。
+- 浮窗右下角固定 `Powered By Quark EQ`。验证：`node scripts/verify-eq.ts`
+  （模型/滤镜串/APO/接线，已进 `verify:static`；`verify:volume-bar` 继续守音量入口）。
+
 ## 桌面歌词（透明覆盖层窗）
 
 一个**独立的 Electron 窗**（`electron/desktop-lyrics.ts` + 页 `desktop-lyrics.html` / `src/desktop-lyrics.ts`），

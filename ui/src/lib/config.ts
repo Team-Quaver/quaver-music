@@ -6,6 +6,7 @@
 // 关键点：配置在启动时一次性读进内存（loadConfig），之后所有 getter 都是**同步**的。
 // 所以 main.ts 必须在 applyTheme/applyFonts 之前 await loadConfig()。
 // （旧实现直接把 localStorage 当真相来源，打包态每次启动都是新 origin → 设置全丢。）
+import { defaultEqState } from "../../electron/audio/eq-config.ts";
 
 /** 拍平的配置表：键为 "Section.Key"，值恒为字符串（与 electron/config.ts 的 schema 对齐）。 */
 export type ConfigSnapshot = Record<string, string>;
@@ -41,6 +42,7 @@ const FALLBACK: ConfigSnapshot = {
   "Playing.AudioDevice": "auto",
   "Playing.Fade": "normal",
   "Playing.Volume": "0.8",
+  "Playing.Equalizer": JSON.stringify(defaultEqState()),
   "Playing.Muted": "False",
   "Playing.PrevReplay": "True",
   "Playing.InhibitSleep": "True",

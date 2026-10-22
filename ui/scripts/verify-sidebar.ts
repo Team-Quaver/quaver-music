@@ -188,7 +188,7 @@ ok("max-width 抓手有初值（none→0 不参与插值，必须在展开态给
   && /\.nav a span \{[^}]*max-width: 140px/.test(css.replace(/\s+/g, " ")));
 
 // 减弱动效：直接跳终态
-const prm = css.match(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
+const prm = [...css.matchAll(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g)].map((m) => m[1]).join("\n");
 ok("减弱动效下侧栏成员禁用过渡（直接跳终态）",
   /transition: none/.test(prm) && /\.side-btn svg/.test(prm) && /\.user-meta/.test(prm));
 ok("减弱动效下切换形态的两拍动画也停掉（animation: none，节点回落到自然不透明度）",

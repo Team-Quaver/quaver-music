@@ -5,6 +5,7 @@
 import { api, postJson, coverUrl, resolveStreamUrl, effectiveQuality, getSessionQuality, setSessionQuality, getLastStream, setLastStream, writeSongType, type StreamResult } from "./lib/api";
 import {
   getDecode, setDecode, getAudioDevice, setAudioDevice, setFade, FADE_PRESETS,
+  getEqualizerState, setEqualizerState,
   getVolume as getVolumeConf, setVolume as setVolumeConf,
   getMuted as getMutedConf, setMuted as setMutedConf,
   getShowTrans, setShowTrans, getLyricAux, setLyricAux, type LyricAuxMode,
@@ -15,6 +16,7 @@ import {
 import { cjkConvert } from "./lib/cjk-convert";
 import { expandTtmlUrl, fetchTtml, ttmlMissCached, ttmlMissRemember } from "./lib/ttml";
 import { WebTransport, EngineTransport, type Transport, type TransportEvent, type AudioDeviceInfo } from "./lib/transport";
+import { normalizeEqState, type EqState } from "../electron/audio/eq-config.ts";
 import { loadSession, saveSession } from "./lib/session";
 import { dayKey, daySeed, shuffleOrder, step, walk } from "./lib/shuffle";
 import { coerceLyricToLrc, parseLrc, type LyricLine } from "./lyric";
@@ -444,6 +446,20 @@ class Player {
     if (!this.transport.setFade) return;
     try { await this.transport.setFade(ms.inMs, ms.outMs); } catch { /* 引擎不在：下次建立传输时随配置下发 */ }
   }
+
+  /** Quark EQ：持久化 + 立即下发到当前 mpv 传输。浏览器后端没有 setEqualizer，静默跳过。
+   *  返回规范化后的状态，调用方以它回写 UI（夹紧值/非法类型不会留在界面上）。 */
+  async setEqualizer(eq: EqState): Promise<EqState> {
+    const next = normalizeEqState(eq);
+    setEqualizerState(next);
+    if (this.transport.setEqualizer) {
+      try { await this.transport.setEqualizer(next); } catch { /* mpv 未起：状态留在引擎侧，首播时套用 */ }
+    }
+    return next;
+  }
+
+  /** 当前持久化的 EQ。播放器不持有第二份真相，设置浮窗每次打开都从这里取。 */
+  getEqualizer(): EqState { return getEqualizerState(); }
 
   on(fn: Listener) {
     this.listeners.add(fn);

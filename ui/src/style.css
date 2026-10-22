@@ -1151,6 +1151,15 @@ body[data-control-bar="floating"] .settings-page .set-view {
 .player.vol-open .pb-volpop { opacity: 1; pointer-events: auto; transition: none; }
 .player.vol-open .pb-volpop > * { animation: menu-content-in .16s cubic-bezier(.32,.72,.24,1) both; }
 .pb-volnum { font-size: 11.5px; color: var(--ink2); min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+/* 音量浮窗里的 EQ 快捷入口：与静音钮同一条控制语言，但不抢滑杆的视觉重量。 */
+.pb-eq-shortcut {
+  width: 27px; height: 27px; flex: 0 0 auto; display: grid; place-items: center;
+  padding: 0; border: 1px solid transparent; border-radius: 7px;
+  background: transparent; color: var(--ink2); cursor: pointer;
+  transition: color .12s, background .12s, border-color .12s;
+}
+.pb-eq-shortcut:hover { color: var(--ink); background: var(--press); border-color: var(--line); }
+.pb-eq-shortcut:focus-visible { outline: 2px solid var(--cvg-accent, var(--cyan)); outline-offset: 1px; }
 /* 浮窗内滑杆：青色填充段 = --v（Chrome/FF 双写法） */
 .pb-vol {
   -webkit-appearance: none; appearance: none;
@@ -2005,15 +2014,20 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 /* 设置页的分组不再用卡片底色，统一走发丝线；关于区居中收尾 */
 .set-view .set-about { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 32px 0; }
 .set-view .credits-btn { margin-top: 8px; padding: 7px 16px; font-size: 12.5px; }
+#open-equalizer {
+  padding: 7px 16px; font-size: 12.5px;
+  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 48%, var(--line));
+  color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 45%, var(--ink));
+}
 
 /* ===================== 浮层菜单的玻璃（共享规则） =====================
-   七处菜单 + 三个模态弹窗（更新/本地插件/插件设置，共用 .upd-dialog）的底片 / 描边 /
+   七处菜单 + 三个模态弹窗（更新/本地插件/插件设置，共用 .upd-dialog）+ Quark EQ 浮窗的底片 / 描边 /
    模糊 / 内高光只在这一条里定义：改玻璃观感只动文件顶部那几个
    --menu-* 令牌。各菜单自己的规则从此只管定位 / 尺寸 / 开合动画 —— 不再各写一份
    `background + border + box-shadow + backdrop-filter`（改造前是七份，且不透明度各不同，
    所以才会出现「有的菜单看着糊、有的看着是实心」）。
    模糊只写无前缀的 backdrop-filter —— 别补 -webkit-，原因见文件顶部那段。 */
-.ctx-menu, .pb-qpop, .pb-lpop, .pb-volpop, .tint-pop, .np-menu, .np-qinfo, .queue-panel.float, .upd-dialog {
+.ctx-menu, .pb-qpop, .pb-lpop, .pb-volpop, .tint-pop, .np-menu, .np-qinfo, .queue-panel.float, .eq-float, .upd-dialog {
   background: var(--menu-surface);
   border: 1px solid var(--menu-line);
   box-shadow: var(--menu-shadow), inset 0 1px 0 var(--menu-edge);

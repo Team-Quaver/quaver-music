@@ -10,6 +10,7 @@
 import { cfg, cfgSet, cfgSetSoon } from "./config";
 import { TTML_DB_DEFAULT_URL, isTtmlDatabaseUrl } from "./ttml";
 import { parseHex, toHex } from "./color";
+import { normalizeEqState, type EqState } from "../../electron/audio/eq-config.ts";
 import type { UpdateChannel } from "./update-core";
 
 export type ThemeMode = "system" | "light" | "dark";
@@ -376,6 +377,20 @@ export function getMuted(): boolean {
 }
 export function setMuted(m: boolean) {
   cfgSet({ "Playing.Muted": m ? "True" : "False" });
+}
+
+// —— Quark EQ（仅 MPV）：整段 JSON 存在 [Playing] Equalizer。
+//    读写都经过共享 normalize：手改配置的坏字段/越界值不会把 mpv 的 af 串搞坏。
+//    拖节点是高频写 → cfgSetSoon 合并落盘；播放器侧另有一条实时下发链，不等磁盘。 ——
+export function getEqualizerState(): EqState {
+  const raw = cfg("Playing.Equalizer", "");
+  if (!raw.trim()) return normalizeEqState(null);
+  try { return normalizeEqState(JSON.parse(raw)); }
+  catch { return normalizeEqState(null); }
+}
+export function setEqualizerState(s: EqState) {
+  const next = normalizeEqState(s);
+  cfgSetSoon({ "Playing.Equalizer": JSON.stringify(next) }, 300);
 }
 
 // —— 「上一首」按钮逻辑：replay=单击先把当前曲从头重放、双击跳到队列里的上一首（默认）；previous=单击直接跳到队列里的上一首。

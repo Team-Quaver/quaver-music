@@ -42,6 +42,11 @@ export function PlayerBar(): HTMLElement {
           <button class="pb-btn pb-ghost" id="pb-mute2" aria-label="静音"></button>
           <input class="pb-vol" id="pb-vol" type="range" min="0" max="100" step="1" value="80" aria-label="音量" />
           <span class="pb-volnum" id="pb-volnum">80%</span>
+          <button class="pb-eq-shortcut" id="pb-eq-shortcut" type="button" title="打开 Quark EQ（仅 MPV）" aria-label="打开 Quark EQ">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 15h3l2-7 3 11 3-15 2 11h5"/>
+            </svg>
+          </button>
         </div>
       </div>
       <button class="pb-btn pb-ghost" id="pb-loop" aria-label="播放模式" aria-haspopup="menu" aria-expanded="false"></button>
@@ -67,6 +72,7 @@ export function PlayerBar(): HTMLElement {
   const pop = $("pb-volpop");
   const vol = el.querySelector<HTMLInputElement>("#pb-vol")!;
   const volnum = $("pb-volnum");
+  const eqShortcut = $<HTMLButtonElement>("pb-eq-shortcut");
 
   const toggleExpand = () => {
     if (!player.current) { player.expanded = false; player.notifyPublic(); return; } // 页内无收起按钮：无歌时强制回退，防卡死
@@ -190,6 +196,11 @@ export function PlayerBar(): HTMLElement {
   vol.addEventListener("lostpointercapture", endVolEdit);
   vol.addEventListener("blur", endVolEdit);
   vol.addEventListener("input", () => { paintVol(); player.setVolume(Number(vol.value) / 100); });
+  // 音量浮窗右侧的 Quark EQ 快捷入口：按需拉浮窗模块，别把曲线/APO 解析塞进首屏。
+  eqShortcut.onclick = () => {
+    el.classList.remove("vol-open");
+    void import("./EqualizerDialog").then((m) => m.openEqualizer());
+  };
 
   // 音量浮窗：悬停静音按钮显示；移开短暂宽限；点击条外关闭
   let hideTimer = 0;

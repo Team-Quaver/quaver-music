@@ -226,6 +226,15 @@ export default async function settingsView(root: HTMLElement) {
       </div>
 
       <div class="set-group">
+        <div class="set-label">图形均衡器 <span class="set-note-inline">仅 MPV · 实时预览</span></div>
+        <div class="set-row">
+          <div class="set-row__ctrl">
+            <button class="ghost-btn eq-open-btn" id="open-equalizer" type="button">打开 EQ 浮窗</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="set-group">
         <div class="set-label">淡入淡出 <span class="set-note-inline">仅原生引擎生效</span></div>
         <div class="opt-cards" id="fade-cards">
           <button class="opt-card" data-opt="off" type="button">0s</button>
@@ -1412,6 +1421,11 @@ export default async function settingsView(root: HTMLElement) {
     devHint.textContent = "切换即时生效，无需重启。";
     devSel.onchange = () => { void player.selectAudioDevice(devSel.value); };
   }
+
+  // EQ 浮窗按需加载（settings 本身已是动态路由；曲线渲染/APO 解析不必跟着设置页常驻）。
+  wrap.querySelector<HTMLButtonElement>("#open-equalizer")!.onclick = () => {
+    void import("../components/EqualizerDialog").then((m) => m.openEqualizer());
+  };
 
   async function paintAll() { await paintBackend(); await paintDevices(); }
   void paintAll();

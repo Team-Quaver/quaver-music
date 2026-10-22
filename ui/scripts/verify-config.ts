@@ -80,11 +80,18 @@ check("模板随读取落地", (readValues(), existsSync(FILE)));
 check("模板含全部段", ["[Style]", "[Window]", "[Playing]", "[Quality]", "[Lyrics]", "[DesktopLyrics]", "[Security]", "[Update]"].every((s) => template().includes(s)));
 check("模板注释来自 schema", template().includes("可选 dark,light,follow-system"));
 eq("默认值与模板占位一致", (() => { const v = readValues().values; return v["Style.Style"] === "dark" && v["Playing.Backend"] === "MPV" && v["Quality.DefaultQuality"] === "Auto" && v["Quality.FallbackToQMAtmos"] === "False"; })(), true);
-eq("schema 默认值表条数", Object.keys(defaults()).length, 73); // [DesktopLyrics] 21 键（Enabled/Locked/Opacity/Backdrop/Scale/Weight/Font/Border/Shadow/ShadowBlur/ShadowOpacity/ShadowX/ShadowY/Mode/SingleCenter/ColorMode/Color + X/Y/W/H 记忆坐标）；[Lyrics] 4 键（ChineseConvert 繁简档/OnlineTtml 在线逐字开关/TtmlDatabase 地址模板/TtmlLibrary 本地库目录）；LyricAux 为歌词辅助行（关闭/翻译/音译，两路同位置且各按档位回落）；LyricScale 为行级歌词缩放；LyricLayout 为正在播放页歌词列四档；Background/BackgroundImage/BackgroundBlur 为默认主题背景（模式/自定义图/模糊强度）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；ControlBar 为控制条停靠形态；PlaylistMode 为歌单显示模式（菜单栏/歌单集合页）；MenuBlur 为浮层菜单毛玻璃开关；Spectrum/SpectrumMode 为正在播放页真实音频频谱开关与形态；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
+eq("schema 默认值表条数", Object.keys(defaults()).length, 74); // [DesktopLyrics] 21 键（Enabled/Locked/Opacity/Backdrop/Scale/Weight/Font/Border/Shadow/ShadowBlur/ShadowOpacity/ShadowX/ShadowY/Mode/SingleCenter/ColorMode/Color + X/Y/W/H 记忆坐标）；[Lyrics] 4 键（ChineseConvert 繁简档/OnlineTtml 在线逐字开关/TtmlDatabase 地址模板/TtmlLibrary 本地库目录）；LyricAux 为歌词辅助行（关闭/翻译/音译，两路同位置且各按档位回落）；LyricScale 为行级歌词缩放；LyricLayout 为正在播放页歌词列四档；Background/BackgroundImage/BackgroundBlur 为默认主题背景（模式/自定义图/模糊强度）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；ControlBar 为控制条停靠形态；PlaylistMode 为歌单显示模式（菜单栏/歌单集合页）；MenuBlur 为浮层菜单毛玻璃开关；Spectrum/SpectrumMode 为正在播放页真实音频频谱开关与形态；Equalizer 为 Quark EQ 整段 JSON（默认空曲线、最多 10 段、bypass）；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
 check("模板含热键两段", ["[Hotkeys.Global]", "[Hotkeys.Focus]"].every((s) => template().includes(s)));
 eq("全局热键默认 Ctrl+Alt+P", defaults()["Hotkeys.Global.Toggle"], "Ctrl+Alt+P");
 eq("焦点退出默认 Ctrl+Q", defaults()["Hotkeys.Focus.Quit"], "Ctrl+Q");
 eq("音量默认 0.8", defaults()["Playing.Volume"], "0.8");
+eq("EQ 默认 bypass 且为空曲线（0/10）", (() => {
+  const e = JSON.parse(defaults()["Playing.Equalizer"]);
+  return [e.enabled, e.preamp, e.bands.length];
+})(), [false, 0, 0]);
+eq("EQ 拒绝坏 JSON", writeValues({ "Playing.Equalizer": "{not-json" }), []);
+eq("EQ 拒绝超过 10 段", writeValues({ "Playing.Equalizer": JSON.stringify({ enabled: true, preamp: 0, bands: Array.from({ length: 11 }, (_, i) => ({ id: `z${i}`, freq: 100 + i, gain: 0, q: 1, type: "bell" })) }) }), []);
+eq("EQ 接受修改后的合法曲线", writeValues({ "Playing.Equalizer": JSON.stringify({ enabled: true, preamp: -3.5, bands: [{ id: "myBand", freq: 1000, gain: 4.5, q: 1.2, type: "bell" }] }) }), ["Playing.Equalizer"]);
 eq("歌词辅助默认翻译", defaults()["Style.LyricAux"], "translation");
 eq("频谱默认关闭", defaults()["Style.Spectrum"], "False");
 eq("频谱形态默认柱状", defaults()["Style.SpectrumMode"], "bars");

@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { probeRuntime, resolveMpv } from "./bins.ts";
 import { formatOsVersion, machOMinOs, osVersionGt, parseOsVersion } from "./macho.ts";
 import { MpvIpc, type MpvEvent } from "./mpv-ipc.ts";
+import { eqFilterString, normalizeEqState, type EqState } from "./eq-config.ts";
 
 const POS_BROADCAST_MS = 250; // 位置广播节流：4Hz 足够渲染层外推出平滑进度/歌词
 // 看门狗脚本：父进程（本进程）无论怎么死，mpv 都会被它杀掉（注销/崩溃时 will-quit 跑不到）
@@ -63,6 +64,8 @@ export class AudioEngine {
   device: string;                    // 音频设备（renderer 持久化，引擎记住以便 respawn 后复用）
   lastUrl: string;                   // 最近挂过的流（eof 后 idle 重挂用）
   fade: { inMs: number; outMs: number };
+  /** Quark EQ 的当前状态（仅 mpv）：渲染层经 eq 命令下发；mpv 重拉后由 ensureStarted 重新套用。 */
+  eq: EqState;
   fadeLevel: number;
   fadeTarget: number;
   fadeTimer: NodeJS.Timeout | null;
@@ -88,6 +91,7 @@ export class AudioEngine {
     // 「淡出完成后要执行的动作」放 pendingAfterFadeOut —— 任何更新的播放意图都会把它作废，
     // 否则切歌时那个延迟的 stop 会把刚 loadfile 的新歌掐掉。
     this.fade = { inMs: 400, outMs: 250 };
+    this.eq = normalizeEqState(null);
     this.fadeLevel = 1;
     this.fadeTarget = 1;
     this.fadeTimer = null;
@@ -129,6 +133,19 @@ export class AudioEngine {
     if (!this.mpv || this.mpv.dead) return;
     const v = this.st.volume * this.fadeLevel * 100;
     void this.mpv.setProp("volume", Math.round(v * 100) / 100).catch(() => {});
+  }
+
+  /** 把共享模型生成的 af 串原子替换到 mpv。空串 = bypass；滤镜运行时可换，不用重挂流。
+   *  返回错误供 eq 命令上报，但 ensureStarted 里只记日志 —— EQ 初始化失败不该让整首歌播不了。 */
+  async applyEqualizer(mpv: MpvIpc | null = this.mpv): Promise<void> {
+    if (!mpv || mpv.dead) return;
+    const filter = eqFilterString(this.eq);
+    try {
+      await mpv.setProp("af", filter);
+    } catch (e) {
+      this.log("[audio] apply eq failed:", String(e));
+      throw e;
+    }
   }
 
   /** 把包络推向 level（线性，30ms 步进）。`after` 三态：
@@ -259,6 +276,8 @@ export class AudioEngine {
         extraArgs,
       });
       await mpv.start();
+      // EQ 必须在第一首歌 file-loaded 前套上；失败只记日志，不能连累播放。
+      await this.applyEqualizer(mpv).catch(() => {});
       // —— 状态观察（id 与 mpv-ipc 无耦合，仅作 property-change 归属）——
       await mpv.observe(1, "time-pos");
       await mpv.observe(2, "duration");
@@ -485,6 +504,18 @@ export class AudioEngine {
         // 关掉淡入淡出时别把音量卡在半路上（只在淡入方向兜底；淡出途中说明有 pending 动作，别打断）
         if (!this.fade.inMs && !this.fade.outMs && this.fadeTarget === 1 && this.fadeLevel < 1) this.rampTo(1, 0);
         return { ok: true, fade: this.fade };
+      }
+      case "eq": {
+        // IPC 边界统一 normalize：freq/gain/Q 越界会夹紧，未知 type 落 bell，段数封顶。
+        this.eq = normalizeEqState(cmd.state);
+        if (this.mpv && !this.mpv.dead) {
+          try {
+            await this.applyEqualizer(this.mpv);
+          } catch (e) {
+            return { ok: false, error: String((e as Error)?.message ?? e), state: this.eq };
+          }
+        }
+        return { ok: true, state: this.eq, filter: eqFilterString(this.eq) };
       }
       case "devices": {
         const mpv = await this.ensureStarted();

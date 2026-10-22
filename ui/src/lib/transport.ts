@@ -7,7 +7,8 @@
 // 时间轴诚实性（mpv 引擎路径）：
 //   引擎按 ~4Hz 推位置快照，渲染层用 performance.now() 外推插值出平滑进度/歌词时间；
 //   外推有闸 —— 单帧上限 0.35s、播放中位置连续两帧不动即冻结 —— 引擎谎报/卡顿时进度条不飘。
-import { getFadeMs } from "./prefs";
+import { getEqualizerState, getFadeMs } from "./prefs";
+import type { EqState } from "../../electron/audio/eq-config.ts";
 
 export type TransportKind = "engine" | "web";
 
@@ -48,6 +49,8 @@ export interface Transport {
   setDevice?(id: string): Promise<void>;
   /** 淡入淡出时长（ms）；引擎后端才支持 */
   setFade?(inMs: number, outMs: number): Promise<void>;
+  /** Quark EQ；只有 mpv 引擎传输支持，浏览器 <audio> 没有对应实现。 */
+  setEqualizer?(state: EqState): Promise<void>;
   onEvent(cb: (e: TransportEvent) => void): () => void;
 }
 
@@ -155,6 +158,8 @@ export class EngineTransport implements Transport {
     // 淡入淡出时长随传输建立下发（引擎侧只记配置，不会因此拉起 mpv）
     const f = getFadeMs();
     void this.invoke({ cmd: "fade", inMs: f.inMs, outMs: f.outMs }).catch(() => {});
+    // 先下发 EQ 再挂歌：引擎只存状态，不因此拉起 mpv；真正拉起时 ensureStarted 会套上 af。
+    void this.invoke({ cmd: "eq", state: getEqualizerState() }).catch(() => {});
   }
 
   private emit(e: TransportEvent) {
@@ -301,5 +306,10 @@ export class EngineTransport implements Transport {
 
   async setFade(inMs: number, outMs: number) {
     await this.invoke({ cmd: "fade", inMs, outMs });
+  }
+
+  async setEqualizer(state: EqState) {
+    const r = await this.invoke({ cmd: "eq", state });
+    if (!r?.ok) throw new Error(r?.error ?? "应用 EQ 失败");
   }
 }

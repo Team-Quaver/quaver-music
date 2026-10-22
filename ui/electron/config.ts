@@ -14,6 +14,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
+import { defaultEqState, EQ_MAX_BANDS, normalizeEqState } from "./audio/eq-config.ts";
 
 export const APP_DIR_NAME = "Quaver Music"; // Windows / macOS 用
 export const APP_DIR_NAME_POSIX = "quaver-music"; // Linux（XDG 风格小写）
@@ -21,6 +22,20 @@ export const CONFIG_NAME = "quaver.conf";
 export const CREDENTIAL_NAME = "credential.json"; // 明文——只作为升级遗留的导入来源，导入后即删
 export const CREDENTIAL_STORE_NAME = "credential.enc"; // 密钥环模式：磁盘上只留密文，钥匙在系统密钥管理器里
 export const DEVICE_NAME = "device.json";
+
+/** Quark EQ 的默认值：共享纯逻辑生成，避免 schema 与渲染层默认曲线各写一份。 */
+const DEFAULT_EQUALIZER = JSON.stringify(defaultEqState());
+
+/** 配置文件里的 EQ 是整段 JSON：结构合法 + 规范化后段数不超上限。 */
+function isEqConfigValue(v: string): boolean {
+  try {
+    const parsed = JSON.parse(v) as { bands?: unknown; preamp?: unknown };
+    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.bands)) return false;
+    if (parsed.bands.length > EQ_MAX_BANDS) return false;
+    normalizeEqState(parsed);
+    return true;
+  } catch { return false; }
+}
 
 // —— 路径 ——
 
@@ -467,6 +482,16 @@ export const SCHEMA: SectionSpec[] = [
         doc: ["音量 0..1（静音时保留原值，恢复即回）"],
         // 注意空串：Number("") === 0 会蒙混过关，得先排掉
         valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 1,
+      },
+      {
+        key: "Equalizer",
+        def: DEFAULT_EQUALIZER,
+        doc: [
+          "Quark EQ（仅 MPV）：整段 JSON = enabled / preamp / bands；bands 每项 id/freq/gain/q/type。",
+          "默认空曲线 + bypass；最多 10 段，点击曲线才加点。type=bell/lowShelf/highShelf/lowPass/highPass。",
+          "freq 20..20000、gain/preamp ±24dB、Q 0.1..18；手改越界值会在读入时夹紧，坏 JSON 回落空曲线。",
+        ],
+        valid: isEqConfigValue,
       },
       {
         key: "Muted",
