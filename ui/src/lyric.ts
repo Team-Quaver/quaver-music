@@ -21,7 +21,7 @@ export function cleanAuxText(value: string | undefined): string {
   return /^\/+$/.test(text) ? "" : text;
 }
 
-function parseBlock(src: string): LyricLine[] {
+function parseTimedBlock(src: string, keepEmpty: boolean): LyricLine[] {
   const out: LyricLine[] = [];
   for (const raw of src.split(/\r?\n/)) {
     TS.lastIndex = 0;
@@ -32,20 +32,29 @@ function parseBlock(src: string): LyricLine[] {
       times.push(Number(m[1]) * 60 + Number(m[2]) + ms);
     }
     const text = cleanAuxText(raw.replace(TS, ""));
-    // 跳过占位行（上游翻译常用 "//" 占位、歌词站用 空行）
-    if (!times.length || !text) continue;
+    // 主歌词跳过占位；辅助源保留空文本，用来明确标记「本行没有翻译/音译」。
+    if (!times.length || (!keepEmpty && !text)) continue;
     for (const t of times) out.push({ t, text });
   }
   out.sort((a, b) => a.t - b.t);
   return out;
 }
 
-/** 辅助行（翻译 / 音译同一套路）按时间就近对齐到主歌词行；对不上就不显示 */
+const parseBlock = (src: string) => parseTimedBlock(src, false);
+
+/** 辅助源按时间解析；`//`/空行保留为空串，供匹配时阻断邻近行借文本。 */
+export function parseTimedAux(src: string): LyricLine[] {
+  return parseTimedBlock(src ?? "", true);
+}
+
+/** 辅助行（翻译 / 音译同一套路）一对一挂到主歌词行。
+ *  每条辅助源最多匹配一行，每行最多接收一条；显式空占位也参与匹配，
+ *  所以上一行的翻译不会被借给没有翻译的下一行。 */
 function attachAux(base: LyricLine[], src: string | undefined, field: "trans" | "roma") {
   if (!base.length) return;
-  const aux = parseBlock(src ?? "");
+  const aux = parseTimedAux(src ?? "");
   if (!aux.length) return;
-  const map = new Map<number, string>();
+  const matched = new Map<LyricLine, { d: number; text: string }>();
   for (const line of aux) {
     let best: LyricLine | undefined;
     let bd = 1.5; // 秒差容忍
@@ -53,12 +62,14 @@ function attachAux(base: LyricLine[], src: string | undefined, field: "trans" | 
       const d = Math.abs(b.t - line.t);
       if (d < bd) { bd = d; best = b; }
     }
-    if (best && !map.has(best.t)) map.set(best.t, line.text);
+    if (!best) continue;
+    const prev = matched.get(best);
+    // 同一主行有多条候选时取时间最近的一条；等距时占位（空串）优先阻断。
+    if (!prev || bd < prev.d || (bd === prev.d && !line.text && prev.text)) {
+      matched.set(best, { d: bd, text: line.text });
+    }
   }
-  for (const b of base) {
-    const text = map.get(b.t);
-    if (text) b[field] = text;
-  }
+  for (const [b, hit] of matched) if (hit.text) b[field] = hit.text;
 }
 
 export function parseLrc(lrc: string, trans?: string, roman?: string): LyricLine[] {
@@ -72,11 +83,14 @@ export function parseLrc(lrc: string, trans?: string, roman?: string): LyricLine
  * 辅助行取哪一路：翻译档优先翻译、音译档优先音译，本行缺哪一路就回落到另一路；
  * off = 空串（不显示）。两路永远共用同一行位置，绝不会同时上屏。
  */
-export function pickAux(line: Pick<LyricLine, "trans" | "roma">, mode: LyricAuxMode): string {
+export function pickAux(line: Pick<LyricLine, "text" | "trans" | "roma">, mode: LyricAuxMode): string {
   if (mode === "off") return "";
+  const original = cleanAuxText(line.text);
   const prefer = (mode === "romanization" ? line.roma : line.trans) ?? "";
   const fallback = (mode === "romanization" ? line.trans : line.roma) ?? "";
-  return cleanAuxText(prefer) || cleanAuxText(fallback);
+  const aux = cleanAuxText(prefer) || cleanAuxText(fallback);
+  // 上游偶尔把原文回填进 trans/roma；与主行相同就不是辅助文本，直接不显示。
+  return aux && aux !== original ? aux : "";
 }
 
 export const fmtDur = (sec: number) => {

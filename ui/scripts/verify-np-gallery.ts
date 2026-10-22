@@ -257,13 +257,15 @@ await step("kara 模式：AMLL 挂载、行级隐藏、左缘渐变蒙版仍在"
     });
     const arm = () => {
       p.lyricState = "ok";
-      // 行级与逐字两路辅助行都给数据：第 1 行翻译/音译都有、第 2 行翻译是 `//` 占位 ——
-      // 据此验证占位行被跳过、「优先所选那一路，本行缺则回落另一路」，以及辅助行只有一个。
+      // 行级与逐字两路辅助行都给数据：第 1 行翻译/音译都有、第 2 行翻译是 `//` 占位、
+      // 第 3 行两路都没有 —— 验证按行一对一、不借上一行，缺的另一路存在时才回落。
       p.lyrics = [{ t: 0, text: "第一行", trans: "第一行（译）", roma: "di yi hang" },
-        { t: 3, text: "第二行", roma: "di er hang" }];
+        { t: 3, text: "第二行", roma: "di er hang" },
+        { t: 6, text: "第三行" }];
       p.karaoke = [
         line(0, 3000, [["你好", 0, 1500], ["世界", 1500, 1500]], "你好世界（译）", "ni hao shi jie"),
         line(3000, 3000, [["第二行", 0, 3000]], "//", "di er hang"),
+        line(6000, 3000, [["第三行", 0, 3000]], "//", ""),
       ];
       p.notifyPublic();
     };
@@ -299,7 +301,7 @@ await step("kara 辅助行：翻译档优先翻译、音译档优先音译，缺
     const rows = mains.map((m) => {
       const kids = [...(m.parentElement?.children ?? [])].map((c) => (c.textContent ?? "").trim());
       return { main: kids[0] ?? "", subs: kids.slice(1).filter(Boolean) };
-    }).filter((r) => r.main.includes("你好") || r.main.includes("第二行"));
+    }).filter((r) => r.main.includes("你好") || r.main.includes("第二行") || r.main.includes("第三行"));
     return { rows, rubyEls: (host?.querySelectorAll('[class*="rubyWord"]') ?? []).length };
   });
   const setMode = (m) => page.evaluate((mode) => { window.__player.setLyricAuxMode(mode); window.__player.notifyPublic(); }, m);
@@ -315,8 +317,10 @@ await step("kara 辅助行：翻译档优先翻译、音译档优先音译，缺
   let st = await read();
   let one = st.rows.find((r) => r.main.includes("你好"));
   let two = st.rows.find((r) => r.main.includes("第二行"));
+  let three = st.rows.find((r) => r.main.includes("第三行"));
   if (!one || one.subs.join() !== "你好世界（译）") throw new Error("翻译档第 1 行应显翻译 " + JSON.stringify(st.rows));
   if (!two || two.subs.join() !== "di er hang") throw new Error("翻译档第 2 行无翻译应回落音译 " + JSON.stringify(st.rows));
+  if (!three || three.subs.length) throw new Error("翻译档第 3 行两路皆空不应上辅助行 " + JSON.stringify(st.rows));
   if (st.rows.some((r) => r.subs.some((s) => /^\/+$/.test(s)))) throw new Error("辅助行占位 // 被上屏 " + JSON.stringify(st.rows));
 
   await setMode("romanization");
@@ -325,8 +329,10 @@ await step("kara 辅助行：翻译档优先翻译、音译档优先音译，缺
   st = await read();
   one = st.rows.find((r) => r.main.includes("你好"));
   two = st.rows.find((r) => r.main.includes("第二行"));
+  three = st.rows.find((r) => r.main.includes("第三行"));
   if (!one || one.subs.join() !== "ni hao shi jie") throw new Error("音译档第 1 行应显音译（且在上一步的翻译之后真的换了一路） " + JSON.stringify(st.rows));
   if (!two || two.subs.join() !== "di er hang") throw new Error("音译档第 2 行应保持音译 " + JSON.stringify(st.rows));
+  if (!three || three.subs.length) throw new Error("音译档第 3 行两路皆空不应上辅助行 " + JSON.stringify(st.rows));
   if (st.rubyEls > 0) throw new Error("音译不该出现在词上方（Ruby） " + JSON.stringify(st));
   if (st.rows.some((r) => r.subs.length > 1)) throw new Error("辅助行只应有一行 " + JSON.stringify(st.rows));
 

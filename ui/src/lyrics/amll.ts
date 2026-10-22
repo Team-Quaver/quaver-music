@@ -35,7 +35,7 @@ import { LayoutAlignAnchor, LayoutReason, LyricPlayer, type LyricLine as CoreLyr
 import "@applemusic-like-lyrics/core/style.css";
 import type { SparkleKaraokeLine, SparkleKaraokeProvider, SparkleKaraokeRenderCtx } from "@quaver/sparkle";
 import type { LyricAuxMode } from "../lib/prefs";
-import { cleanAuxText, extractQrcPayload, pickAux } from "../lyric";
+import { cleanAuxText, extractQrcPayload, parseTimedAux, pickAux } from "../lyric";
 import { applyKanaToLines, extractKanaTag, stripKanaTag } from "./qrc-kana";
 
 // —— 解析 ——
@@ -133,22 +133,38 @@ function auxLines(src: string): KaraLine[] {
   if (!c) return [];
   const q = parseQrcAuxSource(c);
   if (q?.length) return q;
-  try { return parseLrc(c); } catch { return []; }
+  // 行级辅助源用保留空占位的解析器：`//` 必须参与匹配，不能因被跳过而让邻行文本借进来。
+  return parseTimedAux(c).map(({ t, text }) => ({
+    startTime: t * 1000,
+    endTime: t * 1000,
+    words: [{ word: text, startTime: t * 1000, endTime: t * 1000 }],
+    translatedLyric: "",
+    romanLyric: "",
+  }));
 }
 
-/** 按行起始时间就近取辅助文本（1.5s 容忍，同宿主 src/lyric.ts 的口径）。
- *  `//` 是上游的「本行无译文/音译」占位：跳过它再找最近的真文本，不能让它上屏，
- *  也不能让一条占位挡住同时间附近的真实辅助行。 */
-function nearestAuxText(aux: RawLine[], line: { startTime: number }): string {
-  let best = "";
-  let bd = 1500;
+/** 翻译 / 音译各自一对一挂到主歌词行。同一主行只收最近的一条，空占位同样参与匹配。 */
+function alignAuxField(
+  lines: Array<{ startTime: number; translatedLyric?: string; romanLyric?: string }>,
+  aux: RawLine[],
+  field: "translatedLyric" | "romanLyric",
+) {
+  const matched = new Map<(typeof lines)[number], { d: number; text: string }>();
   for (const t of aux) {
     const text = cleanAuxText(t.words.map((w) => w.word).join(""));
-    if (!text) continue;
-    const d = Math.abs(t.startTime - line.startTime);
-    if (d < bd) { bd = d; best = text; }
+    let best: (typeof lines)[number] | undefined;
+    let bd = 1500;
+    for (const l of lines) {
+      const d = Math.abs(t.startTime - l.startTime);
+      if (d < bd) { bd = d; best = l; }
+    }
+    if (!best) continue;
+    const prev = matched.get(best);
+    if (!prev || bd < prev.d || (bd === prev.d && !text && prev.text)) {
+      matched.set(best, { d: bd, text });
+    }
   }
-  return best;
+  for (const [l, hit] of matched) l[field] = hit.text;
 }
 
 /** 翻译与音译都挂成**行级**辅助文本（translatedLyric / romanLyric），显示哪一路交给档位。
@@ -162,11 +178,8 @@ function alignAux(
 ) {
   const tr = auxLines(translation);
   const ro = auxLines(romanization);
-  if (!tr.length && !ro.length) return;
-  for (const l of lines) {
-    if (tr.length) { const t = nearestAuxText(tr, l); if (t) l.translatedLyric = t; }
-    if (ro.length) { const r = nearestAuxText(ro, l); if (r) l.romanLyric = r; }
-  }
+  if (tr.length) alignAuxField(lines, tr, "translatedLyric");
+  if (ro.length) alignAuxField(lines, ro, "romanLyric");
 }
 
 /** 原始歌词 → AMLL 行；认不出的格式返回 null。
@@ -217,7 +230,11 @@ function parseKaraoke(content: string, translation: string, romanization = ""): 
 
 /** 辅助行取哪一路：档位规则与行级视图**共用** src/lyric.ts 的 pickAux（唯一一份实现）。 */
 const pickAuxLine = (l: SparkleKaraokeLine, mode: LyricAuxMode): string =>
-  pickAux({ trans: l.translatedLyric, roma: l.romanLyric }, mode);
+  pickAux({
+    text: l.words.map((w) => w.word).join(""),
+    trans: l.translatedLyric,
+    roma: l.romanLyric,
+  }, mode);
 
 /** SDK 行 → core 渲染行（显式补齐 core 必填字段）。
  *  辅助行只占**一格**：挑好的一路写进第一子行 translatedLyric，romanLyric 恒空。

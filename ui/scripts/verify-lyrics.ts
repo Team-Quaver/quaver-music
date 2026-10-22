@@ -16,7 +16,7 @@ import {
   TTML_DB_DEFAULT_URL, TTML_PLATFORM_DIRS, expandTtmlUrl, isTtmlDatabaseUrl, looksLikeTtml,
   ttmlMissCached, ttmlMissRemember, fetchTtml,
 } from "../src/lib/ttml.ts";
-import { extractQrcPayload } from "../src/lyric.ts";
+import { extractQrcPayload, parseLrc, pickAux } from "../src/lyric.ts";
 import { viewsSource } from "./views-source.ts";
 
 let pass = 0, fail = 0;
@@ -56,6 +56,19 @@ const starboyBody = extractQrcPayload(STARBOY_QRC);
 check("LyricContent 内未转义引号不会截断后续正文（Starboy 回归）",
   starboyBody.includes('Produced by：Daft Punk/Martin "Doc" McKinney') && starboyBody.includes("[15607,144]Ayy"),
   starboyBody);
+
+// ——— 辅助行：按行一对一匹配 ———
+section("辅助行按行匹配");
+const auxLines = parseLrc(
+  "[00:01.00]Line A\n[00:03.00]Line B\n[00:05.00]Line C",
+  "[00:01.00]Translation A\n[00:03.00]//",
+  "",
+);
+eq("第一行拿到本行翻译", pickAux(auxLines[0], "translation"), "Translation A");
+eq("占位行不借上一行翻译", pickAux(auxLines[1], "translation"), "");
+eq("完全没有辅助源的行不借上一行翻译", pickAux(auxLines[2], "translation"), "");
+eq("辅助文本等于原文时不上屏", pickAux({ text: "Same", trans: "Same", roma: "" }, "translation"), "");
+eq("所选一路缺失但另一路存在时仍按行回落", pickAux({ text: "B", trans: "", roma: "Bee" }, "translation"), "Bee");
 
 // ——— 嗅探与在线查询（本地 http 桩） ———
 section("在线库查询与负缓存");
