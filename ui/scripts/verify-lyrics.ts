@@ -217,6 +217,14 @@ check("逐字歌词接隐藏已播放行旋钮", amll.includes("setHidePassedLin
 check("隐藏档当前行顶边对齐封面（行级与逐字同口径）",
   nowPlayingSrc.includes("lyricTopAnchor") && nowPlayingSrc.includes("cover.getBoundingClientRect().top")
   && amll.includes("LayoutAlignAnchor.Top") && amll.includes("lyricTopAnchor"));
+const styleSrc = readFileSync(join(UI, "src/style.css"), "utf8");
+check("正在播放页关闭 AMLL 平衡换行（避免右侧有空间却提前断行）",
+  /\.np-kara-host \[class\*="lyricMainLine"\] > br \{ display: none; \}/.test(styleSrc));
+check("歌词列比封面列更宽（1.4 : 1，宽屏优先利用中缝）",
+  /grid-template-columns: minmax\(340px, 1\.4fr\) minmax\(0, 1fr\) minmax\(300px, 1fr\)/.test(styleSrc));
+check("滚轮翻阅超时回正：AMLL resetScroll + 行级尾部留足一屏",
+  amll.includes("player.resetScroll()") && amll.includes("BROWSE_RETURN_MS")
+  && /\.np\.np-hide-played \.np-lyrics::after \{ height: 100%; \}/.test(styleSrc));
 
 rmSync(ROOT, { recursive: true, force: true });
 console.log(`\n${fail ? "❌" : "✅"} verify-lyrics: ${pass} passed, ${fail} failed`);

@@ -1348,9 +1348,9 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
 }
 .np-inner {
   position: relative; z-index: 1; width: 92%; height: min(560px, calc(100vh - 150px));
-  /* 两侧内容跟随窗口宽度分配：宽屏各占 1/3，中间 1/3 留空；窄窗保底 300px，
-     余下的宽度再留给中间空档，避免歌词列和封面组被压扁。 */
-  display: grid; grid-template-columns: minmax(300px, 1fr) minmax(0, 1fr) minmax(300px, 1fr);
+  /* 歌词列比封面列宽（1.4 : 1），多出来的宽度从中间空档拿；窄窗仍保底
+     340px / 300px，避免歌词和封面组被压扁。 */
+  display: grid; grid-template-columns: minmax(340px, 1.4fr) minmax(0, 1fr) minmax(300px, 1fr);
   align-items: center;
   padding-bottom: 40px; /* 给播放条让位 */
 }
@@ -1387,6 +1387,9 @@ body[data-control-bar="floating"] .np.np-lyrics-full .np-inner {
 }
 .np-lyrics::-webkit-scrollbar { display: none; }
 .np-lyrics::before, .np-lyrics::after { content: ""; display: block; height: 38%; flex: none; }
+/* 隐藏已播放行时当前行要贴封面顶边；歌尾附近必须留足可滚动余量，
+   否则浏览回正会卡在中间（38% 的默认尾留白不够一整屏）。 */
+.np.np-hide-played .np-lyrics::after { height: 100%; }
 .np-ly-line {
   padding: 0.53em 4px; text-align: left; cursor: pointer;
   transition: opacity .3s ease, filter .3s ease, transform .3s ease, color .3s ease;
@@ -1433,6 +1436,10 @@ body[data-control-bar="floating"] .np.np-lyrics-full .np-inner {
 }
 .np.kara .np-lyrics { display: none; }
 .np.kara .np-kara-host { display: block; }
+/* AMLL 默认会把超宽行平衡成两段近似等长的文字，第一行常留下大块右侧空白。
+   正在播放页直接忽略它插入的 <br>，让浏览器按容器真实宽度自然贪心换行：
+   每行先排满，再把最后一个词落到下一行。 */
+.np-kara-host [class*="lyricMainLine"] > br { display: none; }
 /* AMLL 的 DOM 播放器默认用 mix-blend-mode: plus-lighter 做歌词发光。该混合模式会让
    Chromium 在歌词挂载后走另一条合成路径，正在播放页菜单的 backdrop-filter 会持续
    采不到底图（菜单里的歌名/封面色块原样透出）。只在玻璃菜单打开期间把它让回 normal，

@@ -321,6 +321,19 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
   applyPlayState();
 
   const ac = new AbortController();
+  // 鼠标/触控板翻阅后统一 3 秒静默回正。AMLL 自带的自动对齐恢复在持续播放时并不稳定，
+  // 这里显式 resetScroll，避免滚出去后一直停在旧视口（隐藏档还会因此整列空白）。
+  const BROWSE_RETURN_MS = 3000;
+  let browseReturnTimer = 0;
+  const onBrowseWheel = (e: WheelEvent) => {
+    if (e.ctrlKey) return; // Ctrl+滚轮是字号缩放，不算翻阅
+    window.clearTimeout(browseReturnTimer);
+    browseReturnTimer = window.setTimeout(() => {
+      if (ctx.expanded()) player.resetScroll();
+    }, BROWSE_RETURN_MS);
+  };
+  host.addEventListener("wheel", onBrowseWheel, { passive: true });
+
   player.addEventListener("line-click", (e: Event) => {
     const ce = e as MouseEvent & { line: { getLine(): { startTime: number } } | undefined };
     // 歌词行自己的时间轴没被动过，动的是驱动时钟（− delay）：要点「屏幕上这行」就得把
@@ -346,6 +359,9 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
     if (wantHide !== hidePassed) {
       hidePassed = wantHide;
       player.setHidePassedLines(wantHide);
+      // 翻阅结束、重新隐藏已播放行时，AMLL 不能还停在用户滚出的旧视口里：
+      // 否则旧行一隐藏，当前行还在屏幕外，整列就会空白。先退出用户滚动态并回自动对齐。
+      if (wantHide) player.resetScroll();
     }
     applyPlayState();
     player.setCurrentTime(feedTime());
@@ -371,6 +387,8 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
 
   return () => {
     anchorObserver?.disconnect();
+    window.clearTimeout(browseReturnTimer);
+    host.removeEventListener("wheel", onBrowseWheel);
     amllPlayerByHost.delete(host);
     offNotify();
     if (raf) window.cancelAnimationFrame(raf);
