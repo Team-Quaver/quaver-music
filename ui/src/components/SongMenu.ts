@@ -285,10 +285,10 @@ export function enqueueNextWithToast(song: any) {
 }
 
 /** 立即插队播放（搜索页双击用）：马上切过去播这一首 —— 只带这一首进队列，
- *  其余搜索结果不入列；队列原有内容不动。回执与 enqueueNextWithToast 同一套 toast。 */
+ *  其余搜索结果不入列；队列原有内容不动。无限电台期间由 player 退出电台后直接切歌，
+ *  不把「立即播放」误当成需要等待的排队插队。回执与 enqueueNextWithToast 同一套 toast。 */
 export function playNowWithToast(song: any) {
   if (!song?.mid) return;
-  if (player.radioActive) { toast("无限电台播放中，不能插队播放其他歌曲", "err"); return; }
   const label = songTitle(song) || "这首歌";
   if (player.playNextNow(song)) toast(`正在播放：${label}`);
 }

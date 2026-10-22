@@ -687,11 +687,13 @@ class Player {
 
   /** 立即插队播放：插到**当前曲之后**并**马上切过去**（打断当前曲）。与 enqueueNext 只差时机 ——
    *  不等当前曲放完。只带这一首进队列，队列原有内容不动（其余搜索结果不入列）。
-   *  搜索页双击用：即点即播，但不把搜索结果整列灌进队列；电台期间与排队插队一样拒绝。
+   *  搜索页双击用：即点即播，但不把搜索结果整列灌进队列。
+   *  这是用户显式选择的立即播放，不是排队插队：电台期间先退出电台，再正常切歌。
    *  队列还空着（没播过任何东西）时没有「插队」可言，退化成单曲起播。 */
   playNextNow(song: Song): boolean {
-    if (!song?.mid || this.radioOn) return false;
+    if (!song?.mid) return false;
     if (this.index < 0 || !this.queue.length) { this.playList([song], 0); return true; }
+    this.exitRadio();
     this.queue.splice(this.index + 1, 0, song);
     this.index++;
     this.queueVersion++;

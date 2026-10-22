@@ -108,7 +108,7 @@ ok("循环: player.setMode 在电台里 no-op", re(playerCode, /setMode\(m: Mode
 ok("循环: player.toggleShuffle 在电台里 no-op", re(playerCode, /toggleShuffle\(\) \{\s*if \(this\.radioOn\) return;/));
 ok("循环: MPRIS 电台态报告 None", has(mprisCode, 'loop: player.radioActive ? "None"'));
 
-// ============ 4.6 电台状态跨重启 + 禁止插队 ============
+// ============ 4.6 电台状态跨重启 + 插队边界 ============
 ok("存档: 写入 radio/radioEnd", has(sessionCode, "radio,") && has(sessionCode, "radioEnd,"));
 ok("存档: 空队列也保留已开启的电台", re(sessionCode, /if \(!queue\.length && !radio\) return null;/));
 ok("存档: 读回 radio/radioEnd", has(sessionCode, "radio,") && re(sessionCode, /radioEnd,[\s\S]{0,120}quality:/));
@@ -117,8 +117,9 @@ ok("恢复: 空电台取回首轮但不自动出声", re(playerCode, /if \(this\
 ok("存档: 节流落盘也带上电台态", re(playerCode, /radio: this\.radioOn, radioEnd: this\.radioEnd,/));
 ok("插队: 单曲插队在电台里 no-op 且不退出电台", re(playerCode, /enqueueNext\(song: Song\): boolean \{\s*if \(!song\?\.mid \|\| this\.radioOn\) return false;/));
 ok("插队: 整批插队在电台里 no-op", re(playerCode, /enqueueNextMany\(songs: Song\[\]\): boolean \{\s*if \(this\.radioOn\) return false;/));
-ok("插队: 立即插队在电台里 no-op", re(playerCode, /playNextNow\(song: Song\): boolean \{\s*if \(!song\?\.mid \|\| this\.radioOn\) return false;/));
-ok("插队: 单曲菜单禁用以外的 UI 路径仍有 toast", has(songMenuCode, "无限电台播放中，不能插队播放其他歌曲"));
+ok("立即播放: 搜索双击先退出电台再切歌", re(playerCode, /playNextNow\(song: Song\): boolean \{[\s\S]{0,260}?this\.exitRadio\(\);[\s\S]{0,160}?this\.startCurrent\(\);/));
+ok("立即播放: 搜索双击入口不把电台态当成插队锁", !re(songMenuCode, /playNowWithToast\(song: any\) \{[\s\S]{0,140}?player\.radioActive/));
+ok("插队: 单曲菜单在电台里仍明确拒绝", has(songMenuCode, "无限电台播放中，不能插队播放其他歌曲"));
 ok("插队: 歌曲菜单禁用插队项", re(songMenuCode, /label: "插队播放",[\s\S]{0,100}disabled: player\.radioActive/));
 ok("插队: 歌单菜单禁用电台期间的插队项", re(playlistMenuCode, /label: "插队播放",[\s\S]{0,120}disabled: player\.radioActive/));
 ok("插队: 歌单插队先拦电台再取歌", re(playlistMenuCode, /playSongsNext[\s\S]{0,180}if \(player\.radioActive\)[\s\S]{0,100}return;[\s\S]{0,100}fetchSongsOrComplain/));

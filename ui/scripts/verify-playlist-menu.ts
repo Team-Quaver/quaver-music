@@ -69,6 +69,9 @@ ok("shell: 收藏歌单取消后不用回调（favs 订阅已负责重画）",
 // ============ 3. 播放动作：立即播放 / 整批插队 ============
 ok("plMenu: 立即播放 = 整队列替换从第一首起播",
   has(src.plMenu, "player.playList(songs, 0)") && has(src.plMenu, "export async function playPlaylistNow"));
+const playNowBody = (src.plMenu.match(/playSongsNow\(title: string, fetchSongs: \(\) => Promise<Song\[\]>\) \{([\s\S]*?)\n\}/) ?? [])[1] ?? "";
+ok("plMenu: 立即播放在电台里不被拦截（playList 内部先退出电台）",
+  !/radioActive/.test(noComments(playNowBody)) && /player\.playList\(songs, 0\)/.test(noComments(playNowBody)));
 ok("plMenu: 插队播放走 enqueueNextMany（整批排到当前曲之后）",
   has(src.plMenu, "player.enqueueNextMany(songs)") && has(src.plMenu, "export async function playPlaylistNext"));
 ok("plMenu: 拉歌单按页拉全（页尽即止，大歌单不截断在 100 首）",

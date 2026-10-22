@@ -115,6 +115,8 @@ ok("player: 立即插队插到当前曲之后并马上切歌（指针前移 + st
   && /startCurrent/.test(noComments(nowBody)));
 ok("player: 立即插队队列空时退化成单曲起播",
   /if \(this\.index < 0 \|\| !this\.queue\.length\) \{ this\.playList\(\[song\], 0\); return true; \}/.test(noComments(nowBody)));
+ok("player: 立即播放会退出无限电台（显式换台优先于电台锁）",
+  /this\.exitRadio\(\);[\s\S]{0,120}this\.queue\.splice\(this\.index \+ 1, 0, song\);/.test(noComments(nowBody)));
 ok("views: 搜索页双击走立即插队（不是 playList 整列灌队，也不是排到下一首）",
   /renderSongRows\(box, list, \{ showAlbum: true, onPlay: \(s\) => playNowWithToast\(s\) \}\)/.test(src.views));
 ok("菜单: 排队插队与搜索页立即插队分开（各自入口 + 回执）",
