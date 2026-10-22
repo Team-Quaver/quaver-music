@@ -167,6 +167,7 @@ export class EngineTransport implements Transport {
   private modeReady: Promise<any>;
   private progressTimer: number | null = null;
   private pcmPauseTimer: number | null = null;
+  private pcmStopTimer: number | null = null;
   private pcmEpoch = 0;
 
   constructor(bridge: EngineBridge, opts: { mode?: EngineMode } = {}) {
@@ -378,6 +379,16 @@ export class EngineTransport implements Transport {
   async load(url: string, opts?: { paused?: boolean; startAt?: number }) {
     await this.modeReady;
 
+    // 上一轮 stop 的延迟清理不能碰新歌；load 是新的 PCM 世代。
+    if (this.pcmStopTimer !== null) {
+      window.clearTimeout(this.pcmStopTimer);
+      this.pcmStopTimer = null;
+    }
+    if (this.pcmPauseTimer !== null) {
+      window.clearTimeout(this.pcmPauseTimer);
+      this.pcmPauseTimer = null;
+    }
+
     if (this.pcm) await this.invoke({ cmd: "pcm-ready" }).catch(() => {});
     const startAt = Math.max(0, Number(opts?.startAt) || 0);
     const epoch = ++this.pcmEpoch;
@@ -392,6 +403,10 @@ export class EngineTransport implements Transport {
   async play() {
     await this.modeReady;
 
+    if (this.pcmStopTimer !== null) {
+      window.clearTimeout(this.pcmStopTimer);
+      this.pcmStopTimer = null;
+    }
     if (this.pcm) await this.invoke({ cmd: "pcm-ready" }).catch(() => {});
     this.pcm?.resume();
     // eof 后 mpv 回 idle 会卸载文件（区别于 <audio> 保留 src）——重挂由引擎侧处理（它才知道 mpv 真实 idle 态）
@@ -406,8 +421,27 @@ export class EngineTransport implements Transport {
 
   stop() {
     this.loadedUrl = "";
-    this.pcm?.stop();
     void this.invoke({ cmd: "stop" }).catch(() => {});
+
+    if (!this.pcm) return;
+
+    // 先让主进程把 GainNode 包络降到 0；停止 sink 要等淡出结束。
+    // load() 会取消这个 timer，所以切歌时不会出现旧 stop 掐掉新歌。
+    if (this.pcmStopTimer !== null) window.clearTimeout(this.pcmStopTimer);
+
+    const fadeOutMs = getFadeMs().outMs;
+
+    if (fadeOutMs <= 0) {
+      this.pcmStopTimer = null;
+      this.pcm.stop();
+
+      return;
+    }
+
+    this.pcmStopTimer = window.setTimeout(() => {
+      this.pcmStopTimer = null;
+      this.pcm?.stop();
+    }, fadeOutMs + 40);
   }
 
   seek(sec: number) {
@@ -431,6 +465,10 @@ export class EngineTransport implements Transport {
     if (this.pcmPauseTimer !== null) {
       window.clearTimeout(this.pcmPauseTimer);
       this.pcmPauseTimer = null;
+    }
+    if (this.pcmStopTimer !== null) {
+      window.clearTimeout(this.pcmStopTimer);
+      this.pcmStopTimer = null;
     }
 
     try { this.offEngine(); } catch {}

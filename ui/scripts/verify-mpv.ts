@@ -209,6 +209,10 @@ check("pcm 块 50ms，降低 AudioBuffer/IPC 调度频率", /PCM_RATE \/ 20/.tes
 check("pcm renderer 使用单个 AudioWorklet ring buffer（不再按块建 source node）",
   /AudioWorkletNode/.test(sinkSrc) && /quaver-pcm/.test(readFileSync(join(UI, "public", "pcm-worklet.js"), "utf8")));
 
+const transportSrc = readFileSync(join(UI, "src", "lib", "transport.ts"), "utf8");
+check("pcm stop 等淡出结束再销毁 sink（load 可取消旧 stop timer）",
+  /pcmStopTimer/.test(transportSrc) && /fadeOutMs \+ 40/.test(transportSrc) && /this\.pcmStopTimer = null/.test(transportSrc));
+
 const binsSrc = readFileSync(join(UI, "electron", "audio", "bins.ts"), "utf8");
 
 check("bins.ts 导出 probeRuntime（CI --check 与运行期共用同一判据）",
