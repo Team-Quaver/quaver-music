@@ -537,11 +537,11 @@ ok("flowscape: 逐字模式复用宿主提供器（开=逐字，关=回退行级
 
 ok("flowscape: 逐字行按行号重填、词进度按变化写（稳态几乎零写入）", re(noComments(src.flowIdx), /if \(idx !== lastIdx\) \{/) && re(noComments(src.flowIdx), /if \(karaOn && idx >= 0\) paintKaraWords\(dispLines\[idx\], sec \* 1000\);/) && re(noComments(src.flowIdx), /if \(el\.dataset\.p === String\(q\)\) return;/));
 
-ok("amll: 音译归一成行级 romanLyric（与翻译共用歌词下方子行），Ruby 只由 QRCKana 写", has(src.amll, "parseKaraoke(content: string, translation: string, romanization = \"\")") && has(src.amll, "alignAux(word, translation, romanization)") && has(src.amll, "alignAux(lineLevel, translation, romanization)") && has(src.amll, "if (r) l.romanLyric = r;") && !has(src.amll, "rw.ruby =") && !has(src.amll, "l.ruby ="));
+ok("amll: 音译归一成行级 romanLyric（与翻译共用歌词下方子行），Ruby 只由 QRCKana 写", has(src.amll, "parseKaraoke(content: string, translation: string, romanization = \"\")") && has(src.amll, "alignAux(word, translation, romanization)") && has(src.amll, "alignAux(lineLevel, translation, romanization)") && has(src.amll, 'alignAuxField(lines, ro, "romanLyric")') && !has(src.amll, "rw.ruby =") && !has(src.amll, "l.ruby ="));
 
-ok("amll: 辅助源两路都认得词级 QRC（含 XML 信封）与普通 LRC", has(src.amll, "function parseQrcAuxSource") && has(src.amll, "const QRC_WORD_LINE = /^\\[\\d+,\\d+\\]/m;") && has(src.amll, "try { return parseLrc(c); } catch { return []; }"));
+ok("amll: 辅助源两路都认得词级 QRC（含 XML 信封）与普通 LRC", has(src.amll, "function parseQrcAuxSource") && has(src.amll, "const QRC_WORD_LINE = /^\\[\\d+,\\d+\\]/m;") && has(src.amll, "tryParseQrc(stripKanaTag(c))") && has(src.amll, "tryParseLrc(stripKanaTag(c))"));
 
-ok("amll: 辅助行档位规则只有 src/lyric.ts:pickAux 一份（内置后不再两处各写一遍）", re(src.amll, /import \{[^}]*\bpickAux\b[^}]*\} from "\.\.\/lyric";/) && has(src.amll, "pickAux({ trans: l.translatedLyric, roma: l.romanLyric }, mode)") && !has(src.amll, "const prefer =") && has(src.amll, "wantMode !== shownMode") && has(src.amll, "romanLyric: \"\","));
+ok("amll: 辅助行档位规则只有 src/lyric.ts:pickAux 一份（内置后不再两处各写一遍）", re(src.amll, /import \{[^}]*\bpickAux\b[^}]*\} from "\.\.\/lyric";/) && has(src.amll, "pickAux({") && has(src.amll, "trans: l.translatedLyric,") && has(src.amll, "roma: l.romanLyric,") && !has(src.amll, "const prefer =") && has(src.amll, "wantMode !== shownMode") && has(src.amll, "romanLyric: \"\","));
 
 ok("amll: LRC 行级也交给 AMLL（toLineLevel 整形单音节覆盖整行 + 末行收尾时长），内置引擎无设置项 / 不注册 enabled", has(src.amll, "function toLineLevel") && has(src.amll, "const lineLevel = toLineLevel(lrc?.length ? lrc : (word ?? []))") && !has(src.amll, "registerSettingsSection") && !has(src.amll, "enabled?()") && !has(src.amll, "wordbyword"));
 

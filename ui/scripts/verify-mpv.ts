@@ -198,7 +198,7 @@ check("pcm-progress 回推 state（不能只信 mpv 不动的 time-pos）",
 check("pcm 硬预读窗口防止 mpv 先写完整首进 idle", /PCM_MAX_AHEAD_SEC/.test(engineSrc) && /drainPcm\(/.test(engineSrc));
 
 check("pcm 音量走 renderer GainNode（不让 mpv 预写缓冲区造成半拍延迟）",
-  /pcm-gain/.test(engineSrc) && /setGain\(/.test(sinkSrc) && /this\.pcm\?\.setGain/.test(transportSrc));
+  /pcm-gain/.test(engineSrc) && /setGain\(/.test(sinkSrc) && /this\.pcm(Hook)?\?\.setGain/.test(transportSrc));
 
 check("pcm EQ 走 renderer BiquadFilter（不让 mpv af 慢一个预写缓冲）",
   /pcm-eq/.test(engineSrc) && /setEq\(/.test(sinkSrc) && /rebuildFilters/.test(sinkSrc));
@@ -264,20 +264,22 @@ check("兼容模式暂停不 suspend AudioContext（避免 WASAPI 重激活卡�
     resumed.left[0] === 0.25 && proc.availableFrames === beforePause.available - 128 && proc.playedFrames === beforePause.played + 128);
 }
 
+const pcmCtlSrc = readFileSync(join(UI, "src", "lib", "pcm-sink.ts"), "utf8");
+
 check("PCM 数据/EOF 按 epoch 丢弃旧会话尾巴",
-  /case "pcm"[\s\S]{0,100}Number\(ev\.epoch\) !== this\.pcmEpoch/.test(transportSrc)
-    && /case "pcm-eof"[\s\S]{0,100}Number\(ev\.epoch\) !== this\.pcmEpoch/.test(transportSrc));
+  /case "pcm"[\s\S]{0,100}Number\(ev\.epoch\) !==/.test(pcmCtlSrc)
+    && /case "pcm-eof"[\s\S]{0,100}Number\(ev\.epoch\) !==/.test(pcmCtlSrc));
 
 check("窗口重建/后端热切时 renderer 接上主进程 PCM epoch",
   /const epoch = Number\(r\?\.epoch\)/.test(transportSrc) && /epoch: this\.pcmEpoch/.test(engineSrc));
 
 check("切歌创建新 sink，旧 sink 独立淡出后再销毁（跨曲交叉）",
-  /retirePcm\(old\)/.test(transportSrc) && /fadingPcms/.test(transportSrc)
-    && /sink\.fadeOut\(ms\)/.test(transportSrc) && /Math\.max\(fade\.inMs, fade\.outMs\)/.test(transportSrc));
+  /retirePcm\(old\)/.test(pcmCtlSrc) && /fadingPcms/.test(pcmCtlSrc)
+    && /sink\.fadeOut\(ms\)/.test(pcmCtlSrc) && /Math\.max\(fade\.inMs, fade\.outMs\)/.test(pcmCtlSrc));
 
 check("淡出后的旧 sink 关闭 AudioContext，不堆积音频会话",
-  /setTimeout\(\(\) => \{[\s\S]{0,80}sink\.destroy\(\)/.test(transportSrc)
-    && /for \(const \[sink, timer\] of this\.fadingPcms\)[\s\S]{0,120}sink\.destroy\(\)/.test(transportSrc));
+  /setTimeout\(\(\) => \{[\s\S]{0,80}sink\.destroy\(\)/.test(pcmCtlSrc)
+    && /for \(const \[sink, timer\] of this\.fadingPcms\)[\s\S]{0,120}sink\.destroy\(\)/.test(pcmCtlSrc));
 
 check("PCM EOF 先发 ending，让下一首在尾音排空前起播",
   /onEnding\?:/.test(sinkSrc) && /type: "ending"/.test(transportSrc) && /case "ending"/.test(playerSrc));
@@ -306,7 +308,7 @@ check("PCM 恢复先查 mpv pause，只在挂流暂停时解除（不会永远�
     && /if \(mpvPaused\) await mpv\.setProp\("pause", false\)/.test(engineSrc));
 
 check("pcm stop 等淡出结束再销毁 sink（load 可取消旧 stop timer）",
-  /pcmStopTimer/.test(transportSrc) && /fadeOutMs \+ 40/.test(transportSrc) && /this\.pcmStopTimer = null/.test(transportSrc));
+  /stopTimer/.test(pcmCtlSrc) && /fadeOutMs \+ 40/.test(pcmCtlSrc) && /this\.stopTimer = null/.test(pcmCtlSrc));
 
 const binsSrc = readFileSync(join(UI, "electron", "audio", "bins.ts"), "utf8");
 

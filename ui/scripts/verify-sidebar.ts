@@ -242,9 +242,11 @@ ok("max-width 抓手有初值（none→0 不参与插值，必须在展开态给
   && /\.pname \{[^}]*max-width: 200px/.test(css.replace(/\s+/g, " "))
   && /\.nav a span \{[^}]*max-width: 140px/.test(css.replace(/\s+/g, " ")));
 
-// 减弱动效：直接跳终态
-const prm = [...css.matchAll(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g)].map((m) => m[1]).join("\n");
-
+// 减弱动效：直接跳终态。style.css 里有多段 @media (prefers-reduced-motion: reduce)
+// （浮窗菜单 / user 页 / 侧栏各一段），全抓出来并成一份再断言 —— 只抓第一段会在
+// 别的块排到前面时对错块断言（node 脚本自身红，CSS 却是对的）。
+const prm = [...css.matchAll(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g)]
+  .map((m) => m[1]!).join("\n");
 ok("减弱动效下侧栏成员禁用过渡（直接跳终态）",
   /transition: none/.test(prm) && /\.side-btn svg/.test(prm) && /\.user-meta/.test(prm));
 

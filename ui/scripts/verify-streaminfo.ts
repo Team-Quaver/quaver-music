@@ -189,8 +189,9 @@ ok("np: 浮窗行齐全（编码/采样率/采样精度/码率/声道）",
   && has(src.np, '"码率"') && has(src.np, '"声道"'));
 
 ok("np: 探测回来自动落行（开着 + 还是同一条流才画）",
-  re(src.np, /qinfoOpen\(\) && player\.streamUrl === url\)? fillQInfo\(url, info\)/));
-
+  re(src.np, /qinfoOpen\(\) && player\.streamUrl === url\)? fillQInfo\(url, info(, si)?\)/));
+ok("np: streaminfo 懒加载（音质浮窗点开才 import，不进首屏闭包）",
+  has(src.np, 'import("../lib/streaminfo")'));
 ok("np: 点胶囊开浮窗先收 ⋮ 菜单（同锚区互斥）",
   re(src.np, /closeMoreMenu\(\);[\s\S]{0,80}qInfo\.classList\.add\("open"\)/));
 
@@ -202,7 +203,7 @@ ok("np: 浮窗内容签名守卫（4Hz notify 不重建 DOM）", has(src.np, "qF
 ok("player: 挂流时记录 streamUrl", has(src.player, "this.streamUrl = r.url;"));
 
 ok("player: 打断即清 streamUrl（旧流失效）",
-  re(src.player, /private interrupt\(\) \{[\s\S]*?this\.streamUrl = "";[\s\S]*?this\.transport\.stop\(\)/));
+  re(src.player, /private interrupt\(stopOutput = true\) \{[\s\S]*?this\.streamUrl = "";[\s\S]*?this\.transport\.stop\(\)/));
 
 ok("player: 窗口重建接管路径补 streamUrl（engine adopt）", has(src.player, "this.streamUrl = es.url;"));
 

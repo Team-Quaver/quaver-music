@@ -126,11 +126,12 @@ section("来源优先级");
 // 注入用底稿：把「真实环境」那几层（gsettings / GTK 配色 css / dconf 库）钉成确定值，
 // 免得单测随开发机的桌面状态飘（这层就是干探测的，测它必须自己先把环境关掉）
 const base = {
-  gtkCssDirs: [], dconfDb: join(ROOT, "none-dconf"), run: () => ({ stdout: "" }),
+  // desktop 钉成空串：不钉的话 KDE 会话的宿主机会让真实 kdeglobals 漏进
+  // 「gsettings / GTK css」优先级断言（CI 上没有这个环境，本地一跑就假红）。
+  desktop: "", gtkCssDirs: [], dconfDb: join(ROOT, "none-dconf"), run: () => ({ stdout: "" }),
 };
 
-const mk = (o) => ({ kdeGlobals: kdePath, gtkInis: [gtkPath], desktop: "KDE", ...base, ...o });
-
+const mk = (o) => ({ ...base, kdeGlobals: kdePath, gtkInis: [gtkPath], desktop: "KDE", ...o });
 eq("KDE 会话：以 kdeglobals 为准（GTK 那份是静态快照，忽略）",
   readSystemTheme(mk({ kdeGlobals: write("k1", KDE_DARK), gtkInis: [write("g1", GTK_LIGHT)] })), "dark");
 

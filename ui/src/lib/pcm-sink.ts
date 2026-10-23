@@ -380,7 +380,7 @@ export class PcmController {
   private pauseTimer: number | null = null;
   private stopTimer: number | null = null;
   private paused = true;
-  private fading = new Map<PcmSink, number>();
+  private fadingPcms = new Map<PcmSink, number>();
   private opts: PcmControllerOpts;
 
   constructor(opts: PcmControllerOpts) {
@@ -492,12 +492,12 @@ export class PcmController {
     next.setGain(0);
     this.sink = next;
 
-    if (old) this.retire(old);
+    if (old) this.retirePcm(old);
     next.reset(startAt);
   }
 
   /** 跨曲：旧 sink 保留已排好的 PCM，独立淡出；新 sink 立即接管主进程的新 PCM。 */
-  private retire(sink: PcmSink) {
+  private retirePcm(sink: PcmSink) {
     const fade = getFadeMs();
     // 旧曲降幅与新曲升幅取同一时长，才是交叉淡化；outMs 单用会比淡入短一截。
     const ms = Math.max(fade.inMs, fade.outMs);
@@ -515,19 +515,19 @@ export class PcmController {
 
     const timer = window.setTimeout(() => {
       sink.destroy();
-      this.fading.delete(sink);
+      this.fadingPcms.delete(sink);
     }, ms + 60);
 
-    this.fading.set(sink, timer);
+    this.fadingPcms.set(sink, timer);
   }
 
   private stopFading() {
-    for (const [sink, timer] of this.fading) {
+    for (const [sink, timer] of this.fadingPcms) {
       window.clearTimeout(timer);
       sink.destroy();
     }
 
-    this.fading.clear();
+    this.fadingPcms.clear();
   }
 
   reset(pos: number) {
