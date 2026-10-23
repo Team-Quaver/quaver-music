@@ -641,7 +641,5 @@ export class PcmEngineTransport extends EngineTransport {
       destroy: () => this.ctl.destroy(),
     };
 
-    // 引擎在 mode 落地后就会推流：hook 挂上之前缓冲的帧按序回放
-    for (const ev of this.pcmBacklog.splice(0)) this.ctl.feed(ev);
   }
 }
