@@ -10,7 +10,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  PROBE_MAX_SPAN, classifyGuardedPath, closedRangeSpan, installStreamGuard, streamGuardVerdict,
+  PROBE_MAX_SPAN, classifyGuardedPath, closedRangeSpan, installStreamGuard, streamGuardPreflightVerdict,
+  streamGuardVerdict,
   type GuardRequestLike,
 } from "../electron/stream-guard.ts";
 
@@ -72,11 +73,14 @@ check("媒体元素带小 Range 也放行",
   streamGuardVerdict(req({ requestHeaders: [{ name: "Range", value: "bytes=1024-2047" }] }), ORIGIN).allow === true);
 
 const xhr = (range?: string) => req({
-  resourceType: "xmlhttprequest",
+  resourceType: "xhr",
   requestHeaders: range ? [{ name: "range", value: range }] : [],
 });
 
-check("fetch 小探测（≤64KiB）放行（音质浮窗）", streamGuardVerdict(xhr("bytes=0-4095"), ORIGIN).allow === true);
+check("Electron xhr 小探测（≤64KiB）放行（音质浮窗）", streamGuardVerdict(xhr("bytes=0-4095"), ORIGIN).allow === true);
+
+check("CDP 兼容：xmlhttprequest 小探测同样放行",
+  streamGuardVerdict({ ...xhr("bytes=0-4095"), resourceType: "xmlhttprequest" }, ORIGIN).allow === true);
 
 check("fetch 无 Range 整段 → 拦截", streamGuardVerdict(xhr(), ORIGIN).allow === false);
 
@@ -103,6 +107,13 @@ check("resolve POST 不在此闸门内（正常取链不受影响）",
 
 check("其它 origin 直通（插件外部源不归管）",
   streamGuardVerdict(req({ url: "https://example.com/api/stream/tok" }), ORIGIN).allow === true);
+
+check("onBeforeRequest 预检：xhr 延后到请求头阶段判定",
+  streamGuardPreflightVerdict(xhr(), ORIGIN).allow === true);
+
+check("onBeforeRequest 预检：媒体放行、地址栏拦截",
+  streamGuardPreflightVerdict(req({}), ORIGIN).allow === true
+    && streamGuardPreflightVerdict(req({ resourceType: "main_frame" }), ORIGIN).allow === false);
 
 // ——— ② 源码护栏 ———
 section("接线：主进程 / 中继 / 后端");
@@ -146,7 +157,8 @@ const apiSrc = read(join(UI, "src/lib/api.ts"));
 
 check("resolve 带 duration_ms 限速提示", /duration_ms: durationHintMs\(song\)/.test(apiSrc));
 
-let hookOk = false;
+let requestHookOk = false;
+let headerHookOk = false;
 
 installStreamGuard({
   webRequest: {
@@ -154,15 +166,25 @@ installStreamGuard({
       const box = { cancel: false };
 
       listener(req({ resourceType: "main_frame" }), (r) => { box.cancel = r.cancel === true; });
-      hookOk = box.cancel;
+      requestHookOk = box.cancel;
+    },
+    onBeforeSendHeaders: (_f, listener) => {
+      const full = { cancel: false };
+      const probe = { cancel: false };
+
+      listener(xhr(), (r) => { full.cancel = r.cancel === true; });
+      listener(xhr("bytes=0-4095"), (r) => { probe.cancel = r.cancel === true; });
+      headerHookOk = full.cancel && !probe.cancel;
     },
   },
 }, ORIGIN, () => {});
 
-check("installer 真的把 cancel 传回 webRequest", hookOk);
+check("onBeforeRequest 真的把 cancel 传回 webRequest", requestHookOk);
+
+check("onBeforeSendHeaders 拦截整段 xhr、放行闭合小 Range", headerHookOk);
 
 check("坏 origin（file: 等）返回 false 而不是抛",
-  installStreamGuard({ webRequest: { onBeforeRequest: () => {} } }, "file:///", () => {}) === false);
+  installStreamGuard({ webRequest: { onBeforeRequest: () => {}, onBeforeSendHeaders: () => {} } }, "file:///", () => {}) === false);
 
 const pkg = JSON.parse(read(join(UI, "package.json")));
 

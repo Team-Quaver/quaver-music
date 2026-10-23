@@ -147,6 +147,7 @@ export class MpvIpc {
           "--ao=pcm",
           `--ao-pcm-file=${this.pcmFile}`,
           "--ao-pcm-waveheader=no",
+          "--ao-pcm-append=yes",
           "--audio-samplerate=48000",
           "--audio-channels=stereo",
           "--audio-format=float",
@@ -301,6 +302,20 @@ export class MpvIpc {
   observe(id: number, prop: string): Promise<MpvValue> { return this.command(["observe_property", id, prop]); }
   getProp(prop: string): Promise<MpvValue> { return this.command(["get_property", prop]); }
   setProp(prop: string, value: MpvValue): Promise<MpvValue> { return this.command(["set_property", prop, value]); }
+
+  /** 兼容模式换输出：先卸掉旧 AO（释放旧 FIFO 写端），再绑定新 FIFO 并重新启用 pcm。
+   *  只 set ao=null 不够：mpv 不会在下一首自动恢复成 pcm，结果就是有进度但没有声音。 */
+  async configurePcmOutput(file: string): Promise<void> {
+    if (!file) throw new Error("PCM output path is empty");
+
+    await this.setProp("ao", "null");
+
+    try {
+      await this.setProp("ao-pcm-file", file);
+    } finally {
+      await this.setProp("ao", "pcm");
+    }
+  }
 
   /** 温和退出：裸写 quit（不走 command()——dead 标志会挡）+ SIGTERM 直杀（不依赖 socket
    *  flush：主进程可能在 quit 字节刷出前就退出，信号是内核直接递的不怕），2s 后仍在就 SIGKILL。 */

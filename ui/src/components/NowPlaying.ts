@@ -736,7 +736,7 @@ export function NowPlaying(): HTMLElement {
       lyricDelay: () => getLyricDelayMs(player.current),
       hidePassedLines: () => npLyricHidePlayed() && Date.now() >= karaBrowsingUntil,
       lyricTopAnchor,
-      seek: (ms) => { player.seek(ms / 1000); setBrowse(false); },
+      seek: (ms) => { player.seek(ms / 1000, { immediate: true }); setBrowse(false); },
       onNotify: (cb) => player.on(cb),
     }) ?? null;
   }
@@ -887,7 +887,7 @@ export function NowPlaying(): HTMLElement {
       d.innerHTML = `<span class="l1">${escapeHtml(line.text)}</span>${aux ? `<span class="l2">${escapeHtml(aux)}</span>` : ""}`;
       // 点击跳回该行并恢复跟随：屏幕上的行是被延迟挪出来的一行，落要点回真实播放位
       // （line.t 单位秒，delay 毫秒 → /1000）
-      d.onclick = () => { player.seek(line.t + getLyricDelayMs(player.current) / 1000); setBrowse(false); };
+      d.onclick = () => { player.seek(line.t + getLyricDelayMs(player.current) / 1000, { immediate: true }); setBrowse(false); };
 
       lyrics.append(d);
     }

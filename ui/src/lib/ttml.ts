@@ -80,8 +80,10 @@ export function ttmlMissRemember(url: string): void {
   miss.set(url, Date.now());
 }
 
-/** 在线库查询：拿不到（网络失败/非 200/嗅探不是 TTML/超时）一律 null，调用方无脑回落。 */
-export async function fetchTtml(url: string, timeoutMs = 6000): Promise<string | null> {
+/** 在线库查询：拿不到（网络失败/非 200/嗅探不是 TTML/超时）一律 null，调用方无脑回落。
+ *  这是行级歌词已在屏后的**后台补刀**，不能让镜像首字节延迟决定歌词出现时间；
+ *  2.5s 足够正常命中，超时就按未命中负缓存，下次重进再试。 */
+export async function fetchTtml(url: string, timeoutMs = 2500): Promise<string | null> {
   try {
     const r = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
 

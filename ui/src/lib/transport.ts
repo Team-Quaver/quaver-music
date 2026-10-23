@@ -41,11 +41,16 @@ export interface Transport {
   readonly duration: number;
   /** 无媒体或暂停时为 true */
   readonly paused: boolean;
+  /** pcm 兼容模式的分析节点；web/native 没有。 */
+  readonly pcmAnalyser?: () => AnalyserNode | null;
+  /** 结束一轮 seek（进度条拖拽抬手）。 */
+  seekSettled?(): void;
   load(url: string, opts?: { paused?: boolean; startAt?: number }): Promise<void>;
   play(): Promise<void>;
   pause(): void;
   stop(): void;
-  seek(sec: number): void;
+  /** `immediate` = 用户明确跳转（如点歌词）：兼容模式跳过淡出/淡入等待。 */
+  seek(sec: number, opts?: { immediate?: boolean }): void;
   /** 音量统一入口：0..1 + 静音（两条传输各自映射） */
   setVolume(vol: number, muted: boolean): void;
   listDevices?(): Promise<{ current: string; devices: AudioDeviceInfo[] }>;
@@ -152,9 +157,11 @@ export interface PcmHooks {
   /** 引擎推来的 PCM 事件（pcm / pcm-gain / pcm-eq / pcm-eof），内部按世代丢弃旧会话尾巴 */
   feed(ev: any): void;
   /** 新流：清掉上一代 sink（旧曲独立淡出），建新一代并钉住时间轴 */
-  load(epoch: number, startAt: number): void;
+  load(epoch: number, startAt: number, paused: boolean): void;
   /** seek / 窗口接管：在途淡出全停，时间轴钉到 pos */
   reset(pos: number): void;
+  /** 用户明确跳转：清掉旧尾巴并立刻恢复消费，不等下次淡入。 */
+  resetNow(pos: number): void;
   resume(): void;
   /** 延迟淡出后停（transport.stop 的口径） */
   stop(): void;
@@ -188,6 +195,8 @@ export class EngineTransport implements Transport {
   protected offEngine: () => void;
   protected modeReady: Promise<any>;
   protected pcmEpoch = 0;
+  private seekInFlight = false;
+  private pendingSeek: { at: number; immediate: boolean } | null = null;
   /** pcm 兼容模式的渲染钩子（由动态加载的 PcmEngineTransport 挂上；native 恒为 null）。
    *  子类构造是同步完成的，IPC 事件不可能在 hook 挂上前送达 —— 不需要缓冲。 */
   protected pcmHook: PcmHooks | null = null;
@@ -347,6 +356,19 @@ export class EngineTransport implements Transport {
     return this.bridge.invoke(cmd);
   }
 
+  private syncPcmReady(): void {
+    if (!this.pcmHook) return;
+
+    void this.invoke({ cmd: "pcm-ready" }).then((r) => {
+      const hook = this.pcmHook;
+
+      if (!hook || !r?.ok) return;
+
+      if (Number.isFinite(Number(r.gain))) hook.setGain(Math.max(0, Math.min(1, Number(r.gain))));
+      if (r.eq) hook.setEq(r.eq);
+    }).catch(() => {});
+  }
+
   async load(url: string, opts?: { paused?: boolean; startAt?: number }) {
     await this.modeReady;
 
@@ -354,8 +376,9 @@ export class EngineTransport implements Transport {
     const epoch = ++this.pcmEpoch;
 
     if (this.pcmHook) {
-      await this.invoke({ cmd: "pcm-ready" }).catch(() => {});
-      this.pcmHook.load(epoch, startAt);
+      this.pcmHook.load(epoch, startAt, !!opts?.paused);
+      // 不在这条关键路径上等一轮 IPC：sink 已同步建好，pcm-ready 只负责解除主进程背压。
+      this.syncPcmReady();
     }
 
     const r = await this.invoke({ cmd: "load", url, paused: !!opts?.paused, startAt, epoch });
@@ -363,22 +386,33 @@ export class EngineTransport implements Transport {
     if (!r?.ok) throw new Error(r?.error ?? "音频引擎加载失败");
     this.loadedUrl = url;
     this.frozen = 0;
+
+    this.syncPcmReady();
   }
 
   async play() {
     await this.modeReady;
 
     if (this.pcmHook) {
-      await this.invoke({ cmd: "pcm-ready" }).catch(() => {});
+      this.st.paused = false;
+      this.syncPcmReady();
       this.pcmHook.resume();
+      this.emit({ type: "play" });
+      this.emit({ type: "time" });
     }
     // eof 后 mpv 回 idle 会卸载文件（区别于 <audio> 保留 src）——重挂由引擎侧处理（它才知道 mpv 真实 idle 态）
+
     const r = await this.invoke({ cmd: "play" });
 
     if (!r?.ok) throw new Error(r?.error ?? "音频引擎播放失败");
   }
 
   pause() {
+    if (this.pcmHook) {
+      this.st.paused = true;
+      this.emit({ type: "pause" });
+    }
+
     void this.invoke({ cmd: "pause" }).catch(() => {});
   }
 
@@ -388,22 +422,62 @@ export class EngineTransport implements Transport {
     this.pcmHook?.stop();
   }
 
-  seek(sec: number) {
+  seek(sec: number, opts?: { immediate?: boolean }) {
     // 乐观位置：进度条/歌词立刻跟手，引擎 state 事件（含真实边界钳制）马上对齐
     const at = Math.max(0, sec);
-    const epoch = ++this.pcmEpoch;
 
-    this.pcmHook?.reset(at);
+    this.queueSeek(at, !!opts?.immediate);
+
+    if (opts?.immediate) this.pcmHook?.resetNow(at);
+    else this.pcmHook?.reset(at);
     this.st.pos = at;
     this.posAt = performance.now();
     this.frozen = 0;
     this.emit({ type: "time" });
-    void this.invoke({ cmd: "seek", sec: at, epoch }).catch(() => {});
+  }
+
+  seekSettled() {}
+
+  private queueSeek(at: number, immediate: boolean): number {
+    const epoch = ++this.pcmEpoch;
+
+    if (!this.pcmHook || !this.seekInFlight) {
+      this.sendSeek(at, epoch, immediate);
+
+      return epoch;
+    }
+
+    this.pendingSeek = { at, immediate };
+
+    return epoch;
+  }
+
+  private sendSeek(at: number, epoch: number, immediate: boolean): void {
+    if (this.pendingSeek) {
+      const latest = this.pendingSeek;
+
+      this.pendingSeek = null;
+      at = latest.at;
+      epoch = ++this.pcmEpoch;
+      immediate ||= latest.immediate;
+    }
+
+    this.seekInFlight = true;
+    void this.invoke({ cmd: "seek", sec: at, epoch, immediate })
+      .catch(() => {})
+      .finally(() => {
+        this.seekInFlight = false;
+        const next = this.pendingSeek;
+        this.pendingSeek = null;
+
+        if (next) this.sendSeek(next.at, ++this.pcmEpoch, next.immediate);
+      });
   }
 
   dispose() {
     try { this.offEngine(); } catch {}
 
+    this.pendingSeek = null;
     this.pcmHook?.destroy();
     this.pcmHook = null;
   }

@@ -44,6 +44,7 @@ const src = {
   style: read("src/style.css"),
   npView: read("src/sparkle/np-view.ts"),
   spectrum: read("src/lib/audio-spectrum.ts"),
+  pcmSink: read("src/lib/pcm-sink.ts"),
   spectrumRender: read("src/lib/spectrum-render.ts"),
   spectrumCtrl: read("src/lib/spectrum-controller.ts"),
   spectrumCss: read("src/lib/spectrum.css"),
@@ -306,7 +307,7 @@ ok("回归: 内置菜单项字面量未被挪走", ["插队播放", "加入歌�
 // 三方接线：SDK 契约 ↔ registry 存取 ↔ np-view 挂载 ↔ NowPlaying 让位 ↔ CSS 收播放条。
 ok("sdk: SparkleNpView 契约齐备（render + enabled + ctx）", ["interface SparkleNpView", "interface SparkleNpViewCtx", "interface SparkleLyricLine", "interface SparkleQualityTier"].every((t) => has(src.types, t)));
 
-ok("sdk: ctx 暴露传输控制、只读队列邻曲与无限电台状态", ["seek(sec: number)", "next()", "prev()", "setVolume(v: number)", "switchQuality(id: string)", "prevSong()", "nextSong()", "songAt(offset: number)", "radioActive?(): boolean;", "radioLoading?(): boolean;", "radioError?(): string;"].every((s) => has(src.types, s)));
+ok("sdk: ctx 暴露传输控制、只读队列邻曲与无限电台状态", ["seek(sec: number, opts?: { immediate?: boolean })", "next()", "prev()", "setVolume(v: number)", "switchQuality(id: string)", "prevSong()", "nextSong()", "songAt(offset: number)", "radioActive?(): boolean;", "radioLoading?(): boolean;", "radioError?(): string;"].every((s) => has(src.types, s)));
 
 ok("sdk: SongSnapshot 带 album.pmid 与 interval（封面 URL 要 pmid 优先）", re(src.types, /album\?: \{ name\?: string; mid\?: string; pmid\?: string \}/) && has(src.types, "interval?: number"));
 
@@ -353,7 +354,26 @@ ok("sdk: np 视图与播放器门面都能拿到频谱", has(src.types, "spectru
 
 ok("spectrum: 真数据源 = AnalyserNode 的频域 + 时域，不做假波形", ["createAnalyser()", "getFloatFrequencyData(", "getFloatTimeDomainData(", "fftSize = FFT_SIZE"].every((t) => has(src.spectrum, t)));
 
-ok("spectrum: web 直挂播放器 <audio>；mpv 用同流静音镜像（0 增益）", has(src.spectrum, "createMediaElementSource(el)") && has(src.spectrum, "new Audio()") && re(src.spectrum, /output\.gain\.value = desired === "engine" \? 0 : 1;/));
+ok("spectrum: web 直挂 <audio>；PCM 复用最终输出分析，原生 mpv 才用静音镜像",
+  has(src.spectrum, "createMediaElementSource(el)") && has(src.spectrum, "new Audio()")
+    && has(src.spectrum, "player.pcmAnalyser") && has(src.pcmSink, "setPcmSpectrumAnalyser(this.analyser)")
+    && re(src.spectrum, /output\.gain\.value = desired === "native" \? 0 : 1;/)
+    && re(src.spectrum, /analyser\.connect\(output\);\s*output\.connect\(ctx\.destination\);\s*this\.ctx = ctx;\s*this\.analyser = analyser;/));
+
+ok("spectrum: 按实际传输拓扑选源，PCM 缺 analyser 时不回退原生镜像",
+  has(src.spectrum, "private desiredSource(): Exclude<SpectrumSource")
+    && re(src.spectrum, /private desiredSource\(\)[\s\S]{0,120}return player\.outputMode;/)
+    && has(src.player, "get outputMode(): \"web\" | \"pcm\" | \"native\"")
+    && !re(src.spectrum, /player\.pcmAnalyser \? "pcm" : "native"/));
+
+ok("spectrum: 无歌/暂停强制输出全零帧，不读取旧 AnalyserNode",
+  re(src.spectrum, /if \(!player\.current \|\| player\.paused\)[\s\S]{0,100}return this\.quietFrame\(analyser\);/)
+    && re(src.spectrum, /this\.bins\.fill\(0\);\s*this\.wave\.fill\(0\);/)
+    && has(src.spectrum, "active: false"));
+
+ok("spectrum: FFT/Canvas 限到 30fps，避免频谱常驻烤满 renderer/GPU",
+  has(src.spectrum, "const FRAME_INTERVAL_MS = 1000 / 30;")
+    && re(src.spectrum, /now - this\.lastLoopSampleAt < FRAME_INTERVAL_MS/));
 
 ok("spectrum: 内置三模式 + 插件模式同接口", ['id: "bars"', 'id: "mirror"', 'id: "wave"'].every((t) => has(src.spectrumRender, t)) && has(src.spectrumCtrl, "sparkleNpSpectrumModes()"));
 
@@ -551,11 +571,11 @@ ok("sdk: 歌词延迟透传给插件（两条 ctx 都有 lyricDelay，符号与�
 
 ok("delay: 按歌曲的延迟存 localStorage（一歌一项的本地数据，不进 quaver.conf；键 mid，钳 ±10s 对齐 0.1s）", has(src.lyricDelay, "quaver.lyricDelay.v1") && has(src.lyricDelay, "LYRIC_DELAY_MAX_MS = 10_000") && has(src.lyricDelay, "localStorage.setItem(LS_KEY") && !has(src.lyricDelay, "cfgSet"));
 
-ok("delay: 宿主三条消费路同口径透传（kara ctx / np-view ctx / 行级比对与点击），菜单行 −/+ 与点数值归零", has(src.np, "lyricDelay: () => getLyricDelayMs(player.current)") && has(src.npView, "lyricDelay: () => getLyricDelayMs(player.current)") && has(src.np, "player.time + player.lyricComp - getLyricDelayMs(player.current) / 1000") && has(src.np, "player.seek(line.t + getLyricDelayMs(player.current) / 1000)") && has(src.np, '"np-menu-delay"') && has(src.np, "stepLyricDelay") && has(src.style, ".np-menu:has(.np-menu-delay)"));
+ok("delay: 宿主三条消费路同口径透传（kara ctx / np-view ctx / 行级比对与点击），菜单行 −/+ 与点数值归零", has(src.np, "lyricDelay: () => getLyricDelayMs(player.current)") && has(src.npView, "lyricDelay: () => getLyricDelayMs(player.current)") && has(src.np, "player.time + player.lyricComp - getLyricDelayMs(player.current) / 1000") && has(src.np, "player.seek(line.t + getLyricDelayMs(player.current) / 1000, { immediate: true })") && has(src.np, '"np-menu-delay"') && has(src.np, "stepLyricDelay") && has(src.style, ".np-menu:has(.np-menu-delay)"));
 
-ok("amll: 延迟扣在驱动时钟里且变化重锚（0.1s 步进不能被 250ms 回跳钳平吞掉）；行点击把延迟加回真实播放位", has(src.amll, "const raw = ctx.time() - d;") && has(src.amll, "if (d !== lastDelay) { lastDelay = d; lastFedMs = raw; return raw; }") && has(src.amll, "ctx.seek(Math.max(0, ms + delayMs()))"));
+ok("amll: 延迟扣在驱动时钟里且变化重锚（0.1s 步进不能被 250ms 回跳钳平吞掉）；行点击把延迟加回真实播放位", has(src.amll, "const raw = ctx.time() - d;") && has(src.amll, "if (d !== lastDelay) { lastDelay = d; lastFedMs = raw; return raw; }") && has(src.amll, "ctx.seek(Math.max(0, ms + delayMs()), { immediate: true })"));
 
-ok("flowscape: 接管视图跟着吃延迟（rAF 时钟扣减 + 行点击加回）", has(noComments(src.flowIdx), "const sec = ctx.time() + 0.2 - (ctx.lyricDelay?.() ?? 0) / 1000;") && has(noComments(src.flowIdx), "ctx.seek(Math.max(0, l.t + (ctx.lyricDelay?.() ?? 0) / 1000));"));
+ok("flowscape: 接管视图跟着吃延迟（rAF 时钟扣减 + 行点击加回）", has(noComments(src.flowIdx), "const sec = ctx.time() + 0.2 - (ctx.lyricDelay?.() ?? 0) / 1000;") && has(noComments(src.flowIdx), "ctx.seek(Math.max(0, l.t + (ctx.lyricDelay?.() ?? 0) / 1000), { immediate: true });"));
 
 ok("kana: QRCKana 是移植的纯函数（零依赖、不引整个 lyric-kit，只取这套系统）", has(src.kana, "移植自 SPlayer-Dev/lyric-kit") && !has(src.kana, "from \"lyric-kit\"") && !has(src.kana, "import ") && has(src.kana, "export function parseKanaUnits") && has(src.kana, "export function applyKanaToLines"));
 

@@ -11,6 +11,7 @@
 // 不进首屏闭包（verify-bundle 的首屏预算守着这条线）。
 import { getEqualizerState, getFadeMs } from "./prefs";
 import { EngineTransport, type EngineBridge } from "./transport";
+import { pcmSpectrumAnalyser, setPcmSpectrumAnalyser } from "./pcm-analyser";
 import type { EqBandType, EqState } from "../../electron/audio/eq-config.ts";
 
 const PCM_RATE = 48000;
@@ -50,6 +51,9 @@ export class PcmSink {
   private gain: GainNode | null = null;
   private filters: BiquadFilterNode[] = [];
   private worklet: AudioWorkletNode | null = null;
+  private analyser: AnalyserNode | null = null;
+  /** AnalyserNode 必须有一条通往 destination 的静音下游，音频图才会持续拉取 FFT。 */
+  private analyserOutput: GainNode | null = null;
   private pending: Float32Array[] = [];
   private pendingFrames = 0;
   private eq: EqState = { enabled: false, preamp: 0, bands: [] };
@@ -66,6 +70,8 @@ export class PcmSink {
   private suspended = false;
   private disposed = false;
   private opts: PcmSinkOpts;
+  /** 频谱分析旁路不能影响 PCM 播放：分析节点异常时仍继续出力。 */
+  private analyserHint = false;
 
   constructor(opts: PcmSinkOpts) {
     this.opts = opts;
@@ -99,6 +105,17 @@ export class PcmSink {
     this.input = input;
     this.preamp = preamp;
     this.gain = gain;
+
+    this.analyser = ctx.createAnalyser();
+    this.analyser.fftSize = 2048;
+    this.analyser.smoothingTimeConstant = 0.76;
+    this.analyser.minDecibels = -100;
+    this.analyser.maxDecibels = -18;
+    this.analyserOutput = ctx.createGain();
+    this.analyserOutput.gain.value = 0;
+    this.analyser.connect(this.analyserOutput);
+    this.analyserOutput.connect(ctx.destination);
+    setPcmSpectrumAnalyser(this.analyser);
     this.rebuildFilters();
     void this.initWorklet(ctx);
 
@@ -303,6 +320,16 @@ export class PcmSink {
 
     this.filters = [];
     this.gain?.disconnect();
+    this.analyser?.disconnect();
+    this.analyserOutput?.disconnect();
+
+    // 快速切歌时旧 sink 会晚于新 sink 销毁；只能撤掉自己的引用，
+    // 不能把新 sink 已发布的 AnalyserNode 一并清空。
+    if (this.analyser && pcmSpectrumAnalyser() === this.analyser) setPcmSpectrumAnalyser(null);
+
+    this.analyser = null;
+    this.analyserOutput = null;
+    this.analyserHint = false;
     this.input = null;
     this.preamp = null;
     this.gain = null;
@@ -347,8 +374,20 @@ export class PcmSink {
     }
 
     tail.connect(gain);
+    this.connectAnalyser(gain);
     gain.gain.value = this.gainValue;
     gain.connect(ctx.destination);
+  }
+
+  private connectAnalyser(gain: GainNode): void {
+    if (!this.analyser || this.analyserHint) return;
+
+    try {
+      gain.connect(this.analyser);
+      this.analyserHint = true;
+    } catch {
+      this.analyserHint = false;
+    }
   }
 
   private maybeEnded() {
@@ -376,6 +415,8 @@ export interface PcmControllerOpts {
 
 export class PcmController {
   private sink: PcmSink;
+  private gainValue = 1;
+  private eqValue = getEqualizerState();
   private progressTimer: number | null = null;
   private pauseTimer: number | null = null;
   private stopTimer: number | null = null;
@@ -412,7 +453,8 @@ export class PcmController {
       },
     });
 
-    sink.setEq(getEqualizerState());
+    sink.setGain(this.gainValue);
+    sink.setEq(this.eqValue);
 
     return sink;
   }
@@ -430,11 +472,12 @@ export class PcmController {
     }
 
     if (paused) {
-      // 等主进程把 250ms 淡出走完、管道停住后再挂起；立刻 pause 会切断淡出，
-      // 也会让 resume 首块听起来“卡一下”。eof 已到则让 sink 自己把尾巴播完。
+      // 等主进程的 GainNode 淡出走完、FIFO 背压停住后再冻结 worklet。
+      // 立刻 pause 会切断淡出，也会让恢复时的首块 PCM 听起来卡一下。
       if (!this.sink.eofPending()) {
         this.pauseTimer = window.setTimeout(() => {
           this.pauseTimer = null;
+
           if (this.paused) this.sink.pause();
         }, getFadeMs().outMs);
       }
@@ -456,14 +499,17 @@ export class PcmController {
 
         return;
       }
+
       case "pcm-gain":
-        if (ev.epoch !== undefined && Number(ev.epoch) !== this.opts.epoch()) return;
-        this.sink.setGain(Number(ev.value) || 0);
+        // 音量/EQ 是跨世代的全局播放状态；只有 PCM 样本和 EOF 需要按 epoch 丢弃。
+        // 切歌时若把新主进程包络误判成旧世代，新 sink 会永久停在 0 增益。
+        this.gainValue = Number(ev.value) || 0;
+        this.sink.setGain(this.gainValue);
 
         return;
       case "pcm-eq":
-        if (ev.epoch !== undefined && Number(ev.epoch) !== this.opts.epoch()) return;
-        this.sink.setEq(ev.state);
+        this.eqValue = ev.state;
+        this.sink.setEq(this.eqValue);
 
         return;
       case "pcm-eof":
@@ -475,7 +521,7 @@ export class PcmController {
   }
 
   /** 新流：上一轮 stop 的延迟清理不能碰新歌；建新一代 sink，旧曲独立淡出（交叉淡化）。 */
-  load(epoch: number, startAt: number) {
+  load(epoch: number, startAt: number, paused: boolean) {
     if (this.stopTimer !== null) {
       window.clearTimeout(this.stopTimer);
       this.stopTimer = null;
@@ -489,11 +535,14 @@ export class PcmController {
     const old = this.sink;
     const next = this.makeSink(epoch);
 
-    next.setGain(0);
     this.sink = next;
 
     if (old) this.retirePcm(old);
     next.reset(startAt);
+    this.paused = paused;
+
+    if (paused) next.pause();
+    else next.resume();
   }
 
   /** 跨曲：旧 sink 保留已排好的 PCM，独立淡出；新 sink 立即接管主进程的新 PCM。 */
@@ -533,6 +582,18 @@ export class PcmController {
   reset(pos: number) {
     this.stopFading();
     this.sink.reset(pos);
+
+    if (this.paused) this.sink.pause();
+    else this.sink.resume();
+  }
+
+  /** Immediate seek：跳过旧 sink 的淡出，立刻从新时间轴出声。 */
+  resetNow(pos: number) {
+    this.stopFading();
+    this.sink.reset(pos);
+
+    if (this.paused) this.sink.pause();
+    else this.sink.resume();
   }
 
   resume() {
@@ -553,6 +614,11 @@ export class PcmController {
    *  load() 会取消这个 timer，所以切歌时不会出现旧 stop 掐掉新歌。 */
   stop() {
     if (this.stopTimer !== null) window.clearTimeout(this.stopTimer);
+
+    if (this.pauseTimer !== null) {
+      window.clearTimeout(this.pauseTimer);
+      this.pauseTimer = null;
+    }
 
     const fadeOutMs = getFadeMs().outMs;
 
@@ -585,9 +651,15 @@ export class PcmController {
     this.sink.stop();
   }
 
-  setGain(v: number) { this.sink.setGain(v); }
+  setGain(v: number) {
+    this.gainValue = Math.max(0, Math.min(1, Number(v) || 0));
+    this.sink.setGain(this.gainValue);
+  }
 
-  setEq(state: EqState) { this.sink.setEq(state); }
+  setEq(state: EqState) {
+    this.eqValue = state;
+    this.sink.setEq(state);
+  }
 
   destroy() {
     if (this.progressTimer !== null) {
@@ -616,6 +688,8 @@ export class PcmController {
 export class PcmEngineTransport extends EngineTransport {
   private ctl: PcmController;
 
+  readonly pcmAnalyser = () => pcmSpectrumAnalyser();
+
   constructor(bridge: EngineBridge) {
     super(bridge, { mode: "pcm" });
 
@@ -631,8 +705,9 @@ export class PcmEngineTransport extends EngineTransport {
       position: () => this.ctl.position(),
       onPaused: (paused) => this.ctl.onPaused(paused),
       feed: (ev) => this.ctl.feed(ev),
-      load: (epoch, startAt) => this.ctl.load(epoch, startAt),
+      load: (epoch, startAt, paused) => this.ctl.load(epoch, startAt, paused),
       reset: (pos) => this.ctl.reset(pos),
+      resetNow: (pos) => this.ctl.resetNow(pos),
       resume: () => this.ctl.resume(),
       stop: () => this.ctl.stop(),
       kill: () => this.ctl.kill(),

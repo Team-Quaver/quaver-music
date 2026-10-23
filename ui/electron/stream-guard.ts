@@ -63,10 +63,28 @@ export interface GuardRequestLike {
   url: string;
   method: string;
   resourceType: string;
-  requestHeaders?: { name: string; value?: string }[];
+  requestHeaders?: { name: string; value?: string }[] | Record<string, string | string[]>;
 }
 
 export type GuardVerdict = { allow: true } | { allow: false; reason: string };
+
+/** Electron webRequest 的 resourceType 是小写 `xhr`；CDP/旧测试用 `xmlhttprequest`。 */
+function isXhr(resourceType: string): boolean {
+  return resourceType === "xhr" || resourceType === "xmlhttprequest";
+}
+
+function headerValue(headers: GuardRequestLike["requestHeaders"], name: string): string | undefined {
+  if (!headers) return undefined;
+
+  if (Array.isArray(headers)) {
+    return headers.find((h) => String(h.name).toLowerCase() === name.toLowerCase())?.value;
+  }
+
+  const key = Object.keys(headers).find((k) => k.toLowerCase() === name.toLowerCase());
+  const value = key ? headers[key] : undefined;
+
+  return Array.isArray(value) ? value[0] : value;
+}
 
 /** 纯判定：这条应用同源请求能不能放行。 */
 export function streamGuardVerdict(details: GuardRequestLike, appOrigin: string): GuardVerdict {
@@ -90,9 +108,8 @@ export function streamGuardVerdict(details: GuardRequestLike, appOrigin: string)
   if (details.resourceType === "media") return { allow: true };
 
   // 页面脚本（fetch/XHR）：只允许小的闭合 Range 探测（音质浮窗取容器头）
-  if (details.resourceType === "xmlhttprequest") {
-    const header = (details.requestHeaders ?? []).find((h) => String(h.name).toLowerCase() === "range");
-    const span = closedRangeSpan(header?.value);
+  if (isXhr(details.resourceType)) {
+    const span = closedRangeSpan(headerValue(details.requestHeaders, "range"));
 
     if (span !== null && span <= PROBE_MAX_SPAN) return { allow: true };
 
@@ -103,10 +120,39 @@ export function streamGuardVerdict(details: GuardRequestLike, appOrigin: string)
   return { allow: false, reason: "播放流仅允许应用内播放器取用" };
 }
 
+/** `onBeforeRequest` 阶段拿不到请求头：这里只做形态预检，xhr 留给
+ *  `onBeforeSendHeaders` 按 Range 判定。 */
+export function streamGuardPreflightVerdict(details: GuardRequestLike, appOrigin: string): GuardVerdict {
+  let u: URL;
+
+  try { u = new URL(details.url); } catch { return { allow: true }; }
+
+  if (u.origin !== appOrigin) return { allow: true };
+
+  const kind = classifyGuardedPath(u.pathname);
+
+  if (!kind) return { allow: true };
+
+  if (kind === "legacy") return { allow: false, reason: "渲染层不开放裸链取用，播放一律走 /api/stream" };
+
+  if (details.method !== "GET") return { allow: false, reason: "播放流仅接受 GET" };
+
+  if (details.resourceType === "media" || isXhr(details.resourceType)) return { allow: true };
+
+  return { allow: false, reason: "播放流仅允许应用内播放器取用" };
+}
+
 /** 只用到的那一个方法按结构声明（对齐 csp.ts 的 SessionLike 写法） */
 export interface GuardSessionLike {
   webRequest: {
     onBeforeRequest(
+      filters: { urls: string[] },
+      listener: (
+        details: GuardRequestLike,
+        callback: (result: { cancel?: boolean }) => void,
+      ) => void,
+    ): void;
+    onBeforeSendHeaders(
       filters: { urls: string[] },
       listener: (
         details: GuardRequestLike,
@@ -131,7 +177,22 @@ export function installStreamGuard(
 
   if (!/^https?:\/\/[^/]+$/.test(appOrigin)) { log("[quaver] 播放流闸门未挂：origin 不是纯 http(s) 源 =", appOrigin); return false; }
 
-  session.webRequest.onBeforeRequest({ urls: [`${appOrigin}/api/*`] }, (details, callback) => {
+  const filter = { urls: [`${appOrigin}/api/*`] };
+
+  session.webRequest.onBeforeRequest(filter, (details, callback) => {
+    const verdict = streamGuardPreflightVerdict(details, appOrigin);
+
+    if (verdict.allow) { callback({}); return; }
+
+    log(`[quaver] 已拦截播放流请求（${details.resourceType}）: ${details.url} —— ${verdict.reason}`);
+    callback({ cancel: true });
+  });
+
+  // onBeforeRequest 里 requestHeaders 为空（Electron 在发头前不提供），Range 白名单
+  // 必须在 onBeforeSendHeaders 判；否则流信息浮窗的合法小 Range 会被当成整段下载拦掉。
+  session.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
+    if (!isXhr(details.resourceType)) { callback({}); return; }
+
     const verdict = streamGuardVerdict(details, appOrigin);
 
     if (verdict.allow) { callback({}); return; }
@@ -139,6 +200,7 @@ export function installStreamGuard(
     log(`[quaver] 已拦截播放流请求（${details.resourceType}）: ${details.url} —— ${verdict.reason}`);
     callback({ cancel: true });
   });
+
   log("[quaver] 播放流闸门已挂到", appOrigin);
 
   return true;

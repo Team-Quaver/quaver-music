@@ -200,18 +200,62 @@ check("pcm 硬预读窗口防止 mpv 先写完整首进 idle", /PCM_MAX_AHEAD_SE
 check("pcm 音量走 renderer GainNode（不让 mpv 预写缓冲区造成半拍延迟）",
   /pcm-gain/.test(engineSrc) && /setGain\(/.test(sinkSrc) && /this\.pcm(Hook)?\?\.setGain/.test(transportSrc));
 
+check("新 PCM sink 继承当前音量，不会建好后永久停在 0 增益",
+  /private gainValue = 1/.test(sinkSrc) && /sink\.setGain\(this\.gainValue\)/.test(sinkSrc)
+    && !/next\.setGain\(0\)/.test(sinkSrc));
+
+check("pcm-gain/pcm-eq 跨世代同步（只有样本与 EOF 按 epoch 丢弃）",
+  /case "pcm-gain"[\s\S]{0,260}this\.gainValue = Number\(ev\.value\)/.test(sinkSrc)
+    && !/case "pcm-gain"[\s\S]{0,220}Number\(ev\.epoch\)/.test(sinkSrc)
+    && /case "pcm-eq"[\s\S]{0,160}this\.eqValue = ev\.state/.test(sinkSrc));
+
+check("pcm load 不再等待一轮 pcm-ready IPC 才发 loadfile",
+  /this\.pcmHook\.load\(epoch, startAt/.test(transportSrc)
+    && !/if \(this\.pcmHook\) \{\s*await this\.invoke\(\{ cmd: "pcm-ready" \}\)/.test(transportSrc));
+
 check("pcm EQ 走 renderer BiquadFilter（不让 mpv af 慢一个预写缓冲）",
   /pcm-eq/.test(engineSrc) && /setEq\(/.test(sinkSrc) && /rebuildFilters/.test(sinkSrc));
 
-check("pcm seek 重拉 MPV + 管道，丢弃 FIFO 旧帧", /restartPcmAt/.test(engineSrc) && /loadfile[\s\S]{0,100}start=/.test(engineSrc));
+check("pcm seek 复用 MPV、换新 FIFO 后 start= 重挂",
+  /restartPcmAt/.test(engineSrc) && /restartPcmSession\(epoch\)/.test(engineSrc)
+    && /loadfile[\s\S]{0,160}start=/.test(engineSrc));
 
-check("pcm 换歌/换音质也重开 MPV，避免上一首 FIFO 尾巴混入",
-  /mode === "pcm" && this\.lastUrl[\s\S]{0,160}this\.stopMpv\(\)/.test(engineSrc));
+check("pcm 换歌/换音质也走独立 FIFO 会话",
+  /loadPcm\(url, paused, startAt, epoch\)/.test(engineSrc)
+    && /this\.lastUrl\s*\? await this\.restartPcmSession\(epoch\)/.test(engineSrc));
+
+check("PCM FIFO 以附加模式重开写端（stop 重挂不会截断读端）",
+  /--ao-pcm-append=yes/.test(ipcSrc));
+
+check("PCM 每代管道绑定 epoch，旧 stdout 在途数据按代丢弃",
+  /openPcmPipe\(epoch: number\)/.test(engineSrc)
+    && /onData: \(chunk\) => this\.onPcmData\(chunk, epoch\)/.test(engineSrc)
+    && /epoch !== this\.pcmEpoch\) return/.test(engineSrc));
+
+check("PCM 换输出先放行旧读端，避免 AO 卡在写端时卸不掉",
+  /old\?\.resume\(\);[\s\S]{0,160}next = await this\.openPcmPipe\(epoch\)/.test(engineSrc));
+
+check("PCM 换输出显式重绑新路径并恢复 ao=pcm（只设 null 会让新歌永久无声）",
+  /configurePcmOutput\(next\.path\)/.test(engineSrc)
+    && /setProp\("ao", "null"\)/.test(ipcSrc)
+    && /setProp\("ao-pcm-file", file\)/.test(ipcSrc)
+    && /setProp\("ao", "pcm"\)/.test(ipcSrc));
+
+check("歌词点击立即 seek，不等淡出/淡入",
+  /opts\?\.immediate/.test(transportSrc)
+    && /player\.seek\(line\.t \+ getLyricDelayMs\(player\.current\) \/ 1000, \{ immediate: true \}\)/.test(
+      readFileSync(join(UI, "src", "components", "NowPlaying.ts"), "utf8"),
+    ));
 
 check("pcm 块 50ms，降低 AudioBuffer/IPC 调度频率", /PCM_RATE \/ 20/.test(engineSrc));
 
 check("pcm renderer 使用单个 AudioWorklet ring buffer（不再按块建 source node）",
   /AudioWorkletNode/.test(sinkSrc) && /quaver-pcm/.test(readFileSync(join(UI, "public", "pcm-worklet.js"), "utf8")));
+
+check("PCM AnalyserNode 有静音下游，音频图会持续驱动 FFT",
+  /analyserOutput\.gain\.value = 0/.test(sinkSrc)
+    && /analyser\.connect\(this\.analyserOutput\)/.test(sinkSrc)
+    && /analyserOutput\.connect\(ctx\.destination\)/.test(sinkSrc));
 
 check("兼容模式暂停不 suspend AudioContext（避免 WASAPI 重激活卡顿）",
   !/ctx\??\.suspend\(/.test(sinkSrc) && /type: "pause"/.test(sinkSrc) && /type: "resume"/.test(sinkSrc));
@@ -300,12 +344,17 @@ const doPauseSrc = engineSrc.slice(engineSrc.indexOf("doPause()"), engineSrc.ind
 const pcmPauseStart = doPauseSrc.indexOf('this.mode === "pcm"');
 const pcmPauseSrc = doPauseSrc.slice(pcmPauseStart, doPauseSrc.indexOf("return;", pcmPauseStart));
 
-check("PCM 暂停只停读管道，不向 mpv 发 pause（避免 AO 线程阻塞）",
-  /pcmPipe\?\.pause\(\)/.test(pcmPauseSrc) && !/setProp\("pause"/.test(pcmPauseSrc));
+check("PCM 暂停淡出后停读管形成背压，不向 mpv 发 pause、也不排空丢音频",
+  /rampTo\(0, this\.fade\.outMs, \(\) => this\.pcmPipe\?\.pause\(\)\)/.test(pcmPauseSrc)
+    && !/setProp\("pause"/.test(pcmPauseSrc));
 
 check("PCM 恢复先查 mpv pause，只在挂流暂停时解除（不会永远不出声）",
   /const mpvPaused = await mpv\.getProp\("pause"\)/.test(engineSrc)
     && /if \(mpvPaused\) await mpv\.setProp\("pause", false\)/.test(engineSrc));
+
+check("PCM 恢复先作废延迟 pause 动作，再放行 FIFO",
+  /case "play"[\s\S]{0,260}this\.rampTo\(1, this\.fade\.inMs\);[\s\S]{0,160}this\.pcmPipe\?\.resume\(\)/.test(engineSrc)
+    && /this\.pcmPipe\?\.resume\(\);\s*\n\s*this\.drainPcm\(\)/.test(engineSrc));
 
 check("pcm stop 等淡出结束再销毁 sink（load 可取消旧 stop timer）",
   /stopTimer/.test(pcmCtlSrc) && /fadeOutMs \+ 40/.test(pcmCtlSrc) && /this\.stopTimer = null/.test(pcmCtlSrc));

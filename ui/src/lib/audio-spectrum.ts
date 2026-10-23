@@ -2,37 +2,41 @@
 //
 // 数据源分两条：
 //   web    —— 直接给播放器自己的 <audio> 建 MediaElementAudioSourceNode，不复制流；
-//   engine —— 原生直出时 mpv 在独立进程里出声；原生兼容时 PCM 虽经过 renderer，
-//             但频谱管线仍复用同一个 streamUrl 的静音镜像，避免和播放时钟耦合。镜像不接扬声器
-//             （AnalyserNode → 0 增益 → destination），只用于取真实解码后的 FFT/波形；
-//             位置/暂停/seek 跟随 player，换曲即换源。
+//   engine —— PCM 兼容模式直接读取 PcmSink 最终输出链上的 AnalyserNode（与扬声器同一份
+//             样本，pause/seek 天然同步）；原生直出时 mpv 在独立进程里出声，仍复用同一个
+//             streamUrl 的静音镜像取真实 FFT/波形，位置/暂停/seek 跟随 player。
 //
 // 为什么不用假波形：AnalyserNode 的 freq/time 数据来自真实音频样本；页面收起、暂停、
 // 流不可解码时都会自然衰减为静默，不做周期性伪随机动画。
 import { player } from "../player";
+import { onPcmSpectrumAnalyser } from "./pcm-analyser";
 import type { SparkleSpectrumFrame, SparkleSpectrumStatus } from "@quaver/sparkle";
 
 const FFT_SIZE = 2048;
 const SMOOTHING = 0.76;
 const MIRROR_SYNC_MS = 250;
 const DIRECT_FRAME_KEEPALIVE_MS = 1500;
+const FRAME_INTERVAL_MS = 1000 / 30;
 const MIN_DB = -100;
 const MAX_DB = -18;
 
 type FrameListener = (frame: SparkleSpectrumFrame) => void;
+type SpectrumSource = "web" | "pcm" | "native" | "";
 
 class AudioSpectrum {
   private ctx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private output: GainNode | null = null;
   private source: MediaElementAudioSourceNode | null = null;
-  private sourceKind: "web" | "engine" | "" = "";
+  private sourceKind: SpectrumSource = "";
   private attachedElement: HTMLAudioElement | null = null;
   private mirror: HTMLAudioElement | null = null;
   private mirrorUrl = "";
   private mirrorTimer: number | null = null;
   private idleTimer: number | null = null;
   private raf = 0;
+  private lastLoopSampleAt = 0;
+  private pcmOff: (() => void) | null = null;
   private listeners = new Set<FrameListener>();
   private rawFreq = new Float32Array(0);
   private bins = new Float32Array(0);
@@ -70,15 +74,37 @@ class AudioSpectrum {
     this.state = s;
   }
 
+  /** 数据源由实际传输拓扑决定，不能靠“PCM analyser 恰好不为 null”猜。 */
+  private desiredSource(): Exclude<SpectrumSource, ""> {
+    return player.outputMode;
+  }
+
   private ensureCapture() {
-    const desired: "web" | "engine" = player.webAudioElement ? "web" : "engine";
+    const desired = this.desiredSource();
 
     // 用户在设置页切换后端后，旧 MediaElement 源不能跨 AudioContext 复用：整张图重建。
-    if (this.ctx && this.sourceKind && this.sourceKind !== desired) this.teardownGraph();
+    if (this.sourceKind && this.sourceKind !== desired) this.teardownGraph();
+
+    if (desired === "pcm") {
+      if (!this.pcmOff) {
+        this.pcmOff = onPcmSpectrumAnalyser((node) => {
+          this.analyser = node;
+          this.setState(node && player.current && !player.paused ? "live" : player.current ? "starting" : "idle");
+        });
+      }
+
+      this.analyser = player.pcmAnalyser;
+      this.sourceKind = desired;
+      this.setState(this.analyser && player.current && !player.paused ? "live" : player.current ? "starting" : "idle");
+      this.startTimers();
+
+      return;
+    }
 
     if (this.ctx) {
       this.resume();
-      this.syncMirror();
+
+      if (desired === "native") this.syncMirror();
 
       return;
     }
@@ -96,7 +122,7 @@ class AudioSpectrum {
       analyser.minDecibels = MIN_DB;
       analyser.maxDecibels = MAX_DB;
       const output = ctx.createGain();
-      output.gain.value = desired === "engine" ? 0 : 1;
+      output.gain.value = desired === "native" ? 0 : 1;
       analyser.connect(output);
       output.connect(ctx.destination);
       this.ctx = ctx;
@@ -114,7 +140,7 @@ class AudioSpectrum {
       } else {
         this.ensureMirror();
         this.syncMirror();
-        this.setState(player.current ? "starting" : "idle");
+        this.setState(player.current && !player.paused ? "starting" : "idle");
       }
 
       this.resume();
@@ -147,13 +173,13 @@ class AudioSpectrum {
       m.addEventListener("loadedmetadata", () => {
         this.alignMirror(true);
 
-        if (!player.paused) void m.play().catch(() => {});
+        if (player.current && !player.paused) void m.play().catch(() => {});
       });
       m.addEventListener("canplay", () => {
-        if (player.current && !player.error) this.setState("live");
+        if (player.current && !player.paused && !player.error) this.setState("live");
       });
       m.addEventListener("error", () => {
-        if (!m.getAttribute("src")) return;
+        if (!m.getAttribute("src") || !player.current || player.paused) return;
         this.setState("unavailable");
       });
       this.mirror = m;
@@ -169,13 +195,14 @@ class AudioSpectrum {
   }
 
   private syncMirror() {
-    if (this.sourceKind !== "engine") return;
+    if (this.sourceKind !== "native") return;
 
     if (!this.mirror) this.ensureMirror();
     const m = this.mirror;
 
     if (!m) return;
     const url = player.streamUrl;
+    const active = !!player.current && !player.paused;
 
     if (!url) {
       if (this.mirrorUrl) {
@@ -188,7 +215,7 @@ class AudioSpectrum {
         try { m.load(); } catch { /* noop */ }
       }
 
-      this.setState(player.current ? "starting" : "idle");
+      this.setState(active ? "starting" : "idle");
 
       return;
     }
@@ -204,13 +231,19 @@ class AudioSpectrum {
 
     this.alignMirror(false);
 
-    if (player.paused) {
+    if (!active) {
       if (!m.paused) m.pause();
+      this.setState("idle");
 
       return;
     }
 
-    if (m.paused) void m.play().catch(() => { this.setState("unavailable"); });
+    if (m.paused) {
+      void m.play().catch((e) => {
+        // 快速换曲时前一次 play() 会以 AbortError 收线，不能把新歌误标成不可用。
+        if ((e as Error)?.name !== "AbortError" && player.current && !player.paused) this.setState("unavailable");
+      });
+    }
   }
 
   private alignMirror(force: boolean) {
@@ -233,7 +266,7 @@ class AudioSpectrum {
       this.idleTimer = window.setInterval(() => {
         const idle = !this.listeners.size && performance.now() - this.lastDirectFrameAt > DIRECT_FRAME_KEEPALIVE_MS;
 
-        if (idle && this.sourceKind === "engine") this.stopMirror();
+        if (idle && this.sourceKind === "native") this.stopMirror();
       }, 1000);
     }
   }
@@ -243,7 +276,7 @@ class AudioSpectrum {
     window.setTimeout(() => {
       if (this.listeners.size) return;
 
-      if (performance.now() - this.lastDirectFrameAt > DIRECT_FRAME_KEEPALIVE_MS && this.sourceKind === "engine") {
+      if (performance.now() - this.lastDirectFrameAt > DIRECT_FRAME_KEEPALIVE_MS && this.sourceKind === "native") {
         this.stopMirror();
       }
     }, DIRECT_FRAME_KEEPALIVE_MS + 50);
@@ -261,13 +294,23 @@ class AudioSpectrum {
       try { m.load(); } catch { /* noop */ }
     }
 
-    if (!player.webAudioElement) this.setState("idle");
+    if (this.sourceKind === "native") this.setState(player.current && !player.paused ? "starting" : "idle");
   }
 
   private loop = () => {
     this.raf = 0;
 
     if (!this.listeners.size) return;
+    const now = performance.now();
+
+    // FFT + Canvas 30fps 已足够；跟着 60Hz 重绘只会白白烤 CPU/GPU。
+    if (now - this.lastLoopSampleAt < FRAME_INTERVAL_MS) {
+      this.raf = window.requestAnimationFrame(this.loop);
+
+      return;
+    }
+
+    this.lastLoopSampleAt = now;
     const frame = this.sample();
 
     if (frame) {
@@ -281,14 +324,27 @@ class AudioSpectrum {
 
   private sample(): SparkleSpectrumFrame | null {
     // 设置页切后端时，MediaElementSource 不能迁移：检测到源类型变了就整图重建。
-    const desired: "web" | "engine" = player.webAudioElement ? "web" : "engine";
+    const desired = this.desiredSource();
 
-    if (this.ctx && this.sourceKind && this.sourceKind !== desired) this.ensureCapture();
+    if (this.sourceKind !== desired) this.ensureCapture();
+
+    if (desired === "pcm") this.analyser = player.pcmAnalyser;
 
     if (!player.paused) this.resume();
     const analyser = this.analyser;
+    const active = !!player.current && !player.paused && this.state !== "unavailable";
 
-    if (!analyser || !this.ctx) return null;
+    if (!player.current || player.paused) {
+      this.setState("idle");
+
+      return this.quietFrame(analyser);
+    }
+
+    if (!analyser) {
+      this.setState("starting");
+
+      return this.quietFrame(null);
+    }
 
     if (this.rawFreq.length !== analyser.frequencyBinCount) {
       this.rawFreq = new Float32Array(analyser.frequencyBinCount);
@@ -320,14 +376,16 @@ class AudioSpectrum {
     }
 
     const level = Math.min(1, Math.sqrt(sum / Math.max(1, this.wave.length)));
-    const active = !!player.current && !player.paused && this.state !== "unavailable";
+    const sampleRate = this.ctx?.sampleRate ?? this.analyser?.context.sampleRate ?? 48000;
+
+    if (active) this.setState("live");
 
     if (!this.current) {
       this.current = {
         bins: this.bins,
         wave: this.wave,
         level,
-        sampleRate: this.ctx.sampleRate,
+        sampleRate,
         timestamp: performance.now(),
         active,
       };
@@ -335,9 +393,44 @@ class AudioSpectrum {
       this.current.bins = this.bins;
       this.current.wave = this.wave;
       this.current.level = level;
-      this.current.sampleRate = this.ctx.sampleRate;
+      this.current.sampleRate = sampleRate;
       this.current.timestamp = performance.now();
       this.current.active = active;
+    }
+
+    return this.current;
+  }
+
+  private quietFrame(analyser: AnalyserNode | null): SparkleSpectrumFrame {
+    const binCount = analyser?.frequencyBinCount ?? FFT_SIZE / 2;
+    const waveSize = analyser?.fftSize ?? FFT_SIZE;
+
+    if (this.bins.length !== binCount) {
+      this.rawFreq = new Float32Array(binCount);
+      this.bins = new Float32Array(binCount);
+    }
+
+    if (this.wave.length !== waveSize) this.wave = new Float32Array(waveSize);
+    this.bins.fill(0);
+    this.wave.fill(0);
+    const sampleRate = analyser?.context.sampleRate ?? this.ctx?.sampleRate ?? 48000;
+
+    if (!this.current) {
+      this.current = {
+        bins: this.bins,
+        wave: this.wave,
+        level: 0,
+        sampleRate,
+        timestamp: performance.now(),
+        active: false,
+      };
+    } else {
+      this.current.bins = this.bins;
+      this.current.wave = this.wave;
+      this.current.level = 0;
+      this.current.sampleRate = sampleRate;
+      this.current.timestamp = performance.now();
+      this.current.active = false;
     }
 
     return this.current;
@@ -346,13 +439,18 @@ class AudioSpectrum {
   private teardownGraph() {
     if (this.raf) { window.cancelAnimationFrame(this.raf); this.raf = 0; }
 
+    this.pcmOff?.();
+    this.pcmOff = null;
+
     if (this.mirrorTimer !== null) { window.clearInterval(this.mirrorTimer); this.mirrorTimer = null; }
 
     if (this.idleTimer !== null) { window.clearInterval(this.idleTimer); this.idleTimer = null; }
 
     try { this.source?.disconnect(); } catch { /* noop */ }
 
-    try { this.analyser?.disconnect(); } catch { /* noop */ }
+    if (this.sourceKind !== "pcm") {
+      try { this.analyser?.disconnect(); } catch { /* noop */ }
+    }
 
     try { this.output?.disconnect(); } catch { /* noop */ }
 

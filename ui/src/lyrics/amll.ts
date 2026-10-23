@@ -412,7 +412,7 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
     // delay 加回去换回真实播放位（口径同宿主行级视图的行点击；ctx.seek 收真实毫秒）
     const ms = ce.line?.getLine()?.startTime ?? 0;
 
-    if (Number.isFinite(ms)) ctx.seek(Math.max(0, ms + delayMs()));
+    if (Number.isFinite(ms)) ctx.seek(Math.max(0, ms + delayMs()), { immediate: true });
   }, { signal: ac.signal });
 
   let raf = 0;

@@ -26,6 +26,7 @@ import type {SparkleKaraokeLine, SparkleKaraokeProvider} from "@quaver/sparkle";
 import { onSparkleChange, sparkleKaraokeProvider, sparkleStreamSources } from "./sparkle/registry";
 import { isLocalSong, localSongStreamUrl, loadLocalLibrary, onLocalLibraryChange, trackById, type LocalSongFingerprint } from "./lib/local.ts";
 import type { ListenReportTarget, ListenTimeReporter } from "./lib/listen-report";
+import { PlaybackEndGate } from "./lib/playback-end";
 
 export type Song = {
   mid: string;
@@ -173,6 +174,8 @@ class Player {
   private lastPrevPressAt = 0;               // 媒体键/热键「上一曲」连按判定时刻（prevPress 专用；播放条双击走原生 dblclick，不共用计时器）
   private prefetch = new Map<string, Promise<StreamResult>>(); // mid+档 → 已协商流（单击预热，双击秒起播）
   private pendingSeek = 0; // 换音质续播：新流时长就绪后跳到旧进度
+  /** PCM `ending` 与旧 sink 迟到的 `ended` 共用的一次性曲末闸门。 */
+  private endGate = new PlaybackEndGate();
   /** 启动还原的续播点：流还没就绪时保住它，别让存档被 0 覆盖 */
   private savedPos = 0;
   /** 存档闸门：启动还原完成前不写盘 —— 否则启动瞬间的空队列会覆盖上一轮的存档 */
@@ -230,6 +233,11 @@ class Player {
     t.onEvent((e) => this.onTransportEvent(e));
   }
 
+  /** 供 Node 单测直接驱动 transport 事件（生产只由 bindTransport 调用）。 */
+  handleTransportEvent(e: TransportEvent) {
+    this.onTransportEvent(e);
+  }
+
   private onTransportEvent(e: TransportEvent) {
     switch (e.type) {
       case "time":
@@ -256,6 +264,7 @@ class Player {
 
         if (this.loading) { this.loading = false; this.error = ""; this.notify(); }
 
+        this.endGate.reset();
         this.failStreak = 0; // 出声即成功：自动跳曲的连续失败计数清零
         break;
       case "canplay":
@@ -265,11 +274,11 @@ class Player {
       case "ending":
         // PCM 已收到 EOF，但本地还有一段尾音：此刻先起下一首，旧尾在新曲头下淡出。
         // 单曲循环和无限电台仍走完整 ended；前者要原地重播，后者可能要等下一轮取歌。
-        if (this.mode === "one" || this.radioOn || this.loading || this.transport.paused) break;
+        if (this.mode === "one" || this.radioOn || this.transport.paused || !this.endGate.consume()) break;
         this.onEnded();
         break;
       case "ended":
-        if (this.loading) break; // 跨曲已经提前起播；旧 sink 的迟到 ended 不再跳一首
+        if (!this.endGate.consume()) break; // PCM ending 已提前切歌；旧 sink 的迟到 ended 不再跳一首
         this.listenReporter?.setPlaying(false);
         this.listenReporter?.flush();
         this.onEnded();
@@ -584,6 +593,18 @@ class Player {
    *  只给同页的只读采集用，不参与队列/状态语义。 */
   get webAudioElement(): HTMLAudioElement | null {
     return this.transport.kind === "web" ? (this.transport as WebTransport).audio : null;
+  }
+
+  /** 频谱/诊断用的实际输出拓扑：按 transport 判断，不靠旧 AnalyserNode 是否残留。 */
+  get outputMode(): "web" | "pcm" | "native" {
+    if (this.transport.kind === "web") return "web";
+
+    return this.transport.mode === "pcm" ? "pcm" : "native";
+  }
+
+  /** 兼容模式 PCM 输出的 AnalyserNode：频谱直接吃扬声器同一份样本。 */
+  get pcmAnalyser(): AnalyserNode | null {
+    return this.outputMode === "pcm" ? (this.transport.pcmAnalyser?.() ?? null) : null;
   }
   /** 无限电台是否生效（播放条据此屏蔽上一曲、QueuePanel 可据此显示电台态） */
   get radioActive() { return this.radioOn; }
@@ -927,6 +948,7 @@ class Player {
     this.playSeq++;
     this.loading = false;
     this.error = "";
+    this.endGate.reset();
     this.pendingSeek = 0;
     this.streamUrl = "";
 
@@ -1015,6 +1037,8 @@ class Player {
 
     this.loading = true;
     this.notify();
+    // 歌词与取流/起播互不依赖：从换曲第一刻并行拉取，别让音频加载 RTT 串在歌词前面。
+    void this.fetchLyric(s);
     const seq = this.playSeq;
 
     try {
@@ -1063,7 +1087,6 @@ class Player {
       }
     }
 
-    if (seq === this.playSeq && this.current === s) this.fetchLyric(s); // 被作废的轮次不拉歌词，防竞态覆盖
     this.notify();
   }
 
@@ -1248,8 +1271,16 @@ class Player {
 
       if (seq !== this.lyricSeq || this.current !== s) return; // 已被更新的 fetch 作废
 
+      // 主歌词已拿到就先上屏；TTML 只是后台升级逐字，不能让镜像首字节延迟压在
+      // 「歌词加载中」上（未命中实测 1–3s，旧代码到补刀返回才统一 notify）。
+      if (has) this.notify();
+
       // 无逐字内容 → TTML 逐字补刀（导入件在上面已被排除，走不到这里）
-      if (!this.karaoke.length && (await this.pullTtml(qqMid, seq, s))) { this.notify(); return; }
+      if (!this.karaoke.length && (await this.pullTtml(qqMid, seq, s))) {
+        if (seq === this.lyricSeq && this.current === s) this.notify();
+
+        return;
+      }
 
       if (seq !== this.lyricSeq || this.current !== s) return;
 
@@ -1687,12 +1718,15 @@ class Player {
     this.notify();
   }
 
-  seek(sec: number) {
+  /** `immediate` 只给歌词行这类明确跳转：兼容模式跳过淡出，新 PCM 一到就出声。 */
+  seek(sec: number, opts?: { immediate?: boolean }) {
     const d = this.transport.duration;
 
-    if (d > 0) this.transport.seek(Math.max(0, Math.min(sec, d)));
+    if (d > 0) this.transport.seek(Math.max(0, Math.min(sec, d)), opts);
     this.notify();
   }
+
+  seekSettled() { this.transport.seekSettled?.(); }
 
   // —— 单曲收藏（红心）：本地「我喜欢」是全站红心的唯一真相源 ——
 

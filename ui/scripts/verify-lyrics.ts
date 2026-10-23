@@ -287,6 +287,13 @@ check("fetchLyric：无逐字才进 TTML（两处调用都带 seq 守卫）",
   /!this\.karaoke\.length && \(await this\.pullTtml\(qqMid, seq, s\)\)/.test(player)
   && /pullTtml\("", seq, s\)/.test(player));
 
+check("QQ 主歌词先上屏，TTML 补刀不压着 loading",
+  /if \(has\) this\.notify\(\);[\s\S]{0,260}pullTtml\(qqMid/.test(player));
+
+check("换曲即并行拉歌词，不串在取流/起播之后",
+  /this\.loading = true;[\s\S]{0,160}void this\.fetchLyric\(s\);[\s\S]{0,120}const seq = this\.playSeq;/.test(player)
+    && !/seq === this\.playSeq && this\.current === s\) this\.fetchLyric\(s\)/.test(player));
+
 check("手动导入件不进 TTML（imported 分支被排除）", /local\.lyricImport \? "" :/.test(player));
 
 check("在线查询走模板展开 + 负缓存", /expandTtmlUrl\(getTtmlDatabase\(\), "qq", mid\)/.test(player) && /ttmlMissCached\(url\)/.test(player) && /ttmlMissRemember\(url\)/.test(player));

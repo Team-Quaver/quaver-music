@@ -409,13 +409,14 @@ export function PlayerBar(): HTMLElement {
     if (!dragging) return;
     scrubFrac = fracOf(e.clientX);
     paintScrub();
+    player.seek(scrubFrac * player.duration);
   });
 
   const endScrub = () => {
     if (!dragging) return;
     dragging = false;
     el.classList.remove("scrubbing");
-    player.seek(scrubFrac * player.duration);
+    player.seekSettled();
   };
 
   el.addEventListener("pointerup", endScrub);

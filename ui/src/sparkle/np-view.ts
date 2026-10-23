@@ -158,7 +158,7 @@ export function npViewCtx(): SparkleNpViewCtx {
     onNotify: (cb) => player.on(cb),
 
     toggle: () => player.toggle(),
-    seek: (sec) => player.seek(sec),
+    seek: (sec, opts) => player.seek(sec, opts),
     next: () => player.next(false),
     prev: () => player.prev(true),
     jumpTo: (offset) => player.jumpToOffset(offset),
