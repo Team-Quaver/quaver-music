@@ -6,7 +6,7 @@ import type { MenuItemConstructorOptions } from "electron";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { basename, extname, join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -83,9 +83,26 @@ const LOG = app.isPackaged
   ? (configDirOk ? logFile() : join(app.getPath("userData"), "electron-dev.log"))
   : join(UI_ROOT, "electron-dev.log");
 
-import { appendFileSync } from "node:fs";
+// 日志单一上限 50MiB：超过就整档换成 .old（不保留半份，避免截断点掉进 UTF-8 中间）。
+const LOG_MAX_BYTES = 50 * 1024 * 1024;
 
-const log = (...a) => { const s = a.map((x) => (typeof x === "string" ? x : String(x))).join(" "); try { appendFileSync(LOG, s + "\n"); } catch {} console.log(s); };
+const log = (...a) => {
+  const s = a.map((x) => (typeof x === "string" ? x : String(x))).join(" ");
+
+  try {
+    try {
+      if (statSync(LOG).size >= LOG_MAX_BYTES) {
+        try { unlinkSync(`${LOG}.old`); } catch {}
+
+        renameSync(LOG, `${LOG}.old`);
+      }
+    } catch {} // 文件不存在就是首启，交给 append 建档
+
+    appendFileSync(LOG, s + "\n");
+  } catch {}
+
+  console.log(s);
+};
 
 // ——— Crotchet 调试模式 ———
 // QUAVER_CROTCHET=1 打开（值为纯数字时同时充当调试端口，如 QUAVER_CROTCHET=9300 ≙ =1 + 端口 9300）：
