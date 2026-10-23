@@ -81,11 +81,11 @@ jobs:
           cache-dependency-path: |
             ui/pnpm-lock.yaml
 
-      # Sparkle：插件 SDK，ui/tsconfig.json 的 paths 把 @quaver/sparkle 指到
-      #          ../vendor/Sparkle/sdk —— 不 init 的话 tsc 全量 TS2307（见下方打包 job 同名步骤）
+      # Sparkle：插件 SDK（@quaver/sparkle 的 paths 指到 ../vendor/Sparkle/sdk）；
+      # Typhoeus-go：sidecar 的 Go 源码，verify-song-menu 等护栏要读它的 server/*.go
       - name: Init submodules
         run: |
-          git submodule update --init --depth 1 vendor/Sparkle
+          git submodule update --init --depth 1 vendor/Sparkle vendor/Typhoeus-go
 
       - name: pnpm install
         working-directory: ui
