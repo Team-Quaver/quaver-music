@@ -6,6 +6,11 @@
 //
 // 不再使用 AudioBufferSourceNode：实时音频不需要每秒新建几十个节点，也不会因主线程
 // 调度抖动在相邻 source 之间制造微小断点。
+//
+// 本模块（含 PcmController 与 PcmEngineTransport）只被 pcm 兼容模式动态 import，
+// 不进首屏闭包（verify-bundle 的首屏预算守着这条线）。
+import { getEqualizerState, getFadeMs } from "./prefs";
+import { EngineTransport, type EngineBridge } from "./transport";
 import type { EqBandType, EqState } from "../../electron/audio/eq-config.ts";
 
 const PCM_RATE = 48000;
@@ -350,5 +355,293 @@ export class PcmSink {
     if (this.ended || !this.eof || this.availableFrames > 0 || this.pendingFrames > 0) return;
     this.ended = true;
     this.opts.onEnded();
+  }
+}
+
+// —— PcmController：pcm 兼容模式的传输层状态机 ——————————————————————————
+// 从 transport.ts 拆出来并随 sink 一起动态加载：native 模式的首屏闭包
+// 不为兼容模式付一分钱。世代（epoch）校验也在这里做：旧 MPV 会话在途的尾巴一律丢弃。
+
+export interface PcmControllerOpts {
+  invoke: (cmd: Record<string, unknown>) => Promise<any>;
+  /** 当前 PCM 世代（transport 的 pcmEpoch；窗口重建/热切时会跟主进程对齐） */
+  epoch(): number;
+  /** 引擎侧已挂流且在播时为 true（驱动 10Hz 进度上报）。 */
+  progressDue: () => boolean;
+  /** 收到 EOF、但队列里还有声音时先回调一次，给跨曲淡出留出重叠窗口。 */
+  onEnding: () => void;
+  /** 最后一块 PCM 播完（且收到 pcm-eof）时回调。 */
+  onEnded: () => void;
+}
+
+export class PcmController {
+  private sink: PcmSink;
+  private progressTimer: number | null = null;
+  private pauseTimer: number | null = null;
+  private stopTimer: number | null = null;
+  private paused = true;
+  private fading = new Map<PcmSink, number>();
+  private opts: PcmControllerOpts;
+
+  constructor(opts: PcmControllerOpts) {
+    this.opts = opts;
+    this.sink = this.makeSink(opts.epoch());
+
+    this.progressTimer = window.setInterval(() => {
+      if (!opts.progressDue()) return;
+      void opts.invoke({ cmd: "pcm-progress", pos: this.sink.position(), queued: this.sink.queued() }).catch(() => {});
+    }, 100);
+  }
+
+  private makeSink(epoch: number): PcmSink {
+    const sink = new PcmSink({
+      onEnding: () => {
+        if (this.sink !== sink || epoch !== this.opts.epoch()) return;
+
+        if (getFadeMs().outMs <= 0) return;
+
+        this.opts.onEnding();
+      },
+      onEnded: () => {
+        if (this.sink !== sink || epoch !== this.opts.epoch()) return; // 旧曲淡出队列的迟到 ended
+        // 先让主进程把 PCM 状态收口，再通知 player 切下一首；否则 ended 触发的
+        // load 可能和迟到的 pcm-ended 抢状态。
+        void this.opts.invoke({ cmd: "pcm-ended", epoch, pos: sink.position() })
+          .catch(() => {})
+          .then(() => this.opts.onEnded());
+      },
+    });
+
+    sink.setEq(getEqualizerState());
+
+    return sink;
+  }
+
+  position() { return this.sink.position(); }
+
+  /** 引擎 state 广播的暂停态翻转：淡出走完再挂起渲染，恢复时立刻 resume。 */
+  onPaused(paused: boolean) {
+    if (paused === this.paused) return;
+    this.paused = paused;
+
+    if (this.pauseTimer !== null) {
+      window.clearTimeout(this.pauseTimer);
+      this.pauseTimer = null;
+    }
+
+    if (paused) {
+      // 等主进程把 250ms 淡出走完、管道停住后再挂起；立刻 pause 会切断淡出，
+      // 也会让 resume 首块听起来“卡一下”。eof 已到则让 sink 自己把尾巴播完。
+      if (!this.sink.eofPending()) {
+        this.pauseTimer = window.setTimeout(() => {
+          this.pauseTimer = null;
+          if (this.paused) this.sink.pause();
+        }, getFadeMs().outMs);
+      }
+    } else {
+      this.sink.resume();
+    }
+  }
+
+  /** 引擎推来的 PCM 事件（pcm / pcm-gain / pcm-eq / pcm-eof），按世代丢弃旧会话尾巴。 */
+  feed(ev: any) {
+    switch (ev.t) {
+      case "pcm": {
+        if (Number(ev.epoch) !== this.opts.epoch()) return; // 旧 MPV 会话在途的尾巴
+        const d = ev.data;
+
+        if (d instanceof Uint8Array) this.sink.push(d);
+        else if (d instanceof ArrayBuffer) this.sink.push(new Uint8Array(d));
+        else if (d?.data && Array.isArray(d.data)) this.sink.push(Uint8Array.from(d.data));
+
+        return;
+      }
+      case "pcm-gain":
+        if (ev.epoch !== undefined && Number(ev.epoch) !== this.opts.epoch()) return;
+        this.sink.setGain(Number(ev.value) || 0);
+
+        return;
+      case "pcm-eq":
+        if (ev.epoch !== undefined && Number(ev.epoch) !== this.opts.epoch()) return;
+        this.sink.setEq(ev.state);
+
+        return;
+      case "pcm-eof":
+        if (Number(ev.epoch) !== this.opts.epoch()) return;
+        this.sink.markEof();
+
+        return;
+    }
+  }
+
+  /** 新流：上一轮 stop 的延迟清理不能碰新歌；建新一代 sink，旧曲独立淡出（交叉淡化）。 */
+  load(epoch: number, startAt: number) {
+    if (this.stopTimer !== null) {
+      window.clearTimeout(this.stopTimer);
+      this.stopTimer = null;
+    }
+
+    if (this.pauseTimer !== null) {
+      window.clearTimeout(this.pauseTimer);
+      this.pauseTimer = null;
+    }
+
+    const old = this.sink;
+    const next = this.makeSink(epoch);
+
+    next.setGain(0);
+    this.sink = next;
+
+    if (old) this.retire(old);
+    next.reset(startAt);
+  }
+
+  /** 跨曲：旧 sink 保留已排好的 PCM，独立淡出；新 sink 立即接管主进程的新 PCM。 */
+  private retire(sink: PcmSink) {
+    const fade = getFadeMs();
+    // 旧曲降幅与新曲升幅取同一时长，才是交叉淡化；outMs 单用会比淡入短一截。
+    const ms = Math.max(fade.inMs, fade.outMs);
+
+    // 快速连切只允许一层交叉；再切就把上一条正在淡出的 sink 收掉，避免堆 AudioContext。
+    this.stopFading();
+
+    if (ms <= 0) {
+      sink.destroy();
+
+      return;
+    }
+
+    sink.fadeOut(ms);
+
+    const timer = window.setTimeout(() => {
+      sink.destroy();
+      this.fading.delete(sink);
+    }, ms + 60);
+
+    this.fading.set(sink, timer);
+  }
+
+  private stopFading() {
+    for (const [sink, timer] of this.fading) {
+      window.clearTimeout(timer);
+      sink.destroy();
+    }
+
+    this.fading.clear();
+  }
+
+  reset(pos: number) {
+    this.stopFading();
+    this.sink.reset(pos);
+  }
+
+  resume() {
+    if (this.stopTimer !== null) {
+      window.clearTimeout(this.stopTimer);
+      this.stopTimer = null;
+    }
+
+    if (this.pauseTimer !== null) {
+      window.clearTimeout(this.pauseTimer);
+      this.pauseTimer = null;
+    }
+
+    this.sink.resume();
+  }
+
+  /** transport.stop 的口径：先让主进程把 GainNode 包络降到 0，停止 sink 要等淡出结束。
+   *  load() 会取消这个 timer，所以切歌时不会出现旧 stop 掐掉新歌。 */
+  stop() {
+    if (this.stopTimer !== null) window.clearTimeout(this.stopTimer);
+
+    const fadeOutMs = getFadeMs().outMs;
+
+    if (fadeOutMs <= 0) {
+      this.stopTimer = null;
+      this.sink.stop();
+
+      return;
+    }
+
+    this.stopTimer = window.setTimeout(() => {
+      this.stopTimer = null;
+      this.sink.stop();
+    }, fadeOutMs + 40);
+  }
+
+  /** mpv dead：立即停，不留给淡出。 */
+  kill() {
+    if (this.stopTimer !== null) {
+      window.clearTimeout(this.stopTimer);
+      this.stopTimer = null;
+    }
+
+    if (this.pauseTimer !== null) {
+      window.clearTimeout(this.pauseTimer);
+      this.pauseTimer = null;
+    }
+
+    this.stopFading();
+    this.sink.stop();
+  }
+
+  setGain(v: number) { this.sink.setGain(v); }
+
+  setEq(state: EqState) { this.sink.setEq(state); }
+
+  destroy() {
+    if (this.progressTimer !== null) {
+      window.clearInterval(this.progressTimer);
+      this.progressTimer = null;
+    }
+
+    if (this.stopTimer !== null) {
+      window.clearTimeout(this.stopTimer);
+      this.stopTimer = null;
+    }
+
+    if (this.pauseTimer !== null) {
+      window.clearTimeout(this.pauseTimer);
+      this.pauseTimer = null;
+    }
+
+    this.stopFading();
+    this.sink.destroy();
+  }
+}
+
+// —— PcmEngineTransport：pcm 兼容模式的完整传输实现 ————————————————————
+// 继承 native 版 EngineTransport，把渲染侧状态机挂进父类的 pcmHook；父类里
+// 不留任何 pcm 分支，native 模式的首屏闭包不为兼容模式付一分钱。
+export class PcmEngineTransport extends EngineTransport {
+  private ctl: PcmController;
+
+  constructor(bridge: EngineBridge) {
+    super(bridge, { mode: "pcm" });
+
+    this.ctl = new PcmController({
+      invoke: (cmd) => this.invoke(cmd),
+      epoch: () => this.pcmEpoch,
+      progressDue: () => !!this.loadedUrl && !this.st.paused,
+      onEnding: () => this.emit({ type: "ending" }),
+      onEnded: () => this.emit({ type: "ended" }),
+    });
+
+    this.pcmHook = {
+      position: () => this.ctl.position(),
+      onPaused: (paused) => this.ctl.onPaused(paused),
+      feed: (ev) => this.ctl.feed(ev),
+      load: (epoch, startAt) => this.ctl.load(epoch, startAt),
+      reset: (pos) => this.ctl.reset(pos),
+      resume: () => this.ctl.resume(),
+      stop: () => this.ctl.stop(),
+      kill: () => this.ctl.kill(),
+      setGain: (v) => this.ctl.setGain(v),
+      setEq: (state) => this.ctl.setEq(state),
+      destroy: () => this.ctl.destroy(),
+    };
+
+    // 引擎在 mode 落地后就会推流：hook 挂上之前缓冲的帧按序回放
+    for (const ev of this.pcmBacklog.splice(0)) this.ctl.feed(ev);
   }
 }

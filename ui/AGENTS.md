@@ -666,6 +666,11 @@ Vite 8 的打包内核就是 **Rolldown**（`node_modules/rolldown` 1.2.x），�
   加字段改协议那份，别把重依赖带回契约里。
 - 更新链路（`lib/updater` + `lib/update-core` + `UpdateDialog` ≈ 22KB）不在首屏：`main.ts` 把
   「启动 3s 后检查」的延时留在调用侧，到点才 `import()`。延时口径没变，只是把加载缝隙钉在了那里。
+- MPV 兼容模式（pcm 出声）整条渲染侧状态机住在 `src/lib/pcm-sink.ts`：`PcmController`
+  （进度上报 / 暂停淡出 / EQ / 跨曲淡出 / 世代校验）+ `PcmEngineTransport` 子类，由
+  `createEngineTransport` 按 mode **动态 import**；native 版 `EngineTransport` 里只有空钩子
+  （`PcmHooks`），hook 挂上之前引擎已推流的 PCM 帧进 `pcmBacklog`，子类构造完按序回放。
+  别把 `PcmSink` 改回静态 import —— 那会把兼容模式的 ~7KB 塞回每个人的首屏。
 - `output.codeSplitting.groups` 只给**第三方重量级懒加载依赖**命名（`amll-*`、`cjk-cn2t`、`cjk-t2cn`），
   为的是预算断言能钉住名字（自动分块的名字会随内容漂）。**Sparkle 预装插件不分组**：本来一个插件
   一条动态 import，写组反而会把所有插件并进一块，装一个就把全部字节拉走。
