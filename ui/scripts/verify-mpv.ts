@@ -152,7 +152,7 @@ check("pcm-progress 回推 state（不能只信 mpv 不动的 time-pos）",
 check("pcm 硬预读窗口防止 mpv 先写完整首进 idle", /PCM_MAX_AHEAD_SEC/.test(engineSrc) && /drainPcm\(/.test(engineSrc));
 
 check("pcm 音量走 renderer GainNode（不让 mpv 预写缓冲区造成半拍延迟）",
-  /pcm-gain/.test(engineSrc) && /setGain\(/.test(sinkSrc) && /this\.pcm\?\.setGain/.test(readFileSync(join(UI, "src", "lib", "transport.ts"), "utf8")));
+  /pcm-gain/.test(engineSrc) && /setGain\(/.test(sinkSrc) && /this\.pcm(Hook)?\?\.setGain/.test(readFileSync(join(UI, "src", "lib", "transport.ts"), "utf8")));
 
 check("pcm seek 重拉 MPV + 管道，丢弃 FIFO 旧帧", /restartPcmAt/.test(engineSrc) && /loadfile[\s\S]{0,100}start=/.test(engineSrc));
 

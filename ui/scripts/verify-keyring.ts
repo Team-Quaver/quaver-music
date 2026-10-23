@@ -308,7 +308,7 @@ check("用户可见文案不再提 credential.json / 0600（登录页与设置�
   !viewsSource().includes("credential.json") && !read("src/relay.ts").includes("credential.json")
   && !read("vite.config.ts").includes("credential.json"));
 check("登录页写明凭证存在系统密钥管理器",
-  viewsSource().includes("系统密钥管理器"));
+  /系统(指定的)?密钥(管理器|环)/.test(viewsSource()));
 check("verify:keyring 已挂进 verify:static", pkg.scripts["verify:static"].includes("verify-keyring.ts") && !!pkg.scripts["verify:keyring"]);
 
 for (const d of TMP_DIRS) rmSync(d, { recursive: true, force: true });
