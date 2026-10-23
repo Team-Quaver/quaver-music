@@ -25,6 +25,9 @@ export const icons = {
   queue: svg('<path d="M4 6h11M4 11h11M4 16h7"/><path d="M17 13.5v6l4.5-3z" fill="currentColor" stroke="none"/>'),
   chevronDown: svg('<path d="M6 9l6 6 6-6"/>'),
   chevronUp: svg('<path d="M6 15l6-6 6 6"/>'),
+  // 返回上级（壳层顶带的 ←）：与 chevronDown/Up 同族，只是更粗更紧。
+  // 归属在这份共享图标表里而不是 views/_shared：壳层（首屏）只要它，整张 _shared 属懒加载侧。
+  back: svg('<path d="M14 6l-6 6 6 6"/>', 16, 2.2),
   close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
   disc: svg('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/>'),
   // 音量图标：喇叭本体与分级声波要吃掉接近满格的 24×24 视窗。旧版只画到 x=13，

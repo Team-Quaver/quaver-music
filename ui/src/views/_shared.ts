@@ -132,11 +132,10 @@ export interface QrResp { img?: string; identifier?: string }
 export interface QrStatusResp { event?: number; done?: boolean; error?: string }
 
 
-export const BACK_SVG = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6l-6 6 6 6"/></svg>`;
-
 // 信息头（歌单/专辑/歌手共用）：左图 右「名称/详情/简介」整体上对齐；
 // 简介默认两行截断，文本真溢出时出「展开」按钮（点一下显全文，再点收回）。
-// 返回按钮不在这里——统一挂在壳层顶带（搜索框旁，见 shell.ts）。
+// 返回按钮不在这里——统一挂在壳层顶带（搜索框旁，见 shell.ts），图标在 lib/icons（首屏壳层
+// 不该静态引到本模块：整张 _shared 只随第一个真视图进内存）。
 
 export // 信息头（歌单/专辑/歌手共用）：左图 右「名称/详情/简介」整体上对齐；
 // 简介默认两行截断，文本真溢出时出「展开」按钮（点一下显全文，再点收回）。

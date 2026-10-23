@@ -18,7 +18,6 @@ import { NowPlaying } from "./components/NowPlaying";
 import { QueuePanel } from "./components/QueuePanel";
 import { SearchBox } from "./components/SearchBox";
 import { playPlaylistNow, playSongsNow, openPlaylistMenu, openVirtualPlaylistMenu, type PlaylistMenuOptions } from "./components/PlaylistMenu";
-import { BACK_SVG } from "./views/_shared";
 import { icons as sharedIcons } from "./lib/icons";
 import { loadView, prefetchView } from "./views/index";
 import { bootTint } from "./lib/tint";
@@ -266,7 +265,7 @@ export function bootShell() {
   backBtn.type = "button";
   backBtn.setAttribute("aria-label", "返回上级");
   backBtn.title = "返回上级";
-  backBtn.innerHTML = BACK_SVG;
+  backBtn.innerHTML = sharedIcons.back;
   backBtn.hidden = true;
   backBtn.onclick = () => {
     if (stackPos > 0) { stackPos--; history.back(); } // renderRoute/hashchange 不会再压栈（同址判定）
