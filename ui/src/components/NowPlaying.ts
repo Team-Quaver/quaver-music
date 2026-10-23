@@ -25,10 +25,11 @@
 import { player, type Song } from "../player";
 import { pickAux } from "../lyric";
 import { coverUrl, songTitle, stripEm, QUALITY_SHORT, effectiveQuality, getLastStream } from "../lib/api";
-import {
-  probeStreamInfo, cachedStreamInfo, fmtSampleRate, fmtBitDepth, fmtBitrate, fmtChannels,
-  type StreamInfo,
-} from "../lib/streaminfo";
+import type { StreamInfo } from "../lib/streaminfo";
+// 音质浮窗点开才需要流头解析：整模块动态拉，不进首屏闭包（verify-bundle 守线）
+type StreaminfoMod = typeof import("../lib/streaminfo");
+let streaminfoMod: Promise<StreaminfoMod> | null = null;
+const loadStreaminfo = () => (streaminfoMod ??= import("../lib/streaminfo"));
 import { icons } from "../lib/icons";
 import { getLyricScale, setLyricScale, LYRIC_SCALE_MAX, LYRIC_SCALE_MIN, LYRIC_SCALE_STEP, LYRIC_AUX_MODES, type LyricAuxMode } from "../lib/prefs";
 import { getLyricDelayMs, setLyricDelayMs, fmtLyricDelay, LYRIC_DELAY_STEP_MS, LYRIC_DELAY_MAX_MS } from "../lib/lyric-delay";
@@ -505,7 +506,7 @@ export function NowPlaying(): HTMLElement {
     }
     return d;
   }
-  function fillQInfo(url: string, info: StreamInfo | null | "none" | "pending") {
+  function fillQInfo(url: string, info: StreamInfo | null | "none" | "pending", si?: StreaminfoMod) {
     const sig = url + "|" + (typeof info === "string" ? info
       : info ? `${info.codec}|${info.sampleRate ?? ""}|${info.bitDepth ?? ""}|${Math.round(info.bitrate ?? 0)}|${info.channels ?? ""}` : "null");
     if (sig === qFillSig && qInfo.childElementCount) return; // notify 4Hz：内容没变不重建 DOM
@@ -515,27 +516,29 @@ export function NowPlaying(): HTMLElement {
     if (info === "none") { qInfo.append(qiEmpty(player.current ? "等待播放流…" : "未在播放")); return; }
     if (info === "pending") { qInfo.append(qiEmpty("探测中…")); return; }
     if (!info) { qInfo.append(qiEmpty("流信息不可用")); return; }
+    if (!si) return;
     qInfo.append(
       qiRow("编码格式", info.codec),
-      qiRow("采样率", fmtSampleRate(info.sampleRate)),
-      qiRow("采样精度", fmtBitDepth(info.bitDepth)),
-      qiRow("码率", fmtBitrate(info)),
-      qiRow("声道", fmtChannels(info.channels)),
+      qiRow("采样率", si.fmtSampleRate(info.sampleRate)),
+      qiRow("采样精度", si.fmtBitDepth(info.bitDepth)),
+      qiRow("码率", si.fmtBitrate(info)),
+      qiRow("声道", si.fmtChannels(info.channels)),
     );
   }
   /** 打开/刷新浮窗内容：先画即时态，探测回来后（仍开着且还是同一条流）再落最终行 */
   async function syncQInfo() {
     const url = player.streamUrl;
     if (!player.current || !url) { fillQInfo("", "none"); return; }
-    const cached = cachedStreamInfo(url);
+    const si = await loadStreaminfo();
+    const cached = si.cachedStreamInfo(url);
     if (cached) {
       const info = await cached;
-      if (qinfoOpen() && player.streamUrl === url) fillQInfo(url, info);
+      if (qinfoOpen() && player.streamUrl === url) fillQInfo(url, info, si);
       return;
     }
     fillQInfo(url, "pending");
-    const info = await probeStreamInfo(url, { duration: player.duration });
-    if (qinfoOpen() && player.streamUrl === url) fillQInfo(url, info);
+    const info = await si.probeStreamInfo(url, { duration: player.duration });
+    if (qinfoOpen() && player.streamUrl === url) fillQInfo(url, info, si);
   }
   qPill.addEventListener("click", () => {
     if (qinfoOpen()) { closeQInfo(); return; }

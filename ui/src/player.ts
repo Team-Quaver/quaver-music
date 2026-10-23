@@ -14,7 +14,7 @@ import {
 } from "./lib/prefs";
 import { cjkConvert } from "./lib/cjk-convert";
 import { expandTtmlUrl, fetchTtml, ttmlMissCached, ttmlMissRemember } from "./lib/ttml";
-import { WebTransport, EngineTransport, type Transport, type TransportEvent, type AudioDeviceInfo } from "./lib/transport";
+import { WebTransport, createEngineTransport, EngineTransport, type Transport, type TransportEvent, type AudioDeviceInfo } from "./lib/transport";
 import { loadSession, saveSession } from "./lib/session";
 import { dayKey, daySeed, shuffleOrder, step, walk } from "./lib/shuffle";
 import { coerceLyricToLrc, parseLrc, type LyricLine } from "./lyric";
@@ -265,7 +265,7 @@ class Player {
       }
 
       const mode = pref === "MPVCompat" ? "pcm" : "native";
-      const t = new EngineTransport(window.quaverAudio, { mode });
+      const t = await createEngineTransport(window.quaverAudio, { mode });
       const dev = getAudioDevice();
 
       if (mode === "native" && dev) void t.setDevice?.(dev).catch(() => {});
@@ -422,7 +422,7 @@ class Player {
         return;
       }
 
-      const t = new EngineTransport(window.quaverAudio, { mode });
+      const t = await createEngineTransport(window.quaverAudio, { mode });
       const dev = getAudioDevice();
 
       if (mode === "native" && dev) void t.setDevice?.(dev).catch(() => {});

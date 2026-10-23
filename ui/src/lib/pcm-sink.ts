@@ -6,6 +6,12 @@
 //
 // 不再使用 AudioBufferSourceNode：实时音频不需要每秒新建几十个节点，也不会因主线程
 // 调度抖动在相邻 source 之间制造微小断点。
+//
+// 本模块（含 PcmController 与 PcmEngineTransport）只被 pcm 兼容模式动态 import，
+// 不进首屏闭包。
+import { getFadeMs } from "./prefs";
+import { EngineTransport, type EngineBridge } from "./transport";
+
 const PCM_RATE = 48000;
 const PCM_CHANNELS = 2;
 const PCM_FRAME_BYTES = PCM_CHANNELS * 4;
@@ -248,5 +254,150 @@ export class PcmSink {
     if (this.ended || !this.eof || this.availableFrames > 0 || this.pendingFrames > 0) return;
     this.ended = true;
     this.opts.onEnded();
+  }
+}
+
+// —— PcmController：pcm 兼容模式的传输层状态机 ——————————————————————————
+// 从 transport.ts 拆出来并随 sink 一起动态加载：native 模式的首屏闭包
+// 不为兼容模式付一分钱（verify-bundle 的首屏预算守着这条线）。
+
+export interface PcmControllerOpts {
+  invoke: (cmd: Record<string, unknown>) => Promise<any>;
+  /** 引擎侧已挂流且在播时为 true（驱动 10Hz 进度上报）。 */
+  progressDue: () => boolean;
+  /** 最后一块 PCM 播完（且收到 pcm-eof）时回调。 */
+  onEnded: () => void;
+}
+
+export class PcmController {
+  private sink: PcmSink;
+  private progressTimer: number | null = null;
+  private pauseTimer: number | null = null;
+  private paused = true;
+  private opts: PcmControllerOpts;
+
+  constructor(opts: PcmControllerOpts) {
+    this.opts = opts;
+    this.sink = new PcmSink({ onEnded: opts.onEnded });
+
+    this.progressTimer = window.setInterval(() => {
+      if (!opts.progressDue()) return;
+      void opts.invoke({ cmd: "pcm-progress", pos: this.sink.position(), queued: this.sink.queued() }).catch(() => {});
+    }, 100);
+  }
+
+  position() { return this.sink.position(); }
+
+  /** 引擎 state 广播的暂停态翻转：淡出走完再挂起 AudioContext，恢复时立刻 resume。 */
+  onPaused(paused: boolean) {
+    if (paused === this.paused) return;
+    this.paused = paused;
+
+    if (this.pauseTimer !== null) {
+      window.clearTimeout(this.pauseTimer);
+      this.pauseTimer = null;
+    }
+
+    if (paused) {
+      // 等主进程把 250ms 淡出走完、管道停住后再挂起；立刻 pause 会切断淡出，
+      // 也会让 resume 首块听起来“卡一下”。eof 已到则让 sink 自己把尾巴播完。
+      if (!this.sink.eofPending()) {
+        this.pauseTimer = window.setTimeout(() => {
+          this.pauseTimer = null;
+          if (this.paused) this.sink.pause();
+        }, getFadeMs().outMs);
+      }
+    } else {
+      this.sink.resume();
+    }
+  }
+
+  /** 引擎推来的 PCM 帧流事件（pcm / pcm-gain / pcm-eof）。 */
+  feed(ev: any) {
+    switch (ev.t) {
+      case "pcm": {
+        const d = ev.data;
+
+        if (d instanceof Uint8Array) this.sink.push(d);
+        else if (d instanceof ArrayBuffer) this.sink.push(new Uint8Array(d));
+        else if (d?.data && Array.isArray(d.data)) this.sink.push(Uint8Array.from(d.data));
+
+        return;
+      }
+      case "pcm-gain":
+        this.sink.setGain(Number(ev.value) || 0);
+
+        return;
+      case "pcm-eof":
+        this.sink.markEof();
+
+        return;
+    }
+  }
+
+  reset(pos = 0) { this.sink.reset(pos); }
+
+  resume() { this.sink.resume(); }
+
+  stop() {
+    if (this.pauseTimer !== null) {
+      window.clearTimeout(this.pauseTimer);
+      this.pauseTimer = null;
+    }
+
+    this.sink.stop();
+  }
+
+  setGain(value: number) { this.sink.setGain(value); }
+
+  destroy() {
+    if (this.progressTimer !== null) {
+      window.clearInterval(this.progressTimer);
+      this.progressTimer = null;
+    }
+
+    if (this.pauseTimer !== null) {
+      window.clearTimeout(this.pauseTimer);
+      this.pauseTimer = null;
+    }
+
+    this.sink.destroy();
+  }
+}
+
+// —— PcmEngineTransport：pcm 兼容模式的完整传输实现 ————————————————————
+// 继承 native 版 EngineTransport，把渲染侧状态机挂进父类的 pcmHook；父类里
+// 不留任何 pcm 分支，native 模式的首屏闭包不为兼容模式付一分钱。
+export class PcmEngineTransport extends EngineTransport {
+  private ctl: PcmController;
+
+  constructor(bridge: EngineBridge) {
+    super(bridge, { mode: "pcm" });
+
+    this.ctl = new PcmController({
+      invoke: (cmd) => this.invoke(cmd),
+      progressDue: () => !!this.loadedUrl && !this.st.paused,
+      onEnded: () => {
+        // 先让主进程把 PCM 状态收口，再通知 player 切下一首；否则 ended 触发的
+        // load 可能和迟到的 pcm-ended 抢状态。
+        void this.invoke({ cmd: "pcm-ended", epoch: this.pcmEpoch, pos: this.ctl.position() })
+          .catch(() => {})
+          .then(() => this.emit({ type: "ended" }));
+      },
+    });
+
+    this.pcmHook = {
+      position: () => this.ctl.position(),
+      onPaused: (paused) => this.ctl.onPaused(paused),
+      feed: (ev) => this.ctl.feed(ev),
+      reset: (pos) => this.ctl.reset(pos),
+      resume: () => this.ctl.resume(),
+      stop: () => this.ctl.stop(),
+      setGain: (v) => this.ctl.setGain(v),
+      destroy: () => this.ctl.destroy(),
+    };
+
+    // 引擎在 mode 落地后就会推流：hook 挂上之前缓冲的帧按序回放
+    for (const ev of this.pcmBacklog.splice(0)) this.ctl.feed(ev);
   }
 }

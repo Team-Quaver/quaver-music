@@ -8,7 +8,6 @@
 //   native —— 引擎按 ~4Hz 推位置快照，渲染层外推插值；外推有闸（0.35s 上限/两帧不动冻结）。
 //   pcm    —— 位置来自 renderer 实际消费的 PCM 样本，不能信 mpv `ao_pcm` 的预写时间戳。
 import { getFadeMs } from "./prefs";
-import { PcmSink } from "./pcm-sink";
 
 export type TransportKind = "engine" | "web";
 
@@ -82,7 +81,7 @@ export class WebTransport implements Transport {
     // src 加载/解码失败（含 token 过期、上游断流）→ 可重试错误态（默认文案由 player 决定）
   }
 
-  private emit(e: TransportEvent) {
+  protected emit(e: TransportEvent) {
     for (const fn of [...this.listeners]) { try { fn(e); } catch (err) { console.warn(err); } }
   }
 
@@ -131,10 +130,27 @@ export class WebTransport implements Transport {
 
 // —— EngineTransport：主进程 mpv 引擎 ————————————————————————————
 
-type EngineBridge = {
+export type EngineBridge = {
   invoke(cmd: unknown): Promise<any>;
   onEvent(cb: (ev: any) => void): () => void;
 };
+
+/** pcm 兼容模式的渲染钩子：native 版 EngineTransport 恒为 null，
+ *  真正的实现（PcmController）住在动态加载的 pcm-sink 块里。 */
+export interface PcmHooks {
+  /** state 广播里的权威位置（pcm 模式下 mpv 的时间戳不可信） */
+  position(): number;
+  /** 暂停态翻转：淡出走完再挂起 AudioContext，恢复时立刻 resume */
+  onPaused(paused: boolean): void;
+  /** 引擎推来的 PCM 帧流事件（pcm / pcm-gain / pcm-eof） */
+  feed(ev: any): void;
+  /** 新流 / seek / 窗口接管：清空渲染队列，把时间轴钉到 pos */
+  reset(pos: number): void;
+  resume(): void;
+  stop(): void;
+  setGain(v: number): void;
+  destroy(): void;
+}
 
 export type EngineMode = "native" | "pcm";
 
@@ -152,55 +168,32 @@ export class EngineTransport implements Transport {
   readonly mode: EngineMode;
   private bridge: EngineBridge;
   private listeners = new Set<(e: TransportEvent) => void>();
-  private st = { pos: 0, dur: 0, paused: true, buffering: false, idle: true };
+  protected st = { pos: 0, dur: 0, paused: true, buffering: false, idle: true };
   private posAt = 0; // 最近一次位置采样时刻（performance.now）
   private frozen = 0; // 播放中位置连续不动的采样数（≥2 → 冻结外推）
-  private loadedUrl = "";
-  private pcm: PcmSink | null = null;
-  private offEngine: () => void;
-  private modeReady: Promise<any>;
-  private progressTimer: number | null = null;
-  private pcmPauseTimer: number | null = null;
-  private pcmEpoch = 0;
+  protected loadedUrl = "";
+  protected offEngine: () => void;
+  protected modeReady: Promise<any>;
+  protected pcmEpoch = 0;
+  /** pcm 兼容模式的渲染钩子（由动态加载的 PcmEngineTransport 挂上；native 恒为 null） */
+  protected pcmHook: PcmHooks | null = null;
+  /** hook 挂上之前到达的 PCM 事件：IPC 是异步的，引擎在 mode 落地后就会推流 */
+  protected pcmBacklog: any[] = [];
 
   constructor(bridge: EngineBridge, opts: { mode?: EngineMode } = {}) {
     this.bridge = bridge;
     this.mode = opts.mode ?? "native";
 
-    if (this.mode === "pcm") {
-      this.pcm = new PcmSink({
-        onEnded: () => {
-          // 先让主进程把 PCM 状态收口，再通知 player 切下一首；否则 ended 触发的
-          // load 可能和迟到的 pcm-ended 抢状态。
-          void this.invoke({ cmd: "pcm-ended", epoch: this.pcmEpoch, pos: this.pcm?.position() ?? 0 })
-            .catch(() => {})
-            .then(() => this.emit({ type: "ended" }));
-        },
-      });
-      this.progressTimer = window.setInterval(() => {
-        if (!this.loadedUrl || this.st.paused) return;
-        void this.invoke({
-          cmd: "pcm-progress",
-          pos: this.pcm?.position() ?? 0,
-          queued: this.pcm?.queued() ?? 0,
-        }).catch(() => {});
-      }, 100);
-    }
-
     this.offEngine = bridge.onEvent((ev) => this.onEngineEvent(ev));
     // mode 必须在 load 之前落地：引擎会按它决定 mpv 是直接开设备还是写 PCM 管道。
     this.modeReady = this.invoke({ cmd: "mode", mode: this.mode }).catch(() => null);
-
-    if (this.mode === "pcm") {
-      void this.modeReady.then(() => this.invoke({ cmd: "pcm-ready" })).catch(() => {});
-    }
 
     // 淡入淡出只对 engine 生效；先下发，真正拉起 mpv 时由 ensureStarted 套用。
     const f = getFadeMs();
     void this.invoke({ cmd: "fade", inMs: f.inMs, outMs: f.outMs }).catch(() => {});
   }
 
-  private emit(e: TransportEvent) {
+  protected emit(e: TransportEvent) {
     for (const fn of [...this.listeners]) { try { fn(e); } catch (err) { console.warn(err); } }
   }
 
@@ -215,35 +208,14 @@ export class EngineTransport implements Transport {
       case "state": {
         const prev = { ...this.st };
         this.st = {
-          pos: this.pcm ? this.pcm.position() : Number(ev.pos) || 0,
+          pos: this.pcmHook ? this.pcmHook.position() : Number(ev.pos) || 0,
           dur: Number(ev.dur) || 0,
           paused: !!ev.paused,
           buffering: !!ev.buffering,
           idle: !!ev.idle,
         };
 
-        if (this.pcm && this.st.paused !== prev.paused) {
-          if (this.st.paused) {
-            // 等主进程把 250ms 淡出走完、管道停住后再清 renderer 队列；
-            // 立刻 pause 会切断淡出，也会让 resume 首块看起来“卡一下”。
-            if (this.pcmPauseTimer !== null) window.clearTimeout(this.pcmPauseTimer);
-
-            if (!this.pcm.eofPending()) {
-              this.pcmPauseTimer = window.setTimeout(() => {
-                this.pcmPauseTimer = null;
-
-                if (this.st.paused) this.pcm?.pause();
-              }, getFadeMs().outMs);
-            }
-          } else {
-            if (this.pcmPauseTimer !== null) {
-              window.clearTimeout(this.pcmPauseTimer);
-              this.pcmPauseTimer = null;
-            }
-
-            this.pcm.resume();
-          }
-        }
+        this.pcmHook?.onPaused(this.st.paused);
 
         // 冻结检测：播放中位置两帧不动 → 停止外推（引擎卡住/谎报时时间轴冻结而非漂移）
         if (!this.st.paused && !this.st.idle && !this.st.buffering) {
@@ -261,28 +233,16 @@ export class EngineTransport implements Transport {
         return;
       }
 
-      case "pcm": {
-        const d = ev.data;
-
-        if (d instanceof Uint8Array) this.pcm?.push(d);
-        else if (d instanceof ArrayBuffer) this.pcm?.push(new Uint8Array(d));
-        else if (d?.data && Array.isArray(d.data)) this.pcm?.push(Uint8Array.from(d.data));
-
-        return;
-      }
-
+      case "pcm":
       case "pcm-gain":
-        this.pcm?.setGain(Number(ev.value) || 0);
-
-        return;
-
       case "pcm-eof":
-        this.pcm?.markEof();
+        if (this.pcmHook) this.pcmHook.feed(ev);
+        else this.pcmBacklog.push(ev);
 
         return;
       case "ended":
         // pcm 模式的 ended 由 PcmSink 在缓冲真正播完后发出；引擎侧只发 pcm-eof。
-        if (!this.pcm) this.emit({ type: "ended" });
+        if (!this.pcmHook) this.emit({ type: "ended" });
 
         return;
       case "error":
@@ -290,7 +250,7 @@ export class EngineTransport implements Transport {
         return;
       case "dead":
         // mpv 退出：冻结时间轴并报错；下一次 load 会自动重拉 mpv（重试语义交给播放器）
-        this.pcm?.stop();
+        this.pcmHook?.stop();
         this.st = { pos: this.st.pos, dur: this.st.dur, paused: true, buffering: false, idle: true };
         this.emit({ type: "error", message: String(ev.message ?? "mpv 进程退出") });
         return;
@@ -301,8 +261,8 @@ export class EngineTransport implements Transport {
   get paused() { return this.st.paused || this.st.idle; }
   get duration() { return this.st.dur; }
   get position() {
-    if (this.pcm) {
-      const p = this.pcm.position();
+    if (this.pcmHook) {
+      const p = this.pcmHook.position();
 
       return this.st.dur > 0 ? Math.min(p, this.st.dur) : p;
     }
@@ -337,7 +297,7 @@ export class EngineTransport implements Transport {
   adopt(url: string, s: { pos: number; dur: number; paused: boolean; buffering: boolean; idle: boolean }) {
     this.loadedUrl = url;
     this.st = { pos: s.pos, dur: s.dur, paused: s.paused, buffering: s.buffering, idle: s.idle };
-    this.pcm?.reset(s.pos);
+    this.pcmHook?.reset(s.pos);
     this.posAt = performance.now();
     this.frozen = 0;
     this.emit({ type: "duration" });
@@ -345,17 +305,17 @@ export class EngineTransport implements Transport {
     this.emit({ type: "time" });
   }
 
-  private invoke(cmd: Record<string, unknown>): Promise<any> {
+  protected invoke(cmd: Record<string, unknown>): Promise<any> {
     return this.bridge.invoke(cmd);
   }
 
   async load(url: string, opts?: { paused?: boolean; startAt?: number }) {
     await this.modeReady;
 
-    if (this.pcm) await this.invoke({ cmd: "pcm-ready" }).catch(() => {});
+    if (this.pcmHook) await this.invoke({ cmd: "pcm-ready" }).catch(() => {});
     const startAt = Math.max(0, Number(opts?.startAt) || 0);
     const epoch = ++this.pcmEpoch;
-    this.pcm?.reset(startAt);
+    this.pcmHook?.reset(startAt);
     const r = await this.invoke({ cmd: "load", url, paused: !!opts?.paused, startAt, epoch });
 
     if (!r?.ok) throw new Error(r?.error ?? "音频引擎加载失败");
@@ -366,8 +326,8 @@ export class EngineTransport implements Transport {
   async play() {
     await this.modeReady;
 
-    if (this.pcm) await this.invoke({ cmd: "pcm-ready" }).catch(() => {});
-    this.pcm?.resume();
+    if (this.pcmHook) await this.invoke({ cmd: "pcm-ready" }).catch(() => {});
+    this.pcmHook?.resume();
     // eof 后 mpv 回 idle 会卸载文件（区别于 <audio> 保留 src）——重挂由引擎侧处理（它才知道 mpv 真实 idle 态）
     const r = await this.invoke({ cmd: "play" });
     if (!r?.ok) throw new Error(r?.error ?? "音频引擎播放失败");
@@ -379,7 +339,7 @@ export class EngineTransport implements Transport {
 
   stop() {
     this.loadedUrl = "";
-    this.pcm?.stop();
+    this.pcmHook?.stop();
     void this.invoke({ cmd: "stop" }).catch(() => {});
   }
 
@@ -387,7 +347,7 @@ export class EngineTransport implements Transport {
     // 乐观位置：进度条/歌词立刻跟手，引擎 state 事件（含真实边界钳制）马上对齐
     const at = Math.max(0, sec);
     const epoch = ++this.pcmEpoch;
-    this.pcm?.reset(at);
+    this.pcmHook?.reset(at);
     this.st.pos = at;
     this.posAt = performance.now();
     this.frozen = 0;
@@ -396,25 +356,15 @@ export class EngineTransport implements Transport {
   }
 
   dispose() {
-    if (this.progressTimer !== null) {
-      window.clearInterval(this.progressTimer);
-      this.progressTimer = null;
-    }
-
-    if (this.pcmPauseTimer !== null) {
-      window.clearTimeout(this.pcmPauseTimer);
-      this.pcmPauseTimer = null;
-    }
-
     try { this.offEngine(); } catch {}
 
-    this.pcm?.destroy();
-    this.pcm = null;
+    this.pcmHook?.destroy();
+    this.pcmHook = null;
   }
 
   setVolume(vol: number, muted: boolean) {
     // 兼容模式先本地落 GainNode（0 延迟），IPC 再让主进程记住状态并同步淡入淡出包络。
-    this.pcm?.setGain(muted ? 0 : vol);
+    this.pcmHook?.setGain(muted ? 0 : vol);
     void this.invoke({ cmd: "volume", value: vol }).catch(() => {});
     void this.invoke({ cmd: "mute", value: muted }).catch(() => {});
   }
@@ -433,4 +383,14 @@ export class EngineTransport implements Transport {
   async setFade(inMs: number, outMs: number) {
     await this.invoke({ cmd: "fade", inMs, outMs });
   }
+}
+
+/** 按 mode 造引擎传输：native 直接给 EngineTransport；pcm 兼容模式动态拉
+ *  PcmEngineTransport（整条渲染状态机都在动态块里，native 首屏不为它买单）。 */
+export async function createEngineTransport(bridge: EngineBridge, opts: { mode?: EngineMode } = {}): Promise<Transport> {
+  if ((opts.mode ?? "native") !== "pcm") return new EngineTransport(bridge);
+
+  const { PcmEngineTransport } = await import("./pcm-sink");
+
+  return new PcmEngineTransport(bridge);
 }
