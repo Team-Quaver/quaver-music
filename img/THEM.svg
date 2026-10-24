@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 462.603 95.506">
+  <defs>
+    <style>
+      .cls-1{fill:#777777}
+      .cls-2{font-family:&apos;Noto Sans&apos;, sans-serif;font-size:12;font-weight:900;fill:#ffffff}
+      .cls-3{fill:#ffffff}
+      .cls-4{font-family:&apos;Noto Sans&apos;, sans-serif;font-size:17.83;font-weight:900;fill:#ffffff}
+    </style>
+    <filter id="filter-1" filterUnits="userSpaceOnUse" x="-2" y="-2" width="466.603" height="99.506" data-vc-blend="screen" color-interpolation-filters="sRGB"><feComponentTransfer in="SourceAlpha"><feFuncA type="table" tableValues="1 0"/></feComponentTransfer><feGaussianBlur stdDeviation="5" result="glow"/><feFlood flood-color="#000000" flood-opacity="0.75"/><feComposite in2="glow" operator="in"/><feComposite in2="SourceAlpha" operator="in" result="paint"/><feMerge><feMergeNode in="SourceGraphic"/><feMergeNode in="paint"/></feMerge></filter>
+  </defs>
+  <title>THEM</title>
+  <g id="Layer_1" data-name="Layer 1">
+    <g filter="url(#filter-1)">
+      <path d="M19.585 0 L443.018 0 C453.835 0 462.603 8.769 462.603 19.585 L462.603 75.921 C462.603 86.737 453.835 95.506 443.018 95.506 L19.585 95.506 C8.769 95.506 0 86.737 0 75.921 L0 19.585 C0 8.769 8.769 0 19.585 0 Z" class="cls-1"/>
+    </g>
+    <g>
+      <text transform="matrix(1.432 0 0 1.432 106.14 40.61)" x="0" y="0" xml:space="preserve" class="cls-2"><tspan x="0" y="0">YES!!!</tspan></text>
+      <g id="leaf.svg">
+        <g id="emoji-nature">
+          <path id="path3705" d="M69.414 79.249 C69.414 79.249 81.597 79.249 81.597 67.065 L81.597 46.76 C81.597 46.76 81.418 40.999 81.482 38.636 C81.482 34.577 83.665 32.898 87.185 30.024 C89.732 28.035 90.329 24.703 88.43 23.131 C86.687 21.688 83.713 21.896 81.688 24.527 L77.548 30.516 C74.715 34.633 73.557 38.133 73.487 42.699 L73.475 67.065 C73.473 71.126 69.426 71.126 69.426 71.126 L69.426 44.428 L57.23 56.913 L57.23 67.065 C57.23 71.126 53.182 71.126 53.182 71.126 L53.169 60.974 L45.059 69.238 C43.685 70.505 43.017 71.126 40.998 71.126 L40.986 67.065 L57.243 50.821 L40.998 50.821 C40.998 50.821 40.986 46.76 45.059 46.76 L61.304 46.76 L69.426 38.638 C69.426 36.908 69.426 30.492 61.304 30.492 L45.047 30.516 C45.047 30.516 32.864 30.516 32.876 42.66 L32.876 79.248 Z" class="cls-3"/>
+        </g>
+      </g>
+    </g>
+    <text transform="matrix(1 0 0 1 106.14 66.813)" x="0" y="0" xml:space="preserve" class="cls-4"><tspan x="0" y="0">YOU CAN FKING THEME THIS!!!</tspan></text>
+  </g>
+</svg>
