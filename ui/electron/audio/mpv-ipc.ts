@@ -16,6 +16,10 @@ import { join } from "node:path";
 /** socket 就绪轮询上限：mpv 冷启动通常 <100ms，5s 足够兜极端机器 */
 const SOCK_WAIT_MS = 5000;
 
+/** PCM 换输出命令的短超时：正常只要几十毫秒；AO 重绑偶发卡死时快速回落到
+ *  整进程重启，不能吃满默认 8s——那会被用户感知成「切歌慢 8 秒」。 */
+export const PCM_REBIND_TIMEOUT_MS = 1500;
+
 /**
  * mpv JSON IPC 线协议的值域（get/set/命令数据都只能是这几种 JSON 值）。
  * 边界口径：JSON.parse 出来的东西在这里收口成命名类型，下游不再见裸 unknown。
@@ -301,19 +305,21 @@ export class MpvIpc {
 
   observe(id: number, prop: string): Promise<MpvValue> { return this.command(["observe_property", id, prop]); }
   getProp(prop: string): Promise<MpvValue> { return this.command(["get_property", prop]); }
-  setProp(prop: string, value: MpvValue): Promise<MpvValue> { return this.command(["set_property", prop, value]); }
+  setProp(prop: string, value: MpvValue, timeoutMs?: number): Promise<MpvValue> {
+    return this.command(["set_property", prop, value], timeoutMs);
+  }
 
   /** 兼容模式换输出：先卸掉旧 AO（释放旧 FIFO 写端），再绑定新 FIFO 并重新启用 pcm。
    *  只 set ao=null 不够：mpv 不会在下一首自动恢复成 pcm，结果就是有进度但没有声音。 */
   async configurePcmOutput(file: string): Promise<void> {
     if (!file) throw new Error("PCM output path is empty");
 
-    await this.setProp("ao", "null");
+    await this.setProp("ao", "null", PCM_REBIND_TIMEOUT_MS);
 
     try {
-      await this.setProp("ao-pcm-file", file);
+      await this.setProp("ao-pcm-file", file, PCM_REBIND_TIMEOUT_MS);
     } finally {
-      await this.setProp("ao", "pcm");
+      await this.setProp("ao", "pcm", PCM_REBIND_TIMEOUT_MS);
     }
   }
 

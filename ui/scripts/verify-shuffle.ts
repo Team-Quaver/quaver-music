@@ -233,6 +233,9 @@ ok("bar：浮窗内滚轮不被音量吃掉", /#pb-qpop, #pb-lpop/.test(bar) && 
 
 ok("bar：seek 拖拽不吞浮窗区域", /button, input, \.pb-volpop, \.pb-qpop, \.pb-lpop/.test(bar));
 
+ok("bar：拖中只预览，pointerup 统一提交 seek（单击也能跳）", /pointermove[\s\S]{0,220}paintScrub\(\);\s*\}\);/.test(bar)
+  && /const endScrub = \(\) => \{[\s\S]{0,260}player\.seek\(scrubFrac \* player\.duration\);\s*player\.seekSettled\(\);/.test(bar));
+
 ok("bar：随机开 → 画随机图标", /loop\.innerHTML = player\.shuffle \? icons\.shuffle/.test(bar));
 
 ok("bar：重画签名含 shuffle / 电台态（只切随机或进出电台也要换图标）", /const loopSig = `\$\{player\.mode\}\|\$\{player\.shuffle\}\|\$\{player\.radioActive \? "radio" : "normal"\}`;/.test(bar));

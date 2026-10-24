@@ -232,14 +232,19 @@ check("PCM 每代管道绑定 epoch，旧 stdout 在途数据按代丢弃",
     && /onData: \(chunk\) => this\.onPcmData\(chunk, epoch\)/.test(engineSrc)
     && /epoch !== this\.pcmEpoch\) return/.test(engineSrc));
 
-check("PCM 换输出先放行旧读端，避免 AO 卡在写端时卸不掉",
-  /old\?\.resume\(\);[\s\S]{0,160}next = await this\.openPcmPipe\(epoch\)/.test(engineSrc));
+check("PCM 换输出先放行旧读端再 stop 旧文件（AO 拆除走正常停播路径，不硬等卡住的写线程）",
+  /old\?\.resume\(\);[\s\S]{0,460}next = await this\.openPcmPipe\(epoch\)/.test(engineSrc)
+  && /await mpv\.command\(\["stop"\], PCM_REBIND_TIMEOUT_MS\)/.test(engineSrc));
 
 check("PCM 换输出显式重绑新路径并恢复 ao=pcm（只设 null 会让新歌永久无声）",
   /configurePcmOutput\(next\.path\)/.test(engineSrc)
-    && /setProp\("ao", "null"\)/.test(ipcSrc)
-    && /setProp\("ao-pcm-file", file\)/.test(ipcSrc)
-    && /setProp\("ao", "pcm"\)/.test(ipcSrc));
+  && /setProp\("ao", "null", PCM_REBIND_TIMEOUT_MS\)/.test(ipcSrc)
+  && /setProp\("ao-pcm-file", file, PCM_REBIND_TIMEOUT_MS\)/.test(ipcSrc)
+  && /setProp\("ao", "pcm", PCM_REBIND_TIMEOUT_MS\)/.test(ipcSrc));
+
+check("PCM 重绑命令带短超时，卡死时快速回落整进程重启（不再吃满默认 8s）",
+  /PCM_REBIND_TIMEOUT_MS = 1500/.test(ipcSrc)
+  && /message\)\.includes\("timeout"\)/.test(engineSrc));
 
 check("歌词点击立即 seek，不等淡出/淡入",
   /opts\?\.immediate/.test(transportSrc)

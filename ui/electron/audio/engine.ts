@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { probeRuntime, resolveMpv } from "./bins.ts";
 import { formatOsVersion, machOMinOs, osVersionGt, parseOsVersion } from "./macho.ts";
-import { MpvIpc, type MpvEvent, type MpvObject, type MpvValue } from "./mpv-ipc.ts";
+import { MpvIpc, PCM_REBIND_TIMEOUT_MS, type MpvEvent, type MpvObject, type MpvValue } from "./mpv-ipc.ts";
 import { PcmPipe } from "./pcm-pipe.ts";
 import { eqFilterString, normalizeEqState, type EqState } from "./eq-config.ts";
 
@@ -242,8 +242,26 @@ export class AudioEngine {
       const old = this.pcmPipe;
       // 旧读端若正被背压暂停，AO 线程可能卡在 fwrite；先放行才能及时卸掉旧 AO。
       old?.resume();
+
+      // 活跃文件的 AO 拆除走正常 stop 路径：直接 set ao=null 会让 mpv 核心线程
+      // 同步等还卡在旧 FIFO 写端的音频线程，一次偶发卡住就吃满整个命令超时。
+      try {
+        await mpv.command(["stop"], PCM_REBIND_TIMEOUT_MS);
+      } catch (e) {
+        // idle 下 stop 的非致命错误可以继续；超时/进程死说明核心卡住，
+        // 立刻走整进程重启，不再把后续 setProperty 排在死命令后面。
+        if (mpv.dead || String((e as Error)?.message).includes("timeout")) throw e;
+      }
+
       const pipeAt = Date.now();
       next = await this.openPcmPipe(epoch);
+
+      if (epoch !== this.pcmEpoch) {
+        next.close();
+
+        return mpv;
+      }
+
       const openedAt = Date.now();
       await mpv.configurePcmOutput(next.path);
       const reboundAt = Date.now();
@@ -709,21 +727,25 @@ export class AudioEngine {
 
           break;
         case 5:
-          this.st.idle = !!d;
+          {
+            this.st.idle = !!d;
+            const holdIdle = this.mode === "pcm" && (this.pcmEnding || this.pcmReloading);
 
-          if (this.st.idle && !(this.mode === "pcm" && this.pcmEnding)) {
-            this.st.pos = 0;
-            this.st.dur = 0;
-            this.st.buffering = false;
-            this.st.paused = true;
-            this.pcmPos = 0;
-          } else if (this.st.idle && this.mode === "pcm" && this.pcmEnding) {
-            // mpv 先回 idle，不代表 renderer 队列已经播完；保持非 paused，等 pcm-ended。
-            this.st.idle = false;
-            this.st.buffering = false;
+            if (this.st.idle && !holdIdle) {
+              this.st.pos = 0;
+              this.st.dur = 0;
+              this.st.buffering = false;
+              this.st.paused = true;
+              this.pcmPos = 0;
+            } else if (this.st.idle && holdIdle) {
+              // ending：尾音还在 renderer 队列；reloading：切歌/seek 的 stop→重绑间隙。
+              // 两种都不能让 idle 事件清掉播放态。
+              this.st.idle = false;
+              if (this.pcmEnding) this.st.buffering = false;
+            }
+
+            this.pushState(true);
           }
-
-          this.pushState(true);
           break;
       }
 
@@ -809,6 +831,10 @@ export class AudioEngine {
   private async loadPcm(url: string, paused: boolean, startAt: number, epoch: number) {
     if (epoch !== this.pcmEpoch) return { ok: true, stale: true };
     const startedAt = Date.now();
+
+    // restartPcmSession 的 stop→重绑期间 mpv 会短暂回 idle；保持 loading 态，
+    // 别让 idle-active 事件把新歌的 buffering/paused 清掉。
+    this.pcmReloading = true;
 
     // 从第二首开始先换 FIFO/AO；旧管道的在途数据由回调里捕获的旧 epoch 丢弃。
     const mpv = this.lastUrl
