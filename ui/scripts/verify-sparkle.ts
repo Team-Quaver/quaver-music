@@ -82,7 +82,7 @@ ok("sdk: definePlugin 存在", has(src.index, "definePlugin"));
 
 ok("sdk: 支持最低宿主版本与 Beta 开关", has(src.types, "minHostVersion?: string") && has(src.types, "allowBeta?: boolean"));
 
-ok("Lumen: 最低宿主版本为 1.4.1 且允许 Beta", has(src.md3Meta, '"minHostVersion": "1.4.1"') && has(src.md3Meta, '"allowBeta": true') && has(src.md3, 'minHostVersion: "1.4.1"') && has(src.md3, "allowBeta: true"));
+ok("Lumen: 最低宿主版本为 1.7.0 且允许 Beta", has(src.md3Meta, '"minHostVersion": "1.7.0"') && has(src.md3Meta, '"allowBeta": true') && has(src.md3, 'minHostVersion: "1.7.0"') && has(src.md3, "allowBeta: true"));
 
 ok("版本比较：主进程安装前执行宿主版本门禁", has(src.mainMjs, "sparkleHostVersionError") && has(src.mainMjs, "minHostVersion"));
 
@@ -545,15 +545,16 @@ ok("flowscape: 五张卡共用一个基准尺寸（不存在第二套 --fs-side�
 
 ok("flowscape: 接管态自带出口（收起 + 更多选项）—— 播放条与 .np-inner 都被宿主收走了，不给按钮就只能按 ESC", has(src.flowIdx, 'id="fs-collapse"') && has(src.flowIdx, 'id="fs-more"') && re(noComments(src.flowIdx), /collapseBtn\.onclick = \(\) => ctx\.collapse\(\);/));
 
-ok("flowscape: 「更多选项」在底部控制带、音质选择器左边，菜单朝上开（顶部只留「收起」）—— 避开 CSD 盖住顶部按钮", (() => {
+ok("flowscape: 「收起」「更多选项」都在底部控制带、音质选择器左边，菜单朝上开（顶部整条让给宿主 CSD 拖拽区）", (() => {
   const a = src.flowIdx.indexOf('<div class="fs-top">');
   const b = src.flowIdx.indexOf('<div class="fs-stage">');
   const top = a >= 0 && b > a ? src.flowIdx.slice(a, b) : "";
   const iCtl = src.flowIdx.indexOf('<div class="fs-ctl">');
+  const iC = src.flowIdx.indexOf('id="fs-collapse"');
   const iM = src.flowIdx.indexOf('<div class="fs-mwrap">');
   const iQ = src.flowIdx.indexOf('<div class="fs-qwrap">');
 
-  return top.includes('id="fs-collapse"') && !top.includes('id="fs-more"') && iCtl >= 0 && iM > iCtl && iM < iQ;
+  return !top.includes('id="fs-collapse"') && !top.includes('id="fs-more"') && iCtl >= 0 && iC > iCtl && iM > iC && iM < iQ;
 })() && re(src.flowIdx, /\.fs-mmenu\{ right:0; bottom:calc\(100% \+ 8px\);/));
 
 ok("flowscape: 音质/更多选项弹窗有开合动画（opacity+位移+微缩过渡；收起用 visibility 而非 display 硬切）", re(src.flowIdx, /\.fs-pop\{[\s\S]{0,420}?opacity:0; visibility:hidden; pointer-events:none; transform:translateY\(6px\) scale\(\.97\);/) && re(src.flowIdx, /\.fs-pop\.open\{ opacity:1; visibility:visible; pointer-events:auto; transform:none; \}/) && !re(src.flowIdx, /\.fs-pop\.open\{ display:flex; \}/));

@@ -179,7 +179,7 @@ input:focus, textarea:focus, select:focus {
 .ambient[data-mode="custom"] .ambient-art { filter: blur(var(--ambient-blur, 70px)); }
 .ambient[data-mode="custom"] .ambient-art.ready { opacity: 1; }
 
-/* CSD（frame:false）：无标题栏、无浮窗。三按钮+抓握点平铺在窗口右上角，
+/* CSD（frame:false）：无标题栏、无浮窗。三按钮平铺在窗口右上角，
    容器底即拖拽区（双击最大化），按钮本体 no-drag。浏览器 dev 下同样可见（点击走占位事件）。
    top 下探到 ContentView 面板缘（y=10）之下：钮完全落在面板内，不压边框。 */
 .winbtns {
@@ -194,12 +194,6 @@ input:focus, textarea:focus, select:focus {
 }
 .winbtns button:hover { background: var(--hover); }
 .winbtns button[data-win="close"]:hover { background: #e81123; color: #fff; }
-/* 抓握点：按钮组内最左的圆点阵区（drag），明示「这里可以拖动窗口」 */
-.win-grip {
-  width: 26px; height: 26px; display: grid; place-items: center;
-  color: var(--ink2); opacity: .55; cursor: grab;
-}
-.winbtns:active .win-grip { cursor: grabbing; }
 /* 顶缘隐形拖拽条：整窗顶部 8px 都是 drag 把手（双击=最大化切换）。
    与按钮簇（top:18）不在同一水平带，无重叠，铺满整缘即可。 */
 .win-dragtop {
@@ -517,8 +511,8 @@ body.side-collapsed .side-resizer { display: none; }
    窗口按钮簇（.winbtns）是顶带的兄弟子树，它给按钮打的 no-drag 挡不住顶带铺过来的 drag 矩形，
    于是三颗按钮一点就变窗口拖动。所以 drag 矩形必须自己止步在按钮之前。
    几何（都是距窗口右缘的距离，顶带右缘在距窗口右 11px 处：body 10 + .content 边框 1）：
-     .winbtns right:12 / 宽 120（2+26+4+26+4+26+4+26+2）→ 簇左缘 132、抓握点 130~104、按钮区 100~14。
-   故 top-drag 右缩 94px → drag 止于距窗口右 105px：抓握点整块在把手内，按钮区还留 5px 余量。
+     .winbtns right:12 / 宽 90（2+26+4+26+4+26+2）→ 簇左缘 102、按钮区 100~14。
+   故 top-drag 右缩 94px → drag 止于距窗口右 105px：按钮区还留 5px 余量。
    若调整按钮尺寸/间距/簇右偏移，这个数字要跟着改。 */
 /* 顶带（CSD）的选中/拖动：禁选中已由 body 统一兜住（上面「全站禁选中」），搜索框靠
    input 的例外自动可选中 —— 这里只管 -webkit-app-region。 */
@@ -528,7 +522,7 @@ body:not(.ssd) .content-top .top-drag {
 }
 body:not(.ssd) .content-top .top-center { -webkit-app-region: no-drag; cursor: default; }
 .content-top::before, .content-top::after { content: ""; flex: 0 0 0; }
-body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-basis: 134px; } /* 左右对称：按钮簇宽120 + 间隙 */
+body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-basis: 104px; } /* 左右对称：按钮簇宽90 + 间隙 */
 /* 路由视图区：renderRoute 只重建这里，搜索框（顶带流内）不受影响。
    .content-body = route 与停靠态队列面板的横向 flex 容器：面板停靠时 route 让宽，
    面板不挂载（浮窗态/关闭）时 route 独占整行 —— 主页/搜索/歌手页随宽度整体缩放。 */
@@ -585,7 +579,7 @@ body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-b
    整个搜索组要高于 route 里的吸顶条：候选面板是它的后代，单独写 z-index 不能越过
    父级层叠顺序；搜索组（10）高于吸顶条（5/6），低于正在播放页（50）。 */
 /* 顶带居中组：wrapper 与胶囊同宽、margin auto 精确居中；返回钮绝对挂在胶囊左缘之外
-   （落在左侧 134px 幽灵预留位内），胶囊位置不随按钮显隐移动。 */
+   （落在左侧 104px 幽灵预留位内），胶囊位置不随按钮显隐移动。 */
 .top-center { position: relative; z-index: 10; width: clamp(180px, 26vw, 260px); margin: 0 auto; }
 .searchbar { position: relative; z-index: 6; width: 100%; margin: 0; }
 .top-back {
@@ -1200,13 +1194,13 @@ body[data-control-bar="floating"] .settings-page .set-view {
   transition: transform .34s cubic-bezier(.32,.72,.24,1), opacity .3s ease;
 }
 .np.open { opacity: 1; pointer-events: auto; transform: none; }
-/* 本页 CSD 拖拽把手：右上角一段（窗口按钮簇的水平带位置）。Electron 的 drag region
-   是整棵树拍平计算的，上层元素挡不住（no-drag 才能挖洞），所以不能铺顶带——
-   只占角落一段，把顶栏留给接管视图（如 Flowscope 的缩回钮）。宽 150px ≈ 主界面
-   按钮簇水平带（抓握点+三钮）；双击=最大化切换。收起态随 .np 一起 pointer-events:none，
-   不会截获主界面的指针；SSD 态不挂。 */
+/* 本页 CSD 拖拽区：顶部整条（--top-band-h 高，默认布局与接管视图共用）。
+   drag 矩形是整棵树拍平计算的，上层元素挡不住，所以这里不能用 no-drag「挖洞」；
+   视图要把可点控件放到条带之外（Quaver Design 的信息列在页面中部、Flowscape 的
+   出口在底部控制带）。主窗口按钮簇在条带右侧之上，按钮自己的 no-drag 照常生效。
+   收起态随 .np 一起 pointer-events:none，不会截获主界面指针；SSD 态不挂。 */
 body:not(.ssd) .np-drag {
-  position: absolute; top: 0; right: 0; width: 150px; height: 42px;
+  position: absolute; top: 0; left: 0; right: 0; height: var(--top-band-h, 42px);
   -webkit-app-region: drag; cursor: grab;
 }
 /* 展开播放页（含画廊/插件接管）时隐藏主界面顶栏，保留其占位以免底下的列表跳动。
@@ -1297,18 +1291,44 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
 }
 .np-menu.open { opacity: 1; pointer-events: auto; transition: none; }
 .np-menu.open > * { animation: menu-content-in .16s cubic-bezier(.32,.72,.24,1) both; }
-.np-menu-item {
+.np-menu-item, .np-menu-sub-btn {
   border: 0; background: transparent; color: #fffb; font: inherit; font-size: 13px; text-align: left;
   padding: 7px 10px; border-radius: 8px; cursor: pointer;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.np-menu-item:hover:not(:disabled) { background: #ffffff14; color: #fff; }
+.np-menu-item:hover:not(:disabled), .np-menu-sub-btn:hover { background: #ffffff14; color: #fff; }
 /* 危险项（插件菜单项声明 danger 时）：与歌曲右键菜单 .ct-item.danger 同一个红，
    是这套 UI 里既有的「不可逆操作」语义 */
 .np-menu-item.danger { color: #e8465a; }
 .np-menu-item.danger:hover:not(:disabled) { color: #ff6b7d; }
 .np-menu-item:disabled { opacity: .45; cursor: default; }
 .np-menu-empty { padding: 8px 10px; font-size: 12px; color: #fff8; }
+/* 「跳转歌手」次级菜单：主列表一行入口，名单左弹。歌手数没有上限，长名单按
+   视口高度截断；首次悬停由 JS 量一次视口余量写 --np-sub-x（菜单锚在窗口右缘附近，
+   名单宽过左余量时右弹），同一菜单内反复悬停不再触发布局。 */
+.np-menu-sub { position: relative; }
+.np-menu-sub-btn {
+  width: 100%;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.np-menu-sub-btn svg { flex: none; color: #fff8; transform: rotate(180deg); transition: transform .14s ease; }
+.np-menu-sub.open .np-menu-sub-btn { background: #ffffff14; color: #fff; }
+.np-menu-sub.open .np-menu-sub-btn svg { transform: rotate(0deg); color: #fffb; }
+.np-menu-sub-list {
+  position: absolute; right: calc(100% - 6px); top: -6px; z-index: 2;
+  min-width: 176px; max-height: min(320px, calc(100vh - 96px));
+  padding: 6px; border-radius: 12px;
+  transform: translateX(var(--np-sub-x, 0));
+  display: flex; flex-direction: column; gap: 2px;
+  overflow-y: auto; scrollbar-width: thin;
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity .12s ease, transform .12s ease, visibility .12s;
+}
+.np-menu-sub.open .np-menu-sub-list {
+  opacity: 1; visibility: visible; pointer-events: auto;
+  transition: opacity .12s ease;
+}
+.np-menu-sub-list .np-menu-item { flex: 0 0 auto; }
 /* 翻译选项：四档按钮（关闭 / 翻译 / 音译 / 翻译+音译）。选中态用封面染色掺深遮罩，
    深遮罩保证任意亮色相封面下白字仍可读；未选中只给弱玻璃底，主次不抢。 */
 .np-menu:has(.np-menu-option) { min-width: 176px; }
@@ -2032,7 +2052,7 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
    `background + border + box-shadow + backdrop-filter`（改造前是七份，且不透明度各不同，
    所以才会出现「有的菜单看着糊、有的看着是实心」）。
    模糊只写无前缀的 backdrop-filter —— 别补 -webkit-，原因见文件顶部那段。 */
-.ctx-menu, .pb-qpop, .pb-lpop, .pb-volpop, .tint-pop, .np-menu, .np-qinfo, .queue-panel.float, .eq-float, .upd-dialog {
+.ctx-menu, .pb-qpop, .pb-lpop, .pb-volpop, .tint-pop, .np-menu, .np-menu-sub-list, .np-qinfo, .queue-panel.float, .eq-float, .upd-dialog {
   background: var(--menu-surface);
   border: 1px solid var(--menu-line);
   box-shadow: var(--menu-shadow), inset 0 1px 0 var(--menu-edge);

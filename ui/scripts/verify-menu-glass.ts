@@ -62,8 +62,8 @@ const sdkTypes = srcVendor("sdk/types.ts");
 const guide = srcVendor("docs/plugin-author-guide.md");
 const aurora = srcVendor("marketplace/aurora/index.ts");
 
-/** 七个消费这套玻璃的菜单 */
-const MENU_SELECTORS = [".ctx-menu", ".pb-qpop", ".pb-lpop", ".pb-volpop", ".tint-pop", ".np-menu", ".np-qinfo"];
+/** 消费这套玻璃的菜单（含正在播放页「跳转歌手」次级面板） */
+const MENU_SELECTORS = [".ctx-menu", ".pb-qpop", ".pb-lpop", ".pb-volpop", ".tint-pop", ".np-menu", ".np-menu-sub-list", ".np-qinfo"];
 const NO_COMMENT = /\/\*[\s\S]*?\*\//g;
 const noComments = (s: string) => s.replace(NO_COMMENT, "");
 
@@ -154,7 +154,7 @@ const shared = sharedIdx < 0 ? "" : css.slice(sharedIdx, sharedIdx + 900);
 
 check("共享规则段取得到", shared.length > 200, String(shared.length));
 
-check("七个菜单全在那条共享规则的选择器表里",
+check("菜单们全在那条共享规则的选择器表里",
   MENU_SELECTORS.every((s) => shared.includes(s)), MENU_SELECTORS.filter((s) => !shared.includes(s)).join(","));
 
 check("共享规则吃令牌：模糊", /backdrop-filter: var\(--menu-filter\);/.test(shared));

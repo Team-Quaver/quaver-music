@@ -1,6 +1,6 @@
 // Quaver — Electron 主进程（ESM）
 // 起一个进程内 vite preview（dist/ + /api 中继插件），窗口加载 http://127.0.0.1:<port>
-// frame:false：无原生标题栏——窗口右上角平铺三个窗口按钮（min/max/close）+抓握点，经 preload IPC 接管。
+// frame:false：无原生标题栏——窗口右上角平铺三个窗口按钮（min/max/close），经 preload IPC 接管。
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, session, Tray, nativeImage, nativeTheme, safeStorage, shell } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
 import { execFileSync, spawn } from "node:child_process";

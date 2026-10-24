@@ -170,12 +170,11 @@ export function bootShell() {
   const frame = document.createElement("div");
   frame.className = "frame";
   frame.innerHTML = `
-    <!-- CSD：无标题栏、无浮窗。三钮（min/max/close）+抓握点平铺窗口右上角，簇底即拖拽区；
+    <!-- CSD：无标题栏、无浮窗。三钮（min/max/close）平铺窗口右上角，簇底即拖拽区；
          搜索框所在整条顶带同样是拖拽把手，由顶带内的 .top-drag 层承担（右缘让开按钮簇——
          drag 矩形会吞掉其下所有指针事件，按钮的 no-drag 只在同子树内豁免） -->
     <div class="win-dragtop" aria-hidden="true"></div>
     <div class="winbtns" data-csd-drag>
-      <span class="win-grip" aria-hidden="true"><svg viewBox="0 0 16 12" width="14" height="11"><g fill="currentColor"><circle cx="4" cy="3.5" r="1.1"/><circle cx="8" cy="3.5" r="1.1"/><circle cx="12" cy="3.5" r="1.1"/><circle cx="4" cy="8.5" r="1.1"/><circle cx="8" cy="8.5" r="1.1"/><circle cx="12" cy="8.5" r="1.1"/></g></svg></span>
       <button aria-label="最小化" data-win="min"><svg viewBox="0 0 12 12" width="11" height="11"><path d="M2 6h8" stroke="currentColor" stroke-width="1.2"/></svg></button>
       <button aria-label="最大化" data-win="max" title="最大化"><svg viewBox="0 0 12 12" width="11" height="11"><rect x="2.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></button>
       <button aria-label="关闭" data-win="close"><svg viewBox="0 0 12 12" width="11" height="11"><path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" stroke-width="1.2"/></svg></button>

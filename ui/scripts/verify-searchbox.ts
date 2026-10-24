@@ -58,7 +58,7 @@ await step("搜索框=顶带流内组件（.content-top），独立一行、不�
   return `h=${info.h}px, centered, own band above title-row, no go-btn`;
 });
 
-await step("CSD 三按钮+把手在右上角（无浮窗底/无标题栏）", async () => {
+await step("CSD 三按钮在右上角（无浮窗底/无标题栏，无拖拽把手）", async () => {
   const info = await page.evaluate(() => {
     const b = document.querySelector(".winbtns");
     const r = b.getBoundingClientRect();
@@ -66,7 +66,7 @@ await step("CSD 三按钮+把手在右上角（无浮窗底/无标题栏）", as
 
     return {
       right: Math.round(innerWidth - r.right), y: Math.round(r.top),
-      bg: cs.backgroundColor, hasGrip: !!b.querySelector(".win-grip"),
+      bg: cs.backgroundColor, legacyGrip: !!b.querySelector(".win-grip"),
       order: [...b.querySelectorAll("button")].map((x) => x.dataset.win).join(","),
     };
   });
@@ -75,7 +75,7 @@ await step("CSD 三按钮+把手在右上角（无浮窗底/无标题栏）", as
 
   if (info.bg !== "rgba(0, 0, 0, 0)") throw new Error("pill background still painted: " + info.bg);
 
-  if (!info.hasGrip) throw new Error("missing grip");
+  if (info.legacyGrip) throw new Error("legacy grip still present");
 
   if (info.order !== "min,max,close") throw new Error("button order (close must be rightmost on Linux/Win): " + info.order);
 

@@ -16,7 +16,7 @@
 // 提供器接管同一列位（.np-kara-host），宿主只管容器与重建时机；无提供器（内置注册失败）/
 // 无歌词数据时回退到下面的行级高亮 DOM。逐字扫色恒开，翻译/音译档位走本页 ⋮ 菜单。
 // 右侧 = 封面在上，歌名 / 「歌手 - 专辑」在下，文本右对齐且与封面右缘齐平；
-// 信息列下缘挂 ⋮ 更多选项（同名搜索 / 跳转歌手 / 跳转专辑 / 翻译选项（关闭·翻译·音译） /
+// 信息列下缘挂 ⋮ 更多选项（同名搜索 / 跳转歌手（次级菜单） / 跳转专辑 / 翻译选项（关闭·翻译·音译） /
 // 歌词大小 −/+ 步进（行级与 AMLL 两种模式都出现）；也可在歌词上 Ctrl+滚轮/触控板捏合直接调 /
 // 歌词延迟 −/+ 步进（点数值归零；**按歌曲**存 localStorage，正=歌词延后出现），经 render ctx
 // 的 lyricDelay() 透传给在位歌词渲染器（内置 AMLL / 插件提供器 / 接管视图），行级兜底视图以同口径扣减）。
@@ -43,8 +43,8 @@ export function NowPlaying(): HTMLElement {
     <div class="np-bg" id="np-bg"></div>
     <div class="np-bg np-bg2" id="np-bg2"></div>
     <div class="np-scrim"></div>
-    <!-- CSD 拖拽把手层：主界面 .win-dragtop 的本页替身（顶缘 8px 透明条），页面内容照常交互。
-         SSD 态有系统标题栏，这层不出场。 -->
+    <!-- CSD 拖拽区：主界面顶带的整条替身（默认布局与接管视图共用；接管视图的
+         可点控件必须放在条带之外）。SSD 态有系统标题栏，这层不出场。 -->
     <div class="np-drag" aria-hidden="true"></div>
     <div class="np-inner">
       <div class="np-lyrics" id="np-lyrics"></div>
@@ -280,7 +280,7 @@ export function NowPlaying(): HTMLElement {
   const setTitle = marquee("np-title");
   const setArtist = marquee("np-artist");
 
-  // —— 更多选项（⋮）：同名搜索 / 跳转歌手 / 跳转专辑 / 翻译选项 ——
+  // —— 更多选项（⋮）：同名搜索 / 跳转歌手（次级菜单） / 跳转专辑 / 翻译选项 ——
   // 翻译与音译是替换关系：三档互斥（关闭 / 翻译 / 音译），且两路都在歌词**下方**那一行。
   // 翻译档优先翻译、本行没翻译则回落音译；音译档反之。取路规则见 src/lyric.ts 的 pickAux
   // （行级与逐字共用同一份）—— 行级视图在这里重建 DOM，逐字由内置引擎重建行表。
@@ -356,6 +356,62 @@ export function NowPlaying(): HTMLElement {
     return b;
   }
 
+/** 「跳转歌手」次级菜单：主列表只留一行入口，歌手名单（可能很长）悬停/聚焦时向左展开。
+ *  展开方向走 CSS（默认左弹、贴右缘时右弹）；这里只负责挂载后的视口夹取。 */
+function singerSubmenu(singers: NonNullable<Song["singer"]>) {
+  const row = document.createElement("div");
+  row.className = "np-menu-sub";
+  const trigger = document.createElement("button");
+
+  trigger.type = "button";
+  trigger.className = "np-menu-sub-btn";
+  trigger.setAttribute("aria-haspopup", "menu");
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.innerHTML = `<span>跳转歌手</span>${icons.right}`;
+
+  const list = document.createElement("div");
+
+  list.className = "np-menu-sub-list";
+  list.setAttribute("role", "menu");
+  list.setAttribute("aria-label", "跳转歌手");
+
+  const toggle = (open: boolean) => {
+    row.classList.toggle("open", open);
+    trigger.setAttribute("aria-expanded", String(open));
+
+    if (!open) return;
+
+    const rect = list.getBoundingClientRect();
+    const overflowRight = rect.right - (window.innerWidth - 8);
+    const overflowLeft = 8 - rect.left;
+
+    if (overflowRight > 0) list.style.setProperty("--np-sub-x", `${Math.min(0, Math.round(-overflowRight))}px`);
+    else if (overflowLeft > 0) list.style.setProperty("--np-sub-x", `${Math.round(overflowLeft)}px`);
+  };
+
+  trigger.addEventListener("pointerenter", () => toggle(true));
+  trigger.addEventListener("focus", () => toggle(true));
+  trigger.addEventListener("click", () => toggle(!row.classList.contains("open")));
+  row.addEventListener("pointerleave", () => toggle(false));
+
+  for (const a of singers) {
+    if (!a?.mid) continue;
+
+    const b = menuRow(stripEm(a.name) || "未知歌手", false, () => {
+      location.hash = `#/singer?mid=${encodeURIComponent(a.mid!)}&name=${encodeURIComponent(stripEm(a.name) || "歌手")}`;
+    });
+
+    b.setAttribute("role", "menuitem");
+    b.addEventListener("pointerenter", () => toggle(true));
+    b.addEventListener("focus", () => toggle(true));
+    list.append(b);
+  }
+
+  row.append(trigger, list);
+
+  return row;
+}
+
   /** 歌词接管模式是否生效（有解析出的行 + 提供器在位且启用）——菜单的歌词大小行据此显隐 */
   const karaModeNow = () => {
     const provider = sparkleKaraokeProvider();
@@ -401,16 +457,10 @@ export function NowPlaying(): HTMLElement {
       moreMenu.append(menuRow("同名搜索", false, () => {
         location.hash = `#/search?keyword=${encodeURIComponent(stripEm(s.name) || name)}`;
       }));
-      // 跳转歌手：多歌手逐项列出
+      // 跳转歌手：主列表只留入口，名单收进次级菜单
       const singers = (s.singer ?? []).filter((a) => !!a?.mid);
 
-      if (!singers.length) moreMenu.append(menuRow("跳转歌手", true));
-
-      for (const a of singers) {
-        moreMenu.append(menuRow(singers.length > 1 ? `跳转歌手：${stripEm(a.name) || "未知歌手"}` : "跳转歌手", false, () => {
-          location.hash = `#/singer?mid=${encodeURIComponent(a.mid!)}&name=${encodeURIComponent(stripEm(a.name) || "歌手")}`;
-        }));
-      }
+      moreMenu.append(singers.length ? singerSubmenu(singers) : menuRow("跳转歌手", true));
 
       // 跳转专辑
       const alb = s.album;

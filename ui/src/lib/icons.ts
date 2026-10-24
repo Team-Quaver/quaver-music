@@ -28,6 +28,8 @@ export const icons = {
   // 返回上级（壳层顶带的 ←）：与 chevronDown/Up 同族，只是更粗更紧。
   // 归属在这份共享图标表里而不是 views/_shared：壳层（首屏）只要它，整张 _shared 属懒加载侧。
   back: svg('<path d="M14 6l-6 6 6 6"/>', 16, 2.2),
+  // 次级菜单指示（正在播放页 ⋮ 的「跳转歌手」）：默认指右，需要反方向时由调用方翻转。
+  right: svg('<path d="M9 6l6 6-6 6"/>', 14, 2.2),
   close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
   disc: svg('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/>'),
   // 音量图标：喇叭本体与分级声波要吃掉接近满格的 24×24 视窗。旧版只画到 x=13，
