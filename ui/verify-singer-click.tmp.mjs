@@ -1,0 +1,34 @@
+import puppeteer from "puppeteer-core";
+const BASE = "http://127.0.0.1:5193";
+const browser = await puppeteer.launch({ executablePath: "/usr/bin/google-chrome", headless: "new", args: ["--no-sandbox", "--disable-gpu"] });
+const page = await browser.newPage();
+const errors = [];
+page.on("pageerror", e => errors.push(String(e)));
+await page.setViewport({ width: 1280, height: 840 });
+await page.goto(`${BASE}/index.html#/`, { waitUntil: "networkidle2" });
+await new Promise(r => setTimeout(r, 800));
+await page.evaluate(() => {
+  const p = window.__player;
+  p.queue = [{ mid: "m1", name: "Singer Click", singer: [{ name: "A One", mid: "a1" }, { name: "B Two", mid: "b2" }], album: { mid: "al1", name: "Album" } }];
+  p.index = 0; p.expanded = true; p.lyricState = "ok"; p.karaoke = []; p.lyrics = [];
+  p.notifyPublic();
+});
+await page.waitForSelector(".np.open");
+await page.evaluate(() => document.querySelector("#np-more").click());
+await page.waitForSelector(".np-menu.open");
+await page.evaluate(() => document.querySelector(".np-menu-sub-btn").dispatchEvent(new PointerEvent("pointerenter", { bubbles: true })));
+await new Promise(r => setTimeout(r, 250));
+const state = await page.evaluate(() => {
+  const list = document.querySelector(".np-menu-sub-list");
+  const cs = getComputedStyle(list);
+  return { open: list.classList.contains("open"), visible: cs.visibility, opacity: cs.opacity, blur: cs.backdropFilter, rect: list.getBoundingClientRect().toJSON() };
+});
+console.log("OPEN", JSON.stringify(state));
+await page.evaluate(() => document.querySelectorAll(".np-menu-sub-list .np-menu-item")[1].click());
+await new Promise(r => setTimeout(r, 400));
+const after = await page.evaluate(() => ({ hash: location.hash, npOpen: document.querySelector(".np").classList.contains("open"), panelGone: !document.querySelector(".np-menu-sub-list") }));
+console.log("AFTER", JSON.stringify(after));
+console.log("ERRORS", errors);
+await browser.close();
+if (!state.open || state.visible !== "visible" || Number(state.opacity) < 0.9 || state.rect.width < 100) process.exit(1);
+if (!after.hash.includes("mid=b2") || after.npOpen || !after.panelGone || errors.length) process.exit(1);

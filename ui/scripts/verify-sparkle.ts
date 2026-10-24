@@ -84,6 +84,8 @@ ok("sdk: 支持最低宿主版本与 Beta 开关", has(src.types, "minHostVersio
 
 ok("Lumen: 最低宿主版本为 1.7.0 且允许 Beta", has(src.md3Meta, '"minHostVersion": "1.7.0"') && has(src.md3Meta, '"allowBeta": true') && has(src.md3, 'minHostVersion: "1.7.0"') && has(src.md3, "allowBeta: true"));
 
+ok("Flowscape: 最低宿主版本为 1.7.0 且允许 Beta", has(src.flowMeta, '"minHostVersion": "1.7.0"') && has(src.flowMeta, '"allowBeta": true') && has(src.flowIdx, 'minHostVersion: "1.7.0"') && has(src.flowIdx, "allowBeta: true"));
+
 ok("版本比较：主进程安装前执行宿主版本门禁", has(src.mainMjs, "sparkleHostVersionError") && has(src.mainMjs, "minHostVersion"));
 
 ok("版本比较：Marketplace 构建透传最低宿主版本", has(src.mkBuild, "minHostVersion: meta.minHostVersion"));
@@ -624,7 +626,7 @@ ok("flowscape: 主行柔阴影与前景色均可由主题接管", has(src.flowId
 
 ok("flowscape: QRCKana ruby 排在词上方并各自按 ruby 时间轴扫色", has(src.flowIdx, "words?: SparkleKaraokeWord[]") && has(src.flowIdx, 'e.classList.add("has-ruby")') && has(src.flowIdx, 'rubyBox.className = "kw-ruby"') && has(src.flowIdx, "rubyElsByWord.set(e, rubyEls)") && has(src.flowIdx, 'const ruby = (w.ruby ?? []).filter((r) => !!r.word?.trim());') && has(src.flowIdx, "paint(rubyEls[j], r.startTime, r.endTime)") && has(src.flowIdx, ".fs-ll .kw.has-ruby .kw-ruby{") && has(src.flowIdx, "font-size:.5em"));
 
-ok("flowscape: 更多选项补跳转三项（同名搜索 / 跳转歌手 / 跳转专辑，hash 口径同宿主 np 菜单）", has(src.flowIdx, "#/search?keyword=") && has(src.flowIdx, "#/singer?mid=") && has(src.flowIdx, "#/album?mid=") && has(noComments(src.flowIdx), "const hasAlb = !!(alb?.mid || alb?.pmid);") && has(noComments(src.flowIdx), 'if (!singers.length) jumpBox.append(jumpRow("跳转歌手", true));'));
+ok("flowscape: 更多选项补跳转三项（同名搜索 / 跳转歌手次级菜单 / 跳转专辑，hash 口径同宿主 np 菜单）", has(src.flowIdx, "#/search?keyword=") && has(src.flowIdx, "#/singer?mid=") && has(src.flowIdx, "#/album?mid=") && has(noComments(src.flowIdx), "const hasAlb = !!(alb?.mid || alb?.pmid);") && has(noComments(src.flowIdx), 'jumpBox.append(jumpRow("跳转歌手", true));') && has(src.flowIdx, "fs-msub-btn") && has(src.flowIdx, '"fs-pop fs-mslist"'));
 
 ok("flowscape: 跳转前先收起正在播放页（np 是铺满全窗的悬浮层，只换路由用户看不到变化）", has(noComments(src.flowIdx), "window.setTimeout(() => { ctx.collapse(); location.hash = hash; }, JUMP_MS);"));
 

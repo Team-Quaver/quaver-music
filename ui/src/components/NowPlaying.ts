@@ -306,6 +306,7 @@ export function NowPlaying(): HTMLElement {
 
   const moreBtn = $("np-more");
   const moreMenu = $("np-menu");
+  let singerPanel: HTMLElement | null = null;
   let auxButtons = new Map<LyricAuxMode, HTMLButtonElement>();
   let spectrumToggleBtn: HTMLButtonElement | null = null;
   let spectrumModeRow: HTMLElement | null = null;
@@ -317,7 +318,7 @@ export function NowPlaying(): HTMLElement {
   function onDocDownMore(e: PointerEvent) {
     const t = e.target as Node;
 
-    if (!moreMenu.contains(t) && !moreBtn.contains(t)) closeMoreMenu();
+    if (!moreMenu.contains(t) && !moreBtn.contains(t) && !singerPanel?.contains(t)) closeMoreMenu();
   }
 
   function onEscMore(e: KeyboardEvent) {
@@ -328,6 +329,8 @@ export function NowPlaying(): HTMLElement {
     if (!menuOpen()) return;
     moreMenu.classList.remove("open");
     moreBtn.setAttribute("aria-expanded", "false");
+    singerPanel?.remove();
+    singerPanel = null;
     document.removeEventListener("pointerdown", onDocDownMore, true);
     document.removeEventListener("keydown", onEscMore, true);
   }
@@ -357,7 +360,8 @@ export function NowPlaying(): HTMLElement {
   }
 
 /** 「跳转歌手」次级菜单：主列表只留一行入口，歌手名单（可能很长）悬停/聚焦时向左展开。
- *  展开方向走 CSS（默认左弹、贴右缘时右弹）；这里只负责挂载后的视口夹取。 */
+ *  面板挂在 .np 直下（fixed 定位）：backdrop-filter 元素会成为 backdrop root，
+ *  留在父菜单里面时只能采到父菜单自身，采不到页面背景 —— 提层级才能拿到真底图。 */
 function singerSubmenu(singers: NonNullable<Song["singer"]>) {
   const row = document.createElement("div");
   row.className = "np-menu-sub";
@@ -375,24 +379,49 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
   list.setAttribute("role", "menu");
   list.setAttribute("aria-label", "跳转歌手");
 
+  const position = () => {
+    const anchor = trigger.getBoundingClientRect();
+
+    list.style.left = "0px";
+    list.style.top = "0px";
+
+    // 先按「左弹」量一次，视口余量不够时换「右弹」；两次都是 fixed 布局，无第三种态。
+    let left = anchor.right + 8;
+    const width = list.offsetWidth;
+
+    if (left + width > window.innerWidth - 8) left = Math.max(8, anchor.left - width - 8);
+
+    list.style.left = `${Math.round(left)}px`;
+    list.style.top = `${Math.round(Math.min(
+      Math.max(8, anchor.top - 6),
+      Math.max(8, window.innerHeight - 8 - list.offsetHeight),
+    ))}px`;
+  };
+
   const toggle = (open: boolean) => {
     row.classList.toggle("open", open);
+    list.classList.toggle("open", open);
     trigger.setAttribute("aria-expanded", String(open));
 
     if (!open) return;
 
-    const rect = list.getBoundingClientRect();
-    const overflowRight = rect.right - (window.innerWidth - 8);
-    const overflowLeft = 8 - rect.left;
-
-    if (overflowRight > 0) list.style.setProperty("--np-sub-x", `${Math.min(0, Math.round(-overflowRight))}px`);
-    else if (overflowLeft > 0) list.style.setProperty("--np-sub-x", `${Math.round(overflowLeft)}px`);
+    position();
   };
 
-  trigger.addEventListener("pointerenter", () => toggle(true));
+  let closeTimer = 0;
+  const cancelClose = () => window.clearTimeout(closeTimer);
+  const keepOpen = () => { cancelClose(); toggle(true); };
+  const scheduleClose = () => {
+    cancelClose();
+    closeTimer = window.setTimeout(() => toggle(false), 120);
+  };
+
+  trigger.addEventListener("pointerenter", keepOpen);
   trigger.addEventListener("focus", () => toggle(true));
   trigger.addEventListener("click", () => toggle(!row.classList.contains("open")));
-  row.addEventListener("pointerleave", () => toggle(false));
+  list.addEventListener("pointerenter", keepOpen);
+  trigger.addEventListener("pointerleave", scheduleClose);
+  list.addEventListener("pointerleave", scheduleClose);
 
   for (const a of singers) {
     if (!a?.mid) continue;
@@ -402,12 +431,14 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
     });
 
     b.setAttribute("role", "menuitem");
-    b.addEventListener("pointerenter", () => toggle(true));
+    b.addEventListener("pointerenter", keepOpen);
     b.addEventListener("focus", () => toggle(true));
     list.append(b);
   }
 
-  row.append(trigger, list);
+  row.append(trigger);
+  singerPanel = list;
+  el.append(list);
 
   return row;
 }
@@ -450,6 +481,8 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
     void loadSpectrumStyles();
     const s = player.current;
     moreMenu.innerHTML = "";
+    singerPanel?.remove();
+    singerPanel = null;
 
     if (s) {
       const name = songTitle(s) || "这首歌";

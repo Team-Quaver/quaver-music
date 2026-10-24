@@ -1303,9 +1303,9 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
 .np-menu-item.danger:hover:not(:disabled) { color: #ff6b7d; }
 .np-menu-item:disabled { opacity: .45; cursor: default; }
 .np-menu-empty { padding: 8px 10px; font-size: 12px; color: #fff8; }
-/* 「跳转歌手」次级菜单：主列表一行入口，名单左弹。歌手数没有上限，长名单按
-   视口高度截断；首次悬停由 JS 量一次视口余量写 --np-sub-x（菜单锚在窗口右缘附近，
-   名单宽过左余量时右弹），同一菜单内反复悬停不再触发布局。 */
+/* 「跳转歌手」次级菜单：主列表一行入口，名单横向展开。面板是 fixed 定位、由 JS
+   按入口锚点摆放（默认左弹、左余量不够换右弹）—— 不留在 .np-menu 里面：
+   backdrop-filter 元素会成为 backdrop root，嵌在里面只能采到父菜单自己。 */
 .np-menu-sub { position: relative; }
 .np-menu-sub-btn {
   width: 100%;
@@ -1315,16 +1315,15 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
 .np-menu-sub.open .np-menu-sub-btn { background: #ffffff14; color: #fff; }
 .np-menu-sub.open .np-menu-sub-btn svg { transform: rotate(0deg); color: #fffb; }
 .np-menu-sub-list {
-  position: absolute; right: calc(100% - 6px); top: -6px; z-index: 2;
+  position: fixed; left: 0; top: 0; z-index: 6;
   min-width: 176px; max-height: min(320px, calc(100vh - 96px));
   padding: 6px; border-radius: 12px;
-  transform: translateX(var(--np-sub-x, 0));
   display: flex; flex-direction: column; gap: 2px;
   overflow-y: auto; scrollbar-width: thin;
   opacity: 0; visibility: hidden; pointer-events: none;
   transition: opacity .12s ease, transform .12s ease, visibility .12s;
 }
-.np-menu-sub.open .np-menu-sub-list {
+.np-menu-sub-list.open {
   opacity: 1; visibility: visible; pointer-events: auto;
   transition: opacity .12s ease;
 }
@@ -1479,6 +1478,7 @@ body[data-control-bar="floating"] .np.np-lyrics-full .np-inner {
    采不到底图（菜单里的歌名/封面色块原样透出）。只在玻璃菜单打开期间把它让回 normal，
    菜单关掉立即恢复 AMLL 原本的发光效果。 */
 .np:has(.np-menu.open, .np-qinfo.open) .np-kara-host .amll-lyric-player { mix-blend-mode: normal; }
+.np:has(.np-menu-sub.open) .np-kara-host .amll-lyric-player { mix-blend-mode: normal; }
 /* 逐字模式下加深歌词列背光：Tint 文字与模糊封面**同源同相**（都是封面主色），
    亮暖封面（米黄/棕调）下掺白 Tint 的亮度会落进背景的同一区间 —— 文字色单方面怎么调
    都躲不开同源撞色（实测暖灰底 144 压橄榄字 120，约 1.1:1）。对比度只能从背景侧兜：
