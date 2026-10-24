@@ -4,13 +4,16 @@
 
 # Quaver Music
 
-![FkingGNOME](./img/FUCKGNOME.svg) ![CanTheme](./img/THEM.svg)
-
 --- 
 
 <p align="center">现代、流畅、百变的第三方 QQ 音乐客户端</p>
 
 ---
+
+<p align="center">
+  <img src="./img/FUCKGNOME.svg" alt="FkingGNOME" height="50">
+  <img src="./img/THEM.svg" alt="CanTheme" height="50">
+</p>
 
 Quaver Music，最早是为了解决 Linux 上 QQ 音乐官方客户端不好用而生。
 
