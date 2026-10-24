@@ -230,9 +230,9 @@ export default async function settingsView(root: HTMLElement) {
       <div class="set-group">
         <div class="set-label">播放引擎 <span class="set-note-inline" id="engine-note">- 默认 MPV，可选原生兼容 / 浏览器</span></div>
         <div class="opt-radios" id="decode-radios">
-          ${decodeRow("MPV", "原生直出")}${decodeRow("MPVCompat", "原生（兼容）")}${decodeRow("Blink", "浏览器")}
+          ${decodeRow("MPV", "原生直出（MPV）")}${decodeRow("MPVCompat", "原生兼容（MPV 仅解码模式，实验性支持）")}${decodeRow("Blink", "兼容模式（Blink）")}
         </div>
-        <p class="muted set-hint" id="engine-hint">原生直出：MPV 自己打开音频设备，音质优先；原生（兼容）：MPV 解码后经渲染层出声，语音/录屏软件可捕获；浏览器：<code>&lt;audio&gt;</code> 兜底</p>
+        <p class="muted set-hint" id="engine-hint" hidden></p>
       </div>
 
       <div class="set-group">
