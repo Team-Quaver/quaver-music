@@ -29,9 +29,9 @@ Quaver Music，最早是为了解决 Linux 上 QQ 音乐官方客户端不好用
 > [!CAUTION]
 > 本程序禁止移植成 GTK 程序：
 > 
-> 虽说有点 AGPLv3 违例，但我本人对 GTK 十分厌恶，你可以移植成 Flutter、移植成 MyGO（Astra 用的就是 MyGO）这种用 GTK 做画板的程序
+> 本项目官方版本不接受将整个代码库迁移至 GTK 4 或 Libadwaita 的重构方案。维护者有权拒绝不符合项目技术方向的 Pull Request。
 > 
-> 但完全拒绝迁移到 GTK 4 和 Libadwaita，且如果你想对整个代码库做 To GTK 的 Refactor，将会直接拒绝
+> 也建议社区 Fork 不使用 GTK Refactor，欢迎社区基于 Flutter、MyGO 等其他技术进行独立开发。用户对本项目代码的修改、移植及分发仍受项目现行开源许可证约束，本声明不额外限制许可证授予的权利。
 
 与此同时，非 WebView 版本的 Quaver Music Astra 也正在路上 -> [传送门](https://github.com/team-quaver/quaver-astra)，复用 Typhoeus-Go 后端，基于 Golang + MyGO 框架设计。
 
