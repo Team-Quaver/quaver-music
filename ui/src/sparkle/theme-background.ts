@@ -14,6 +14,7 @@
 import type { SparkleTheme } from "@quaver/sparkle";
 
 export type SparkBackgroundMode = "off" | "host";
+export type SparkBackgroundRenderer = "quaver" | "mesh";
 
 export interface SparkBackgroundPolicy {
   mode: SparkBackgroundMode;
@@ -34,4 +35,14 @@ export function backgroundPolicyOf(theme: SparkleTheme | null | undefined): Spar
   if (!b || b.mode !== "host") return { mode: "off", themeId: theme.id };
 
   return { mode: "host", themeId: theme.id };
+}
+
+/**
+ * 主题声明的呈现风格（`background.renderer`）：quaver = Quaver Design 封面模糊铺底，
+ * mesh = AMLL 网格流动渐变。只在 host 模式下生效；不声明 = null（跟随用户偏好）。
+ */
+export function backgroundRendererOf(theme: SparkleTheme | null | undefined): SparkBackgroundRenderer | null {
+  const r = theme?.background?.renderer;
+
+  return r === "quaver" || r === "mesh" ? r : null;
 }

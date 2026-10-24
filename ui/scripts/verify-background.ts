@@ -220,9 +220,9 @@ check("「选择图片…」就在自定义卡片旁边（同一个选项卡组�
 
 check("选图按钮只在自定义档出现", views.includes("bgPick.hidden = !isCustom"));
 
-check("滑块区间用常量插值（改区间不会只改一半）", views.includes('min="${BG_BLUR_MIN}" max="${BG_BLUR_MAX}"'));
+check("速度滑块区间用常量插值（改区间不会只改一半）", views.includes('min="${BG_FLOW_MIN}" max="${BG_FLOW_MAX}"'));
 
-check("关闭背景时滑块禁用（有背景才谈得上模糊）", /bgBlur\.disabled = locked \|\| mode === "off"/.test(views));
+check("关闭背景时滑块禁用（有背景才谈得上流动）", /bgFlow\.disabled = locked \|\| mode === "off"/.test(views));
 
 check("选「自定义」但还没有图 → 直接弹选图，不落进空状态",
   views.includes('next === "custom" && !getBackgroundImage() && !(await pickBgImage())'));
@@ -239,33 +239,36 @@ check("shell 只留界面染色（不再自己建环境层）", !/className = "a
 
 check("shell 启动时拉起背景层", /^\s*bootBackground\(\);$/m.test(shell));
 
-check("换曲跟着换图", /player\.on\(applyBackground\)/.test(ambient));
+check("换曲跟着换图", /player\.on\(/.test(ambient) && ambient.includes("applyBackground();"));
 
 check("模式写在 data-mode 上（CSS 三档靠它）", /layer\.dataset\.mode = mode/.test(ambient));
 
-check("模糊强度写进 --ambient-blur", /setProperty\("--ambient-blur"/.test(ambient));
+check("流动速度即时下发给 AMLL（setFlowSpeed）", ambient.includes("setFlowSpeed(getBackgroundFlow())"));
 
-check("扩边系数随模糊收放（不模糊就不白裁一圈图）", /1 \+ \(blur \/ 70\) \* SCALE_AT_70/.test(ambient));
+check("首页风格分派（data-renderer + 用户偏好/主题声明）",
+  ambient.includes("backgroundRendererOf(sparkleActiveTheme()) ?? getBackgroundRenderer()") && ambient.includes('layer.dataset.renderer = renderer'));
+
+check("Quaver Design 风格保留 CSS blur 铺底", ambient.includes('className = "ambient-art"') && ambient.includes("applyQuaverArt(key)"));
+
+check("歌词页背景风格独立（不读首页那把键）", src("src/components/NowPlaying.ts").includes("getNpBackgroundRenderer()") && !src("src/components/NowPlaying.ts").includes("getBackgroundRenderer()"));
+
+check("歌词页 AMLL 背景懒加载", src("src/components/NowPlaying.ts").includes('await import("@applemusic-like-lyrics/core")'));
+
+check("AMLL 引擎保持懒加载（主窗首屏不进 AMLL）", ambient.includes('await import("@applemusic-like-lyrics/core")'));
+
+check("播放状态同步给 AMLL（暂停即停动画）", ambient.includes("bg?.resume()") && ambient.includes("bg?.pause()"));
 
 check("自定义图走同源端点（不把图塞进 data: URL / 不过 IPC 传 buffer）", ambient.includes('const BG_ROUTE = "/api/bg"'));
 
-check("图源指纹挡住「拖滑块重拉一张 4K 壁纸」", ambient.includes("if (key === artKey) return;"));
+check("图源指纹挡住「拖滑块重拉一张图」", ambient.includes("if (key === artKey && layer.dataset.renderer === renderer) return;"));
 
 check("自定义图带序号击穿缓存（原地替换同一路径的图也能刷新）", ambient.includes("${BG_ROUTE}?v=${++bgRev}"));
 
-check("环境层模糊来自变量（不许退回写死值）", /filter: blur\(var\(--ambient-blur/.test(css));
+check("AMLL canvas 由宿主定位（组件自己不管层级）", css.includes(".ambient-host canvas { width: 100%; height: 100%; display: block; }"));
 
 check("关闭档整层不画", /\.ambient\[data-mode="off"\][^{]*\{ display: none; \}/.test(css));
 
-check("自定义档满不透明（用户挑的图不该被压成 .55）", /\.ambient\[data-mode="custom"\] \.ambient-art\.ready \{ opacity: 1; \}/.test(css));
-
-check("自定义档不额外调色（saturate/brightness 只留给封面环境色）",
-  /\.ambient\[data-mode="custom"\] \.ambient-art \{ filter: blur\(var\(--ambient-blur/.test(css));
-
-check("扩边走变量", /transform: scale\(var\(--ambient-scale/.test(css));
-
-eq("CSS 兜底模糊与 schema 默认同值（改一处要改两处）",
-  Number(/--ambient-blur: (\d+)px/.exec(css)?.[1]), Number(defaults()["Style.BackgroundBlur"]));
+check("自定义档满不透明", /\.ambient\[data-mode="custom"\] \.ambient-host\.ready \{ opacity: 1; \}/.test(css));
 
 check("滑块盖得住通用 input 规则（否则长成一个带框的方块）", css.includes(".set-row__ctrl input.set-blur"));
 
@@ -279,11 +282,11 @@ check("「选择图片…」用虚边框的「动作」样式与档位卡区分"
   /\.opt-card\.action \{ border-style: dashed;/.test(css) && views.includes('class="opt-card action" id="bg-pick"'));
 
 // 反向：这些「回潮写法」必须能被断言逮到，否则上面的 check 是假的
-const hardBlur = (s) => /\.ambient-art \{[\s\S]*?filter: blur\(70px\)/.test(s);
+const unexpectedAmlBlur = (s) => /\.ambient-host[^{]*\{[^}]*filter:\s*blur\(/.test(s);
 
-check("…反向：环境层写死 blur(70px) 会被逮住", hardBlur(".ambient-art {\n  filter: blur(70px) saturate(1.5);\n}"));
+check("…反向：AMLL 层被挂上 CSS blur 会被逮住", unexpectedAmlBlur(".ambient-host {\n  filter: blur(70px);\n}"));
 
-check("…当前源码里确实没有写死", !hardBlur(css));
+check("…当前源码里 AMLL 层没有 CSS blur", !unexpectedAmlBlur(css));
 
 const builtInShell = (s) => /className = "ambient"/.test(s) || /ambient-art/.test(s);
 
@@ -338,16 +341,20 @@ check("globals.d.ts 声明了桥（TS 侧才敢直接用）", src("src/globals.d
 section("源码护栏 · 配置");
 
 check("schema 三键齐全",
-  ["Style.Background", "Style.BackgroundImage", "Style.BackgroundBlur"].every((k) => k in defaults()));
+  ["Style.Background", "Style.BackgroundImage", "Style.BackgroundFlow", "Style.BackgroundRenderer", "Style.NpBackgroundRenderer"].every((k) => k in defaults()));
 
 eq("模式默认关闭背景（只有主题底色）", defaults()["Style.Background"], "off");
 
 eq("自定义图默认未选择", defaults()["Style.BackgroundImage"], "");
 
-eq("模糊默认 70", defaults()["Style.BackgroundBlur"], "70");
+eq("流动速度默认 1", defaults()["Style.BackgroundFlow"], "1");
+
+eq("首页背景风格默认 mesh", defaults()["Style.BackgroundRenderer"], "mesh");
+
+eq("歌词页背景风格默认 mesh", defaults()["Style.NpBackgroundRenderer"], "mesh");
 
 check("渲染层 FALLBACK 与 schema 同步（改一处要改两处）",
-  ['"Style.Background": "off"', '"Style.BackgroundImage": ""', '"Style.BackgroundBlur": "70"']
+  ['"Style.Background": "off"', '"Style.BackgroundImage": ""', '"Style.BackgroundFlow": "1"', '"Style.BackgroundRenderer": "mesh"', '"Style.NpBackgroundRenderer": "mesh"']
     .every((line) => src("src/lib/config.ts").includes(line)));
 
 // ——— 与 Sparkle 主题的交接：谁管这层背景（口径与 tint 那套逐条对齐）———
@@ -415,7 +422,7 @@ check("背景层让位：主题接管时整层不画",
   /backgroundPolicyOf\(sparkleActiveTheme\(\)\)\.mode === "off"[\s\S]{0,240}?layer\.dataset\.mode = "theme"/.test(ambient));
 
 check("…且作废图源指纹（切回默认主题要重新取图，不能停在「已加载」的假象上）",
-  /artKey = "";\s*\n\s*hideArt\(\)/.test(ambient));
+  /artKey = "";[\s\S]{0,160}?hideCanvas\(\)/.test(ambient));
 
 check("boot 时订阅插件启停（注册表变化要重算归属）", /onSparkleChange\(applyBackground\)/.test(ambient));
 
@@ -433,7 +440,7 @@ check("设置页按策略收口：三档禁用 + 写明由谁接管",
 
 check("主题接管时不给换图（选图按钮与文件名一并收起）", views.includes('const isCustom = mode === "custom" && !locked'));
 
-check("模糊滑块也叠加 locked", views.includes("bgBlur.disabled = locked ||"));
+check("速度滑块也叠加 locked", views.includes("bgFlow.disabled = locked ||"));
 
 check("切主题 / 插件启停都重刷这一组",
   /paintTintPolicy\(\);[^\n]*\n\s*paintBgPolicy\(\);/.test(views) && views.includes("paintBgPolicy();   // 背景那组同理"));

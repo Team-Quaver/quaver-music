@@ -144,13 +144,16 @@ export function applyFonts() {
   if (ly) r.setProperty("--font-lyric", ly); else r.removeProperty("--font-lyric");
 }
 
-// —— 默认主题的背景（环境色层）：模式 + 自定义图 + 模糊强度 ——
+// —— 默认主题的背景（环境色层）：模式 + 自定义图 + 流动速度 ——
 // 模式落在 quaver.conf 的 [Style] Background（off / cover / custom，**默认 off**：不开环境色层，
 // 只有主题底色），自定义图的路径落在 BackgroundImage（由设置页的原生选图写进来，主进程读它、
-// 经同源 /api/bg 交给界面）。
+// 经同源 /api/bg 交给界面），流动速度落在 BackgroundFlow（AMLL setFlowSpeed 的系数）。
 // 这里**只**管「内部枚举 ⇄ 配置取值」：DOM 归 src/lib/ambient.ts —— prefs 被 player/api
 // 反向依赖，不能反过来 import 渲染层的东西（成环）。改完要自己调 applyBackground()。
 export type BackgroundMode = "off" | "cover" | "custom";
+
+/** 背景呈现风格：quaver = Quaver Design 封面模糊铺底；mesh = AMLL 网格流动渐变（默认）。 */
+export type BackgroundRenderer = "quaver" | "mesh";
 
 const CONF_TO_BG: Record<string, BackgroundMode> = { off: "off", cover: "cover", custom: "custom" };
 
@@ -170,26 +173,46 @@ export function setBackgroundImage(path: string) {
   cfgSet({ "Style.BackgroundImage": (path ?? "").trim() });
 }
 
-export const BG_BLUR_MIN = 0;
-export const BG_BLUR_MAX = 120;
-export const BG_BLUR_DEFAULT = 70;
+const CONF_TO_BG_RENDERER: Record<string, BackgroundRenderer> = { quaver: "quaver", mesh: "mesh" };
 
-/** 模糊强度（px 高斯半径）。空值/非数值回落默认；越界夹紧（手改 conf 写 9999 不该把界面糊死）。 */
-export function getBackgroundBlur(): number {
-  const raw = cfg("Style.BackgroundBlur", String(BG_BLUR_DEFAULT)).trim();
+/** 首页（主窗环境层）的背景风格。 */
+export function getBackgroundRenderer(): BackgroundRenderer {
+  return CONF_TO_BG_RENDERER[cfg("Style.BackgroundRenderer", "mesh")] ?? "mesh";
+}
 
-  if (!raw) return BG_BLUR_DEFAULT; // Number("") === 0 的坑：空值 ≠ 不模糊
+export function setBackgroundRenderer(r: BackgroundRenderer) {
+  cfgSet({ "Style.BackgroundRenderer": CONF_TO_BG_RENDERER[r] ?? "mesh" });
+}
+
+/** 正在播放页（歌词页）的背景风格 —— 与首页互不影响。 */
+export function getNpBackgroundRenderer(): BackgroundRenderer {
+  return CONF_TO_BG_RENDERER[cfg("Style.NpBackgroundRenderer", "mesh")] ?? "mesh";
+}
+
+export function setNpBackgroundRenderer(r: BackgroundRenderer) {
+  cfgSet({ "Style.NpBackgroundRenderer": CONF_TO_BG_RENDERER[r] ?? "mesh" });
+}
+
+export const BG_FLOW_MIN = 0;
+export const BG_FLOW_MAX = 2;
+export const BG_FLOW_DEFAULT = 1;
+
+/** AMLL 背景流动速度（setFlowSpeed 系数）。空值/非数值回落默认；越界夹紧。 */
+export function getBackgroundFlow(): number {
+  const raw = cfg("Style.BackgroundFlow", String(BG_FLOW_DEFAULT)).trim();
+
+  if (!raw) return BG_FLOW_DEFAULT; // Number("") === 0 的坑：空值 ≠ 停住
   const n = Number(raw);
 
-  if (!Number.isFinite(n)) return BG_BLUR_DEFAULT;
+  if (!Number.isFinite(n)) return BG_FLOW_DEFAULT;
 
-  return Math.min(BG_BLUR_MAX, Math.max(BG_BLUR_MIN, Math.round(n)));
+  return Math.min(BG_FLOW_MAX, Math.max(BG_FLOW_MIN, n));
 }
 
 /** 拖滑块是高频项 → 合并落盘（与音量同一套）。 */
-export function setBackgroundBlur(px: number) {
-  const clamped = Math.max(BG_BLUR_MIN, Math.min(BG_BLUR_MAX, Math.round(px)));
-  cfgSetSoon({ "Style.BackgroundBlur": String(clamped) });
+export function setBackgroundFlow(v: number) {
+  const clamped = Math.max(BG_FLOW_MIN, Math.min(BG_FLOW_MAX, Number.isFinite(v) ? v : BG_FLOW_DEFAULT));
+  cfgSetSoon({ "Style.BackgroundFlow": String(clamped) });
 }
 
 // —— 界面毛玻璃（[Style] MenuBlur）——

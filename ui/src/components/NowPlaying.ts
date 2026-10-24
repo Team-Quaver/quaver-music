@@ -27,11 +27,12 @@ import { pickAux } from "../lyric";
 import { coverUrl, songTitle, stripEm, QUALITY_SHORT, effectiveQuality, getLastStream } from "../lib/api";
 import type { StreamInfo } from "../lib/streaminfo";
 import { icons } from "../lib/icons";
-import { getLyricScale, setLyricScale, LYRIC_SCALE_MAX, LYRIC_SCALE_MIN, LYRIC_SCALE_STEP, LYRIC_AUX_MODES, npLyricFullHeight, npLyricHidePlayed, type LyricAuxMode } from "../lib/prefs";
+import { getLyricScale, setLyricScale, LYRIC_SCALE_MAX, LYRIC_SCALE_MIN, LYRIC_SCALE_STEP, LYRIC_AUX_MODES, npLyricFullHeight, npLyricHidePlayed, getNpBackgroundRenderer, type LyricAuxMode, type BackgroundRenderer } from "../lib/prefs";
 import { getLyricDelayMs, setLyricDelayMs, fmtLyricDelay, LYRIC_DELAY_STEP_MS, LYRIC_DELAY_MAX_MS } from "../lib/lyric-delay";
 import { isFullscreen, setFullscreen, onFullscreenChange } from "../lib/fullscreen";
 import type { SparkleKaraokeProvider, SparkleNpSpectrumRenderCtx } from "@quaver/sparkle";
-import { sparkleKaraokeProvider, onSparkleChange, sparkleNpMenuItems } from "../sparkle/registry";
+import { sparkleKaraokeProvider, onSparkleChange, sparkleNpMenuItems, sparkleActiveTheme } from "../sparkle/registry";
+import { backgroundRendererOf } from "../sparkle/theme-background";
 import { npSongSnapshot, syncNpView } from "../sparkle/np-view";
 import { currentSpectrumMode, loadSpectrumStyles, spectrumFacade, spectrumMode, spectrumModes } from "../lib/spectrum-controller";
 
@@ -42,6 +43,7 @@ export function NowPlaying(): HTMLElement {
   el.innerHTML = `
     <div class="np-bg" id="np-bg"></div>
     <div class="np-bg np-bg2" id="np-bg2"></div>
+    <div class="np-amll" id="np-amll" aria-hidden="true"></div>
     <div class="np-scrim"></div>
     <!-- CSD 拖拽区：主界面顶带的整条替身（默认布局与接管视图共用；接管视图的
          可点控件必须放在条带之外）。SSD 态有系统标题栏，这层不出场。 -->
@@ -78,6 +80,7 @@ export function NowPlaying(): HTMLElement {
   const $ = <T extends HTMLElement>(id: string) => el.querySelector<T>("#" + id)!;
   const lyrics = $("np-lyrics"), cover = $("np-cover");
   const bgA = $("np-bg"), bgB = $("np-bg2");
+  const amllHost = $("np-amll");
   const karaHost = $("np-karaoke");
   const npViewHost = $("np-view");
   const spectrumBox = $("np-spectrum");
@@ -1032,6 +1035,89 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
     img.src = pic;
   }
 
+  // —— AMLL 网格渐变背景（MeshGradientRenderer）：与 Quaver Design 双层封面并行存在，
+  //    由 data-np-bg 按偏好/主题声明切换可见性。实例懒加载并按当前曲 setAlbum，
+  //    收起页面时 pause（rAF 停），展开且在播时 resume。
+  type NpAml = import("@applemusic-like-lyrics/core").BackgroundRender<import("@applemusic-like-lyrics/core").MeshGradientRenderer>;
+
+  let npAml: NpAml | null = null;
+  let npAmlInit: Promise<NpAml | null> | null = null;
+  let npAmlPic = "";
+  let npRenderer: BackgroundRenderer | "unset" = "unset";
+
+  const npProxied = (url: string) => "/api/img?u=" + encodeURIComponent(url);
+
+  const npRendererNow = (): BackgroundRenderer => backgroundRendererOf(sparkleActiveTheme()) ?? getNpBackgroundRenderer();
+
+  async function ensureNpAml(): Promise<NpAml | null> {
+    if (npAml) return npAml;
+
+    if (!npAmlInit) {
+      npAmlInit = (async () => {
+        const { BackgroundRender, MeshGradientRenderer } = await import("@applemusic-like-lyrics/core");
+
+        if (!MeshGradientRenderer.isSupported()) return null;
+
+        const inst = BackgroundRender.new(MeshGradientRenderer);
+        inst.setRenderScale(1);
+        inst.setStaticMode(false);
+        amllHost.append(inst.getElement());
+
+        return inst;
+      })().catch(() => null);
+    }
+
+    const inst = await npAmlInit;
+
+    if (inst) npAml = inst;
+
+    return inst;
+  }
+
+  function syncNpAml(pic: string, open: boolean) {
+    const renderer = npRendererNow();
+
+    if (renderer === npRenderer && pic === npAmlPic && el.dataset.npBg === renderer) {
+      // 图与风格都没变：只同步播放态（收起/暂停即停 rAF，展开且在播才续）
+      if (renderer === "mesh") { if (player.playing && open) npAml?.resume(); else npAml?.pause(); }
+
+      return;
+    }
+
+    npRenderer = renderer;
+    npAmlPic = pic;
+    el.dataset.npBg = renderer;
+
+    // quaver：双图层照常，AMLL 层停掉并藏起
+    if (renderer === "quaver") {
+      npAml?.pause();
+      amllHost.classList.remove("show");
+      applyBg(pic);
+
+      return;
+    }
+
+    // mesh：AMLL 出场，双图层收掉（防穿透：Quaver 图层不能再垫在底下）
+    applyBg("");
+    bgA.classList.remove("show"); bgA.style.backgroundImage = "";
+    bgB.classList.remove("show"); bgB.style.backgroundImage = "";
+    bgWant = bgHold = bgFade = "";
+
+    if (!pic) { npAml?.pause(); amllHost.classList.remove("show"); return; }
+
+    void ensureNpAml().then((inst) => {
+      if (!inst || npAmlPic !== pic || npRendererNow() !== "mesh") return;
+
+      amllHost.classList.add("show");
+      void inst.setAlbum(npProxied(pic)).then(() => {
+        if (npAmlPic !== pic) return;
+
+        if (player.playing && player.expanded) inst.resume();
+        else inst.pause();
+      }).catch(() => { if (npAmlPic === pic) amllHost.classList.remove("show"); });
+    });
+  }
+
   // —— 画廊模式（player.gallery，运行时态；开关在播放条按钮）——
   // npFullscreen 标记「当前全屏是本页带起来的」：只有这种情况收起本页才退全屏；
   // 用户经 WM 手势自己进的全屏（gallery 关着）不归本页管，收起时不去抢窗口态。
@@ -1124,16 +1210,19 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
       bgWant = bgHold = bgFade = bgFailed = "";
       bgA.classList.remove("show"); bgA.style.backgroundImage = "";
       bgB.classList.remove("show"); bgB.style.backgroundImage = "";
+      npAmlPic = "";
+      npAml?.pause();
+      amllHost.classList.remove("show");
 
       return;
     }
 
     if (!open && !s) return;
 
-    // 背景：封面模糊放大（交叉淡化，见 applyBg）；侧栏封面同一张图。
+    // 背景：网格渐变（AMLL）或封面模糊放大（Quaver Design），风格 = 用户偏好 / 主题声明。
     // 封面 img 按 src 守卫：notify 是 4Hz 广播，无条件重建 <img> 会反复触发重解码
     const pic = s ? coverUrl(s, 300) : "";
-    applyBg(pic);
+    syncNpAml(pic, open);
 
     if (pic !== lastCover) { lastCover = pic; cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : `<div class="np-cover-ph">${icons.disc ?? ""}</div>`; }
 
@@ -1201,6 +1290,8 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
       lastMid = "";
       lastIdx = -1;
     }
+
+    syncNpAml(player.current ? coverUrl(player.current, 300) : "", player.expanded);
   });
 
   syncSpectrumSurface(player.expanded, el.classList.contains("np-taken-over"));

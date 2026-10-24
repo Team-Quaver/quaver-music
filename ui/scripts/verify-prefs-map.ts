@@ -123,7 +123,11 @@ eq("背景默认关闭（只有主题底色）", P.getBackgroundMode(), "off");
 
 eq("背景图默认未选择", P.getBackgroundImage(), "");
 
-eq("背景模糊默认 70", P.getBackgroundBlur(), 70);
+eq("背景流动速度默认 1", P.getBackgroundFlow(), 1);
+
+eq("首页背景风格默认 mesh", P.getBackgroundRenderer(), "mesh");
+
+eq("歌词页背景风格默认 mesh", P.getNpBackgroundRenderer(), "mesh");
 
 eq("控制条默认底部停靠", P.getControlBarMode(), "bottom");
 
@@ -221,21 +225,37 @@ P.setBackgroundMode("cover");   eq("BackgroundMode.cover → cover", conf()["Sty
 
 P.setBackgroundImage("/home/me/pics/bg.jpg");
 
+P.setBackgroundRenderer("quaver");
+
+eq("首页背景风格写盘", conf()["Style.BackgroundRenderer"], "quaver");
+
+P.setNpBackgroundRenderer("quaver");
+
+eq("歌词页背景风格写盘", conf()["Style.NpBackgroundRenderer"], "quaver");
+
+P.setBackgroundRenderer("mesh");
+
+eq("首页背景风格回默认", conf()["Style.BackgroundRenderer"], "mesh");
+
+P.setNpBackgroundRenderer("mesh");
+
+eq("歌词页背景风格回默认", conf()["Style.NpBackgroundRenderer"], "mesh");
+
 eq("背景图路径写盘", conf()["Style.BackgroundImage"], "/home/me/pics/bg.jpg");
 
-P.setBackgroundBlur(30);
+P.setBackgroundFlow(1.5);
 
-eq("模糊拖拽即时进内存", P.getBackgroundBlur(), 30);
+eq("流动速度拖拽即时进内存", P.getBackgroundFlow(), 1.5);
 
 await settle();
 
-eq("模糊是高频项 → 合并后落盘一次", conf()["Style.BackgroundBlur"], "30");
+eq("流动速度是高频项 → 合并后落盘一次", conf()["Style.BackgroundFlow"], "1.5");
 
-P.setBackgroundBlur(9999);
+P.setBackgroundFlow(9999);
 
-eq("越界值即时夹紧到上界", P.getBackgroundBlur(), 120);
+eq("越界值即时夹紧到上界", P.getBackgroundFlow(), 2);
 
-P.setBackgroundBlur(70);
+P.setBackgroundFlow(1);
 
 await settle();
 
@@ -365,7 +385,7 @@ const keys = Object.keys(conf());
 
 check("写盘键名齐全（Section.Key 风格）", [
   "Style.Style", "Style.DefaultUIFonts", "Style.DefaultLyricsFonts",
-  "Style.Background", "Style.BackgroundImage", "Style.BackgroundBlur", "Style.MenuBlur",
+  "Style.Background", "Style.BackgroundImage", "Style.BackgroundFlow", "Style.BackgroundRenderer", "Style.NpBackgroundRenderer", "Style.MenuBlur",
   "Window.Decor", "Window.CloseAction",
   "Playing.Backend", "Playing.AudioDevice", "Playing.Fade", "Playing.PrevReplay", "Playing.InhibitSleep", "Playing.ReportListenTime",
   "Quality.DefaultQuality", "Quality.FallbackToQMAtmos",
@@ -631,25 +651,25 @@ await reload({ "Style.BackgroundImage": "  /x/bg.png  " });
 
 eq("路径两端空白被去掉", P.getBackgroundImage(), "/x/bg.png");
 
-await reload({ "Style.BackgroundBlur": "9999" });
+await reload({ "Style.BackgroundFlow": "9999" });
 
-eq("越界模糊夹紧到 120", P.getBackgroundBlur(), 120);
+eq("越界流动速度夹紧到 2", P.getBackgroundFlow(), 2);
 
-await reload({ "Style.BackgroundBlur": "-5" });
+await reload({ "Style.BackgroundFlow": "-5" });
 
-eq("负数夹紧到 0", P.getBackgroundBlur(), 0);
+eq("负数夹紧到 0", P.getBackgroundFlow(), 0);
 
-await reload({ "Style.BackgroundBlur": "" });
+await reload({ "Style.BackgroundFlow": "" });
 
-eq("空值回落 70（不是 Number(\"\") === 0）", P.getBackgroundBlur(), 70);
+eq("空值回落 1（不是 Number(\"\") === 0）", P.getBackgroundFlow(), 1);
 
-await reload({ "Style.BackgroundBlur": "很糊" });
+await reload({ "Style.BackgroundFlow": "很快" });
 
-eq("非数值回落 70", P.getBackgroundBlur(), 70);
+eq("非数值回落 1", P.getBackgroundFlow(), 1);
 
-await reload({ "Style.BackgroundBlur": "0" });
+await reload({ "Style.BackgroundFlow": "0" });
 
-eq("0 是合法值（不模糊），不许被当成空值", P.getBackgroundBlur(), 0);
+eq("0 是合法值（静止），不许被当成空值", P.getBackgroundFlow(), 0);
 
 // 旧配置只有 ShowTranslation 时也能读回档位
 await reload({ "Style.ShowTranslation": "False" });
@@ -664,7 +684,7 @@ await reload({ "Style.LyricAux": "瞎写", "Style.ShowTranslation": "True" });
 
 eq("瞎写 LyricAux 回落 translation", P.getLyricAux(), "translation");
 
-await reload({ "Style.Background": "cover", "Style.BackgroundBlur": "70", "Style.BackgroundImage": "" });
+await reload({ "Style.Background": "cover", "Style.BackgroundFlow": "1", "Style.BackgroundImage": "" });
 
 // ——— Sparkle 插件黑名单（[Sparkle] Blacklist）———
 section("Sparkle 黑名单映射");
@@ -702,8 +722,8 @@ await P.resetConfig();
 
 eq("重置回到默认", [P.getTheme(), P.getDecode(), P.getFade()], ["dark", "MPV", "normal"]);
 
-eq("背景一并回到默认（FALLBACK 里也得有这三键）",
-  [P.getBackgroundMode(), P.getBackgroundImage(), P.getBackgroundBlur()], ["off", "", 70]);
+eq("背景一并回到默认（FALLBACK 里也得有这些键）",
+  [P.getBackgroundMode(), P.getBackgroundImage(), P.getBackgroundFlow(), P.getBackgroundRenderer(), P.getNpBackgroundRenderer()], ["off", "", 1, "mesh", "mesh"]);
 
 eq("重置后的落盘值", conf()["Style.Style"], "dark");
 

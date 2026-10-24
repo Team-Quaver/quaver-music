@@ -3,9 +3,8 @@
 // 为什么必须开浏览器，而不是像多数 verify-* 那样读源码做正则：这三类断言的真相都在
 // 「计算值 / 合成结果」里，源码字符串看不见 ——
 //   ① 封面投影：播放时要有、暂停时要收干净，而且深色下真的看得见、颜色要跟着 Tint 跑；
-//   ② 逐字歌词（内置 AMLL）：AMLL 自带 `mix-blend-mode: plus-lighter` —— 文字给底色**加光**。
-//      本页原本恒为深色所以成立；Lumen 接管成浅色 surface 之后，往近白底色上加光 = 全白，
-//      歌词整层消失。只有把字画在真实底色上量像素才测得出来；
+//   ② 逐字歌词（内置 AMLL）：主题强制保持 `mix-blend-mode: plus-lighter` —— 文字给底色**加光**。
+//      只有把字画在真实底色上量像素才测得出 Lumen 的墨色/遮罩是否与这层混合自洽；
 //   ③ 行级回退列表 / 页内浮层：宿主那套「白字 + 深色玻璃」口径在浅色接管态要整体翻面。
 //
 // 口径：宿主 style.css + AMLL 自己的 style.css + **真实打包出来的主题 CSS**（走 registerTheme
@@ -255,8 +254,8 @@ try {
       const bgRgb = (await rgba(st.bg)).rgb;
 
       // —— ① 逐字歌词（AMLL）：混合模式 + 已唱/未唱/翻译的真实像素对比 ——
-      assert.equal(st.blend, "normal",
-        `Lumen ${tag}：AMLL 仍在 ${st.blend} 混合 —— 浅色 surface 上「给底色加光」= 白字白底，整层歌词看不见`);
+      assert.equal(st.blend, "plus-lighter",
+        `Lumen ${tag}：AMLL 的加光混合被改成 ${st.blend} —— 这条是主题最终口径，不许静默回落`);
       const line = await rect(".FmKaba_lyricMainLine");
 
       const data = await shoot({

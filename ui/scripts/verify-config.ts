@@ -119,7 +119,7 @@ check("模板注释来自 schema", template().includes("可选 dark,light,follow
 
 eq("默认值与模板占位一致", (() => { const v = readValues().values; return v["Style.Style"] === "dark" && v["Playing.Backend"] === "MPV" && v["Quality.DefaultQuality"] === "Auto" && v["Quality.FallbackToQMAtmos"] === "False"; })(), true);
 
-eq("schema 默认值表条数", Object.keys(defaults()).length, 75); // [DesktopLyrics] 21 键（Enabled/Locked/Opacity/Backdrop/Scale/Weight/Font/Border/Shadow/ShadowBlur/ShadowOpacity/ShadowX/ShadowY/Mode/SingleCenter/ColorMode/Color + X/Y/W/H 记忆坐标）；[Lyrics] 4 键（ChineseConvert 繁简档/OnlineTtml 在线逐字开关/TtmlDatabase 地址模板/TtmlLibrary 本地库目录）；LyricAux 为歌词辅助行（关闭/翻译/音译，两路同位置且各按档位回落）；LyricScale 为行级歌词缩放；LyricLayout 为正在播放页歌词列四档；Background/BackgroundImage/BackgroundBlur 为默认主题背景（模式/自定义图/模糊强度）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；ControlBar 为控制条停靠形态；PlaylistMode 为歌单显示模式（菜单栏/歌单集合页）；MenuBlur 为浮层菜单毛玻璃开关；Spectrum/SpectrumMode 为正在播放页真实音频频谱开关与形态；Equalizer 为 Quark EQ 整段 JSON（默认空曲线、最多 10 段、bypass）；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；ReportListenTime 为听歌时长上报开关；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
+eq("schema 默认值表条数", Object.keys(defaults()).length, 77); // [DesktopLyrics] 21 键（Enabled/Locked/Opacity/Backdrop/Scale/Weight/Font/Border/Shadow/ShadowBlur/ShadowOpacity/ShadowX/ShadowY/Mode/SingleCenter/ColorMode/Color + X/Y/W/H 记忆坐标）；[Lyrics] 4 键（ChineseConvert 繁简档/OnlineTtml 在线逐字开关/TtmlDatabase 地址模板/TtmlLibrary 本地库目录）；LyricAux 为歌词辅助行（关闭/翻译/音译，两路同位置且各按档位回落）；LyricScale 为行级歌词缩放；LyricLayout 为正在播放页歌词列四档；Background/BackgroundImage/BackgroundFlow/BackgroundRenderer/NpBackgroundRenderer 为默认主题背景（模式/自定义图/AMLL 流动速度/首页与歌词页呈现风格）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；ControlBar 为控制条停靠形态；PlaylistMode 为歌单显示模式（菜单栏/歌单集合页）；MenuBlur 为浮层菜单毛玻璃开关；Spectrum/SpectrumMode 为正在播放页真实音频频谱开关与形态；Equalizer 为 Quark EQ 整段 JSON（默认空曲线、最多 10 段、bypass）；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；ReportListenTime 为听歌时长上报开关；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
 
 check("模板含热键两段", ["[Hotkeys.Global]", "[Hotkeys.Focus]"].every((s) => template().includes(s)));
 
@@ -274,7 +274,7 @@ eq("背景默认关闭（只有主题底色）", defaults()["Style.Background"],
 
 eq("背景图默认未选择", defaults()["Style.BackgroundImage"], "");
 
-eq("背景模糊默认 70px", defaults()["Style.BackgroundBlur"], "70");
+eq("背景流动速度默认 1", defaults()["Style.BackgroundFlow"], "1");
 
 eq("背景模式拒绝瞎写", writeValues({ "Style.Background": "wallpaper" }), []);
 
@@ -292,13 +292,13 @@ eq("背景图路径拒绝换行（会把 INI 段结构撕开）", writeValues({ 
 
 eq("背景图路径允许清空（= 未选择）", writeValues({ "Style.BackgroundImage": "" }), ["Style.BackgroundImage"]);
 
-eq("模糊强度拒绝超界", writeValues({ "Style.BackgroundBlur": "500" }), []);
+eq("流动速度拒绝超界", writeValues({ "Style.BackgroundFlow": "5" }), []);
 
-eq("模糊强度拒绝非数值", writeValues({ "Style.BackgroundBlur": "很糊" }), []);
+eq("流动速度拒绝非数值", writeValues({ "Style.BackgroundFlow": "很快" }), []);
 
-eq("模糊强度接受 0（原图不模糊）", (writeValues({ "Style.BackgroundBlur": "0" }), readValues().values["Style.BackgroundBlur"]), "0");
+eq("流动速度接受 0（静止）", (writeValues({ "Style.BackgroundFlow": "0" }), readValues().values["Style.BackgroundFlow"]), "0");
 
-eq("模糊强度回到默认", writeValues({ "Style.BackgroundBlur": "70" }), ["Style.BackgroundBlur"]);
+eq("流动速度回到默认", writeValues({ "Style.BackgroundFlow": "1" }), ["Style.BackgroundFlow"]);
 
 eq("非法布尔值被拒绝（侧栏缩回）", writeValues({ "Window.SidebarCollapsed": "maybe" }), []);
 

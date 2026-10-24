@@ -389,13 +389,31 @@ export const SCHEMA: SectionSpec[] = [
         valid: isLocalPathValue,
       },
       {
-        key: "BackgroundBlur",
-        def: "70",
+        key: "BackgroundFlow",
+        def: "1",
         doc: [
-          "背景模糊强度（px，高斯半径）：0..120，0=原图不模糊。",
-          "自定义图片建议小值（看得清图），封面环境色建议大值（只取色彩倾向）",
+          "AMLL 背景流动速度（setFlowSpeed 系数）：0..2，1=默认。",
+          "0=动画停在静态，数值越大流动越快",
         ],
-        valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 120,
+        valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 2,
+      },
+      {
+        key: "BackgroundRenderer",
+        def: "mesh",
+        doc: [
+          "首页（主窗环境层）的背景呈现风格：mesh=AMLL 网格流动渐变（**默认**）｜quaver=Quaver Design 封面模糊铺底",
+          "只在 [Style] Background=cover/custom 时生效；插件主题可经 Sparkle SDK 的 background.renderer 接管",
+        ],
+        valid: (v: string) => ["mesh", "quaver"].includes(v),
+      },
+      {
+        key: "NpBackgroundRenderer",
+        def: "mesh",
+        doc: [
+          "正在播放页（歌词页）的背景呈现风格：mesh=AMLL 网格流动渐变（**默认**）｜quaver=Quaver Design 封面模糊铺底",
+          "与首页的 BackgroundRenderer 互不影响；插件主题可经 Sparkle SDK 的 background.renderer 接管",
+        ],
+        valid: (v: string) => ["mesh", "quaver"].includes(v),
       },
       {
         key: "Tint",
