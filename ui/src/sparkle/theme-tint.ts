@@ -11,8 +11,9 @@
 //   · { mode:"host" } → host    ：宿主那四档继续生效（固定青色 / 跟随封面 / 系统强调色 / 自定义色）
 //   · { mode:"presets"} → presets：用户在主题给的方案里挑，宿主按自定义色应用选中的那套。
 //                                  方案的 color 还可以写哨兵值："system"（TINT_PRESET_SYSTEM）=
-//                                  跟随系统强调色；"cover"（TINT_PRESET_COVER）= 跟随当前封面主色。
-//                                  哨兵读不到时宿主回落第一套非哨兵方案。
+//                                  跟随系统强调色；"cover"（TINT_PRESET_COVER）= 跟随当前封面主色；
+//                                  "custom"（TINT_PRESET_CUSTOM）= 用户自选色（宿主提供取色 UI，
+//                                  按主题 id 分档存储）。哨兵读不到时宿主回落第一套非哨兵方案。
 //
 // 本文件是**纯策略 + 一点持久化**：策略解析全是纯函数（可在 node 里直接单测）；只有
 // 方案选择的读写碰 localStorage，且只在函数体内（导入本模块无副作用）。
@@ -32,6 +33,10 @@ export const TINT_PRESET_SYSTEM = "system";
 
 /** 方案 color 的哨兵值：不是颜色字面量，而是「宿主从当前曲封面提取的主色」。 */
 export const TINT_PRESET_COVER = "cover";
+
+/** 方案 color 的哨兵值：用户自选颜色。宿主在外观设置里就地弹颜色选择器，
+ *  色值按主题 id 分档存储 —— 主题只需声明这一档，不需要自己提供取色 UI。 */
+export const TINT_PRESET_CUSTOM = "custom";
 
 export interface SparkTintPolicy {
   mode: SparkTintMode;
@@ -59,7 +64,7 @@ export function validPresets(list: unknown): SparkleTintPreset[] {
     if (typeof p.label !== "string" || !p.label) continue;
 
     if (typeof p.color !== "string" ||
-        (p.color !== TINT_PRESET_SYSTEM && p.color !== TINT_PRESET_COVER && !parseHex(p.color))) continue;
+        (p.color !== TINT_PRESET_SYSTEM && p.color !== TINT_PRESET_COVER && p.color !== TINT_PRESET_CUSTOM && !parseHex(p.color))) continue;
     seen.add(p.id);
     out.push({ id: p.id, label: p.label, color: p.color });
   }
@@ -147,6 +152,40 @@ export function sparkTintChoice(themeId: string | null): string | null {
   return typeof v === "string" ? v : null;
 }
 
+/** 主题自定义源色（仅当主题声明 customTint 时才有意义）：themeId → HEX。 */
+const CUSTOM_KEY = "quaver.sparkle.tint.custom.v1";
+
+function readCustom(): Record<string, string> {
+  try {
+    const raw = globalThis.localStorage?.getItem(CUSTOM_KEY) ?? "{}";
+    const v = JSON.parse(raw) as unknown;
+
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function sparkCustomTint(themeId: string | null): string | null {
+  if (!themeId) return null;
+  const v = readCustom()[themeId];
+
+  return typeof v === "string" && parseHex(v) ? v : null;
+}
+
+export function sparkSetCustomTint(themeId: string, hex: string | null): void {
+  if (!themeId) return;
+  const all = readCustom();
+
+  if (hex && parseHex(hex)) all[themeId] = toHex(parseHex(hex)!);
+  else delete all[themeId];
+
+  try {
+    globalThis.localStorage?.setItem(CUSTOM_KEY, JSON.stringify(all));
+  } catch {
+    /* 隐私模式 / 配额满：本次会话内仍然生效 */
+  }
+}
 export function sparkSetTintChoice(themeId: string, presetId: string | null): void {
   if (!themeId) return;
   const all = readChoices();

@@ -33,6 +33,11 @@ interface SparklePluginManifest {
   description?: string;
   category?: string;
   main?: string;
+  /** 安装来源：market = Marketplace（可检查更新）；local = 手动安装（不参与自动更新） */
+  source?: "market" | "local";
+  /** Marketplace 条目的下载地址与 sha256，随安装持久化，更新时兜底使用 */
+  download?: string;
+  hash?: string;
 }
 
 interface SparkleInstalledPlugin {

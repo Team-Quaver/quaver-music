@@ -29,7 +29,12 @@ import { backgroundPolicyOf } from "../sparkle/theme-background";
 import { menuGlassPolicyOf } from "../sparkle/theme-menus";
 import { controlBarPolicyOf } from "../sparkle/theme-control-bar";
 import { playlistModePolicyOf } from "../sparkle/theme-playlist-mode";
-import { TINT_PRESET_COVER, TINT_PRESET_SYSTEM, resolvePresetColor, sparkSetTintChoice, sparkTintChoice, tintPolicyOf } from "../sparkle/theme-tint";
+import {
+  TINT_PRESET_CUSTOM,
+  TINT_PRESET_COVER, TINT_PRESET_SYSTEM, resolvePresetColor,
+  sparkCustomTint, sparkSetCustomTint, sparkSetTintChoice, sparkTintChoice, tintPolicyOf,
+  pickPreset,
+} from "../sparkle/theme-tint";
 import type { SparkleTintPreset } from "@quaver/sparkle";
 import { errText, h, watchBackendChange } from "./_shared";
 
@@ -855,11 +860,14 @@ export default async function settingsView(root: HTMLElement) {
         ? (hex ? `<span class="sw" style="background:${hex}"></span>` : `<span class="sw sw-accent"></span>`)
         : p.color === TINT_PRESET_COVER
           ? `<span class="sw sw-cover"></span>`
+          : p.color === TINT_PRESET_CUSTOM
+            ? `<span class="sw" style="background:${sparkCustomTint(themeId) ?? "#6750a4"}"></span>`
           : `<span class="sw" style="background:${p.color}"></span>`;
 
       b.innerHTML = `${sw}${escHtml(p.label)}`;
       b.onclick = () => {
         sparkSetTintChoice(themeId, p.id);
+        if (p.color === TINT_PRESET_CUSTOM) openSparkCustomPicker(themeId);
         applyTint();       // 换了方案立刻重写 CSS 变量
         paintTintPolicy(); // 同步选中态
       };
@@ -867,6 +875,71 @@ export default async function settingsView(root: HTMLElement) {
       tintSparkCards.append(b);
     }
   };
+
+  /** 主题方案里的「自定义颜色」档：就地弹宿主同款颜色选择器。
+   *  色值落在 theme-tint 的主题级存储（不是宿主四档的 TintColor），换主题不串味。 */
+  const sparkCustomBox = document.createElement("div");
+  sparkCustomBox.className = "tint-pop";
+  sparkCustomBox.hidden = true;
+  sparkCustomBox.innerHTML = `
+    <div class="tint-pop__head">
+      <strong>主题自定义颜色</strong>
+      <button class="tint-pop__fold" type="button">收起</button>
+    </div>
+    <div class="tint-preview">
+      <span class="tint-preview__sw"></span>
+      <code class="tint-preview__hex"></code>
+    </div>
+    <input class="tint-hue" type="range" min="0" max="359" step="1" aria-label="色相" />
+    <div class="tint-hex-row">
+      <span class="tint-field__label">HEX</span>
+      <input type="text" spellcheck="false" autocomplete="off" maxlength="7" placeholder="#6750a4" aria-label="主题自定义颜色十六进制值" />
+    </div>`;
+  tintSparkCards.after(sparkCustomBox);
+  const sparkCustomSw = sparkCustomBox.querySelector<HTMLElement>(".tint-preview__sw")!;
+  const sparkCustomCode = sparkCustomBox.querySelector<HTMLElement>(".tint-preview__hex")!;
+  const sparkCustomHue = sparkCustomBox.querySelector<HTMLInputElement>(".tint-hue")!;
+  const sparkCustomHex = sparkCustomBox.querySelector<HTMLInputElement>(".tint-hex-row input")!;
+
+  const paintSparkCustom = (themeId: string) => {
+    const hex = sparkCustomTint(themeId) ?? "#6750a4";
+    const rgb = parseHex(hex) ?? { r: 103, g: 80, b: 164 };
+    sparkCustomSw.style.background = hex;
+    sparkCustomCode.textContent = hex;
+    if (document.activeElement !== sparkCustomHex) sparkCustomHex.value = hex;
+    sparkCustomHue.value = String(Math.round(rgb2hsl(rgb).h));
+  };
+
+  const commitSparkCustom = (themeId: string, rgb: RGB) => {
+    const hex = toHex({ r: Math.round(rgb.r), g: Math.round(rgb.g), b: Math.round(rgb.b) });
+    sparkSetCustomTint(themeId, hex);
+    paintSparkCustom(themeId);
+    applyTint();
+  };
+
+  const openSparkCustomPicker = (themeId: string) => {
+    sparkCustomBox.dataset.themeId = themeId;
+    sparkCustomBox.hidden = false;
+    paintSparkCustom(themeId);
+  };
+
+  sparkCustomBox.querySelector<HTMLButtonElement>(".tint-pop__fold")!.onclick = () => { sparkCustomBox.hidden = true; };
+  sparkCustomHue.addEventListener("input", () => {
+    const id = sparkCustomBox.dataset.themeId;
+
+    if (!id) return;
+    const cur = parseHex(sparkCustomTint(id) ?? "#6750a4") ?? { r: 103, g: 80, b: 164 };
+    const { s, l } = rgb2hsl(cur);
+    const base = s < 0.02 ? { s: 0.75, l: 0.5 } : { s, l };
+
+    commitSparkCustom(id, hsl2rgb(Number(sparkCustomHue.value), base.s, base.l));
+  });
+  sparkCustomHex.addEventListener("input", () => {
+    const id = sparkCustomBox.dataset.themeId;
+    const c = parseHex(sparkCustomHex.value);
+
+    if (id && c) commitSparkCustom(id, c);
+  });
 
   /** 展开/收起选择器。非自定义档不给开，高亮色被主题接管时也不给开 —— 面板编的就是自定义色。 */
   const setPopOpen = (open: boolean) => {
@@ -911,6 +984,11 @@ export default async function settingsView(root: HTMLElement) {
     if (presets) {
       renderSparkTintCards(policy.presets, policy.themeId ?? "");
       syncSel(tintSparkCards, "preset", sparkTintChoice(policy.themeId) ?? policy.presets[0]?.id ?? "");
+      const chosen = pickPreset(policy.presets, sparkTintChoice(policy.themeId));
+      const isCustomPreset = chosen?.color === TINT_PRESET_CUSTOM;
+      sparkCustomBox.hidden = !isCustomPreset || sparkCustomBox.dataset.themeId !== policy.themeId;
+
+      if (isCustomPreset && !sparkCustomBox.hidden) paintSparkCustom(policy.themeId ?? "");
 
       // 方案里有哨兵（color:"system"）且系统强调色还没到：补拉一次，回来重画方案卡的色块
       if (policy.presets.some((p) => p.color === TINT_PRESET_SYSTEM)) probeAccentOnce();

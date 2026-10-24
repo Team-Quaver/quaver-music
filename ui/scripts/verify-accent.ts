@@ -172,6 +172,17 @@ try {
   eq("Noctalia 的 .colors 模板产物（Selection 底 = primary）",
     hit && { color: hit.color, source: hit.source }, { color: "#edc148", source: "noctalia-colors" });
 
+  // KDE 会话下 AccentColor 先赢：color-schemes 里按 mtime 猜的可能是用户自装/自写的
+  // .colors（不是活配置），不能截胡 Plasma 自己写的 kdeglobals —— 实测 BreezeTint.colors
+  // 把整条通路钉死在 Breeze 蓝就是这个坑。
+  writeFileSync(join(schemes, "BreezeTint.colors"),
+    "[Colors:Selection]\nBackgroundNormal=61,174,233\n");
+  writeFileSync(join(xdgConf, "kdeglobals"), "[General]\nAccentColor=127,99,177\n");
+  hit = systemAccent({ env: envOf({ XDG_CURRENT_DESKTOP: "KDE" }), run: fakeRun(null), fresh: true });
+  eq("KDE 会话：AccentColor 赢过 color-schemes 的 .colors",
+    hit && { color: hit.color, source: hit.source }, { color: "#7f63b1", source: "kde" });
+  rmSync(join(xdgConf, "kdeglobals"));
+
   // 4) Noctalia colors.json（v4 / 社区惯例；.colors 不在时落到这）
   rmSync(schemes, { recursive: true, force: true });
   mkdirSync(join(xdgConf, "noctalia"), { recursive: true });

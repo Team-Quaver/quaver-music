@@ -362,8 +362,8 @@ try {
     }
   }
 
-  // —— ⑤ 另两态不许被浅色修功误伤：深空黑 / 不接管都恒为深底，引擎默认口径才是对的 ——
-  for (const [name, patch] of [["深空黑", { md3NpColor: "deep" }], ["不接管", { md3Np: "off" }]] as const) {
+  // —— ⑤ 不接管态不许被浅色修功误伤：它恒为深底，引擎默认口径才是对的 ——
+  for (const [name, patch] of [["不接管", { md3Np: "off" }]] as const) {
     await setDataset({ theme: "light", sparkleTheme: "md3", md3Np: "on", md3NpColor: "theme" });
     await setDataset(patch as Record<string, string>);
     await setTint(SOURCES[0][1]);

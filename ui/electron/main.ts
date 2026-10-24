@@ -148,6 +148,10 @@ const sparkleInstall = async (id, buf, meta) => {
   await writeFile(join(dir, "main.js"), buf, { mode: 0o600 });
   // category（theme/plugin/extension）随索引元数据持久化：设置页据此把已装内容归入 主题/插件/扩展
   const category = ["theme", "plugin", "extension"].includes(meta?.category) ? String(meta.category) : undefined;
+  // 来源与下载坐标随安装落盘：更新检查据此区分 Marketplace 插件与本地手装，
+  // 也能在索引暂时拿不到条目时兜底重新下载。本地手装不写 download → 永不自动更新。
+  const source = meta?.source === "market" || meta?.source === "local" ? meta.source : undefined;
+  const download = source === "market" && /^https?:\/\//.test(String(meta?.download ?? "")) ? String(meta.download) : undefined;
 
   const manifest = {
     id,
@@ -158,6 +162,9 @@ const sparkleInstall = async (id, buf, meta) => {
     author: meta?.author ? String(meta.author) : undefined,
     description: meta?.description ? String(meta.description) : undefined,
     category,
+    source,
+    download,
+    hash: download && meta?.hash ? String(meta.hash) : undefined,
     main: "main.js",
   };
 
@@ -727,6 +734,10 @@ async function createWindow() {
   // 全屏态广播（画廊模式据此回同步；WM 手势/快捷键进出全屏同样送达渲染层）
   win.on("enter-full-screen", () => win?.webContents.send("quaver:fullscreen-state", true));
   win.on("leave-full-screen", () => win?.webContents.send("quaver:fullscreen-state", false));
+  // 最大化态广播：CSD 按钮簇据此把「最大化」钮切成「还原」形态（WM 手势/双击拖拽区同样送达）
+  const sendMaxState = () => win?.webContents.send("quaver:maximized-state", !!win?.isMaximized());
+  win.on("maximize", sendMaxState);
+  win.on("unmaximize", sendMaxState);
 
   if (!warmBoot) {
     // 素材候选按态排序：打包态 dist/（public 随构建进 dist）→ 开发态 public/ → 仓库 img/
@@ -911,10 +922,10 @@ ipcMain.handle("quaver:config", (_e, msg) => {
 });
 
 // Sparkle 插件管理桥：list = 扫描已装插件；install = 主进程代下载（规避渲染层 CORS）+ 可选
-// sha256 校验 + 落盘；pick-local / install-local = 「添加本地插件」两步（选文件读回 → 校验后落盘）；
-// uninstall = 删目录；market = 主进程代取索引 JSON。
+// sha256 校验 + 落盘（安装与更新同一条路径）；pick-local / install-local = 「添加本地插件」
+// 两步（选文件读回 → 校验后落盘）；uninstall = 删目录；market = 主进程代取索引 JSON。
 // 安全边界：插件 id 一律过 ^[a-z0-9][a-z0-9-]*$（同时是目录名，防穿越）；
-// 安装 ≠ 启用 —— 渲染层默认不加载新装的插件，需用户手动开开关。
+// 启用策略在渲染层：主题安装后自动启用（外观设置立刻可选），普通插件默认不启用。
 ipcMain.handle("quaver:sparkle", async (_e, msg) => {
   const op = msg?.op;
 
@@ -1317,7 +1328,7 @@ ipcMain.on("quaver:win", (_e, action) => {
 
 // 渲染层同步读全屏态（sendSync：与 config-sync 同理，装载期就要拿到确定值）
 ipcMain.on("quaver:win-sync", (e) => {
-  e.returnValue = { fullscreen: !!win?.isFullScreen() };
+  e.returnValue = { fullscreen: !!win?.isFullScreen(), maximized: !!win?.isMaximized() };
 });
 
 // 装饰模式切换（CSD<->SSD）：frame 只能在构造时给定 → 记住几何、拆掉旧窗、重建。

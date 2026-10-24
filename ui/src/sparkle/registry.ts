@@ -357,6 +357,20 @@ export const sparkleStyleLayers = (): StyleLayerEntry[] => styleLayers;
 
 /** 已登记的主题包（按注册序） */
 export const sparkleThemePacks = (): ThemePackEntry[] => themePacks;
+
+/** 运行中的插件是否**只**提供主题能力（主题 / 主题包 / 设置区）。
+ *  纯主题装完即用，启停开关只会制造「还要手动开」的错觉 —— 设置页据此藏掉开关；
+ *  带任何常驻能力（视图 / 菜单 / 取流 / 正在播放页…）的插件仍保留开关做逃生口。
+ *  查的是登记表而不是静态清单：主题插件可以按条件注册能力，同一 id 在不同会话
+ *  可能并不等价，运行时才是事实。 */
+export const sparkleIsThemeOnly = (pluginId: string): boolean => {
+  const owns = <T extends { pluginId: string }>(xs: T[]) => xs.some((e) => e.pluginId === pluginId);
+
+  return !owns(navItems) && !owns(songlistGroups) && !owns(styleLayers)
+    && !owns(npWidgets) && !owns(npViews) && !owns(npSpectrumModes)
+    && !owns(menuItems) && !owns(playlistMenuItems) && !owns(npMenuItems)
+    && !owns(streamSources) && !owns(karaokeProviders) && ![...pluginViews.values()].some((e) => e.pluginId === pluginId);
+};
 export const sparkleNpWidgets = (): NpWidgetEntry[] => npWidgets;
 
 /** 正在播放页接管视图（首个注册者；无 = 宿主走默认 np 布局）。

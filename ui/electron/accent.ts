@@ -11,14 +11,16 @@
 //   1. Quaver 专属交接文件  <配置目录>/system-theme.json  —— Noctalia / matugen 的模板写给它（见下）
 //   2. 同上 .css 形态       <配置目录>/system-theme.css   —— 只写一行 @define-color accent_bg_color
 //   3. Noctalia 用户模板的 JSON 产物（[theme.templates.user.*] 的 output_path，宽松 JSON 抽色）
-//   4. Noctalia 的 kcolorscheme 模板产物 ~/.local/share/color-schemes/ 里最新那份 .colors
-//      （[Colors:Selection] BackgroundNormal = M3 primary；换壁纸即重写 —— 实测 Hyprland 下也成立）
-//   5. Noctalia v4 惯例     ~/.config/noctalia/colors.json（{"dark":{"mPrimary":…}}）
-//   6. Noctalia v5 自定义   ~/.config/noctalia/palettes/<custom_palette>.json —— **只在 source=custom 时**
+//   4. KDE                  kdeglobals [General] AccentColor（只在 KDE 会话下认账：Plasma 自己写的，
+//      比 color-schemes 里按 mtime 猜的文件更权威 —— KDE 用户自装/自写的 .colors 不能截胡）
+//   5. Noctalia 的 kcolorscheme 模板产物 ~/.local/share/color-schemes/ 里最新那份 .colors
+//      （[Colors:Selection] BackgroundNormal = M3 primary；换壁纸即重写 —— 实测 Hyprland 下也成立；
+//      KDE 会话下已被第 4 步接管，这里实际只服务别的桌面）
+//   6. Noctalia v4 惯例     ~/.config/noctalia/colors.json（{"dark":{"mPrimary":…}}）
+//   7. Noctalia v5 自定义   ~/.config/noctalia/palettes/<custom_palette>.json —— **只在 source=custom 时**
 //      （source=wallpaper/builtin 时这份文件不是活的配色，读了就是上面那个「压根不变」的坑）；
 //      source=community 时同理只认社区缓存
-//   7. matugen              $MATUGEN_COLORS → $XDG_CACHE_HOME/matugen/colors.json（社区惯例路径）
-//   8. KDE                  kdeglobals [General] AccentColor（只在 KDE 会话下认账，Plasma 自己写的）
+//   8. matugen              $MATUGEN_COLORS → $XDG_CACHE_HOME/matugen/colors.json（社区惯例路径）
 //   9. GNOME                gsettings org.gnome.desktop.interface accent-color（GNOME 47+）
 //  10. kdeglobals [Colors:Selection] BackgroundNormal —— 不看会话：Noctalia 的 kcolorscheme
 //      在任何桌面下都会把它合并进 kdeglobals；纯 GNOME 没有 kdeglobals，不会被带偏
@@ -456,8 +458,19 @@ function detect(opts: AccentOpts): AccentHit | null {
     if (c) return mk(c, "noctalia-template", "Noctalia 模板产物", p);
   }
 
-  // 4) Noctalia 的 kcolorscheme 模板产物（每次换配色重写；Selection 底 = M3 primary）。
-  //    实测 Hyprland 下也成立 —— 模板产物不看会话。
+  // 4) KDE：kdeglobals 的 [General] AccentColor（Plasma 自己写的才认 —— 只在 KDE 会话下）。
+  //    必须排在 color-schemes 扫描之前：KDE 用户自装/自写的 .colors 不是活配置，按 mtime 猜会截胡。
+  const desktop = String(env.XDG_CURRENT_DESKTOP ?? "");
+
+  if (/(^|[^a-z])(kde|plasma)([^a-z]|$)/i.test(desktop)) {
+    const p = join(configHome(env), "kdeglobals");
+    const c = parseRGBTriple(iniValue(readText(p), "General", "AccentColor"));
+
+    if (c) return mk(c, "kde", "KDE 系统强调色", p);
+  }
+
+  // 5) Noctalia 的 kcolorscheme 模板产物（每次换配色重写；Selection 底 = M3 primary）。
+  //    实测 Hyprland 下也成立 —— 模板产物不看会话；KDE 会话已被上面 AccentColor 接管。
   const kdeScheme = newestFile(join(envPath(env, "XDG_DATA_HOME", join(home(), ".local", "share")), "color-schemes"), ".colors");
 
   if (kdeScheme) {
@@ -466,7 +479,7 @@ function detect(opts: AccentOpts): AccentHit | null {
     if (c) return mk(c, "noctalia-colors", "Noctalia 模板（KDE 配色）", kdeScheme);
   }
 
-  // 5) Noctalia 的配色文件（v4 colors.json；custom/community 只在 source 对得上时认 ——
+  // 6) Noctalia 的配色文件（v4 colors.json；custom/community 只在 source 对得上时认 ——
   //    否则那份文件是「定义」不是「活配色」，读它就是「换壁纸压根不变」的坑）
   for (const p of noctaliaPalettePaths(env)) {
     if (!existsSync(p)) continue;
@@ -480,22 +493,12 @@ function detect(opts: AccentOpts): AccentHit | null {
     }
   }
 
-  // 6) matugen（社区惯例：模板把生成结果写到 ~/.cache/matugen/colors.json）
+  // 7) matugen（社区惯例：模板把生成结果写到 ~/.cache/matugen/colors.json）
   for (const p of [String(env.MATUGEN_COLORS ?? "").trim(), join(cacheHome(env), "matugen", "colors.json"), join(home(), ".cache", "matugen", "colors.json")]) {
     if (!p || !existsSync(p)) continue;
     const c = extractAccent(readText(p), currentMode(opts));
 
     if (c) return mk(c, "matugen", "matugen", p);
-  }
-
-  // 7) KDE：kdeglobals 的 [General] AccentColor（Plasma 自己写的才认 —— 只在 KDE 会话下）
-  const desktop = String(env.XDG_CURRENT_DESKTOP ?? "");
-
-  if (/(^|[^a-z])(kde|plasma)([^a-z]|$)/i.test(desktop)) {
-    const p = join(configHome(env), "kdeglobals");
-    const c = parseRGBTriple(iniValue(readText(p), "General", "AccentColor"));
-
-    if (c) return mk(c, "kde", "KDE 系统强调色", p);
   }
 
   // 8) GNOME 47+：gsettings accent-color（三个桌面之外的标准口子）

@@ -32,7 +32,11 @@ import { getTintColor, getTintMode, TINT_DEFAULT_COLOR } from "./prefs";
 import { currentAccent, watchAccent } from "./accent";
 import { player } from "../player";
 import { onSparkleChange, sparkleActiveTheme } from "../sparkle/registry";
-import { TINT_PRESET_COVER, TINT_PRESET_SYSTEM, pickPreset, resolvePresetColor, sparkTintChoice, tintPolicyOf } from "../sparkle/theme-tint";
+import {
+  TINT_PRESET_CUSTOM,
+  TINT_PRESET_COVER, TINT_PRESET_SYSTEM, pickPreset, resolvePresetColor,
+  sparkCustomTint, sparkTintChoice, tintPolicyOf,
+} from "../sparkle/theme-tint";
 
 /** 封面取图尺寸：染色只取色彩倾向，300px 足够（与背景层、播放条同口径，CDN 缓存也共用）。 */
 const COVER_SIZE = 300;
@@ -118,6 +122,21 @@ export function applyTint() {
   // 方案的 color 可以是哨兵值："system" = 系统强调色，"cover" = 当前封面主色。
   if (policy.mode === "presets") {
     const chosen = pickPreset(policy.presets, sparkTintChoice(policy.themeId));
+
+    // 用户把方案切到「自定义颜色」：色值存在宿主的主题级存储里
+    // （quaver.sparkle.tint.custom.v1，按 themeId 分档），换主题不串味。
+    if (chosen?.color === TINT_PRESET_CUSTOM) {
+      const custom = sparkCustomTint(policy.themeId);
+
+      if (custom) {
+        coverPic = "";
+        coverSource = "";
+        syncAccentWatch(false);
+        paint(parseHex(custom));
+      } else paint(null); // 还没选过颜色：先回落无色（主题的 --acc 显出来）
+
+      return;
+    }
 
     // 封面哨兵和宿主封面档一样要异步取色；不落入下面的静态方案分支，否则每次都会清掉在途请求。
     if (chosen?.color === TINT_PRESET_COVER) {

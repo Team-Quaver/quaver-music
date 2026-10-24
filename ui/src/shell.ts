@@ -177,7 +177,7 @@ export function bootShell() {
     <div class="winbtns" data-csd-drag>
       <span class="win-grip" aria-hidden="true"><svg viewBox="0 0 16 12" width="14" height="11"><g fill="currentColor"><circle cx="4" cy="3.5" r="1.1"/><circle cx="8" cy="3.5" r="1.1"/><circle cx="12" cy="3.5" r="1.1"/><circle cx="4" cy="8.5" r="1.1"/><circle cx="8" cy="8.5" r="1.1"/><circle cx="12" cy="8.5" r="1.1"/></g></svg></span>
       <button aria-label="最小化" data-win="min"><svg viewBox="0 0 12 12" width="11" height="11"><path d="M2 6h8" stroke="currentColor" stroke-width="1.2"/></svg></button>
-      <button aria-label="最大化" data-win="max"><svg viewBox="0 0 12 12" width="11" height="11"><rect x="2.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></button>
+      <button aria-label="最大化" data-win="max" title="最大化"><svg viewBox="0 0 12 12" width="11" height="11"><rect x="2.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></button>
       <button aria-label="关闭" data-win="close"><svg viewBox="0 0 12 12" width="11" height="11"><path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" stroke-width="1.2"/></svg></button>
     </div>
     <div class="body">
@@ -323,6 +323,26 @@ export function bootShell() {
       else window.dispatchEvent(new CustomEvent("quaver:window", { detail: b.dataset.win }));
     }),
   );
+
+  // 最大化钮按窗口真实状态换装：最大化后是「还原」（前景小方块+背景大方块）。
+  // WM 手势/双击拖拽区进的最大化同样经主进程事件回推，按钮永远不与窗口状态脱节。
+  const maxBtn = frame.querySelector<HTMLButtonElement>('[data-win="max"]')!;
+
+  // SAFETY: preload 桥的存在性探测；quaverCSD 形状由 electron/preload.cts 定义
+  const csd: { isMaximized?: () => boolean; onMaximized?: (cb: (on: boolean) => void) => void } | undefined =
+    (window as { quaverCSD?: typeof csd }).quaverCSD;
+
+  // SAFETY: innerHTML 只写入本行的静态 SVG 字符串，不含用户输入
+  const applyMaxState = (on: boolean) => {
+    maxBtn.innerHTML = on
+      ? '<svg viewBox="0 0 12 12" width="11" height="11"><rect x="2" y="4" width="6" height="6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M4.4 4V2.6a.6.6 0 0 1 .6-.6h4.4a.6.6 0 0 1 .6.6V7a.6.6 0 0 1-.6.6H8.4" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>'
+      : '<svg viewBox="0 0 12 12" width="11" height="11"><rect x="2.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>';
+    maxBtn.setAttribute("aria-label", on ? "还原" : "最大化");
+    maxBtn.title = on ? "还原" : "最大化";
+  };
+
+  applyMaxState(!!csd?.isMaximized?.());
+  csd?.onMaximized?.(applyMaxState);
 
   // —— 每日 30 首 / 我喜欢：与侧栏歌单条目同一套交互 —— 双击立即播放，右键菜单含插队播放。
   //    两者是系统虚拟歌单（没有固定 disstid 可翻页拉详情），取歌各走专用接口：

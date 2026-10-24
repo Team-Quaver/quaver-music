@@ -20,6 +20,16 @@ contextBridge.exposeInMainWorld("quaverCSD", {
 
     return () => ipcRenderer.removeListener("quaver:fullscreen-state", listener);
   },
+  isMaximized: () => {
+    try { return !!ipcRenderer.sendSync("quaver:win-sync")?.maximized; } catch { return false; }
+  },
+  onMaximized: (cb: (on: boolean) => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, on: unknown) => { try { cb(!!on); } catch (err) { console.warn("maximized event failed", err); } };
+
+    ipcRenderer.on("quaver:maximized-state", listener);
+
+    return () => ipcRenderer.removeListener("quaver:maximized-state", listener);
+  },
   // 焦点内热键 Ctrl+Q：真退出（主进程 before-quit 已置位，不会撞「缩回托盘」的 close 拦截）
   quit: () => ipcRenderer.send("quaver:quit"),
 });
@@ -145,7 +155,7 @@ contextBridge.exposeInMainWorld("quaverLocal", {
 });
 
 // Sparkle 插件系统（第三方插件管理）：list/install/uninstall/market/pick-local/install-local
-// 均由主进程执行，渲染层只拿结果。安装 ≠ 启用：装完默认不加载，需用户在设置页手动开启。
+// 均由主进程执行，渲染层只拿结果。启用策略在渲染层：主题装完自动启用，普通插件默认关闭。
 contextBridge.exposeInMainWorld("quaverSparkle", {
   list: () => ipcRenderer.invoke("quaver:sparkle", { op: "list" }),
   install: (msg: Record<string, unknown>) => ipcRenderer.invoke("quaver:sparkle", { op: "install", ...msg }),

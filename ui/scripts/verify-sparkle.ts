@@ -165,6 +165,13 @@ ok("settings: 行内齿轮按钮（动作区最左）", has(src.settings, "spark
 
 ok("settings: 主题行齿轮仅在提供设置区时出现", re(src.settings, /gearOnlyWithSections/));
 
+// —— 纯主题不再显示启停开关 ——
+// 主题装完即用；只有当主题插件带了常驻能力（视图/菜单/样式层/正在播放页…）时，
+// 开关才作为逃生口保留。判定必须基于运行时登记表，而不是插件的静态声明。
+ok("registry: 纯主题判定查运行时登记表（主题/主题包/设置区之外任一能力即非纯主题）", has(src.registry, "export const sparkleIsThemeOnly") && re(noComments(src.registry), /!owns\(navItems\)/) && re(noComments(src.registry), /!owns\(streamSources\)/));
+
+ok("settings: 运行中的纯主题藏掉启停开关（带能力或未运行的主题行保留）", re(src.settings, /hideSwitch\?: boolean/) && re(noComments(src.settings), /if \(!o\.broken && !o\.hideSwitch\)/) && re(noComments(src.settings), /hideThemeSwitch: true/));
+
 ok("settings: 动作区顺序 = 齿轮 → 卸载 → 开关（Tab 序同视觉序）", (() => {
   // 取 manageRow 函数体：卸载插在中间，开关收尾（开关是行的视觉锚点，恒在最右）
   const body = (noComments(src.settings).split("const manageRow = ")[1] ?? "").split("启停一个已装第三方插件")[0];
@@ -200,7 +207,7 @@ ok("css: 两个图标按钮都是中性实底（不透），Tint 只上在 hover
 
 ok("css: 插件开关勾选色走 Tint（--cvg-accent 回落 --acc）", re(src.style, /\.sparkle-switch input \{ accent-color: var\(--cvg-accent, var\(--acc\)\)/));
 
-ok("settings: 索引源不在 UI 展示（请求仍用固定默认 URL）", has(src.settings, "DEFAULT_MARKET_URL") && !has(src.settings, "MARKET_URL_KEY") && !has(src.settings, "sparkle-src") && !re(src.settings, /sparkle-market-bar[^`]*<input/));
+ok("settings: 索引源不在 UI 展示（请求仍用固定默认 URL；自动更新开关不是索引输入框）", has(src.settings, "DEFAULT_MARKET_URL") && !has(src.settings, "MARKET_URL_KEY") && !has(src.settings, "sparkle-src") && !re(src.settings, /sparkle-market-bar[^`]*<input[^>]*type="text"/));
 
 ok("settings: 分类徽标样式齐备", ["cat-theme", "cat-plugin"].every((c) => has(src.style, `sparkle-badge.${c}`)) && !has(src.style, "cat-extension"));
 
@@ -221,9 +228,22 @@ ok("settings: 本地安装按钮红色渐变", has(src.settings, "sparkle-local-
 
 ok("settings: Marketplace 内部分类筛选（全部/主题/插件）", ["all", "theme", "plugin"].every((c) => has(src.settings, `data-mcat="${c}"`)) && !has(src.settings, 'data-mcat="extension"') && re(src.settings, /mcat === "all"/) && has(src.style, ".sparkle-mkt-chip"));
 
-ok("settings: 安装 ≠ 启用的警示文案", has(src.settings, "默认关闭") || has(src.settings, "默认不加载"));
+ok("settings: 普通插件安装默认关闭的警示文案", has(src.settings, "默认关闭"));
 
 ok("settings: 安装时把 category 写进元数据", re(noComments(src.settings), /category: cat\s*[,}]/));
+
+// —— Marketplace 更新与热重载 ——
+ok("settings: Marketplace 更新持久化来源与下载坐标", re(noComments(src.settings), /source: "market", download: entry\.download, hash: entry\.hash/) && has(src.globals, "download?: string"));
+
+ok("settings: 更新按钮只对更高版本出现（semver 比较，失败按非更新处理）", has(src.settings, "isNewerVersion") && has(src.settings, "sparkle-update"));
+
+ok("settings: 自动更新默认关闭且显式授权", has(src.settings, "AUTO_UPDATE_KEY") && has(src.settings, "autoUpdateEnabled") && re(src.settings, /localStorage\.getItem\(AUTO_UPDATE_KEY\) === "1"/));
+
+ok("settings: 更新前停用、成功后 cache-bust 重载并恢复外观", re(noComments(src.settings), /if \(wasActive\) disableSparklePlugin\(entry\.id\);/) && re(noComments(src.settings), /await enableSparklePlugin\(await loadThirdParty\(inst\)\); \/\/ loadSeq cache-bust/) && re(noComments(src.settings), /if \(keepStyle\) activateStyle\(keepStyle, style\.variantId \?\? undefined\);/));
+
+ok("settings: 更新失败时旧文件回滚启用", has(src.settings, "更新失败时旧文件仍在盘上") && re(noComments(src.settings), /if \(old\) await enableSparklePlugin\(await loadThirdParty\(old\)\)/));
+
+ok("settings: 主题安装后自动启用并进外观设置", re(noComments(src.settings), /cat === "theme" && !sparkEnabledIds\(\)\.includes\(entry\.id\)/) && re(noComments(src.settings), /await enableSparklePlugin\(await loadThirdParty\(inst\)\);[\s\S]{0,200}?catch/));
 
 ok("host: enable 失败回滚 teardown", re(src.host, /for \(const fn of \[\.\.\.record\.teardown\]\.reverse\(\)/g) !== null);
 
