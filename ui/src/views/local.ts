@@ -1,4 +1,5 @@
 // Quaver — 路由视图：local（由 src/views/index.ts 按需动态 import，不在首屏解析）
+import "./local.css";
 import { songListTools } from "../components/ListTools";
 import { toast } from "../components/SongMenu";
 import { api, escHtml } from "../lib/api";

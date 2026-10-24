@@ -12,6 +12,7 @@
 //   商店托管（APM/星火、如意玲珑容器）：不提供应用内下载 —— picked 为空，弹窗只提醒「等待商店推送新版」。
 //
 // 关闭语义：Esc / 点遮罩 = 「以后再说」，下载中先取消下载（AppImage 临时文件由主进程清理）。
+import "./dialog.css";
 import { toast } from "./SongMenu";
 import { channelLabel, describeBuild, renderNotes } from "../lib/update-core";
 import {

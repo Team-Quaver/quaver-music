@@ -5,6 +5,7 @@
 // 更新弹窗（.upd-overlay/.upd-dialog + .leaving 门闩），观感与更新/本地插件弹窗一致。
 //
 // 关闭语义：Esc / 点遮罩 / 「关闭」= 收起并调用 render 返回的清理函数。
+import "./dialog.css";
 let layer: HTMLElement | null = null;
 
 const esc = (s: unknown) =>

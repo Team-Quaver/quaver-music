@@ -73,7 +73,7 @@ const cats = await page.$$eval(".sparkle-cats .set-tab", (els) => els.map((e) =>
 
 check("三标签齐备（主题/插件/Marketplace）", JSON.stringify(cats) === JSON.stringify(["theme", "plugin", "market"]), JSON.stringify(cats));
 
-check("Marketplace 不展示索引链接（刷新/本地安装仍在）", !(await exists(".sparkle-src")) && !(await exists(".sparkle-market-bar input"))
+check("Marketplace 不展示索引链接（刷新/自动更新/本地安装仍在）", !(await exists(".sparkle-src")) && !(await page.$(".sparkle-market-bar input:not(.sparkle-auto-update input)"))
   && (await exists(".sparkle-market-refresh")) && (await exists(".sparkle-local")));
 
 check("添加本地插件按钮为红色渐变", await page.$eval(".sparkle-local", (e) => getComputedStyle(e).backgroundImage.includes("linear-gradient")));

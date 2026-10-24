@@ -1,0 +1,143 @@
+/* Quaver — 设置页专属样式（随 /settings 视图懒加载，不占 SPA 壳首屏 CSS） */
+
+/* 设置页 · 主题风格（registerThemePack）：一排色板 chip，点一下整页换风格。
+   chip 是「包 + 风格」的组合（一个包给多套时每个风格各一枚），左边四个色点是
+   包的 preview（纯展示，宿主不解析语义）。当前选中态用 --cvg-accent 描边，
+   不加底色 —— 选中态和 hover 态要能一眼分开。 */
+.sparkle-packs:empty { display: none; }
+.sparkle-packs { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.sparkle-pack-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.sparkle-pack{
+  display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+  padding: 6px 11px 6px 8px; border-radius: 999px; font: inherit; font-size: 12.5px;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink2);
+  transition: border-color .14s ease, color .14s ease;
+}
+.sparkle-pack:hover { color: var(--ink); border-color: var(--sparkle-pack-ink, var(--idx)); }
+.sparkle-pack.is-on {
+  color: var(--ink); font-weight: 600;
+  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 62%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cvg-accent, var(--acc)) 26%, transparent);
+}
+.sparkle-pack-dots { display: inline-flex; gap: 2px; flex: none; }
+.sparkle-pack-dots i { width: 11px; height: 11px; border-radius: 50%; display: block; box-shadow: 0 0 0 .5px #0002 inset; }
+.sparkle-pack-danger { margin-top: 12px; }
+.sparkle-pack-danger .set-hint { margin: 6px 0 0; }
+
+/* 设置页 · 已装插件行：徽标 + 名称/版本/作者/描述 | 齿轮 | 卸载 | 开关 */
+.sparkle-row {
+  display: flex; align-items: center; gap: 10px; padding: 9px 2px;
+}
+.sparkle-row + .sparkle-row { border-top: 1px dashed var(--line); }
+.sparkle-badge {
+  flex: 0 0 auto; font-style: normal; font-size: 10px; line-height: 16px; padding: 0 6px;
+  border-radius: 4px; color: #fff;
+}
+.sparkle-badge.official { background: #3b7cff; }
+.sparkle-badge.third-party { background: #8a6cff; }
+.sparkle-badge.broken { background: #d33; }
+.sparkle-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.sparkle-name { font-size: 13px; font-weight: 600; color: var(--ink); }
+.sparkle-name .ver { font-weight: 400; color: var(--idx); font-size: 11.5px; margin-left: 6px; }
+.sparkle-desc { font-size: 11.5px; color: var(--ink2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 行尾动作区：三列定宽（齿轮 | 卸载 | 开关）。
+   开关恒在最右是刻意的 —— 它是行的视觉锚点，而卸载只有部分行有（预装没有）；两列都定宽，
+   行与行之间才不会因为某行多一个按钮而整排跳格。DOM 顺序与这里一致（齿轮→卸载→开关），
+   所以 Tab 顺序也就是眼睛看到的顺序。
+   Marketplace 条目行没有开关、只有安装按钮：横跨整块、靠右收。 */
+.sparkle-actions {
+  flex: 0 0 auto; display: grid; align-items: center; gap: 8px;
+  grid-template-columns: 26px 26px auto;
+}
+.sparkle-actions > .sparkle-gear { grid-area: 1 / 1; }
+.sparkle-actions > .sparkle-uninstall { grid-area: 1 / 2; }
+.sparkle-actions > .sparkle-switch { grid-area: 1 / 3; }
+.sparkle-actions > .sparkle-install { grid-area: 1 / 1 / 2 / -1; justify-self: end; }
+/* 开关：与全站「次级开关」同语言（accent 洗底 + 描边），checkbox 只做语义。
+   勾选色跟设置页其它交互元素同口径 —— 封面染色 Tint（未播放时回落主题强调色）。 */
+.sparkle-switch { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--ink2); }
+.sparkle-switch input { accent-color: var(--cvg-accent, var(--acc)); width: 15px; height: 15px; cursor: pointer; }
+/* 上锁的开关（安全模式 / [Sparkle] Blacklist）：画出来但不可点，文字位显示原因。
+   压暗 + not-allowed 是「不可用」的固定语言；原因本身随行文（见 settings.ts 的 lock）。 */
+.sparkle-switch.is-locked { opacity: .6; cursor: not-allowed; }
+.sparkle-switch.is-locked input { cursor: not-allowed; }
+/* 行内垃圾桶（卸载）：与齿轮同尺寸的图标按钮，同样是**中性实底**（不透明，与「只改前景
+   不加底」的次级按钮区分开）。hover 转红是破坏性动作的固定提示色 —— 语义色优先于 Tint 高亮。 */
+.sparkle-uninstall {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 8px; flex: 0 0 auto;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink2); cursor: pointer;
+}
+.sparkle-uninstall:hover {
+  color: #e8465a; border-color: #e8465a;
+  background: color-mix(in srgb, #e8465a 16%, var(--card));
+}
+.sparkle-uninstall svg { width: 13px; height: 13px; }
+/* Marketplace 条目（未安装态没有开关） */
+.sparkle-install { padding: 4px 12px; font-size: 12px; }
+.sparkle-empty { color: var(--idx); font-size: 12px; padding: 6px 2px; }
+.sparkle-warn { margin: 6px 0 0; font-size: 11.5px; line-height: 1.5; }
+/* 安全模式横幅：贴在分类标签下，页面顶部就能看到（开关为什么全锁着） */
+.sparkle-lock-note { margin: 0 0 10px; padding: 7px 11px; border-radius: 9px; border: 1px solid var(--line); background: var(--hover); color: var(--ink2); }
+.sparkle-market-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.sparkle-local { padding: 5px 12px; font-size: 12px; }
+/* Marketplace 内部分类筛选 chips（全部/主题/插件；与 .hk-btn 同胶囊语言） */
+.sparkle-mkt-cats { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 2px 0 8px; }
+.sparkle-mkt-chip {
+  padding: 3px 12px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--card); color: var(--ink2); font: inherit; font-size: 12px; cursor: pointer;
+}
+.sparkle-mkt-chip:hover { color: var(--ink); border-color: var(--ink2); }
+.sparkle-mkt-chip.is-active {
+  color: var(--cvg-accent, var(--acc));
+  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 45%, var(--line));
+}
+/* 添加本地插件 = 危险入口：按钮本体就上红色渐变（与警告弹窗同一套危险语义） */
+.sparkle-local--danger {
+  border: none; color: #fff; font-weight: 600;
+  background: linear-gradient(135deg, #e5484d 0%, #b42e33 55%, #8f1d22 100%);
+}
+.sparkle-local--danger:hover:not(:disabled) { filter: brightness(1.1); }
+.sparkle-local--danger:disabled { opacity: .5; cursor: not-allowed; }
+/* 行内齿轮：打开该插件的设置弹窗（设置区不再常驻设置页）。
+   与垃圾桶同一套图标按钮：中性实底（--card，不透明）。高亮一律走 Tint —— 底/边/字一起上，
+   别写死 --acc（那样播放中就停在主题色不动了）。 */
+.sparkle-gear {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 8px; flex: 0 0 auto;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink2);
+  cursor: pointer;
+}
+.sparkle-gear:hover {
+  color: var(--cvg-accent, var(--acc));
+  border-color: var(--cvg-accent, var(--acc));
+  background: color-mix(in srgb, var(--cvg-accent, var(--acc)) 16%, var(--card));
+}
+.sparkle-gear svg { width: 13px; height: 13px; }
+/* 插件设置弹窗（components/PluginSettingsDialog.ts）：层与动画复用 .upd-* */
+.sparkle-settings-dialog { width: min(520px, 92vw); }
+.sparkle-settings-body {
+  flex: 1; min-height: 0; overflow: auto; font-size: 13px;
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  padding: 12px 2px;
+}
+/* Sparkle 面板内的分类 tabs 与分类面板（复用 .set-tabs/.set-tab 形态） */
+.sparkle-cats { margin: 2px 0 10px; }
+.sparkle-catpanel[hidden] { display: none; }
+/* Marketplace 分类徽标（索引条目 category：主题/插件） */
+.sparkle-badge.cat-theme { background: #b85cc4; }
+.sparkle-badge.cat-plugin { background: #8a6cff; }
+
+
+
+/* —— 设置页 · 热键（components/HotkeySettings.ts）——
+   绑定按钮 = 胶囊（与 .tag/.chip 同语言）；录制中虚线描边提示「在听键盘」，
+   未设置态整体减淡，悬停恢复。 */
+.hk-btn {
+  min-width: 148px; padding: 5px 14px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  font: inherit; font-size: 12.5px; letter-spacing: 0.4px; cursor: pointer; text-align: center;
+}
+.hk-btn:hover { border-color: var(--ink2); }
+.hk-btn.empty { color: var(--idx); }
+.hk-btn.capturing { border-style: dashed; border-color: var(--acc); color: var(--acc); cursor: progress; }

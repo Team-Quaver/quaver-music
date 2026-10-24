@@ -1,0 +1,47 @@
+/* Quaver — 本地音乐页源管理样式（随 /local 视图懒加载） */
+
+/* —— 本地音乐页（源管理 + 曲目表）——
+   面板复用 .card 的底色/描边 token；行内控件全部走既有 ghost-btn / lt-kw，不新开按钮体系。 */
+.local-panel { margin: 4px 0 14px; }
+.local-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.local-actions .ghost-btn { padding: 7px 16px; font-size: 12.5px; }
+.local-status {
+  margin-top: 10px; font-size: 12px; color: var(--ink2);
+  border: 1px solid var(--line); border-radius: 9px; background: var(--card);
+  padding: 7px 12px; max-width: 760px;
+}
+.local-status.has-err { border-color: #d33; color: #e66; }
+html:not([data-theme="dark"]) .local-status.has-err { color: #c62828; border-color: #f3b4b4; }
+.local-stats { margin-top: 8px; font-size: 12px; }
+.local-srcs { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; max-width: 760px; }
+.local-src-empty { font-size: 12.5px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 10px; }
+.local-src {
+  display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--card);
+  padding: 8px 12px; font-size: 13px;
+}
+.local-src .ls-name { font-weight: 600; white-space: nowrap; }
+.local-src .ls-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.local-src .ls-count { color: var(--ink2); font-size: 12px; white-space: nowrap; }
+.local-src .ls-ops { display: flex; gap: 6px; }
+.local-src .ls-ops .ghost-btn { padding: 4px 10px; font-size: 11.5px; }
+.local-badge {
+  flex: none; font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--ink2); background: var(--ph, transparent);
+}
+.local-badge.nas { border-color: var(--cvg-accent, var(--acc)); color: var(--cvg-accent, var(--acc)); }
+.local-form {
+  margin-top: 12px; display: flex; flex-direction: column; gap: 8px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--card);
+  padding: 12px 14px; max-width: 520px;
+}
+.local-form .lf-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--ink2); }
+.local-form .lf-row > span { width: 84px; flex: none; text-align: right; }
+.local-form input {
+  flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: transparent;
+  color: var(--ink); padding: 6px 10px; font-size: 13px; outline: none;
+}
+.local-form input:focus { border-color: var(--cvg-accent, var(--acc)); }
+.local-form .lf-foot { display: flex; align-items: center; gap: 12px; }
+.local-form .lf-foot .ghost-btn { padding: 6px 14px; font-size: 12.5px; }
+.local-form .lf-msg { font-size: 12px; color: #e66; }

@@ -714,8 +714,10 @@ Chromium 侧的 `/dev/shm` 合成器缓冲（主进程 ~620MB）与**字体映�
   覆盖层换曲走 `disposeRender`。
 - 已知没动的（写清楚，别让人以为已经修好）：① `registerBuiltinLyrics()` 在启动就拉起 399KB 的
   AMLL 块（改成「首次播放再注册」要重看插件提供器优先那条链）；② AMLL 的 400KB 里约 80KB 是
-  `@pixi/utils → url → qs/object-inspect` 这条依赖链；③ `src/style.css` 一份 72KB 全量进首屏，
-  没按路由拆（拆分要先有 CSS 层的视觉对拍，别裸拆）；④ mpv 的 `--demuxer-max-bytes=32MiB`
+  `@pixi/utils → url → qs/object-inspect` 这条依赖链；③ `src/style.css` 仍有约 69KB 常驻首屏
+  （壳层 + 播放条 + 正在播放页；设置/本地音乐/模态弹窗已各自拆成随模块加载的
+  `views/settings.css`、`views/local.css`、`components/dialog.css`，继续拆要新做 CSS 层视觉对拍）；
+  ④ mpv 的 `--demuxer-max-bytes=32MiB`
   `--demuxer-max-back-bytes=24MiB`（≈56MB 缓冲）没调，动它等于动播放稳定性，要单独灰度。
 
 ## Documentation

@@ -1,4 +1,5 @@
 // Quaver — 路由视图：settings（由 src/views/index.ts 按需动态 import，不在首屏解析）
+import "./settings.css";
 import { mountHotkeysPanel } from "../components/HotkeySettings";
 import { showCreditsDialog } from "../components/CreditsDialog";
 import { showDebugDialog } from "../components/DebugDialog";

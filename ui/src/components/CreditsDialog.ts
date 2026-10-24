@@ -3,6 +3,7 @@
 // 列表项可展开查看用途；仓库链接交给主进程 shell.openExternal，
 // 因为应用窗口本身禁止新开 BrowserWindow。浏览器 dev 下没有主进程桥，退回 window.open。
 import { toast } from "./SongMenu";
+import "./dialog.css";
 
 type Credit = { repo: string; license: string; purpose: string };
 

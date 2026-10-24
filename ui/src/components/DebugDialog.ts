@@ -18,6 +18,7 @@
 // （electron/stream-guard.ts）+ sidecar 分类与 mid 粒度限速（vendor/Typhoeus-go
 // server/stream_guard.go）。面板里的地址「看着能拷、拷了不能用」——但这是护栏的默认
 // 素养，不打扰：开面板不弹任何提示，入口的悬停 tooltip 里说明即可。
+import "./dialog.css";
 import { copyText, escHtml } from "../lib/api";
 import { toast } from "./SongMenu";
 

@@ -1,0 +1,189 @@
+/* Quaver — 模态弹窗一族（更新/调试/Credits/插件与本地插件警告/刮削校正）。
+   随各个弹窗模块懒加载；共享玻璃底片仍在 style.css 的浮层菜单规则里。 */
+
+/* —— 更新提醒弹窗（components/UpdateDialog.ts）——
+   body 常驻遮罩层（z 85：高于右键菜单 80、低于 toast 88 —— 下载中 toast 要浮在最上）。
+   日志区可滚动、宽高都设上限，长 release 不撑爆窗口。 */
+.upd-overlay {
+  position: fixed; inset: 0; z-index: 85;
+  background: rgb(0 0 0 / .45);
+  display: flex; align-items: center; justify-content: center;
+}
+.upd-dialog {
+  width: min(580px, 92vw); max-height: 82vh;
+  display: flex; flex-direction: column;
+  border-radius: 16px;
+  padding: 18px 20px 14px;
+  /* 底片 / 描边 / 模糊来自上方共享玻璃规则（随 MenuBlur 三态与主题接管走）；
+     模态比浮层菜单更深一层投影，另保留玻璃上缘内高光 */
+  box-shadow: 0 18px 60px rgb(0 0 0 / .35), inset 0 1px 0 var(--menu-edge);
+}
+.upd-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.upd-head h3 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.upd-badge {
+  font-size: 11px; font-weight: 600; letter-spacing: .4px;
+  padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--ink2);
+}
+.upd-badge.nightly {
+  color: var(--cvg-accent, var(--acc));
+  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 45%, var(--line));
+}
+/* Beta：预发布，介于 Stable 与 Nightly 之间 —— 用固定的琥珀色把它和「正式版/每夜版」区分开，
+   不跟 accent 走（换主题/封面取色时仍要一眼认出这是测试版）。 */
+.upd-badge.beta { color: #b9770e; border-color: #b9770e73; }
+html[data-theme="dark"] .upd-badge.beta { color: #f0b24a; border-color: #f0b24a80; }
+.upd-meta { font-size: 12.5px; }
+.upd-warn { margin: 0 0 8px; font-size: 12.5px; }
+/* 换渠道弹窗的关系说明（同版号换一份构建 / 版本号回退）。回退那档标红 —— 与退出登录、
+   已过期行列同一套 danger 色（浅色 #c62828 / 深色 #e66），不另造 token。 */
+.upd-warn.upd-switch.is-risk { color: #c62828; }
+html[data-theme="dark"] .upd-warn.upd-switch.is-risk { color: #e66; }
+/* 设置页渠道说明：选中的渠道与当前构建不是一个 → 点亮，提示还差一次「检查更新」 */
+#upd-channel-note.is-switch { color: var(--cvg-accent, var(--acc)); }
+.upd-notes {
+  flex: 1; min-height: 0; overflow: auto;
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  padding: 12px 2px; font-size: 13px; line-height: 1.6;
+}
+.upd-notes p { margin: 0 0 8px; }
+.upd-notes h4 { margin: 12px 0 6px; font-size: 13.5px; }
+.upd-notes ul { margin: 0 0 8px; padding-left: 20px; }
+.upd-notes li { margin: 2px 0; }
+.upd-notes code {
+  font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 12px;
+  background: var(--hover); border-radius: 4px; padding: 1px 5px;
+}
+.upd-notes pre {
+  background: var(--hover); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; overflow: auto; font-size: 12px;
+}
+.upd-notes pre code { background: none; padding: 0; }
+.upd-notes a { color: var(--cvg-accent, var(--acc)); text-decoration: none; }
+.upd-notes a:hover { text-decoration: underline; }
+.upd-bar { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; }
+.upd-bar i {
+  flex: 1; height: 6px; border-radius: 99px; background: var(--hover);
+  position: relative; overflow: hidden;
+}
+.upd-bar i::after {
+  content: ""; position: absolute; inset: 0 auto 0 0; width: var(--w, 0%);
+  background: var(--cvg-accent, var(--acc)); border-radius: 99px; transition: width .2s ease;
+}
+.upd-bar span { font-size: 12px; white-space: nowrap; }
+.upd-foot { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.upd-foot .upd-spacer { flex: 1; }
+.upd-primary {
+  padding: 8px 18px; border-radius: 9px; border: 1px solid transparent;
+  background: var(--cvg-accent, var(--acc)); color: #fff; cursor: pointer; font-weight: 600;
+}
+.upd-primary:hover { filter: brightness(1.08); }
+.upd-notes img { max-width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); }
+.upd-notes blockquote {
+  margin: 8px 0; padding: 2px 12px;
+  border-left: 3px solid color-mix(in srgb, var(--acc) 55%, var(--line));
+  color: var(--ink2);
+}
+.upd-notes blockquote p { margin: 6px 0; }
+
+/* 进场：遮罩淡入 + 面板上浮轻弹（观感层；减弱动效时直接呈现）。
+   离场：整体下沉淡出（.leaving 由 UpdateDialog 的关闭门闩挂上，播完摘节点）。 */
+@keyframes upd-fade { from { opacity: 0; } }
+@keyframes upd-pop { from { opacity: 0; transform: translateY(16px) scale(.97); } }
+@keyframes upd-out { to { opacity: 0; } }
+@keyframes upd-pop-out { to { opacity: 0; transform: translateY(12px) scale(.97); } }
+.upd-overlay { animation: upd-fade .16s ease; }
+.upd-dialog { animation: upd-pop .24s cubic-bezier(0.16, 1, 0.3, 1); }
+.upd-overlay.leaving { animation: upd-out .18s ease forwards; pointer-events: none; }
+.upd-overlay.leaving .upd-dialog { animation: upd-pop-out .18s ease forwards; }
+/* —— 进程/内存自检弹窗（components/DebugDialog.ts，设置 → 通用 → 调试）——
+   壳沿用模态弹窗那套（.upd-overlay + .upd-dialog：玻璃、进出场、reduced-motion 全白拿），
+   这里只补「读数字」该有的样子：等宽数字、紧凑表格、表头吸顶。 */
+.dbg-dialog { width: min(760px, 94vw); }
+.dbg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 6px 14px; margin-bottom: 12px; }
+.dbg-kv { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 8px; font-size: 12.5px; }
+.dbg-kv span { opacity: .72; }
+.dbg-kv b { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+.dbg-kv i { grid-column: 1 / -1; font-style: normal; font-size: 11px; opacity: .55; text-align: right; }
+.dbg-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.dbg-table th, .dbg-table td { text-align: right; padding: 3px 6px; border-bottom: 1px solid var(--line); }
+.dbg-table th:first-child, .dbg-table td:first-child { text-align: left; }
+.dbg-table th { opacity: .6; font-weight: 500; position: sticky; top: -12px; background: var(--surface, transparent); }
+.dbg-note { font-size: 11.5px; line-height: 1.55; margin: 10px 0 0; }
+.dbg-note2 { font-size: 11.5px; line-height: 1.55; margin: 6px 0 0; }
+.dbg-auto { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; opacity: .8; }
+
+/* —— 开源软件 / 第三方库引用弹窗（components/CreditsDialog.ts）——
+   壳沿用 .upd-overlay + .upd-dialog；列表项是原生折叠卡，许可证做成右侧胶囊标签。 */
+.crd-dialog { width: min(620px, 92vw); }
+.crd-list { display: flex; flex-direction: column; gap: 8px; }
+.crd-item {
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--card); color: var(--ink);
+  transition: border-color .16s ease, background .16s ease;
+}
+.crd-item[open] {
+  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 58%, var(--line));
+  background: color-mix(in srgb, var(--cvg-accent, var(--acc)) 7%, var(--card));
+}
+.crd-summary {
+  display: flex; align-items: center; gap: 12px; min-width: 0;
+  padding: 11px 12px; cursor: pointer; list-style: none;
+}
+.crd-summary::-webkit-details-marker { display: none; }
+.crd-summary:focus-visible { outline: 2px solid var(--cvg-accent, var(--acc)); outline-offset: -2px; border-radius: 9px; }
+.crd-repo { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.crd-license {
+  flex: 0 0 auto; margin-left: auto; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--ink2);
+  font: 11px ui-monospace, "JetBrains Mono", monospace; letter-spacing: .2px;
+}
+.crd-arrow { flex: 0 0 auto; color: var(--ink2); font-size: 14px; transition: transform .16s ease; }
+.crd-item[open] .crd-arrow { transform: rotate(180deg); }
+.crd-panel { padding: 10px 12px 12px; border-top: 1px solid var(--line); }
+.upd-notes .crd-purpose { margin: 0 0 10px; color: var(--ink2); font-size: 12.5px; line-height: 1.55; }
+.crd-link { padding: 5px 11px; font-size: 12px; }
+.crd-foot { gap: 10px; }
+.crd-note { font-size: 11.5px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .upd-overlay, .upd-dialog, .upd-overlay.leaving, .upd-overlay.leaving .upd-dialog { animation: none; }
+}
+
+/* —— 本地插件警告弹窗（components/LocalPluginDialog.ts）——
+   层与开闭动画整套复用上面的 .upd-*（含 .leaving 门闩），外观 = 红色警示 + 同一套玻璃：
+   半透明深红渐变底片顺着共享规则的 backdrop 模糊走，与普通弹窗同一套玻璃语言；
+   色相仍是自持深红 + 浅字，不随主题变量走（危险语义不参与换肤）。
+   关掉毛玻璃（MenuBlur off）时退回实底 —— 半透明红压不住底下内容。 */
+.upd-dialog.danger {
+  background: linear-gradient(160deg, rgb(90 16 21 / .84) 0%, rgb(43 6 9 / .82) 52%, rgb(71 16 26 / .84) 100%);
+  border-color: rgb(229 72 77 / .45);
+}
+html[data-menu-glass="off"] .upd-dialog.danger {
+  background: linear-gradient(160deg, #5a1015 0%, #2b0609 52%, #47101a 100%);
+}
+.upd-dialog.danger h3 { color: #ffe9e9; }
+.upd-dialog.danger .upd-badge.danger { color: #ff9b9e; border-color: rgb(255 155 158 / .5); }
+.upd-dialog.danger .danger-muted { color: rgb(255 233 233 / .62); }
+.local-warn-text {
+  font-size: 13px; line-height: 1.7; color: #ffdede;
+  border-top: 1px solid rgb(255 255 255 / .12); border-bottom: 1px solid rgb(255 255 255 / .12);
+  padding: 12px 2px; margin-bottom: 4px;
+}
+.upd-danger {
+  padding: 8px 18px; border-radius: 9px; border: 1px solid transparent;
+  background: #e5484d; color: #fff; cursor: pointer; font-weight: 600;
+}
+.upd-danger:hover:not(:disabled) { filter: brightness(1.08); }
+.upd-danger:disabled { opacity: .55; cursor: not-allowed; }
+
+/* 本地曲目「重新设置刮削信息」对话框主体（外壳样式随 .upd-dialog 一族，这里只补表单行） */
+.lmd-body { display: flex; flex-direction: column; gap: 9px; padding: 4px 2px 2px; }
+.lmd-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--ink2); }
+.lmd-row > span { width: 44px; flex: none; text-align: right; }
+.lmd-row input {
+  flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: transparent;
+  color: var(--ink); padding: 6px 10px; font-size: 13px; outline: none;
+}
+.lmd-row input:focus { border-color: var(--cvg-accent, var(--acc)); }
+.lmd-hint { font-size: 11.5px; line-height: 1.55; margin-top: 2px; }
+.upd-dialog .lmd-body + .upd-foot { margin-top: 10px; }

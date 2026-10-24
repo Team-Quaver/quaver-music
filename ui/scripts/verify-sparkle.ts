@@ -42,6 +42,8 @@ const src = {
   vite: read("vite.config.ts"),
   pkg: read("package.json"),
   style: read("src/style.css"),
+  settingsCss: read("src/views/settings.css"),
+  dialogCss: read("src/components/dialog.css"),
   npView: read("src/sparkle/np-view.ts"),
   spectrum: read("src/lib/audio-spectrum.ts"),
   pcmSink: read("src/lib/pcm-sink.ts"),
@@ -163,7 +165,7 @@ ok("settings: 三标签齐备且相互隔离（主题/插件/Marketplace）", ["
 
 ok("settings: 插件设置不常驻页面（收进齿轮弹窗）", !re(noComments(src.settings), /sparkle-sections/) && has(read("src/components/PluginSettingsDialog.ts"), "插件设置") && re(noComments(src.settings), /showPluginSettingsDialog/));
 
-ok("settings: 行内齿轮按钮（动作区最左）", has(src.settings, "sparkle-gear") && has(src.style, ".sparkle-gear") && re(noComments(src.settings), /actions\.append\(gearBtn\(/));
+ok("settings: 行内齿轮按钮（动作区最左）", has(src.settings, "sparkle-gear") && has(src.settingsCss, ".sparkle-gear") && re(noComments(src.settings), /actions\.append\(gearBtn\(/));
 
 ok("settings: 主题行齿轮仅在提供设置区时出现", re(src.settings, /gearOnlyWithSections/));
 
@@ -183,10 +185,10 @@ ok("settings: 动作区顺序 = 齿轮 → 卸载 → 开关（Tab 序同视觉�
   return gear >= 0 && gear < un && un < sw;
 })());
 
-ok("css: 动作区三列定宽且开关占最右列", re(src.style, /\.sparkle-actions \{[^}]*grid-template-columns: 26px 26px auto/)
-  && re(src.style, /\.sparkle-actions > \.sparkle-switch \{ grid-area: 1 \/ 3; \}/)
-  && re(src.style, /\.sparkle-actions > \.sparkle-uninstall \{ grid-area: 1 \/ 2; \}/)
-  && re(src.style, /\.sparkle-actions > \.sparkle-install \{ grid-area: 1 \/ 1 \/ 2 \/ -1;/));
+ok("css: 动作区三列定宽且开关占最右列", re(src.settingsCss, /\.sparkle-actions \{[^}]*grid-template-columns: 26px 26px auto/)
+  && re(src.settingsCss, /\.sparkle-actions > \.sparkle-switch \{ grid-area: 1 \/ 3; \}/)
+  && re(src.settingsCss, /\.sparkle-actions > \.sparkle-uninstall \{ grid-area: 1 \/ 2; \}/)
+  && re(src.settingsCss, /\.sparkle-actions > \.sparkle-install \{ grid-area: 1 \/ 1 \/ 2 \/ -1;/));
 
 ok("settings: 卸载是垃圾桶图标按钮（title/aria-label 承载文字）", (() => {
   const s = noComments(src.settings);
@@ -196,22 +198,22 @@ ok("settings: 卸载是垃圾桶图标按钮（title/aria-label 承载文字）"
     && !has(s, 'btn.textContent = "卸载"');
 })());
 
-ok("css: 垃圾桶与齿轮同一套图标按钮尺寸（26×26，13px 图标）", re(src.style, /\.sparkle-uninstall \{[^}]*width: 26px; height: 26px/)
-  && re(src.style, /\.sparkle-uninstall svg \{ width: 13px; height: 13px; \}/));
+ok("css: 垃圾桶与齿轮同一套图标按钮尺寸（26×26，13px 图标）", re(src.settingsCss, /\.sparkle-uninstall \{[^}]*width: 26px; height: 26px/)
+  && re(src.settingsCss, /\.sparkle-uninstall svg \{ width: 13px; height: 13px; \}/));
 
-ok("css: 两个图标按钮都是中性实底（不透），Tint 只上在 hover", re(src.style, /\.sparkle-gear \{[^}]*background: var\(--card\)/)
-  && re(src.style, /\.sparkle-uninstall \{[^}]*background: var\(--card\)/)
-  && !/\.sparkle-(gear|uninstall) \{[^}]*background: transparent/.test(src.style)
+ok("css: 两个图标按钮都是中性实底（不透），Tint 只上在 hover", re(src.settingsCss, /\.sparkle-gear \{[^}]*background: var\(--card\)/)
+  && re(src.settingsCss, /\.sparkle-uninstall \{[^}]*background: var\(--card\)/)
+  && !/\.sparkle-(gear|uninstall) \{[^}]*background: transparent/.test(src.settingsCss)
   // hover 的底/边/字三处都得是 Tint —— 只查「规则里出现过 var(--cvg-accent)」会被 background
   // 那一行兜住：字色退回 --acc 也照样绿（假断言，别退化回去）
-  && re(src.style, /\.sparkle-gear:hover \{[^}]*color: var\(--cvg-accent, var\(--acc\)\);[^}]*border-color: var\(--cvg-accent, var\(--acc\)\);[^}]*color-mix\(in srgb, var\(--cvg-accent, var\(--acc\)\) 16%, var\(--card\)\)/)
-  && re(src.style, /\.sparkle-uninstall:hover \{[^}]*color: #e8465a;[^}]*border-color: #e8465a;[^}]*color-mix\(in srgb, #e8465a 16%, var\(--card\)\)/));
+  && re(src.settingsCss, /\.sparkle-gear:hover \{[^}]*color: var\(--cvg-accent, var\(--acc\)\);[^}]*border-color: var\(--cvg-accent, var\(--acc\)\);[^}]*color-mix\(in srgb, var\(--cvg-accent, var\(--acc\)\) 16%, var\(--card\)\)/)
+  && re(src.settingsCss, /\.sparkle-uninstall:hover \{[^}]*color: #e8465a;[^}]*border-color: #e8465a;[^}]*color-mix\(in srgb, #e8465a 16%, var\(--card\)\)/));
 
-ok("css: 插件开关勾选色走 Tint（--cvg-accent 回落 --acc）", re(src.style, /\.sparkle-switch input \{ accent-color: var\(--cvg-accent, var\(--acc\)\)/));
+ok("css: 插件开关勾选色走 Tint（--cvg-accent 回落 --acc）", re(src.settingsCss, /\.sparkle-switch input \{ accent-color: var\(--cvg-accent, var\(--acc\)\)/));
 
 ok("settings: 索引源不在 UI 展示（请求仍用固定默认 URL；自动更新开关不是索引输入框）", has(src.settings, "DEFAULT_MARKET_URL") && !has(src.settings, "MARKET_URL_KEY") && !has(src.settings, "sparkle-src") && !re(src.settings, /sparkle-market-bar[^`]*<input[^>]*type="text"/));
 
-ok("settings: 分类徽标样式齐备", ["cat-theme", "cat-plugin"].every((c) => has(src.style, `sparkle-badge.${c}`)) && !has(src.style, "cat-extension"));
+ok("settings: 分类徽标样式齐备", ["cat-theme", "cat-plugin"].every((c) => has(src.settingsCss, `sparkle-badge.${c}`)) && !has(src.settingsCss, "cat-extension"));
 
 ok("settings: 徽标 = 预装 / 官方 / 第三方，不再带分类后缀", has(src.settings, 'text: "预装"')
   && has(src.settings, 'text: "官方"') && has(src.settings, 'text: "第三方"')
@@ -226,9 +228,9 @@ ok("settings: 已装条目按作者分官方/第三方（Team Quaver 大小写�
 
 ok("settings: 主题/插件两处已装行都走 sourceBadge", (noComments(src.settings).match(/sourceBadge\(inst\.manifest\?\.author\)/g) ?? []).length === 2);
 
-ok("settings: 本地安装按钮红色渐变", has(src.settings, "sparkle-local--danger") && re(src.style, /\.sparkle-local--danger[\s\S]*?linear-gradient/));
+ok("settings: 本地安装按钮红色渐变", has(src.settings, "sparkle-local--danger") && re(src.settingsCss, /\.sparkle-local--danger[\s\S]*?linear-gradient/));
 
-ok("settings: Marketplace 内部分类筛选（全部/主题/插件）", ["all", "theme", "plugin"].every((c) => has(src.settings, `data-mcat="${c}"`)) && !has(src.settings, 'data-mcat="extension"') && re(src.settings, /mcat === "all"/) && has(src.style, ".sparkle-mkt-chip"));
+ok("settings: Marketplace 内部分类筛选（全部/主题/插件）", ["all", "theme", "plugin"].every((c) => has(src.settings, `data-mcat="${c}"`)) && !has(src.settings, 'data-mcat="extension"') && re(src.settings, /mcat === "all"/) && has(src.settingsCss, ".sparkle-mkt-chip"));
 
 ok("settings: 普通插件安装默认关闭的警示文案", has(src.settings, "默认关闭"));
 
@@ -268,7 +270,7 @@ ok("localDialog: 本体文本逐字保留", has(read("src/components/LocalPlugin
 
 ok("settings: 本地安装走 blob import 校验形状", re(noComments(src.settings), /createObjectURL/) && re(noComments(src.settings), /validatePlugin\(mod/));
 
-ok("css: 危险弹窗红色渐变自持配色", has(src.style, ".upd-dialog.danger") && has(src.style, "linear-gradient"));
+ok("css: 危险弹窗红色渐变自持配色", has(src.dialogCss, ".upd-dialog.danger") && has(src.dialogCss, "linear-gradient"));
 
 // ============ 5. Electron 侧（IPC + 双侧 HTTP 路由） ============
 ok("main.ts: quaver:sparkle IPC 六 op 齐备", ["list", "install", "pick-local", "install-local", "uninstall", "market"].every((op) => re(src.mainMjs, new RegExp(`op === "${op}"`))));
@@ -444,7 +446,7 @@ ok("host: style 门面按插件现构造（单例会串味：register 要用 plu
 
 ok("settings: 主题包选择区 + 「默认外观」出口 + 总闸", has(src.settings, "renderPacks") && re(noComments(src.settings), /packChip\("默认外观"/) && has(src.settings, "setStyleSuspended(input.checked)"));
 
-ok("css: 色板 chip 选中态用描边不加底；color-scheme 只在 data-sparkle-scheme 上", has(src.style, ".sparkle-pack.is-on") && has(src.style, 'html[data-sparkle-scheme="dark"] { color-scheme: dark; }'));
+ok("css: 色板 chip 选中态用描边不加底；color-scheme 只在 data-sparkle-scheme 上", has(src.settingsCss, ".sparkle-pack.is-on") && has(src.style, 'html[data-sparkle-scheme="dark"] { color-scheme: dark; }'));
 
 ok("docs: 作者指南覆盖 np 视图接管 + 样式层/主题包", ["registerNowPlayingView", "songAt", "registerStyleLayer", "registerThemePack", "overflow"].some((s) => has(src.guide, s)));
 

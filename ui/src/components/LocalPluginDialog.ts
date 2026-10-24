@@ -5,6 +5,7 @@
 // 警示样式与开/闭动画完全复用更新弹窗（.upd-overlay/.upd-dialog + .leaving 门闩）。
 //
 // 关闭语义：Esc / 点遮罩 / 「取消」= 放弃，不触发任何安装动作。
+import "./dialog.css";
 let layer: HTMLElement | null = null;
 
 /** 打开本地插件警告弹窗；用户点「确认」后回调 onConfirm（弹窗先收起再回调）。
