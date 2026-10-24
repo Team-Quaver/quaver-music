@@ -27,11 +27,11 @@ Quaver Music，最早是为了解决 Linux 上 QQ 音乐官方客户端不好用
 > 若未使用同等开源协议，则视为 AGPLv3 违规，遇到的问题后果自负
 
 > [!CAUTION]
-> 本程序禁止移植成 GTK 程序：
+> 本程序不建议移植成 GTK 程序：
 > 
-> 本项目官方版本不接受将整个代码库迁移至 GTK 4 或 Libadwaita 的重构方案。维护者有权拒绝不符合项目技术方向的 Pull Request。
+> 本项目官方版本不支持，亦不接受将整个代码库迁移至 GTK 4 或 Libadwaita 的重构方案。维护者有权拒绝不符合项目技术方向的 Pull Request。
 > 
-> 也建议社区 Fork 不使用 GTK Refactor，欢迎社区基于 Flutter、MyGO 等其他技术进行独立开发。用户对本项目代码的修改、移植及分发仍受项目现行开源许可证约束，本声明不额外限制许可证授予的权利。
+> 也建议社区 Fork 不使用 GTK Refactor，欢迎社区基于 Flutter、MyGO 等其他技术进行移植研究。用户对本项目代码的修改、移植及分发仍受项目现行开源许可证约束，本声明不额外限制许可证授予的权利。
 
 与此同时，非 WebView 版本的 Quaver Music Astra 也正在路上 -> [传送门](https://github.com/team-quaver/quaver-astra)，复用 Typhoeus-Go 后端，基于 Golang + MyGO 框架设计。
 
