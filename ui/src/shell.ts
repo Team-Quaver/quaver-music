@@ -515,6 +515,29 @@ export function repaintSidebarPlaylists() {
   if (box) renderSidebarPlaylists(box);
 }
 
+/** 下线边界：头像/昵称/徽章回占位，歌单区清空。被设备管理踢下线时与收藏缓存一起清。 */
+export function resetSidebarUser(): void {
+  sidebarCreated = [];
+  sidebarFavsReady = false;
+  sidebarPainted = false;
+
+  const header = document.querySelector("#user-header");
+  header?.setAttribute("href", "#/login");
+  header?.setAttribute("title", "点击登录");
+
+  const avatar = document.querySelector<HTMLElement>("#avatar");
+  if (avatar) avatar.innerHTML = icons.userPh;
+
+  const nick = document.getElementById("nick");
+  if (nick) nick.textContent = "未登录";
+
+  const badges = document.getElementById("badges");
+  if (badges) badges.innerHTML = "";
+
+  const box = document.getElementById("playlists");
+  if (box) box.innerHTML = `<div class="pl-empty">登录后可见歌单</div>`;
+}
+
 async function bootSidebar() {
   try {
     const st: any = await api("/login/status");

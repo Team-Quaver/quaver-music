@@ -1,6 +1,8 @@
 // Quaver — 路由视图：user（由 src/views/index.ts 按需动态 import，不在首屏解析）
 import { api, escHtml, identityBadges } from "../lib/api";
 import { vipCardHtml, watchVip } from "../lib/vip.ts";
+import { resetFavSonglists } from "../lib/favs";
+import { resetSidebarUser } from "../shell";
 import { player } from "../player";
 import type { UserMeResp } from "./_shared";
 import { exitMe, h, settleIn } from "./_shared";
@@ -50,6 +52,8 @@ export default async function userView(root: HTMLElement) {
       btn.textContent = "正在退出…";
       // 账号边界：队列与会话存档都不跨账号残留（含跳转/pagehide 的节流回写）
       player.clearForLogout();
+      resetFavSonglists();
+      resetSidebarUser();
       // 离场动画与登出请求并行：动画短、请求可能慢，两个都不许把跳转卡住
       await Promise.all([exitMe(wrap), settleIn(api("/login/logout", { method: "POST" }), 1500)]);
       location.href = "/login.html";

@@ -4,11 +4,16 @@
 // 这里在窗口重新可见/获得焦点时主动对账，并在前台每 30s 探一次：
 //   · 收藏歌单量小，直接整表回源；
 //   · 「我喜欢」先拉 20 首的头部窗口 + total 做指纹，真变了才整单重载，避免每分钟搬几百 KB。
-import { loadFavSonglists } from "./favs";
 import { player } from "../player";
+import { loadFavSonglists } from "./favs";
+import { api, ApiError } from "./api";
+import { resetFavSonglists } from "./favs";
+import { resetSidebarUser } from "../shell";
 
 /** 前台轮询间隔：足够让手机操作在回到桌面后很快出现，又不至于把两个读接口打穿。 */
 const POLL_MS = 30_000;
+
+// 探针与数据对账共用 30s 周期：手机端下线后，一个轮询周期内 Quaver 就会感知并回登录页。
 
 /** focus 与 visibilitychange 经常成对触发：短窗口内只发一轮，避免重复请求。 */
 const WAKE_MIN_GAP = 5_000;
@@ -25,6 +30,21 @@ async function refresh(reason: "wake" | "poll" | "manual"): Promise<void> {
   const now = Date.now();
 
   if (reason === "wake" && now - lastAttemptAt < WAKE_MIN_GAP) return;
+
+  // 探针先于数据对账：设备被下线后继续拉收藏/我喜欢只会产生一串 401 噪音。
+  try {
+    await api("/login/probe");
+  } catch (e: unknown) {
+    if (e instanceof ApiError && e.status === 401) {
+      // sidecar 已清本地凭证并交接 null 给主进程。先清账号态 UI 缓存再跳转，
+      // 否则头像/侧栏歌单会带着上一个账号的数据残留在登录页旁边。
+      resetFavSonglists();
+      resetSidebarUser();
+      player.clearForLogout();
+      location.href = "/login.html";
+      return;
+    }
+  }
 
   if (inflight) return inflight;
   lastAttemptAt = now;

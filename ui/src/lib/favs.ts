@@ -43,6 +43,14 @@ function emit() {
   }
 }
 
+/** 下线边界：清账号态缓存（收藏歌单 + 我的音乐号），登出/被设备管理踢下线时调用。 */
+export function resetFavSonglists(): void {
+  items = null;
+  inflight = null;
+  myMusicid = null;
+  emit();
+}
+
 /** 当前缓存的收藏歌单（未加载过时为空数组；要保证拿到数据请先 await loadFavSonglists） */
 export const favSonglists = (): FavPlaylist[] => items ?? [];
 
