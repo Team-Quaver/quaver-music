@@ -451,6 +451,9 @@ check("文档点明两件事各自独立声明", guide.includes("各自独立声
 
 check("市场示例说明了两种写法", /background: \{ mode: "host" \}/.test(aurora) && /不写这个字段/.test(aurora));
 
+check("内置主题把呈现风格交还用户（声明 host 时不锁 renderer）",
+  !/background: \{ mode: "host", renderer: "(?:quaver|mesh)" \}/.test(srcVendor("vendor/Sparkle/marketplace/md3/index.ts")));
+
 // 反向自证：让位这件事一旦被写没，必须能被逮住
 const yieldsBg = (s) => /layer\.dataset\.mode = "theme"/.test(s);
 

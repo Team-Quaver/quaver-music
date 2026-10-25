@@ -10,6 +10,7 @@ import { startDesktopLyricsBridge } from "./lib/desktop-lyrics";
 import { startInhibitBridge } from "./lib/inhibit";
 import { startHotkeysBridge } from "./lib/hotkeys";
 import { initSparkle } from "./sparkle/init";
+import { bootNativeOverlays } from "./components/NativeDrop";
 
 applyTheme();
 
@@ -68,6 +69,9 @@ window.addEventListener(
 if (!location.hash) location.replace("#/");
 
 bootShell();
+
+// 自绘下拉 / Tooltip：接管浏览器原生弹层，让它们与宿主菜单吃同一套玻璃与主题令牌
+bootNativeOverlays();
 
 // Sparkle 插件系统：必须在 bootShell 之后（要操作 nav DOM / np 插槽 / views 查表）；
 // void 不阻塞首帧 —— 插件视图/侧栏项在首帧后补挂，属渐进增强

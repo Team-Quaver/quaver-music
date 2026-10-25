@@ -50,9 +50,9 @@ export function PlayerBar(): HTMLElement {
         </div>
       </div>
       <button class="pb-btn pb-ghost" id="pb-loop" aria-label="播放模式" aria-haspopup="menu" aria-expanded="false"></button>
-      <button class="pb-q" id="pb-quality" title="音质（本会话生效，不保存；高档自动回退可播档）"></button>
+      <button class="pb-q" id="pb-quality" aria-label="音质"></button>
       <button class="pb-btn pb-ghost" id="pb-love" aria-label="收藏">${icons.heart}</button>
-      <button class="pb-btn pb-ghost" id="pb-gallery" aria-label="画廊模式"></button>
+      <button class="pb-btn pb-ghost" id="pb-gallery" title="画廊模式" aria-label="画廊模式"></button>
       <button class="pb-btn pb-ghost" id="pb-dl" aria-label="桌面歌词"></button>
       <button class="pb-btn pb-ghost" id="pb-queue" aria-label="播放队列">${icons.queue}</button>
     </div>
@@ -113,7 +113,8 @@ export function PlayerBar(): HTMLElement {
       dlOpen = open;
       dl.classList.toggle("on", open);
       dl.innerHTML = open ? icons.desktopLyric : icons.desktopLyricOff;
-      dl.title = open ? "桌面歌词：开（点击关闭）" : "桌面歌词：关（点击开启）";
+      dl.dataset.tooltip = open ? "桌面歌词：开" : "桌面歌词：关";
+      dl.setAttribute("aria-label", dl.dataset.tooltip);
       dl.setAttribute("aria-pressed", String(open));
     };
 
@@ -281,16 +282,13 @@ export function PlayerBar(): HTMLElement {
       ? (ls.degraded ? "↓" : "") + (QUALITY_SHORT[ls.tier] ?? ls.label)
       : (QUALITY_SHORT[want ?? effectiveQuality()] ?? "音质");
 
-    const title = want
-      ? `音质：${label}（本会话选择，不保存；关窗后回到设置页默认）`
-      : "音质（点此切换，仅本会话生效不保存；高档不可及时自动回退到可播档）";
-
     const sig = label + "|" + (want ?? "");
 
     if (sig === qSig) return;
     qSig = sig;
     qBtn.textContent = label;
-    qBtn.title = title;
+    qBtn.dataset.tooltip = want ? `音质：${label}` : "音质";
+    qBtn.setAttribute("aria-label", qBtn.dataset.tooltip);
     qBtn.classList.toggle("active", !!want);
 
     if (el.classList.contains("q-open")) syncSel();
@@ -486,7 +484,7 @@ export function PlayerBar(): HTMLElement {
     if (playSig !== lastPlaySig) {
       lastPlaySig = playSig;
       play.innerHTML = player.loading ? icons.spinner : player.error ? icons.retry : player.playing ? icons.pause : icons.play;
-      play.setAttribute("title", player.loading ? "加载中，点击取消" : player.error ? "加载失败，点击重试" : "播放/暂停");
+      play.setAttribute("aria-label", player.loading ? "加载中，点击取消" : player.error ? "加载失败，点击重试" : "播放/暂停");
     }
 
     paintQ();
@@ -495,16 +493,14 @@ export function PlayerBar(): HTMLElement {
     if (canPrev !== lastCanPrev) {
       lastCanPrev = canPrev;
       prev.disabled = !canPrev;
-      prev.title = canPrev ? "上一首" : "无限电台只向前播放";
-      prev.setAttribute("aria-label", prev.title);
+      prev.setAttribute("aria-label", canPrev ? "上一首" : "无限电台只向前播放");
     }
 
     if (player.radioActive !== lastRadioUi) {
       lastRadioUi = player.radioActive;
       queueBtn.hidden = player.radioActive;
       queueBtn.disabled = player.radioActive;
-      queueBtn.title = player.radioActive ? "无限电台不支持播放列表" : "播放队列";
-      queueBtn.setAttribute("aria-label", queueBtn.title);
+      queueBtn.setAttribute("aria-label", "播放队列");
 
       if (player.radioActive) closeLPop();
     }
@@ -518,11 +514,11 @@ export function PlayerBar(): HTMLElement {
       const loopName = player.mode === "all" ? "列表循环" : "单曲循环";
       loop.innerHTML = player.shuffle ? icons.shuffle : player.mode === "all" ? icons.loopAll : icons.loopOne;
       loop.disabled = player.radioActive;
-      // 「列表循环」与「单曲循环」的图形只差一个 9px 的「1」，光看图标分不出来 —— 把模式名挂到
-      // title / aria-label 上，悬停与读屏都能确认当前处于哪一档（点按钮开菜单，三档里选一）。
-      const shufNote = player.shuffle ? "随机播放 开（每日一套顺序）" : "随机播放 关";
-      loop.title = player.radioActive ? "无限电台不支持循环/随机设置" : `${loopName} · ${shufNote}（点击打开菜单）`;
-      loop.setAttribute("aria-label", loop.title);
+      // 「列表循环」与「单曲循环」的图形只差一个 9px 的「1」，光看图标分不出来 —— 模式名
+      // 挂 data-tooltip / aria-label；自绘层认 data-tooltip，运行时更新不会回退原生提示。
+      const shufNote = player.shuffle ? "随机播放 开" : "随机播放 关";
+      loop.dataset.tooltip = player.radioActive ? "循环模式" : `${loopName} · ${shufNote}`;
+      loop.setAttribute("aria-label", loop.dataset.tooltip);
 
       if (el.classList.contains("lp-open")) syncLPop();
     }

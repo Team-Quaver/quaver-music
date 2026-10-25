@@ -162,8 +162,11 @@ const allJs = readdirSync(join(DIST, "assets")).filter((f) => f.endsWith(".js"))
 const polyfilled = allJs.filter((f) => {
   const t = readFileSync(join(DIST, "assets", f), "utf8");
 
-  // polyfill 的形状：relList 探测 + MutationObserver 补挂已存在的 link。二者同现一块 = 它回来了。
-  return t.includes("relList") && t.includes("MutationObserver");
+  // polyfill 的形状：启动时 querySelectorAll 补扫已存在的 `link[rel=modulepreload]` +
+  // MutationObserver 监听后续插入。那个选择器字面量只有 polyfill 有；relList 探测不能当
+  // 判据 —— polyfill 关闭时 preload helper 仍带着同一段探测（决定 link.rel 用
+  // modulepreload 还是 preload），那是功能性代码，minifier 也会把函数名压掉。
+  return /link\[rel=.modulepreload.\]/.test(t) && t.includes("MutationObserver");
 });
 
 check("产物里没有 modulepreload polyfill（运行时只有 Electron 的 Chromium，那段是死码）",

@@ -39,7 +39,7 @@ html[data-theme="dark"] {
 
 
 /* ===================== 浮层菜单的玻璃（唯一来源：data-menu-glass） =====================
-   消费方（八个浮层，一处定义）：.ctx-menu（侧栏歌单 / 歌曲右键菜单）、.pb-qpop（音质）、
+   消费方（八个浮层，一处定义）：.ctx-menu（侧栏歌单 / 歌曲右键菜单 / 自绘下拉）、.qtip（自绘提示）、.pb-qpop（音质）、
    .pb-lpop（播放模式）、.pb-volpop（音量）、.np-menu（正在播放页「更多操作」）、
    .np-qinfo（音频流信息）、.tint-pop（设置页颜色选择器）、.queue-panel.float（浮窗播放列表）；
    模态弹窗 .upd-dialog（更新 / 本地插件 / 插件设置）也吃同一组令牌，随这棵开关与主题接管一起走。
@@ -2138,7 +2138,7 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
    `background + border + box-shadow + backdrop-filter`（改造前是七份，且不透明度各不同，
    所以才会出现「有的菜单看着糊、有的看着是实心」）。
    模糊只写无前缀的 backdrop-filter —— 别补 -webkit-，原因见文件顶部那段。 */
-.ctx-menu, .pb-qpop, .pb-lpop, .pb-volpop, .tint-pop, .np-menu, .np-menu-sub-list, .np-qinfo, .queue-panel.float, .eq-float, .upd-dialog {
+.ctx-menu, .qtip, .pb-qpop, .pb-lpop, .pb-volpop, .tint-pop, .np-menu, .np-menu-sub-list, .np-qinfo, .queue-panel.float, .eq-float, .upd-dialog {
   background: var(--menu-surface);
   border: 1px solid var(--menu-line);
   box-shadow: var(--menu-shadow), inset 0 1px 0 var(--menu-edge);
@@ -2196,6 +2196,26 @@ body:has(> .np.open) .player::before { backdrop-filter: none; }
 }
 .ct-caret { flex: 0 0 auto; margin-left: 2px; color: var(--idx); font-size: 15px; line-height: 1; }
 .ct-empty { padding: 8px 10px; font-size: 12px; color: var(--idx); }
+
+/* —— 自绘下拉（NativeDrop）：只补差异项，玻璃底/模糊/圆角由上面那条共享规则给 —— */
+.dd-menu { min-width: 160px; max-width: min(320px, calc(100vw - 16px)); max-height: min(320px, calc(100vh - 24px)); }
+/* 玻璃本体不做入场动画：带 backdrop-filter 的元素一动就会临时成为 backdrop root，首帧采不到底图 */
+.dd-menu { animation: none; }
+.dd-item { font-size: 13px; }
+.dd-item.current { font-weight: 600; }
+.dd-item.current::after {
+  content: "✓"; margin-left: auto; color: var(--cvg-accent, var(--acc));
+  font-size: 12px; font-weight: 700;
+}
+.dd-sep { margin: 5px 8px; border: 0; border-top: 1px solid var(--menu-line); }
+
+/* —— 自绘 Tooltip：小浮层同吃 --menu-*，主题/模糊开关与菜单一致 —— */
+.qtip {
+  position: fixed; z-index: 96; max-width: min(320px, calc(100vw - 16px));
+  padding: 6px 10px; border-radius: 8px;
+  color: var(--ink); font-size: 12px; line-height: 1.45; white-space: pre-line;
+  pointer-events: none;
+}
 
 /* 轻提示条：菜单动作（加入歌单 / 复制）没有原地视觉结果，用它回执 */
 .toast {
