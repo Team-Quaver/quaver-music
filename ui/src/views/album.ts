@@ -3,7 +3,7 @@ import { api } from "../lib/api";
 import { renderSongRows } from "../lib/songs";
 import { player } from "../player";
 import type { AlbumDetailResp, AlbumSongsResp } from "./_shared";
-import { albumSongsInSourceOrder, errText, h, mountHead, mountStickyBar, playAllButton } from "./_shared";
+import { albumSongsInSourceOrder, errText, h, mountHead, mountListFabs, mountStickyBar, playAllButton } from "./_shared";
 
 // —— 专辑页（点击行内专辑跳转的落点）：detail + songs 两个端点 ——
 export default async function albumView(root: HTMLElement, q: URLSearchParams) {
@@ -62,8 +62,9 @@ export default async function albumView(root: HTMLElement, q: URLSearchParams) {
     const playAll = playAllButton(() => songs); // 专辑序固定（发行序），整张一键开播
     sticky.right.append(playAll.el);
     renderSongRows(box, songs, { showArtist: true, showAlbum: false, showCover: false, onPlay: (s, i, all) => player.playList(all, i) });
+    const fabs = mountListFabs(root, () => [...box.querySelectorAll<HTMLElement>(".row[data-songkey]")]);
 
-    return sticky.off;
+    return () => { sticky.off(); fabs.off(); };
   } catch (e) {
     root.innerHTML = ""; root.append(h("div", "rows muted", `加载失败：${errText(e)}`));
   }

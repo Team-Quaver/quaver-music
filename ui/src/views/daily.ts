@@ -4,7 +4,7 @@ import { renderSongRows } from "../lib/songs";
 import { player } from "../player";
 import type { Song } from "../player";
 import type { DailyResp } from "./_shared";
-import { errText, h, mountHead, mountStickyBar, playAllButton } from "./_shared";
+import { errText, h, mountHead, mountListFabs, mountStickyBar, playAllButton } from "./_shared";
 
 const dailyCover = (day: string) => `
   <div class="daily-cover" role="img" aria-label="今日 ${day} 日">
@@ -68,8 +68,9 @@ export default async function dailyView(root: HTMLElement) {
   }
 
   renderSongRows(box, songs, { showAlbum: true, onPlay: (s, i, all) => player.playList(all, i) });
+  const fabs = mountListFabs(root, () => [...box.querySelectorAll<HTMLElement>(".row[data-songkey]")]);
 
-  return sticky.off;
+  return () => { sticky.off(); fabs.off(); };
 }
 
 /** 两次预载列表是否同一批曲（同序同 mid）：一样就不重画，避免打断滚动 */

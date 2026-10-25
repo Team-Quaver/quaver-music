@@ -10,7 +10,7 @@ import { escHtml, upPic } from "../lib/api";
 import { favSonglists, loadFavSonglists, onFavSonglistsChange } from "../lib/favs";
 import { isMySonglistsLoaded, loadMySonglists, mySonglists } from "../lib/playlists";
 import { openPlaylistMenu } from "../components/PlaylistMenu";
-import { cardPlay, errText, h, navCard, routeScroller, trackStuck } from "./_shared";
+import { cardPlay, errText, h, mountListFabs, navCard, routeScroller, trackStuck } from "./_shared";
 
 // 卡片落地路由：自建与收藏共用 disstid/tid + name（与侧栏条目同一套口径）
 const hrefOf = (id: number | string, title: string) =>
@@ -41,6 +41,8 @@ export default async function playlistsView(root: HTMLElement) {
   const created = section("我创建的歌单");
   const faved = section("我收藏的歌单");
   root.append(created.sec, faved.sec);
+  // 集合页没有歌曲行，只保留「返回最顶」；卡片重画由观察器兜住（当前曲定位在这里无意义）
+  const fabs = mountListFabs(root, () => []);
 
   // 我的自建歌单卡：右键菜单可立即播放 / 插队 / 删除（删除成功后 lib 缓存已摘除，重画即可）
   const paintCreated = () => {
@@ -97,5 +99,5 @@ export default async function playlistsView(root: HTMLElement) {
     }),
   ]);
 
-  return () => { offHead(); offFavs(); };
+  return () => { offHead(); offFavs(); fabs.off(); };
 }

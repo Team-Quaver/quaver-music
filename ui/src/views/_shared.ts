@@ -234,6 +234,92 @@ function playAllButton(getVisible: () => Song[]) {
   return { el: btn, sync };
 }
 
+/** 列表右下角浮动按钮：定位正在播放（圆形 + 十字准星）与返回最顶（^）。
+ *  getRows() 必须返回**此刻可见**的行（筛序后/当前标签面板），当前曲不在其中时定位键隐藏。
+ *  按钮挂在视图 host 末尾用 sticky 吸在滚动区右下：随路由一起销毁，也不会在列表重画时丢。 */
+export function mountListFabs(root: HTMLElement, getRows: () => HTMLElement[]) {
+  const scroller = routeScroller(root);
+  const fabs = h("div", "list-fabs", `
+    <button class="list-fab list-fab--locate" type="button" title="定位正在播放" aria-label="定位正在播放" hidden>
+      <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="6.1"/><path d="M12 2.7V6M12 18v3.3M2.7 12H6M18 12h3.3"/>
+      </svg>
+    </button>
+    <button class="list-fab list-fab--top" type="button" title="返回最顶" aria-label="返回最顶" hidden>
+      <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 19.2V6.4M6.2 11.8 12 6l5.8 5.8"/>
+      </svg>
+    </button>`);
+  const locate = fabs.querySelector<HTMLButtonElement>(".list-fab--locate")!;
+  const top = fabs.querySelector<HTMLButtonElement>(".list-fab--top")!;
+
+  root.append(fabs);
+
+  // hidden 赋值即使值相同也会写属性；观察器会把这次写入当成列表变化再回调，
+  // 形成微任务循环。所有 hidden 写入都先比对，确实变了才落。
+  const setHidden = (el: HTMLButtonElement, hidden: boolean) => {
+    if (el.hidden !== hidden) el.hidden = hidden;
+  };
+
+  const playingRow = () => {
+    const key = String(player.current?.mid ?? "");
+
+    if (!key) return null;
+    const rows = getRows().filter((row) => !row.hidden && row.dataset.songkey === key);
+
+    return rows.find((row) => row.classList.contains("playing")) ?? rows[0] ?? null;
+  };
+
+  let lastKey = "\u0000";
+  const syncLocate = () => {
+    const key = String(player.current?.mid ?? "");
+
+    if (key === lastKey) return;
+    lastKey = key;
+    setHidden(locate, !playingRow());
+  };
+  const syncTop = () => { setHidden(top, scroller.scrollTop <= 8); };
+  const sync = () => { syncLocate(); syncTop(); };
+
+  locate.addEventListener("click", () => {
+    const row = playingRow();
+
+    if (!row) return;
+    const scrollerTop = scroller.getBoundingClientRect().top;
+    // content-visibility:auto 会把远离视口的行折叠成估算高度，rect 先读一次把行真实展开，
+    // offsetTop 在下一行拿到的才是准数（同一帧内读 rect 不触发强制重排的副作用）。
+    void row.getBoundingClientRect();
+    const target = row.offsetTop - (scroller.clientHeight - row.offsetHeight) / 2;
+
+    scroller.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+  });
+  top.addEventListener("click", () => scroller.scrollTo({ top: 0, behavior: "smooth" }));
+
+  const mutations = new MutationObserver(() => {
+    lastKey = "\u0000"; // 列表重画/换标签后，同一首曲可能从“不在列表”变成“在列表”
+    syncLocate();
+  });
+
+  mutations.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
+
+  const offPlayer = player.on(sync);
+  const onScroll = () => syncTop();
+
+  scroller.addEventListener("scroll", onScroll, { passive: true });
+  window.addEventListener("resize", onScroll);
+  sync();
+
+  return {
+    off() {
+      mutations.disconnect();
+      offPlayer();
+      scroller.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      fabs.remove();
+    },
+  };
+}
+
 /** 视图所在滚动容器（`.route`）；拿不到时退回自身 */
 
 export /** 视图所在滚动容器（`.route`）；拿不到时退回自身 */

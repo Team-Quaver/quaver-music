@@ -4,7 +4,7 @@ import { renderSongRows } from "../lib/songs";
 import { player } from "../player";
 import type { Song } from "../player";
 import type { AlbumBrief, SingerDescResp, SingerInfoResp, SingerSongsResp } from "./_shared";
-import { albumCardsHtml, fetchSingerAlbums, h, mountHead, mountStickyBar, playAllButton } from "./_shared";
+import { albumCardsHtml, fetchSingerAlbums, h, mountHead, mountListFabs, mountStickyBar, playAllButton } from "./_shared";
 
 // —— 歌手页（点击行内歌手跳转的落点）：信息头 + 分类标签（热歌 / 新歌 / 专辑） ——
 // 三块内容一次性并拉，标签只决定「显示哪一块」：切换不重新请求、不重置 .route 滚动位置。
@@ -106,6 +106,13 @@ export default async function singerView(root: HTMLElement, q: URLSearchParams) 
 
   sticky.right.append(playAll.el);
   root.append(body);
+  // 右下角浮动圆钮只读当前标签面板的可见行；搜索/切换标签由 root 的 DOM 变更触发同步
+  const fabs = mountListFabs(root, () => {
+    const panel = activePanel && activeTab !== "album" ? panelSongs.get(activePanel) ?? [] : [];
+    const scope = activePanel ?? body;
+
+    return panel.map((song) => scope.querySelector<HTMLElement>(`.row[data-songkey="${CSS.escape(String(song._key ?? song.mid ?? ""))}"]`)).filter((row): row is HTMLElement => !!row);
+  });
 
   // 三个面板各自记住了「重画」函数：关键词一变就按原数组重筛重画（序号连续、空态文案分清
   // 「搜索没命中」与「本来就没有」）。搜索只作用在已拉回的本地数据上，不发请求。
@@ -213,7 +220,7 @@ export default async function singerView(root: HTMLElement, q: URLSearchParams) 
   }));
   select("hot");
 
-  return () => { window.clearTimeout(kwTimer); sticky.off(); }; // 滚动监听退订交给 renderRoute
+  return () => { window.clearTimeout(kwTimer); sticky.off(); fabs.off(); }; // 滚动监听退订交给 renderRoute
 }
 
 // —— 歌手全部专辑页：信息头复用歌手页样式 + 全部分页拉取专辑网格 ——

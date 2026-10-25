@@ -866,6 +866,33 @@ html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-colo
 .sticky-head .page-title { margin: 2px 0 0; }
 .sticky-head .page-note { margin: 0; }
 
+/* —— 列表右下角浮动圆钮：定位正在播放（圆形+十字准星）/ 返回最顶（^）——
+   挂在视图 host 末尾、sticky 吸在滚动区右下。容器必须真实占位（width/height 不能是 0）：
+   0 尺寸 sticky 在滚动末尾不满足 bottom 约束，按钮会以溢流形态被滚动容器裁掉，
+   只剩一块残影。负 margin 抵消 route 的右 padding，让钮与吸顶条控件共享右缘。 */
+.list-fabs {
+  position: sticky; bottom: 14px; z-index: 12; display: flex; flex-direction: column; gap: 10px;
+  width: max-content; margin: 0 -24px 0 auto;
+}
+.list-fab {
+  width: 40px; height: 40px; border-radius: 999px;
+  display: grid; place-items: center; padding: 0; border: 1px solid var(--menu-line);
+  background: var(--menu-surface); color: var(--ink); cursor: pointer;
+  box-shadow: var(--menu-shadow), inset 0 1px 0 var(--menu-edge);
+  backdrop-filter: var(--menu-filter); /* 无前缀！见顶部「别补 -webkit-」那段 */
+  transition: transform .14s ease, color .14s ease, border-color .14s ease, opacity .14s ease;
+}
+.list-fab:hover { transform: translateY(-2px); color: var(--cvg-accent, var(--acc)); border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 45%, var(--line)); }
+.list-fab:active { transform: scale(.94); }
+.list-fab[hidden] { display: none; }
+.list-fab--locate:disabled { opacity: .45; cursor: default; transform: none; }
+/* 悬浮控制条会盖住 route 底部：圆钮抬到条之上（与 route 自己的安全区同一套高度口径） */
+body[data-control-bar="floating"] .list-fabs {
+  bottom: calc(var(--control-bar-height) + var(--control-bar-gap) + var(--control-bar-inset) + var(--control-bar-lift) + 14px);
+}
+/* 两个键都藏起来时整组从布局里退位（sticky 容器不再占一行） */
+.list-fabs:has(> .list-fab:not([hidden])) { margin-bottom: 0; }
+.list-fabs:not(:has(> .list-fab:not([hidden]))) { display: none; }
 
 /* SPA 页面大标题（对齐设计稿：首页 = 超大深灰粗体） */
 .page-title { margin: 6px 0 18px; font-size: 26px; font-weight: 800; letter-spacing: .5px; color: var(--ink); }

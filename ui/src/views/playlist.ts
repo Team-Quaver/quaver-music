@@ -9,7 +9,7 @@ import type { RowHooks } from "../lib/songs";
 import { player } from "../player";
 import type { Song } from "../player";
 import type { SonglistInfo } from "./_shared";
-import { errText, favSonglistButton, h, mountHead, mountStickyBar, playAllButton, sameMids } from "./_shared";
+import { errText, favSonglistButton, h, mountHead, mountListFabs, mountStickyBar, playAllButton, sameMids } from "./_shared";
 
 // —— 歌单页：信息头（封面/标题/制作人/描述）+ 歌曲列表（缓存秒开 / 整单回源 / 写后增量对账） ——
 export default async function playlistView(root: HTMLElement, q: URLSearchParams) {
@@ -94,6 +94,9 @@ export default async function playlistView(root: HTMLElement, q: URLSearchParams
   const playAll = playAllButton(() => tools.visible()); // 吃当前筛选+排序后的可见列表
   sticky.right.append(playAll.el); // 「播放全部」固定在吸顶条最右
   root.append(rows);
+  // 右下角浮动圆钮跟随**当前上屏的行**：筛序后定位到的也是用户看到的那一行
+  const fabs = mountListFabs(root, () => [...rows.querySelectorAll<HTMLElement>(".row[data-songkey]")]);
+  cleanups.push(fabs.off);
   // 右键菜单的「从歌单删除」只给自有歌单（写接口要 dirid，读详情用 disstid —— 两者不同源）
   const metaEl = head.querySelector<HTMLElement>(".pl-meta");
   const myId = await getMyMusicid().catch(() => null);

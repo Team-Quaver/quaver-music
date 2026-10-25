@@ -3,7 +3,7 @@ import { songListTools } from "../components/ListTools";
 import { renderSongRows, renumberRows } from "../lib/songs";
 import { player } from "../player";
 import type { Song } from "../player";
-import { h, mountHead, mountStickyBar, playAllButton, sameMids } from "./_shared";
+import { h, mountHead, mountListFabs, mountStickyBar, playAllButton, sameMids } from "./_shared";
 /** 两次预载列表是否同一批曲（同序同 mid）：一样就不重画，避免打断滚动 */
 
 const likedCover = `
@@ -97,6 +97,8 @@ export default async function likedView(root: HTMLElement) {
   const playAll = playAllButton(() => tools.visible()); // 吃当前搜索+排序后的可见列表
   sticky.right.append(playAll.el); // 「播放全部」固定在吸顶条最右
   root.append(box);
+  // 右下角浮动圆钮只看当前上屏的行：搜索/排序后定位到的也是用户看到的那一行
+  const fabs = mountListFabs(root, () => [...box.querySelectorAll<HTMLElement>(".row[data-songkey]")]);
   const adopt = (songs: Song[]) => { items = songs; tools.repaint(); };
 
   // 写后增量回源/别处收藏（player 侧）落定 → 打开中的本页即时跟进。
@@ -130,6 +132,7 @@ export default async function likedView(root: HTMLElement) {
   if (!ok) {
     offList();
     sticky.off();
+    fabs.off();
 
     if (!cached) {
       tools.el.remove(); // 拉不到就别摆一排没用的控件
@@ -150,7 +153,7 @@ export default async function likedView(root: HTMLElement) {
   if (!sameMids(painted, fresh)) adopt(fresh);
   player.syncLovedSoon(); // 进页顺带一次小窗对账：TTL 内不整单重载也能纠漂移
 
-  return () => { offList(); sticky.off(); };
+  return () => { offList(); sticky.off(); fabs.off(); };
 }
 
 // —— 设置页（对齐设计稿：外观设置 / 播放设置 / 调试 三区；不触碰侧栏与播放条） ——
