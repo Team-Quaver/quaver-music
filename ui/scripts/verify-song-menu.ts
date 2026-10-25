@@ -225,7 +225,7 @@ ok("player: 用户先动手就放弃还原（用户意图优先）",
   re(src.player, /if \(!snap \|\| this\.queue\.length \|\| this\.index >= 0\) \{ this\.sessionReady = true; return; \}/));
 
 ok("player: 存档闸门 — 还原完成前不写盘（防空队列覆盖存档）",
-  re(src.player, /scheduleSessionSave\(\) \{\s*if \(!this\.sessionReady\) return;/));
+  re(src.player, /scheduleSessionSave\(\) \{\s*if \(!this\.sessionReady \|\| this\.sessionDiscard\) return;/));
 
 ok("player: notify 触发节流存档", /private notify\(\) \{[^}]*\}[\s\S]{0,200}this\.scheduleSessionSave\(\);/.test(src.player)
   || /private notify\(\) \{[^\n]*\n[^\n]*\n\s*this\.scheduleSessionSave\(\);/.test(src.player));
