@@ -590,6 +590,15 @@ export const SCHEMA: SectionSpec[] = [
         ],
         valid: (v: string) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
       },
+      {
+        key: "MusicCacheLimitMB",
+        def: "2048",
+        doc: [
+          "在线音乐的本地加密缓存上限（MiB），用于弱网时复播；256..32768，0=默认 2048。",
+          "缓存与账号绑定，索引与音频均加密落盘（*.quaverlocalcache），不是下载功能",
+        ],
+        valid: (v: string) => v.trim() !== "" && Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 32768,
+      },
     ],
   },
   {

@@ -12,11 +12,12 @@ import { resetCjkConverter } from "../lib/cjk-convert";
 import { cmyk2rgb, hsl2rgb, parseHex, rgb2cmyk, rgb2hsl, toHex } from "../lib/color";
 import type { RGB } from "../lib/color";
 import { configInfo, resetConfig, revealConfig } from "../lib/config";
+import { clearMusicCache, musicCacheStatus, setMusicCacheLimit } from "../lib/music-cache";
 import { desktopLyricsStateSync } from "../lib/desktop-lyrics";
 import { syncInhibit } from "../lib/inhibit";
 import { applyMenuGlass } from "../lib/menu-glass";
 import { BG_FLOW_MAX, BG_FLOW_MIN, FONT_CUSTOM, FONT_LABELS, FONT_PRESETS, TINT_DEFAULT_COLOR, fontKeyOf, getAutoCheck, getBackgroundFlow, getBackgroundImage, getBackgroundMode, getBackgroundRenderer, getNpBackgroundRenderer, getChineseConvert, getCloseAction, getControlBarMode, getDecode, getPlaylistMode,
-  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsLocked, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getDesktopLyricsWeight, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMenuBlur, getNpLyricLayout, getOnlineTtml, getPrevBehavior, getReportListenTime, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundFlow, setBackgroundImage, setBackgroundMode, setBackgroundRenderer, setNpBackgroundRenderer, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setPlaylistMode, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsBorder, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsFontList, setDesktopLyricsFontPreset, setDesktopLyricsLocked, setDesktopLyricsShadow, setDesktopLyricsShadowBlur, setDesktopLyricsShadowOpacity, setDesktopLyricsShadowX, setDesktopLyricsShadowY, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setDesktopLyricsWeight, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricFontPreset, setMenuBlur, setNpLyricLayout, setOnlineTtml, setPrevBehavior, setReportListenTime, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel } from "../lib/prefs";
+  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsLocked, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getDesktopLyricsWeight, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMusicCacheLimitMB, getMenuBlur, getNpLyricLayout, getOnlineTtml, getPrevBehavior, getReportListenTime, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundFlow, setBackgroundImage, setBackgroundMode, setBackgroundRenderer, setNpBackgroundRenderer, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setMusicCacheLimitMB, setPlaylistMode, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsBorder, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsFontList, setDesktopLyricsFontPreset, setDesktopLyricsLocked, setDesktopLyricsShadow, setDesktopLyricsShadowBlur, setDesktopLyricsShadowOpacity, setDesktopLyricsShadowX, setDesktopLyricsShadowY, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setDesktopLyricsWeight, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricFontPreset, setMenuBlur, setNpLyricLayout, setOnlineTtml, setPrevBehavior, setReportListenTime, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel, MUSIC_CACHE_MAX_MB } from "../lib/prefs";
 import type { BackgroundMode, BackgroundRenderer, ChineseConvert, CloseAction, ControlBarMode, DecorMode, PlaylistMode, DlColorMode, DlMode, FadePreset, FallbackSort, NpLyricLayout, PrevBehavior, ThemeMode, TintMode, UpdateChannel } from "../lib/prefs";
 import { applyTint } from "../lib/tint";
 import { TTML_DB_DEFAULT_URL, isTtmlDatabaseUrl } from "../lib/ttml";
@@ -501,6 +502,20 @@ export default async function settingsView(root: HTMLElement) {
         <div class="set-debug">
           <button class="ghost-btn" id="check-update" type="button">检查更新</button>
           <span class="muted set-hint" id="upd-status"></span>
+        </div>
+      </div>
+
+      <div class="set-group">
+        <div class="set-label">音乐缓存</div>
+        <div class="set-row"><span class="set-row__label">缓存上限</span>
+          <div class="set-row__ctrl">
+            <input class="set-blur" id="cache-limit" type="range" min="256" max="32768" step="256" aria-label="音乐缓存上限（MiB）" />
+            <span class="bg-blur-val" id="cache-limit-val"></span>
+          </div>
+        </div>
+        <div class="set-debug">
+          <button class="ghost-btn" id="clear-cache" type="button">清理音乐缓存</button>
+          <span class="muted set-hint" id="cache-status"></span>
         </div>
       </div>
 
@@ -1204,6 +1219,42 @@ export default async function settingsView(root: HTMLElement) {
     () => (getReportListenTime() ? "on" : "off"),
     (v) => setReportListenTime(v === "on"),
   );
+
+  // 音乐缓存上限 / 清理：上限写 quaver.conf 并同步 sidecar；清理只删缓存，不动配置。
+  const cacheLimit = wrap.querySelector<HTMLInputElement>("#cache-limit")!;
+  const cacheLimitVal = wrap.querySelector<HTMLElement>("#cache-limit-val")!;
+  const cacheStatus = wrap.querySelector<HTMLElement>("#cache-status")!;
+  const clearCacheBtn = wrap.querySelector<HTMLButtonElement>("#clear-cache")!;
+
+  const fmtBytes = (n: number) => n >= (1 << 30) ? `${(n / (1 << 30)).toFixed(1)} GiB` : `${Math.round(n / (1 << 20))} MiB`;
+  const paintCacheStatus = (r?: { items?: number; bytes?: number }) => {
+    if (!r) return;
+    cacheStatus.textContent = r.items ? `${r.items} 首 · ${fmtBytes(Number(r.bytes ?? 0))}` : "暂无缓存";
+  };
+  const paintCacheLimit = () => {
+    const v = getMusicCacheLimitMB() || 2048;
+
+    cacheLimit.max = String(MUSIC_CACHE_MAX_MB);
+    cacheLimit.value = String(v);
+    cacheLimit.style.setProperty("--v", `${Math.round(((v - 256) / (MUSIC_CACHE_MAX_MB - 256)) * 100)}%`);
+    cacheLimitVal.textContent = v >= 1024 ? `${(v / 1024).toFixed(v % 1024 ? 1 : 0)} GiB` : `${v} MiB`;
+  };
+
+  paintCacheLimit();
+  void musicCacheStatus().then(paintCacheStatus).catch(() => { cacheStatus.textContent = "缓存服务不可用"; });
+  cacheLimit.addEventListener("input", () => {
+    setMusicCacheLimitMB(Number(cacheLimit.value));
+    void setMusicCacheLimit(Number(cacheLimit.value) * 1024 * 1024).catch(() => {});
+    paintCacheLimit();
+  });
+  clearCacheBtn.onclick = async () => {
+    clearCacheBtn.disabled = true;
+    cacheStatus.textContent = "清理中…";
+
+    try { paintCacheStatus(await clearMusicCache()); }
+    catch (e) { cacheStatus.textContent = `清理失败：${errText(e)}`; }
+    finally { clearCacheBtn.disabled = false; }
+  };
   // 应用更新：自动检查开关（[Update] AutoCheck，默认开）
   bindOptCards<"on" | "off">(
     wrap.querySelector<HTMLElement>("#upd-auto-cards")!,

@@ -534,6 +534,23 @@ export function setReportListenTime(v: boolean) {
   cfgSet({ "Playing.ReportListenTime": v ? "True" : "False" });
 }
 
+// —— 在线音乐本地缓存（设置-通用）：上限 / 清理。加密与落盘执行端在 Go sidecar。 ——
+export const MUSIC_CACHE_MIN_MB = 256;
+export const MUSIC_CACHE_MAX_MB = 32768;
+
+export function getMusicCacheLimitMB(): number {
+  const v = Number(cfg("Playing.MusicCacheLimitMB", "2048"));
+
+  if (!Number.isInteger(v) || v < 0) return 2048;
+  return Math.min(v, MUSIC_CACHE_MAX_MB);
+}
+
+export function setMusicCacheLimitMB(v: number) {
+  const n = Math.max(0, Math.min(MUSIC_CACHE_MAX_MB, Math.round(v)));
+
+  cfgSet({ "Playing.MusicCacheLimitMB": String(n) });
+}
+
 // —— 歌词辅助行：关闭 / 翻译 / 音译。翻译与音译是替换关系，且都在歌词**下方**那一行 ——
 //    翻译档：优先翻译，本行没翻译则回落音译；音译档：优先音译，本行没音译则回落翻译。
 //    规则只有 src/lyric.ts 的 pickAux 一份：行级视图与内置歌词引擎（src/lyrics/amll.ts）都

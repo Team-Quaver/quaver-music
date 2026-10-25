@@ -247,7 +247,7 @@ export function apiRelay(): Connect.NextHandleFunction {
       });
 
       // 播放流（/api/stream/<token>）：流式管道，绝不整段缓冲（边下边播 + 省内存）
-      if (/^stream\/[^/]+$/.test(path) && upstream.body) {
+      if (/^(?:stream|cache\/music\/stream)\/[^/]+$/.test(path) && upstream.body) {
         res.statusCode = upstream.status;
         upstream.headers.forEach((v, k) => {
           if (k === "transfer-encoding" || k === "content-encoding" || k === "connection") return;

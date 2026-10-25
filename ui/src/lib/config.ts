@@ -49,6 +49,7 @@ const FALLBACK: ConfigSnapshot = {
   "Playing.PrevReplay": "True",
   "Playing.InhibitSleep": "True",
   "Playing.ReportListenTime": "True",
+  "Playing.MusicCacheLimitMB": "2048",
   "Hotkeys.Global.Toggle": "Ctrl+Alt+P",
   "Hotkeys.Global.Prev": "Ctrl+Alt+Left",
   "Hotkeys.Global.Next": "Ctrl+Alt+Right",

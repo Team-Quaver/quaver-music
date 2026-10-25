@@ -8,8 +8,8 @@
 // 主进程有一样渲染层伪造不了的事实：**请求是从什么资源类型发出来的**。
 // resourceType：media = <audio>/<video> 元素；xmlhttprequest = fetch/XHR；
 // main_frame = 地址栏/新标签页；other = 右键另存… 于是按白名单收口：
-//   • /api/stream/<token>：只放行 media 的 GET；fetch/XHR 只放行「小的闭合 Range
-//     探测」（正在播放页音质浮窗取容器头，语义与后端一致：单段闭合 ≤64KiB）
+//   • /api/stream/<token>、/api/cache/music/stream/<token>：只放行 media 的 GET；fetch/XHR
+//     只放行「小的闭合 Range 探测」（正在播放页音质浮窗取容器头，语义与后端一致：单段闭合 ≤64KiB）
 //   • /api/song/urls、/api/song/<id>/url：返回裸链（带 vkey/ekey）的旧端点，渲染层
 //     没有任何合法用途 —— 对页面整段拉黑
 //   • 其余资源类型（文档、frame、other…）：403 语义 = cancel
@@ -30,7 +30,7 @@ export const PROBE_MAX_SPAN = 64 * 1024;
 export function classifyGuardedPath(pathname: string): "stream" | "legacy" | null {
   if (pathname === "/api/song/urls" || /^\/api\/song\/[^/]+\/url$/.test(pathname)) return "legacy";
 
-  const m = /^\/api\/stream\/([^/?#]+)$/.exec(pathname);
+  const m = /^\/api\/(?:stream|cache\/music\/stream)\/([^/?#]+)$/.exec(pathname);
 
   if (m && m[1] !== "resolve" && m[1] !== "tiers") return "stream";
 

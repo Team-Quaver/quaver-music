@@ -271,7 +271,7 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
         });
 
         // 播放流（/api/stream/<token>）：流式管道，绝不整段缓冲（边下边播 + 省内存）
-        if (/^\/stream\/[^/]+$/.test(sub) && upstream.body) {
+        if (/^\/(?:stream|cache\/music\/stream)\/[^/]+$/.test(sub) && upstream.body) {
           res.statusCode = upstream.status;
           upstream.headers.forEach((v, k) => {
             if (k === "transfer-encoding" || k === "content-encoding" || k === "connection") return;
