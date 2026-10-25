@@ -50,6 +50,13 @@ ok("快速登录: 不打开 ssl 登录页（没有 window.open / location 跳 pt
 
 ok("快速登录: 初始态是「正在加载」且不渲染账号卡", has(view, "正在加载…") && has(view, "quick-loading"));
 
+ok("快速登录: 检测到后展示「欢迎」标题", has(view, '<h2 class="quick-title">欢迎</h2>'));
+
+ok("降级: 探测 10s 无结论自动切二维码",
+  re(view, /window\.setTimeout\([\s\S]*?10_000\)/) && re(view, /quickTimer = window\.setTimeout/));
+
+ok("降级: 检测明确失败时立即切二维码（不等满 10s）", /catch \{[\s\S]*?switchToQR\(\);[\s\S]*?\}/.test(view));
+
 ok("快速登录: 头像+昵称整组即登录按钮（无单独「点击登录」）",
   /<button id="quick-login" class="quick-card ready" type="button">/.test(view)
   && has(view, "quick-avatar") && has(view, "quick-name") && has(view, "quick-uin")
@@ -119,7 +126,7 @@ ok("请求路径用当前通道（不是元素 value）",
 ok("「重新生成」按钮仍在", re(view, /#refresh"\)!\.onclick = \(\) => void start\(\)/));
 
 ok("回归: 视图返回的 cleanup 仍然停轮询（离页不留定时器）",
-  re(view, /return \(\) => \{ stopped = true; window\.clearInterval\(timer\); \};/));
+  /return \(\) => \{\s*stopped = true;\s*window\.clearInterval\(timer\);\s*window\.clearTimeout\(quickTimer\);\s*\};/.test(view));
 
 ok("回归: 二维码登录成功仍跳回首页", (view.match(/location\.href = "\/index\.html"/g) ?? []).length === 2);
 
@@ -176,6 +183,8 @@ const tabs = ["mobile", "qq", "wx"].map((ch) => ({
 const fakeWindow = {
   setInterval(cb) { const id = ++timerId; intervals.set(id, cb); return id; },
   clearInterval(id) { intervals.delete(id); },
+  setTimeout(cb) { delayed.push(cb); return -1; },
+  clearTimeout() {},
 };
 
 const fakeLocation = { href: "" };
@@ -187,6 +196,8 @@ const cleanup = await makeLogin(api, postJson, fakeWindow, fakeLocation, (cb) =>
 ok("运行时：初始探测挂起时不露出二维码兜底入口", fallback.hidden && pending.length === 1);
 
 pending[0].resolve({ available: true, uin: 123456, nickname: "Neo", avatar: "avatar.jpg" });
+
+delayed.shift(); // 10s 自动降级计时器；成功路径上应被 clear，这里只清桩
 
 await flush();
 

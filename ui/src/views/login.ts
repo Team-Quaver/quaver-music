@@ -48,9 +48,11 @@ export default async function loginView(root: HTMLElement) {
   const tabs = [...qrPanel.querySelectorAll<HTMLButtonElement>("#channel .tag")];
   let channel = (tabs[0]?.dataset.ch ?? "mobile") as LoginChannel;
   let timer: number | undefined;
+  let quickTimer: number | undefined;
   let stopped = false;
   let generation = 0;
   let quickReady = false;
+  let showingQR = false;
 
   async function detect() {
     const current = ++generation;
@@ -60,6 +62,9 @@ export default async function loginView(root: HTMLElement) {
 
       if (!d.available) throw new Error("unavailable");
 
+      window.clearTimeout(quickTimer);
+      quickReady = true;
+
       const name = d.nickname?.trim() || "QQ 用户";
       const uin = d.uin ? String(d.uin) : "";
       const avatar = d.avatar || "";
@@ -67,6 +72,7 @@ export default async function loginView(root: HTMLElement) {
       quickReady = true;
 
       quick.innerHTML = `
+        <h2 class="quick-title">欢迎</h2>
         <button id="quick-login" class="quick-card ready" type="button">
           <span class="quick-avatar">
             ${avatar ? `<img src="${avatar}" alt="${name} 的 QQ 头像" loading="eager"/>` : ""}
@@ -95,12 +101,12 @@ export default async function loginView(root: HTMLElement) {
           error.textContent = `登录失败：${errText(e)}，可改用二维码登录`;
         }
       };
+      if (!stopped && !showingQR) fallback.hidden = false;
     } catch {
       if (stopped) return;
-      state.innerHTML = `<p class="muted">未检测到本机 QQ，可以使用二维码登录</p>`;
-      quick.classList.add("no-client");
-    } finally {
-      if (!stopped) fallback.hidden = false;
+      // 检测已有结论：QQ 不在线就直接进二维码，不值得让用户对着加载圈等满 10s
+      window.clearTimeout(quickTimer);
+      switchToQR();
     }
   }
 
@@ -166,14 +172,17 @@ export default async function loginView(root: HTMLElement) {
     }, 2000);
   }
 
-  fallback.onclick = () => {
+  function switchToQR() {
     if (stopped) return;
+    showingQR = true;
     quick.hidden = true;
     fallback.hidden = true;
     qrPanel.hidden = false;
     qrFallback.hidden = !quickReady;
     void start();
-  };
+  }
+
+  fallback.onclick = switchToQR;
 
   qrFallback.onclick = () => {
     if (stopped) return;
@@ -203,7 +212,18 @@ export default async function loginView(root: HTMLElement) {
   }
 
   qrPanel.querySelector<HTMLElement>("#refresh")!.onclick = () => void start();
+
+  // 探测一直不回来（QQ 半死不活 / 本地端口被占）时自动降级，用户不用手动点
+  quickTimer = window.setTimeout(() => {
+    if (stopped || quickReady) return;
+    switchToQR();
+  }, 10_000);
+
   void detect();
 
-  return () => { stopped = true; window.clearInterval(timer); };
+  return () => {
+    stopped = true;
+    window.clearInterval(timer);
+    window.clearTimeout(quickTimer);
+  };
 }
