@@ -165,7 +165,7 @@ export function loadSession(): SessionSnapshot | null {
   }
 }
 
-/** 丢弃存档（目前无人调用：清空队列会自然存成空档） */
+/** 丢弃存档：退出登录前调用。之后新页面可能自然写入空档；空档在 loadSession 里不可恢复 */
 export function clearSession(): void {
   try { localStorage.removeItem(KEY); } catch { /* noop */ }
 }

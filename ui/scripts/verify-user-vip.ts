@@ -26,6 +26,7 @@ const FIXTURE = {
 const vipUrl = pathToFileURL(join(root, "src/lib/vip.ts")).href;
 const vip = await import(vipUrl);
 const views = viewsSource();
+const player = read("src/player.ts");
 const css = read("src/style.css");
 
 let checks = 0, fails = 0;
@@ -259,6 +260,13 @@ ok("userView 把 /user/vip 的结果交给了会员卡",
 ok("退出登录：先播离场、再跳登录页（顺序不能反）",
   re(uv, /await Promise\.all\(\[exitMe\(wrap\), settleIn\(api\("\/login\/logout"/) &&
   uv.indexOf('location.href = "/login.html"') > uv.indexOf("exitMe(wrap)"));
+
+ok("退出登录清掉播放队列与会话存档（并抑制跳转/pagehide 的节流回写）",
+  uv.includes("player.clearForLogout()") &&
+  uv.indexOf('location.href = "/login.html"') > uv.indexOf("player.clearForLogout()") &&
+  player.indexOf("this.sessionDiscard = true;") < player.indexOf("this.clearQueue();") &&
+  /saveSessionNow\(\) \{\s*if \(!this\.sessionReady \|\| this\.sessionDiscard\) return;/.test(noComments(player)) &&
+  player.includes("clearSession();"));
 
 ok("登录态变化仍走整页跳转（重置侧栏）", uv.includes('location.href = "/login.html"'));
 
