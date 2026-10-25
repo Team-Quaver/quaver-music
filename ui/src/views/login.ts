@@ -1,37 +1,110 @@
 // Quaver — 路由视图：login（由 src/views/index.ts 按需动态 import，不在首屏解析）
-import { api } from "../lib/api";
+import { api, postJson } from "../lib/api";
 import type { LoginChannel, QrResp, QrStatusResp } from "./_shared";
 import { errText } from "./_shared";
+import type { QQQuickResp } from "./_shared";
 
-// —— 登录页（扫码），内容区视图 ——
+// —— 登录页：本机 QQ 快速登录优先，二维码作兜底 ——
 export default async function loginView(root: HTMLElement) {
+  root.classList.add("login-host");
+
   root.innerHTML = `
     <div class="login-wrap">
-      <h2>扫码登录</h2>
-      <p class="muted">请使用手机 Q 音、QQ 或微信扫码登录 Quaver Music，该凭证将使用系统指定的密钥环进行保护</p>
-      <!-- 登录方式用标签区分（不是下拉）：复用搜索页/歌手页那套 .tag 组件，三档一眼看全，
-           data-ch 的取值必须与 sidecar 的 QR_TYPES（qq/wx/mobile）对齐，写错是 422 不是静默失败 -->
-      <div class="tag-tabs" id="channel" role="tablist" aria-label="登录方式">
-        <button class="tag sel" type="button" role="tab" aria-selected="true" data-ch="mobile">QQ 音乐 App</button>
-        <button class="tag" type="button" role="tab" aria-selected="false" data-ch="qq">手机 QQ</button>
-        <button class="tag" type="button" role="tab" aria-selected="false" data-ch="wx">微信</button>
-      </div>
-      <div class="qr-box">
-        <div id="qr" class="qr"><div class="muted">正在生成二维码…</div></div>
-        <div id="lstate" class="muted"></div>
-        <div class="row-btn">
-          <button id="refresh" type="button">重新生成</button>
+      <section id="quick" class="quick-login">
+        <div id="quick-state" class="quick-state" aria-live="polite">
+          <div class="quick-loading" aria-hidden="true"></div>
+          <p class="muted">正在加载…</p>
         </div>
-      </div>
+      </section>
+      <section id="qr-panel" class="qr-panel" hidden>
+        <h2>扫码登录</h2>
+        <p class="muted">请使用手机 Q 音、QQ 或微信扫码登录 Quaver Music，该凭证将使用系统指定的密钥环进行保护</p>
+        <!-- 登录方式用标签区分（不是下拉）：复用搜索页/歌手页那套 .tag 组件，三档一眼看全，
+             data-ch 的取值必须与 sidecar 的 QR_TYPES（qq/wx/mobile）对齐，写错是 422 不是静幕失败 -->
+        <div class="tag-tabs" id="channel" role="tablist" aria-label="登录方式">
+          <button class="tag sel" type="button" role="tab" aria-selected="true" data-ch="mobile">QQ 音乐 App</button>
+          <button class="tag" type="button" role="tab" aria-selected="false" data-ch="qq">手机 QQ</button>
+          <button class="tag" type="button" role="tab" aria-selected="false" data-ch="wx">微信</button>
+        </div>
+        <div class="qr-box">
+          <div id="qr" class="qr"><div class="muted">正在生成二维码…</div></div>
+          <div id="lstate" class="muted"></div>
+          <div class="row-btn">
+            <button id="refresh" type="button">重新生成</button>
+          </div>
+        </div>
+        <button id="qr-fallback" type="button" hidden>使用 QQ 快捷登录</button>
+      </section>
+      <button id="quick-fallback" type="button" hidden>使用二维码登录</button>
     </div>`;
-  const qr = root.querySelector<HTMLElement>("#qr")!;
-  const lstate = root.querySelector<HTMLElement>("#lstate")!;
-  const tabs = [...root.querySelectorAll<HTMLButtonElement>("#channel .tag")];
+
+  const quick = root.querySelector<HTMLElement>("#quick")!;
+  const state = root.querySelector<HTMLElement>("#quick-state")!;
+  const fallback = root.querySelector<HTMLButtonElement>("#quick-fallback")!;
+  const qrPanel = root.querySelector<HTMLElement>("#qr-panel")!;
+  const qr = qrPanel.querySelector<HTMLElement>("#qr")!;
+  const lstate = qrPanel.querySelector<HTMLElement>("#lstate")!;
+  const qrFallback = qrPanel.querySelector<HTMLButtonElement>("#qr-fallback")!;
+  const tabs = [...qrPanel.querySelectorAll<HTMLButtonElement>("#channel .tag")];
   let channel = (tabs[0]?.dataset.ch ?? "mobile") as LoginChannel;
   let timer: number | undefined;
   let stopped = false;
   let generation = 0;
+  let quickReady = false;
 
+  async function detect() {
+    const current = ++generation;
+    try {
+      const d = await api<QQQuickResp>("/login/qq-quick");
+      if (stopped || current !== generation) return;
+
+      if (!d.available) throw new Error("unavailable");
+
+      const name = d.nickname?.trim() || "QQ 用户";
+      const uin = d.uin ? String(d.uin) : "";
+      const avatar = d.avatar || "";
+
+      quickReady = true;
+
+      quick.innerHTML = `
+        <button id="quick-login" class="quick-card ready" type="button">
+          <span class="quick-avatar">
+            ${avatar ? `<img src="${avatar}" alt="${name} 的 QQ 头像" loading="eager"/>` : ""}
+          </span>
+          <span class="quick-id">
+            <strong class="quick-name">${name}</strong>
+            <span class="quick-uin">${uin ? `QQ 号 ${uin}` : "本机已登录 QQ"}</span>
+          </span>
+        </button>
+        <p id="quick-error" class="muted" aria-live="polite"></p>`;
+
+      const button = quick.querySelector<HTMLButtonElement>("#quick-login")!;
+      const error = quick.querySelector<HTMLElement>("#quick-error")!;
+      button.onclick = async () => {
+        if (stopped) return;
+        button.disabled = true;
+        error.textContent = "正在登录…";
+        try {
+          await postJson("/login/qq-quick", { uin: d.uin });
+          if (stopped) return;
+          error.textContent = "✅ 登录成功，正在返回…";
+          setTimeout(() => { if (!stopped) location.href = "/index.html"; }, 800);
+        } catch (e) {
+          if (stopped) return;
+          button.disabled = false;
+          error.textContent = `登录失败：${errText(e)}，可改用二维码登录`;
+        }
+      };
+    } catch {
+      if (stopped) return;
+      state.innerHTML = `<p class="muted">未检测到本机 QQ，可以使用二维码登录</p>`;
+      quick.classList.add("no-client");
+    } finally {
+      if (!stopped) fallback.hidden = false;
+    }
+  }
+
+  // —— 以下为二维码兜底（结构不动，避免破坏已验证的轮询语义） ——
   async function start() {
     window.clearInterval(timer);
     const current = ++generation;
@@ -93,6 +166,24 @@ export default async function loginView(root: HTMLElement) {
     }, 2000);
   }
 
+  fallback.onclick = () => {
+    if (stopped) return;
+    quick.hidden = true;
+    fallback.hidden = true;
+    qrPanel.hidden = false;
+    qrFallback.hidden = !quickReady;
+    void start();
+  };
+
+  qrFallback.onclick = () => {
+    if (stopped) return;
+    window.clearInterval(timer);
+    generation++; // 让还在路上的二维码响应失效，别回头覆盖快捷登录区
+    qrPanel.hidden = true;
+    quick.hidden = false;
+    fallback.hidden = false;
+  };
+
   // 换标签 = 换通道：立刻重开一张二维码（旧轮询在 start 里 clearInterval 掉，不会串台）
   for (const b of tabs) {
     b.addEventListener("click", () => {
@@ -111,10 +202,8 @@ export default async function loginView(root: HTMLElement) {
     });
   }
 
-  root.querySelector<HTMLElement>("#refresh")!.onclick = () => void start();
-  void start();
+  qrPanel.querySelector<HTMLElement>("#refresh")!.onclick = () => void start();
+  void detect();
 
   return () => { stopped = true; window.clearInterval(timer); };
 }
-
-// —— 搜索页（顶部常驻搜索框的落点视图）：热搜词 + 分类标签（歌曲/歌手/专辑/歌单） ——

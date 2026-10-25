@@ -131,6 +131,8 @@ export interface QrResp { img?: string; identifier?: string }
 
 export interface QrStatusResp { event?: number; done?: boolean; error?: string }
 
+export interface QQQuickResp { available?: boolean; uin?: number; nickname?: string; avatar?: string }
+
 
 // 信息头（歌单/专辑/歌手共用）：左图 右「名称/详情/简介」整体上对齐；
 // 简介默认两行截断，文本真溢出时出「展开」按钮（点一下显全文，再点收回）。

@@ -553,6 +553,8 @@ body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-b
 .route > .entering > *:nth-child(2) { animation-delay: .04s; }
 .route > .entering > *:nth-child(3) { animation-delay: .08s; }
 .route > .entering > *:nth-child(n+4) { animation-delay: .12s; }
+/* 登录页是单屏关卡：让 view host 铺满滚动槽、卡片在其中垂直居中 */
+.route > .entering.login-host { display: grid; min-height: 100%; place-items: center; }
 @keyframes route-in {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: none; }
@@ -1659,7 +1661,7 @@ body[data-control-bar="floating"] .np.np-lyrics-full .np-inner {
 .qp-empty span { font-size: 11.5px; opacity: .8; }
 
 /* ===================== 登录页 ===================== */
-.login-wrap { max-width: 460px; margin: calc(4vh + 26px) auto 0; text-align: center; }
+.login-wrap { max-width: 460px; width: 100%; margin: 0 auto; text-align: center; }
 /* 登录方式 = 一排标签（.tag/.tag-tabs，与搜索页分类、歌手页标签同一组件），整体居中。
    原来是 <select> 下拉：三档要展开才知道有啥，且样式与全站标签语言不一致。
    选中态不复用 .tag.sel 的「白字 + 裸 accent 实心」——登录页是关卡，白字压 accent 在浅色 accent
@@ -1678,6 +1680,72 @@ body[data-control-bar="floating"] .np.np-lyrics-full .np-inner {
 .row-btn { display: flex; gap: 8px; }
 .row-btn button { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); cursor: pointer; }
 .row-btn button:hover { background: var(--hover); }
+
+/* —— QQ 快速登录：先“检测中”，头像进场后整体左移让出身份区 —— */
+.quick-login { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 26px 0 8px; }
+.quick-state { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px 0; }
+.quick-loading {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 2px solid var(--line); border-top-color: var(--cvg-accent, var(--acc));
+  animation: quick-spin .8s linear infinite;
+}
+@keyframes quick-spin { to { transform: rotate(1turn); } }
+.quick-card {
+  display: flex; align-items: center; justify-content: center; gap: 14px; min-height: 72px;
+  padding: 0; border: 0; background: transparent; cursor: pointer;
+}
+.quick-card.ready { animation: quick-card-in .48s cubic-bezier(.22,.61,.36,1) both; }
+.quick-card.ready:hover .quick-avatar {
+  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 55%, transparent);
+}
+.quick-card.ready:active .quick-avatar { transform: scale(.97); }
+.quick-avatar {
+  width: 64px; height: 64px; border-radius: 50%; overflow: hidden; flex: 0 0 auto;
+  background: var(--ph); display: grid; place-items: center;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  animation: quick-avatar-in .42s cubic-bezier(.22,.61,.36,1) both;
+}
+.quick-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.quick-id { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; text-align: left; }
+.quick-name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; }
+/* 昵称自下而上轻弹，QQ 号自上而下压后入场：一上一下，非线性的两拍节奏 */
+.quick-name { animation: quick-name-in .5s .18s cubic-bezier(.34,1.3,.4,1) both; }
+.quick-uin {
+  color: var(--ink2); font-size: 12.5px;
+  animation: quick-uin-in .5s .3s cubic-bezier(.22,.61,.36,1) both;
+}
+.quick-id, .quick-name, .quick-uin { pointer-events: none; }
+#quick-login {
+  border: 0; background: transparent; color: inherit; font: inherit; text-align: center;
+}
+#quick-login:disabled .quick-avatar { opacity: .65; }
+#quick-login:focus-visible { outline: 2px solid color-mix(in srgb, var(--cvg-accent, var(--acc)) 62%, transparent); outline-offset: 4px; border-radius: 999px; }
+#quick-error { min-height: 1.2em; margin: 0; }
+#quick-fallback, #qr-fallback {
+  margin-top: 10px; padding: 6px 16px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--card);
+  color: var(--ink2); font-size: 12.5px;
+  animation: quick-in .3s .24s cubic-bezier(.22,.61,.36,1) both;
+}
+#quick-fallback:hover, #qr-fallback:hover { background: var(--hover); color: var(--ink); }
+#quick-fallback:focus-visible, #qr-fallback:focus-visible { outline: 2px solid color-mix(in srgb, var(--cvg-accent, var(--acc)) 62%, transparent); outline-offset: 2px; }
+.qr-panel { animation: quick-in .28s cubic-bezier(.22,.61,.36,1) both; }
+.quick-login[hidden], .qr-panel[hidden] { display: none; }
+@keyframes quick-card-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes quick-avatar-in {
+  0% { opacity: 0; transform: translateX(26px) scale(.9); }
+  55% { opacity: 1; }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes quick-name-in {
+  from { opacity: 0; transform: translateY(12px) scale(.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes quick-uin-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes quick-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 /* ===================== 我的 ===================== */
 .me { text-align: center; padding-top: 4vh; display: flex; flex-direction: column; align-items: center; }
