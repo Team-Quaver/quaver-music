@@ -125,9 +125,9 @@ eq("背景图默认未选择", P.getBackgroundImage(), "");
 
 eq("背景流动速度默认 1", P.getBackgroundFlow(), 1);
 
-eq("首页背景风格默认 mesh", P.getBackgroundRenderer(), "mesh");
+eq("首页背景风格默认 Quaver Design", P.getBackgroundRenderer(), "quaver");
 
-eq("歌词页背景风格默认 mesh", P.getNpBackgroundRenderer(), "mesh");
+eq("歌词页背景风格默认 Quaver Design", P.getNpBackgroundRenderer(), "quaver");
 
 eq("控制条默认底部停靠", P.getControlBarMode(), "bottom");
 
@@ -723,7 +723,7 @@ await P.resetConfig();
 eq("重置回到默认", [P.getTheme(), P.getDecode(), P.getFade()], ["dark", "MPV", "normal"]);
 
 eq("背景一并回到默认（FALLBACK 里也得有这些键）",
-  [P.getBackgroundMode(), P.getBackgroundImage(), P.getBackgroundFlow(), P.getBackgroundRenderer(), P.getNpBackgroundRenderer()], ["off", "", 1, "mesh", "mesh"]);
+  [P.getBackgroundMode(), P.getBackgroundImage(), P.getBackgroundFlow(), P.getBackgroundRenderer(), P.getNpBackgroundRenderer()], ["off", "", 1, "quaver", "quaver"]);
 
 eq("重置后的落盘值", conf()["Style.Style"], "dark");
 

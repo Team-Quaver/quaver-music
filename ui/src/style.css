@@ -2062,6 +2062,8 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 }
 /* 作者样式会压过 UA 的 [hidden]{display:none}，这里显式关掉（同 .opt-card[hidden] 的来由） */
 .tint-pop[hidden] { display: none; }
+/* 主题方案的自定义颜色档没有独立锚点：选择器收成组内块，不叠在隐藏的宿主卡片行上 */
+.tint-pop--inline { position: static; margin-top: 10px; }
 .tint-pop__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .tint-pop__title { font-size: 12px; color: var(--ink2); }
 .tint-pop__fold {

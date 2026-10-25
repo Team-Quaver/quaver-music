@@ -349,12 +349,12 @@ eq("自定义图默认未选择", defaults()["Style.BackgroundImage"], "");
 
 eq("流动速度默认 1", defaults()["Style.BackgroundFlow"], "1");
 
-eq("首页背景风格默认 mesh", defaults()["Style.BackgroundRenderer"], "mesh");
+eq("首页背景风格默认 Quaver Design", defaults()["Style.BackgroundRenderer"], "quaver");
 
-eq("歌词页背景风格默认 mesh", defaults()["Style.NpBackgroundRenderer"], "mesh");
+eq("歌词页背景风格默认 Quaver Design", defaults()["Style.NpBackgroundRenderer"], "quaver");
 
 check("渲染层 FALLBACK 与 schema 同步（改一处要改两处）",
-  ['"Style.Background": "off"', '"Style.BackgroundImage": ""', '"Style.BackgroundFlow": "1"', '"Style.BackgroundRenderer": "mesh"', '"Style.NpBackgroundRenderer": "mesh"']
+  ['"Style.Background": "off"', '"Style.BackgroundImage": ""', '"Style.BackgroundFlow": "1"', '"Style.BackgroundRenderer": "quaver"', '"Style.NpBackgroundRenderer": "quaver"']
     .every((line) => src("src/lib/config.ts").includes(line)));
 
 // ——— 与 Sparkle 主题的交接：谁管这层背景（口径与 tint 那套逐条对齐）———

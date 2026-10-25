@@ -152,7 +152,7 @@ export function applyFonts() {
 // 反向依赖，不能反过来 import 渲染层的东西（成环）。改完要自己调 applyBackground()。
 export type BackgroundMode = "off" | "cover" | "custom";
 
-/** 背景呈现风格：quaver = Quaver Design 封面模糊铺底；mesh = AMLL 网格流动渐变（默认）。 */
+/** 背景呈现风格：quaver = Quaver Design 封面模糊铺底（默认）；mesh = AMLL 网格流动渐变。 */
 export type BackgroundRenderer = "quaver" | "mesh";
 
 const CONF_TO_BG: Record<string, BackgroundMode> = { off: "off", cover: "cover", custom: "custom" };
@@ -177,20 +177,20 @@ const CONF_TO_BG_RENDERER: Record<string, BackgroundRenderer> = { quaver: "quave
 
 /** 首页（主窗环境层）的背景风格。 */
 export function getBackgroundRenderer(): BackgroundRenderer {
-  return CONF_TO_BG_RENDERER[cfg("Style.BackgroundRenderer", "mesh")] ?? "mesh";
+  return CONF_TO_BG_RENDERER[cfg("Style.BackgroundRenderer", "quaver")] ?? "quaver";
 }
 
 export function setBackgroundRenderer(r: BackgroundRenderer) {
-  cfgSet({ "Style.BackgroundRenderer": CONF_TO_BG_RENDERER[r] ?? "mesh" });
+  cfgSet({ "Style.BackgroundRenderer": CONF_TO_BG_RENDERER[r] ?? "quaver" });
 }
 
 /** 正在播放页（歌词页）的背景风格 —— 与首页互不影响。 */
 export function getNpBackgroundRenderer(): BackgroundRenderer {
-  return CONF_TO_BG_RENDERER[cfg("Style.NpBackgroundRenderer", "mesh")] ?? "mesh";
+  return CONF_TO_BG_RENDERER[cfg("Style.NpBackgroundRenderer", "quaver")] ?? "quaver";
 }
 
 export function setNpBackgroundRenderer(r: BackgroundRenderer) {
-  cfgSet({ "Style.NpBackgroundRenderer": CONF_TO_BG_RENDERER[r] ?? "mesh" });
+  cfgSet({ "Style.NpBackgroundRenderer": CONF_TO_BG_RENDERER[r] ?? "quaver" });
 }
 
 export const BG_FLOW_MIN = 0;

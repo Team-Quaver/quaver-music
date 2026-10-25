@@ -399,18 +399,18 @@ export const SCHEMA: SectionSpec[] = [
       },
       {
         key: "BackgroundRenderer",
-        def: "mesh",
+        def: "quaver",
         doc: [
-          "首页（主窗环境层）的背景呈现风格：mesh=AMLL 网格流动渐变（**默认**）｜quaver=Quaver Design 封面模糊铺底",
+          "首页（主窗环境层）的背景呈现风格：quaver=Quaver Design 封面模糊铺底（**默认**）｜mesh=AMLL 网格流动渐变",
           "只在 [Style] Background=cover/custom 时生效；插件主题可经 Sparkle SDK 的 background.renderer 接管",
         ],
         valid: (v: string) => ["mesh", "quaver"].includes(v),
       },
       {
         key: "NpBackgroundRenderer",
-        def: "mesh",
+        def: "quaver",
         doc: [
-          "正在播放页（歌词页）的背景呈现风格：mesh=AMLL 网格流动渐变（**默认**）｜quaver=Quaver Design 封面模糊铺底",
+          "正在播放页（歌词页）的背景呈现风格：quaver=Quaver Design 封面模糊铺底（**默认**）｜mesh=AMLL 网格流动渐变",
           "与首页的 BackgroundRenderer 互不影响；插件主题可经 Sparkle SDK 的 background.renderer 接管",
         ],
         valid: (v: string) => ["mesh", "quaver"].includes(v),

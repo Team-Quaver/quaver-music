@@ -932,7 +932,7 @@ export default async function settingsView(root: HTMLElement) {
   /** 主题方案里的「自定义颜色」档：就地弹宿主同款颜色选择器。
    *  色值落在 theme-tint 的主题级存储（不是宿主四档的 TintColor），换主题不串味。 */
   const sparkCustomBox = document.createElement("div");
-  sparkCustomBox.className = "tint-pop";
+  sparkCustomBox.className = "tint-pop tint-pop--inline";
   sparkCustomBox.hidden = true;
   sparkCustomBox.innerHTML = `
     <div class="tint-pop__head">
