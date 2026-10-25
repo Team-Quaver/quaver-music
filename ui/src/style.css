@@ -1683,6 +1683,7 @@ body[data-control-bar="floating"] .np.np-lyrics-full .np-inner {
 
 /* —— QQ 快速登录：先“检测中”，头像进场后整体左移让出身份区 —— */
 .quick-login { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 26px 0 8px; }
+.quick-title { margin: 0; font-size: 22px; letter-spacing: .02em; animation: quick-in .3s both; }
 .quick-state { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px 0; }
 .quick-loading {
   width: 26px; height: 26px; border-radius: 50%;
