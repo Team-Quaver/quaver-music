@@ -407,6 +407,15 @@ export const SCHEMA: SectionSpec[] = [
         valid: (v: string) => ["mesh", "quaver"].includes(v),
       },
       {
+        key: "BackgroundBlur",
+        def: "70",
+        doc: [
+          "Quaver Design 首页背景的 CSS blur 半径：0..120（px），70=默认。",
+          "0=不做模糊；只在 [Style] BackgroundRenderer=quaver 且 Background=cover/custom 时生效",
+        ],
+        valid: (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 120,
+      },
+      {
         key: "NpBackgroundRenderer",
         def: "quaver",
         doc: [

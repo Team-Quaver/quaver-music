@@ -26,6 +26,7 @@ const FALLBACK: ConfigSnapshot = {
   "Style.Background": "off",
   "Style.BackgroundImage": "",
   "Style.BackgroundFlow": "1",
+  "Style.BackgroundBlur": "70",
   "Style.BackgroundRenderer": "quaver",
   "Style.NpBackgroundRenderer": "quaver",
   "Style.Tint": "default",

@@ -184,6 +184,28 @@ export function setBackgroundRenderer(r: BackgroundRenderer) {
   cfgSet({ "Style.BackgroundRenderer": CONF_TO_BG_RENDERER[r] ?? "quaver" });
 }
 
+export const BG_BLUR_MIN = 0;
+export const BG_BLUR_MAX = 120;
+export const BG_BLUR_DEFAULT = 70;
+
+/** Quaver Design 首页背景的 CSS blur 半径（px）。空值/非数值回落默认；越界夹紧。 */
+export function getBackgroundBlur(): number {
+  const raw = cfg("Style.BackgroundBlur", String(BG_BLUR_DEFAULT)).trim();
+
+  if (!raw) return BG_BLUR_DEFAULT;
+  const n = Number(raw);
+
+  if (!Number.isFinite(n)) return BG_BLUR_DEFAULT;
+
+  return Math.min(BG_BLUR_MAX, Math.max(BG_BLUR_MIN, n));
+}
+
+/** 拖滑块是高频项 → 合并落盘（与流动速度同一套）。 */
+export function setBackgroundBlur(v: number) {
+  const clamped = Math.max(BG_BLUR_MIN, Math.min(BG_BLUR_MAX, Number.isFinite(v) ? v : BG_BLUR_DEFAULT));
+  cfgSetSoon({ "Style.BackgroundBlur": String(clamped) });
+}
+
 /** 正在播放页（歌词页）的背景风格 —— 与首页互不影响。 */
 export function getNpBackgroundRenderer(): BackgroundRenderer {
   return CONF_TO_BG_RENDERER[cfg("Style.NpBackgroundRenderer", "quaver")] ?? "quaver";

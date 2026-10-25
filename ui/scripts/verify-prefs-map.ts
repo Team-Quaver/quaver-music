@@ -127,6 +127,8 @@ eq("背景流动速度默认 1", P.getBackgroundFlow(), 1);
 
 eq("首页背景风格默认 Quaver Design", P.getBackgroundRenderer(), "quaver");
 
+eq("首页背景模糊默认 70px", P.getBackgroundBlur(), 70);
+
 eq("歌词页背景风格默认 Quaver Design", P.getNpBackgroundRenderer(), "quaver");
 
 eq("控制条默认底部停靠", P.getControlBarMode(), "bottom");
@@ -257,6 +259,20 @@ eq("越界值即时夹紧到上界", P.getBackgroundFlow(), 2);
 
 P.setBackgroundFlow(1);
 
+P.setBackgroundBlur(35);
+
+eq("背景模糊拖拽即时进内存", P.getBackgroundBlur(), 35);
+
+await settle();
+
+eq("背景模糊合并后落盘一次", conf()["Style.BackgroundBlur"], "35");
+
+P.setBackgroundBlur(9999);
+
+eq("背景模糊越界即时夹紧", P.getBackgroundBlur(), 120);
+
+P.setBackgroundBlur(70);
+
 await settle();
 
 // 浮层菜单的毛玻璃（[Style] MenuBlur）：一棵布尔开关，落 False/True
@@ -385,7 +401,7 @@ const keys = Object.keys(conf());
 
 check("写盘键名齐全（Section.Key 风格）", [
   "Style.Style", "Style.DefaultUIFonts", "Style.DefaultLyricsFonts",
-  "Style.Background", "Style.BackgroundImage", "Style.BackgroundFlow", "Style.BackgroundRenderer", "Style.NpBackgroundRenderer", "Style.MenuBlur",
+  "Style.Background", "Style.BackgroundImage", "Style.BackgroundFlow", "Style.BackgroundBlur", "Style.BackgroundRenderer", "Style.NpBackgroundRenderer", "Style.MenuBlur",
   "Window.Decor", "Window.CloseAction",
   "Playing.Backend", "Playing.AudioDevice", "Playing.Fade", "Playing.PrevReplay", "Playing.InhibitSleep", "Playing.ReportListenTime",
   "Quality.DefaultQuality", "Quality.FallbackToQMAtmos",
@@ -723,7 +739,7 @@ await P.resetConfig();
 eq("重置回到默认", [P.getTheme(), P.getDecode(), P.getFade()], ["dark", "MPV", "normal"]);
 
 eq("背景一并回到默认（FALLBACK 里也得有这些键）",
-  [P.getBackgroundMode(), P.getBackgroundImage(), P.getBackgroundFlow(), P.getBackgroundRenderer(), P.getNpBackgroundRenderer()], ["off", "", 1, "quaver", "quaver"]);
+  [P.getBackgroundMode(), P.getBackgroundImage(), P.getBackgroundFlow(), P.getBackgroundBlur(), P.getBackgroundRenderer(), P.getNpBackgroundRenderer()], ["off", "", 1, 70, "quaver", "quaver"]);
 
 eq("重置后的落盘值", conf()["Style.Style"], "dark");
 

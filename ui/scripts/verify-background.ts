@@ -222,6 +222,8 @@ check("选图按钮只在自定义档出现", views.includes("bgPick.hidden = !i
 
 check("速度滑块区间用常量插值（改区间不会只改一半）", views.includes('min="${BG_FLOW_MIN}" max="${BG_FLOW_MAX}"'));
 
+check("Quaver Design 模糊强度滑块区间用常量插值", views.includes('min="${BG_BLUR_MIN}" max="${BG_BLUR_MAX}"'));
+
 check("关闭背景时滑块禁用（有背景才谈得上流动）", /bgFlow\.disabled = locked \|\| mode === "off"/.test(views));
 
 check("选「自定义」但还没有图 → 直接弹选图，不落进空状态",
@@ -249,6 +251,10 @@ check("首页风格分派（data-renderer + 用户偏好/主题声明）",
   ambient.includes("backgroundRendererOf(sparkleActiveTheme()) ?? getBackgroundRenderer()") && ambient.includes('layer.dataset.renderer = renderer'));
 
 check("Quaver Design 风格保留 CSS blur 铺底", ambient.includes('className = "ambient-art"') && ambient.includes("applyQuaverArt(key)"));
+
+check("Quaver Design 模糊强度可调（变量进 ambient，CSS 不再写死 70px）",
+  ambient.includes('layer.style.setProperty("--bg-blur", `${getBackgroundBlur()}px`)') &&
+  css.includes("filter: blur(var(--bg-blur, 70px))") && !/blur\(70px\)/.test(css));
 
 check("歌词页背景风格独立（不读首页那把键）", src("src/components/NowPlaying.ts").includes("getNpBackgroundRenderer()") && !src("src/components/NowPlaying.ts").includes("getBackgroundRenderer()"));
 
@@ -340,8 +346,8 @@ check("globals.d.ts 声明了桥（TS 侧才敢直接用）", src("src/globals.d
 // ——— 源码护栏 · 配置 ———
 section("源码护栏 · 配置");
 
-check("schema 三键齐全",
-  ["Style.Background", "Style.BackgroundImage", "Style.BackgroundFlow", "Style.BackgroundRenderer", "Style.NpBackgroundRenderer"].every((k) => k in defaults()));
+check("schema 背景键齐全",
+  ["Style.Background", "Style.BackgroundImage", "Style.BackgroundFlow", "Style.BackgroundBlur", "Style.BackgroundRenderer", "Style.NpBackgroundRenderer"].every((k) => k in defaults()));
 
 eq("模式默认关闭背景（只有主题底色）", defaults()["Style.Background"], "off");
 
@@ -349,12 +355,14 @@ eq("自定义图默认未选择", defaults()["Style.BackgroundImage"], "");
 
 eq("流动速度默认 1", defaults()["Style.BackgroundFlow"], "1");
 
+eq("Quaver Design 模糊默认 70px", defaults()["Style.BackgroundBlur"], "70");
+
 eq("首页背景风格默认 Quaver Design", defaults()["Style.BackgroundRenderer"], "quaver");
 
 eq("歌词页背景风格默认 Quaver Design", defaults()["Style.NpBackgroundRenderer"], "quaver");
 
 check("渲染层 FALLBACK 与 schema 同步（改一处要改两处）",
-  ['"Style.Background": "off"', '"Style.BackgroundImage": ""', '"Style.BackgroundFlow": "1"', '"Style.BackgroundRenderer": "quaver"', '"Style.NpBackgroundRenderer": "quaver"']
+  ['"Style.Background": "off"', '"Style.BackgroundImage": ""', '"Style.BackgroundFlow": "1"', '"Style.BackgroundBlur": "70"', '"Style.BackgroundRenderer": "quaver"', '"Style.NpBackgroundRenderer": "quaver"']
     .every((line) => src("src/lib/config.ts").includes(line)));
 
 // ——— 与 Sparkle 主题的交接：谁管这层背景（口径与 tint 那套逐条对齐）———
@@ -453,6 +461,9 @@ check("市场示例说明了两种写法", /background: \{ mode: "host" \}/.test
 
 check("内置主题把呈现风格交还用户（声明 host 时不锁 renderer）",
   !/background: \{ mode: "host", renderer: "(?:quaver|mesh)" \}/.test(srcVendor("vendor/Sparkle/marketplace/md3/index.ts")));
+
+check("内置主题不接管正在播放页（固定 Quaver Design）",
+  !/data-md3-np|data-np=|是否介入正在播放/.test(srcVendor("vendor/Sparkle/marketplace/md3/index.ts")));
 
 // 反向自证：让位这件事一旦被写没，必须能被逮住
 const yieldsBg = (s) => /layer\.dataset\.mode = "theme"/.test(s);

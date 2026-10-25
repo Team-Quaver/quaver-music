@@ -16,8 +16,8 @@ import { clearMusicCache, musicCacheStatus, setMusicCacheLimit } from "../lib/mu
 import { desktopLyricsStateSync } from "../lib/desktop-lyrics";
 import { syncInhibit } from "../lib/inhibit";
 import { applyMenuGlass } from "../lib/menu-glass";
-import { BG_FLOW_MAX, BG_FLOW_MIN, FONT_CUSTOM, FONT_LABELS, FONT_PRESETS, TINT_DEFAULT_COLOR, fontKeyOf, getAutoCheck, getBackgroundFlow, getBackgroundImage, getBackgroundMode, getBackgroundRenderer, getNpBackgroundRenderer, getChineseConvert, getCloseAction, getControlBarMode, getDecode, getPlaylistMode,
-  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsLocked, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getDesktopLyricsWeight, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMusicCacheLimitMB, getMenuBlur, getNpLyricLayout, getOnlineTtml, getPrevBehavior, getReportListenTime, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundFlow, setBackgroundImage, setBackgroundMode, setBackgroundRenderer, setNpBackgroundRenderer, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setMusicCacheLimitMB, setPlaylistMode, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsBorder, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsFontList, setDesktopLyricsFontPreset, setDesktopLyricsLocked, setDesktopLyricsShadow, setDesktopLyricsShadowBlur, setDesktopLyricsShadowOpacity, setDesktopLyricsShadowX, setDesktopLyricsShadowY, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setDesktopLyricsWeight, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricFontPreset, setMenuBlur, setNpLyricLayout, setOnlineTtml, setPrevBehavior, setReportListenTime, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel, MUSIC_CACHE_MAX_MB } from "../lib/prefs";
+import { BG_BLUR_MAX, BG_BLUR_MIN, BG_FLOW_MAX, BG_FLOW_MIN, FONT_CUSTOM, FONT_LABELS, FONT_PRESETS, TINT_DEFAULT_COLOR, fontKeyOf, getAutoCheck, getBackgroundBlur, getBackgroundFlow, getBackgroundImage, getBackgroundMode, getBackgroundRenderer, getNpBackgroundRenderer, getChineseConvert, getCloseAction, getControlBarMode, getDecode, getPlaylistMode,
+  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsLocked, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getDesktopLyricsWeight, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMusicCacheLimitMB, getMenuBlur, getNpLyricLayout, getOnlineTtml, getPrevBehavior, getReportListenTime, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundBlur, setBackgroundFlow, setBackgroundImage, setBackgroundMode, setBackgroundRenderer, setNpBackgroundRenderer, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setMusicCacheLimitMB, setPlaylistMode, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsBorder, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsFontList, setDesktopLyricsFontPreset, setDesktopLyricsLocked, setDesktopLyricsShadow, setDesktopLyricsShadowBlur, setDesktopLyricsShadowOpacity, setDesktopLyricsShadowX, setDesktopLyricsShadowY, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setDesktopLyricsWeight, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricFontPreset, setMenuBlur, setNpLyricLayout, setOnlineTtml, setPrevBehavior, setReportListenTime, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel, MUSIC_CACHE_MAX_MB } from "../lib/prefs";
 import type { BackgroundMode, BackgroundRenderer, ChineseConvert, CloseAction, ControlBarMode, DecorMode, PlaylistMode, DlColorMode, DlMode, FadePreset, FallbackSort, NpLyricLayout, PrevBehavior, ThemeMode, TintMode, UpdateChannel } from "../lib/prefs";
 import { applyTint } from "../lib/tint";
 import { TTML_DB_DEFAULT_URL, isTtmlDatabaseUrl } from "../lib/ttml";
@@ -100,6 +100,14 @@ export default async function settingsView(root: HTMLElement) {
           <div class="opt-cards" id="bg-renderer-cards">
             <button class="opt-card" data-opt="mesh" type="button">网格渐变</button>
             <button class="opt-card" data-opt="quaver" type="button">Quaver Design</button>
+          </div>
+        </div>
+        <div class="set-row" id="bg-blur-row">
+          <span class="set-row__label">背景模糊</span>
+          <div class="set-row__ctrl">
+            <input class="set-blur" id="bg-blur" type="range" min="${BG_BLUR_MIN}" max="${BG_BLUR_MAX}" step="1"
+              aria-label="首页背景模糊强度" />
+            <span class="bg-blur-val" id="bg-blur-val"></span>
           </div>
         </div>
         <div class="set-row">
@@ -595,6 +603,8 @@ export default async function settingsView(root: HTMLElement) {
   const bgPick = wrap.querySelector<HTMLButtonElement>("#bg-pick")!;
   const bgFlow = wrap.querySelector<HTMLInputElement>("#bg-flow")!;
   const bgFlowVal = wrap.querySelector<HTMLElement>("#bg-flow-val")!;
+  const bgBlur = wrap.querySelector<HTMLInputElement>("#bg-blur")!;
+  const bgBlurVal = wrap.querySelector<HTMLElement>("#bg-blur-val")!;
   const bgHint = wrap.querySelector<HTMLElement>("#bg-hint")!;
   const bgBridge = window.quaverBackground;
   /** 当前激活的 Sparkle 主题（含它的 background 声明）；没启用主题 / 主题已消失 = null。 */
@@ -606,6 +616,14 @@ export default async function settingsView(root: HTMLElement) {
     // 已滑过的一段染色：值换算成百分比写 --v（与播放条音量滑块同一口径）
     bgFlow.style.setProperty("--v", `${Math.round(((v - BG_FLOW_MIN) / (BG_FLOW_MAX - BG_FLOW_MIN)) * 100)}%`);
     bgFlowVal.textContent = v === 0 ? "静止" : `${v.toFixed(2)}×`;
+  };
+
+  const paintBgBlur = () => {
+    const v = getBackgroundBlur();
+
+    bgBlur.value = String(v);
+    bgBlur.style.setProperty("--v", `${Math.round(((v - BG_BLUR_MIN) / (BG_BLUR_MAX - BG_BLUR_MIN)) * 100)}%`);
+    bgBlurVal.textContent = v === 0 ? "无模糊" : `${v.toFixed(0)}px`;
   };
 
   /** 图片一行：文件名 + 文件还在不在（被挪走/删掉要提示重选，不静默当没事）。 */
@@ -631,6 +649,7 @@ export default async function settingsView(root: HTMLElement) {
     bgPick.hidden = !isCustom;
     bgFile.hidden = !isCustom;
     bgFlow.disabled = locked || mode === "off"; // 背景都关了（或不由宿主管），流动速度无从谈起
+    bgBlur.disabled = locked || mode === "off" || (backgroundRendererOf(sparkleActiveTheme()) ?? getBackgroundRenderer()) !== "quaver";
   };
 
   /** 原生选图：成功（路径已落盘 + 界面重画）返回 true；取消/失败返回 false。 */
@@ -685,6 +704,12 @@ export default async function settingsView(root: HTMLElement) {
     applyBackground();
   });
 
+  bgBlur.addEventListener("input", () => {
+    setBackgroundBlur(Number(bgBlur.value));
+    paintBgBlur();
+    applyBackground();
+  });
+
   // 首页 / 歌词页的背景风格各自独立；主题声明 background.renderer 时整组禁用并显示生效值
   const bgRendererCards = wrap.querySelector<HTMLElement>("#bg-renderer-cards")!;
   const npBgRendererCards = wrap.querySelector<HTMLElement>("#np-bg-renderer-cards")!;
@@ -701,7 +726,12 @@ export default async function settingsView(root: HTMLElement) {
   };
 
   bgRendererCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
-    b.onclick = () => { setBackgroundRenderer(b.dataset.opt as BackgroundRenderer); applyBackground(); paintBgRenderers(); };
+    b.onclick = () => {
+      setBackgroundRenderer(b.dataset.opt as BackgroundRenderer);
+      applyBackground();
+      paintBgRenderers();
+      paintBgMode();
+    };
   });
   npBgRendererCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
     b.onclick = () => { setNpBackgroundRenderer(b.dataset.opt as BackgroundRenderer); paintBgRenderers(); };
@@ -723,6 +753,7 @@ export default async function settingsView(root: HTMLElement) {
   };
 
   paintFlow();
+  paintBgBlur();
   paintBgPolicy();
   paintBgFile();
 

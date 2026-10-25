@@ -17,7 +17,7 @@
 // 主题不声明 background 就由它管，本模块让位（整层不画），设置页那一组同时禁用。判定与
 // tint 的让位是同一套口径，别只改一边。
 import { coverUrl } from "./api";
-import { getBackgroundFlow, getBackgroundImage, getBackgroundMode, getBackgroundRenderer, type BackgroundRenderer } from "./prefs";
+import { getBackgroundBlur, getBackgroundFlow, getBackgroundImage, getBackgroundMode, getBackgroundRenderer, type BackgroundRenderer } from "./prefs";
 import { player } from "../player";
 import { onSparkleChange, sparkleActiveTheme } from "../sparkle/registry";
 import { backgroundPolicyOf, backgroundRendererOf } from "../sparkle/theme-background";
@@ -130,6 +130,7 @@ export async function applyBackground() {
 
   const renderer: BackgroundRenderer = backgroundRendererOf(sparkleActiveTheme()) ?? getBackgroundRenderer();
   layer.dataset.renderer = renderer;
+  layer.style.setProperty("--bg-blur", `${getBackgroundBlur()}px`);
   bg?.setFlowSpeed(getBackgroundFlow()); // 速度只改动画快慢：实例已建时即时下发，不重取图
 
   if (key === artKey && layer.dataset.renderer === renderer) return;

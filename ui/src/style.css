@@ -176,12 +176,12 @@ input:focus, textarea:focus, select:focus {
 .ambient-art {
   position: absolute; inset: 0; background-size: cover; background-position: center;
   transform: scale(1.15);
-  filter: blur(70px) saturate(1.5) brightness(1.06);
+  filter: blur(var(--bg-blur, 70px)) saturate(1.5) brightness(1.06);
   opacity: 0; transition: opacity 1.2s ease;
 }
 .ambient-art.ready { opacity: .55; }
 .ambient[data-mode="custom"][data-renderer="quaver"] .ambient-art.ready { opacity: 1; }
-.ambient[data-mode="custom"][data-renderer="quaver"] .ambient-art { filter: blur(70px); }
+.ambient[data-mode="custom"][data-renderer="quaver"] .ambient-art { filter: blur(var(--bg-blur, 70px)); }
 
 /* 兜底：AMLL 加载失败 / WebGL 不可用时给一层中性微渐变，避免玻璃面板后面完全空掉 */
 .ambient[data-mode="cover"]::before, .ambient[data-mode="custom"]::before {

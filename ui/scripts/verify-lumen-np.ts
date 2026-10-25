@@ -37,7 +37,7 @@ const MASK = "mask-image:linear-gradient(to right, rgb(0 0 0 / var(--bright-mask
 const LYRIC = "银鸥的回旋 Tourdion of Silver Seagulls 右半是未唱区";
 const AUX = "银鸥的回旋 · 翻译辅助行";
 
-const html = `<!doctype html><html lang="zh"><head><meta charset="utf-8">
+  const html = `<!doctype html><html lang="zh"><head><meta charset="utf-8">
 <style>${hostCss}</style>
 <style>${amllCss}</style>
 <style>*,*::before,*::after{transition:none!important;animation:none!important}</style>
@@ -243,128 +243,9 @@ try {
   const SOURCES = [["紫罗兰", "#6750a4"], ["翠绿", "#2e7d32"]] as const;
   const results: string[] = [];
 
-  for (const scheme of ["light", "dark"] as const) {
-    for (const [label, hex] of SOURCES) {
-      await setDataset({ theme: scheme, sparkleTheme: "md3", md3Np: "on", md3NpColor: "theme" });
-      await setTint(hex);
-      const tag = `${scheme}/${label}`;
-      // 截图文件名不能带 /（tag 是给人看的，文件名用它就会 ENOENT 把整轮跑崩）
-      const slug = `${scheme}-${label}`;
-      const st = await pageState();
-      const bgRgb = (await rgba(st.bg)).rgb;
-
-      // —— ① 逐字歌词（AMLL）：混合模式 + 已唱/未唱/翻译的真实像素对比 ——
-      assert.equal(st.blend, "plus-lighter",
-        `Lumen ${tag}：AMLL 的加光混合被改成 ${st.blend} —— 这条是主题最终口径，不许静默回落`);
-      const line = await rect(".FmKaba_lyricMainLine");
-
-      const data = await shoot({
-        x: Math.round(line.x), y: Math.round(line.y),
-        width: Math.round(line.width), height: Math.round(line.height),
-      }, `lyric-${slug}`);
-
-      const half = Math.floor(line.width / 2);
-      const sung = ink(data, Math.round(line.width), 0, half, bgRgb);
-      const unsung = ink(data, Math.round(line.width), half, Math.round(line.width), bgRgb);
-      assert.ok(sung.c >= 4.5, `Lumen ${tag}：已唱部分对比 ${sung.c.toFixed(2)}（应 ≥ 4.5）rgb(${sung.rgb.map(Math.round)})`);
-      assert.ok(unsung.c >= 3, `Lumen ${tag}：未唱部分对比 ${unsung.c.toFixed(2)}（大字 AA 应 ≥ 3；这半句决定扫色读不读得出）`);
-      const sub = await rect(".FmKaba_lyricSubLine");
-
-      const subData = await shoot({
-        x: Math.round(sub.x), y: Math.round(sub.y),
-        width: Math.round(sub.width), height: Math.round(sub.height),
-      }, `aux-${slug}`);
-
-      const aux = ink(subData, Math.round(sub.width), 0, Math.round(sub.width), bgRgb);
-      assert.ok(aux.c >= 3, `Lumen ${tag}：翻译辅助行对比 ${aux.c.toFixed(2)}（应 ≥ 3）`);
-      assert.equal(st.karaShadow, "none", `Lumen ${tag}：接管态歌词还挂着深色页的 text-shadow（浅色底下发糊）`);
-      results.push(`逐字 ${tag}: blend=${st.blend} 已唱 ${sung.c.toFixed(2)} / 未唱 ${unsung.c.toFixed(2)} / 翻译 ${aux.c.toFixed(2)} mask=${st.maskDark.trim() || "默认"} sub=${st.subOpacity}`);
-
-      // —— ② 行级回退列表（无逐字数据时的这条路）——
-      await toggle("kara", false);
-      const listBg = st.bg;
-
-      const cur = await page.evaluate(() => {
-        const c = getComputedStyle(document.querySelector(".np-ly-line.cur")!);
-        const o = getComputedStyle(document.querySelector(".np-ly-line:not(.cur)")!);
-        const e = getComputedStyle(document.querySelector(".np-ly-empty")!);
-
-        return { cur: c.color, curA: c.opacity, other: o.color, otherA: o.opacity, empty: e.color };
-      });
-
-      const curC = contrast(await composite(cur.cur, Number(cur.curA), listBg), await composite(listBg, 1, listBg));
-      const otherC = contrast(await composite(cur.other, Number(cur.otherA), listBg), await composite(listBg, 1, listBg));
-      const emptyC = contrast(await composite(cur.empty, 1, listBg), await composite(listBg, 1, listBg));
-      await toggle("kara", true);
-      assert.ok(curC >= 4.5, `Lumen ${tag}：行级当前句对比 ${curC.toFixed(2)}`);
-      assert.ok(otherC >= 1.8, `Lumen ${tag}：行级非当前句雾化到 ${otherC.toFixed(2)}（该看得出「有一行字」）`);
-      assert.ok(emptyC >= 3, `Lumen ${tag}：「暂无歌词」提示对比 ${emptyC.toFixed(2)}`);
-      results.push(`行级 ${tag}: 当前句 ${curC.toFixed(2)} / 非当前句 ${otherC.toFixed(2)} / 空态 ${emptyC.toFixed(2)}`);
-
-      // —— ③ 页内浮层：菜单与音质胶囊不能吃「恒深色玻璃」那套白字 ——
-      const menuBg = await composite(st.menuSurface, 1, st.bg);
-      const menuC = contrast(await composite(st.menuInk, 1, st.menuSurface), menuBg);
-      const pillC = contrast(await composite(st.pillColor, 1, st.pillBg), await composite(st.pillBg, 1, st.bg));
-      const titleC = contrast(await composite(st.title, 1, st.bg), bgRgb);
-      assert.ok(menuC >= 4.5, `Lumen ${tag}：页内菜单文字对比 ${menuC.toFixed(2)}`);
-      assert.ok(pillC >= 3, `Lumen ${tag}：音质胶囊文字对比 ${pillC.toFixed(2)}（白字压在浅底上=隐形）`);
-      assert.ok(titleC >= 4.5, `Lumen ${tag}：歌名对比 ${titleC.toFixed(2)}`);
-      results.push(`浮层 ${tag}: 菜单 ${menuC.toFixed(2)} / 音质胶囊 ${pillC.toFixed(2)} / 歌名 ${titleC.toFixed(2)}`);
-
-      // —— ④ 封面投影：播放有 / 暂停无 / 深色也看得见 / 颜色跟 Tint ——
-      // .np-meta 就在封面正下方，歌名是实心深色字 —— 不藏掉它，采样条里最“黑”的像素是文字
-      await page.evaluate(() => {
-        const st = document.createElement("style");
-        st.id = "hide-meta"; st.textContent = ".np-meta{visibility:hidden}"; document.head.append(st);
-      });
-      const cover = await rect(".np-cover-wrap");
-
-      const strip = {
-        x: Math.round(cover.x + cover.width * 0.3),
-        y: Math.round(cover.y + cover.height + 12),
-        width: Math.round(cover.width * 0.4),
-        height: 16,
-      };
-
-      const on = ink(await shoot(strip, `cover-${slug}-playing`), strip.width, 0, strip.width, bgRgb);
-      await toggle("playing", false);
-      const off = ink(await shoot(strip, `cover-${slug}-paused`), strip.width, 0, strip.width, bgRgb);
-      await toggle("playing", true);
-      assert.ok(on.c >= 1.12, `Lumen ${tag}：播放中封面投影看不出差别（${on.c.toFixed(3)}）—— 深色底上纯黑投影等于没画`);
-      assert.ok(off.c <= 1.02, `Lumen ${tag}：暂停后投影没收回（${off.c.toFixed(3)}）—— 「暂停收阴影」是宿主定的行为`);
-      results.push(`投影 ${tag}: 播放 ${on.c.toFixed(3)} / 暂停 ${off.c.toFixed(3)} · ${st.coverShadow}`);
-
-      const otherIdx = label === SOURCES[0][0] ? 1 : 0;
-      const other = SOURCES[otherIdx];
-      await setTint(other[1]);
-      const st2 = await pageState();
-      const bgRgb2 = (await rgba(st2.bg)).rgb;
-      const shifted = ink(await shoot(strip, `cover-${scheme}-${other[0]}-playing`), strip.width, 0, strip.width, bgRgb2);
-      await setTint(hex);
-
-      const hueOfShadow = (spec: string) => {
-        const m = /lch\(([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)/.exec(spec);
-
-        return m ? Number(m[3]) : NaN;
-      };
-
-      const h1 = hueOfShadow(st.coverShadow), h2 = hueOfShadow(st2.coverShadow);
-      assert.ok(!Number.isNaN(h1) && !Number.isNaN(h2),
-        `Lumen ${scheme}：封面投影不是 Tint 派生的 lch()（计算值 ${st.coverShadow || "空"} / ${st2.coverShadow || "空"}）`);
-      const dh = Math.min(Math.abs(h1 - h2), 360 - Math.abs(h1 - h2));
-      assert.ok(shifted.c >= 1.12, `Lumen ${scheme}/${other[0]}：换这套 Tint 后投影反而看不见（${shifted.c.toFixed(3)}）`);
-      assert.ok(dh >= 15, `Lumen ${scheme}：投影色相不跟 Tint —— ${label} H=${h1.toFixed(0)}° vs ${other[0]} H=${h2.toFixed(0)}°（只差 ${dh.toFixed(1)}°）`);
-      await page.evaluate(() => document.querySelector("#hide-meta")?.remove());
-
-      if (shots) writeFileSync(`${shots}/page-${slug}.png`, Buffer.from(await page.screenshot()));
-      results.push(`投影跟 Tint ${scheme}: ${label} H=${h1.toFixed(0)}° → ${other[0]} H=${h2.toFixed(0)}°`);
-    }
-  }
-
-  // —— ⑤ 不接管态不许被浅色修功误伤：它恒为深底，引擎默认口径才是对的 ——
-  for (const [name, patch] of [["不接管", { md3Np: "off" }]] as const) {
-    await setDataset({ theme: "light", sparkleTheme: "md3", md3Np: "on", md3NpColor: "theme" });
-    await setDataset(patch as Record<string, string>);
+  // —— ⑤ 正在播放页固定 Quaver Design：恒为深底，引擎默认口径才是对的 ——
+  for (const name of ["Quaver Design"]) {
+    await setDataset({ theme: "light", sparkleTheme: "md3" });
     await setTint(SOURCES[0][1]);
     const st = await pageState();
     const bgRgb = (await rgba(st.bg)).rgb;
