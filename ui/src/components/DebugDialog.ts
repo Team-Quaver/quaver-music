@@ -20,7 +20,7 @@
 // 素养，不打扰：开面板不弹任何提示，入口的悬停 tooltip 里说明即可。
 import "./dialog.css";
 import { copyText, escHtml } from "../lib/api";
-import { toast } from "./SongMenu";
+import { toast } from "../lib/toast";
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 

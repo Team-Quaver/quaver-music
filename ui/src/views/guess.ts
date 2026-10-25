@@ -5,7 +5,7 @@
 //   ② player.startRadio() 取第一轮 5 首，播到第五首时自动续 5 首并裁掉当前曲之前的历史；
 //   ③ 电台只向前走，上一曲、播放列表、循环/随机设置都在电台态屏蔽。
 // 「换一批」是唯一会重新取歌的入口；再次进入本页只恢复电台主舞台，不打断当前队列。
-import { toast } from "../components/SongMenu";
+import { toast } from "../lib/toast";
 import { coverUrl, songTitle } from "../lib/api";
 import { icons } from "../lib/icons";
 import { player } from "../player";

@@ -1,7 +1,7 @@
 // Quaver — 路由视图：local（由 src/views/index.ts 按需动态 import，不在首屏解析）
 import "./local.css";
 import { songListTools } from "../components/ListTools";
-import { toast } from "../components/SongMenu";
+import { toast } from "../lib/toast";
 import { api, escHtml } from "../lib/api";
 import { addFolderSource, addWebdavSource, loadLocalLibrary, localSnapshot, onLocalLibraryChange, removeLocalSource, scanSummary, scrapeSummary, trackToSong, triggerLocalScan, triggerScrape } from "../lib/local.ts";
 import type { LibrarySnapshot } from "../lib/local.ts";

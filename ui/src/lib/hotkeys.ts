@@ -7,7 +7,7 @@
 //     不需要任何注册/重载。Ctrl+P（浏览器默认打印）等一律 preventDefault。
 // 浏览器 dev（无 preload 桥）：全局热键自然缺失；焦点内热键照常可用（quit 无桥则 no-op）。
 import { player } from "../player";
-import { toast } from "../components/SongMenu";
+import { toast } from "./toast";
 import { acceleratorFromEvent, getHotkey, FOCUS_HOTKEY_ACTIONS, type HotkeyAction } from "./prefs";
 
 /** 音量步进：与播放条滚轮微调（0.04）不同档，键盘是离散的明确动作，5% 一格。 */

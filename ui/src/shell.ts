@@ -6,7 +6,7 @@
 import "./style.css";
 import { api, upPic, identityBadges } from "./lib/api";
 import { watchVip } from "./lib/vip.ts";
-import { favSonglists, loadFavSonglists, onFavSonglistsChange } from "./lib/favs";
+import { favSonglists, loadFavSonglists, onFavSonglistsChange, type FavPlaylist } from "./lib/favs";
 import { startAccountSync } from "./lib/account-sync";
 import { syncMusicCacheSeed } from "./lib/music-cache";
 import { getSidebarCollapsed, setSidebarCollapsed, getSidebarWidth, setSidebarWidth } from "./lib/prefs";
@@ -18,12 +18,15 @@ import { PlayerBar } from "./components/PlayerBar";
 import { NowPlaying } from "./components/NowPlaying";
 import { QueuePanel } from "./components/QueuePanel";
 import { SearchBox } from "./components/SearchBox";
-import { playPlaylistNow, playSongsNow, openPlaylistMenu, openVirtualPlaylistMenu, type PlaylistMenuOptions } from "./components/PlaylistMenu";
 import { icons as sharedIcons } from "./lib/icons";
+import type { PlaylistMenuOptions, PlaylistMenuTarget } from "./components/PlaylistMenu";
 import { loadView, prefetchView } from "./views/index";
 import { bootTint } from "./lib/tint";
 import { bootBackground } from "./lib/ambient";
 import { bootMenuGlass } from "./lib/menu-glass";
+
+/** 侧栏歌单动作只在首次触发时解析：菜单/双击是低频交互，别把整份菜单实现钉进首屏闭包。 */
+const playlistMenu = () => import("./components/PlaylistMenu");
 
 export const nav = [
   { path: "#/", label: "首页", icon: "home" },
@@ -366,11 +369,11 @@ export function bootShell() {
 
     if (!v) continue;
     // 双击 = 立即播放（单击仍导航进页面；两击的第一次导航先落地，双击随即开播）
-    a.addEventListener("dblclick", () => { void playSongsNow(v.title, v.fetch); });
+    a.addEventListener("dblclick", () => { void playlistMenu().then((m) => m.playSongsNow(v.title, v.fetch)); });
     a.addEventListener("contextmenu", (e) => {
       e.preventDefault(); // 不弹系统菜单
       e.stopPropagation();
-      openVirtualPlaylistMenu(e.clientX, e.clientY, v.title, v.fetch, a, v.id);
+      void playlistMenu().then((m) => m.openVirtualPlaylistMenu(e.clientX, e.clientY, v.title, v.fetch, a, v.id));
     });
   }
 
@@ -423,10 +426,11 @@ const esc = (s: unknown) =>
 // 单个歌单条目：封面 + 标题（副行可选，收藏的歌单用来标创建者）
 // title 恒给：侧栏缩回后只剩封面图，鼠标悬停是唯一认得出来的途径。
 // menu 给了（自建/收藏两团）就挂双击播放与右键菜单；插件歌单组不挂。
-function plItem(x: any, sub = "", menu?: { kind: PlaylistMenuOptions["kind"]; onDeleted?: (pl: any) => void }): HTMLElement {
+function plItem(x: PlaylistMenuTarget | FavPlaylist, sub = "", menu?: PlaylistMenuOptions): HTMLElement {
   const a = document.createElement("a");
   a.className = "pl";
-  const pic = upPic(x.picurl || x.bigpic_url);
+  const fav = x as Partial<FavPlaylist>;
+  const pic = upPic(fav.picurl || fav.bigpic_url);
   const title = String(x.title ?? "歌单");
   a.title = sub ? `${title} · ${sub}` : title;
   a.innerHTML = `<span class="thumb">${pic ? `<img src="${pic}" alt="" loading="lazy"/>` : ""}</span>
@@ -435,11 +439,11 @@ function plItem(x: any, sub = "", menu?: { kind: PlaylistMenuOptions["kind"]; on
 
   if (menu) {
     // 双击 = 直接播放该歌单（单击仍导航进歌单页；两击的第一次导航先落地，双击随即开播）
-    a.addEventListener("dblclick", () => { void playPlaylistNow(x); });
+    a.addEventListener("dblclick", () => { void playlistMenu().then((m) => m.playPlaylistNow(x as PlaylistMenuTarget)); });
     a.addEventListener("contextmenu", (e) => {
       e.preventDefault(); // 不弹系统菜单
       e.stopPropagation();
-      openPlaylistMenu(e.clientX, e.clientY, x, menu, a);
+      void playlistMenu().then((m) => m.openPlaylistMenu(e.clientX, e.clientY, x as PlaylistMenuTarget, menu, a));
     });
   }
 
@@ -458,7 +462,7 @@ function renderSidebarPlaylists(box: HTMLElement) {
     return;
   }
 
-  const group = (label: string, list: any[], sub: (x: any) => string, menu?: { kind: PlaylistMenuOptions["kind"]; onDeleted?: (pl: any) => void }) => {
+  const group = (label: string, list: (PlaylistMenuTarget | FavPlaylist)[], sub: (x: Partial<FavPlaylist>) => string, menu?: PlaylistMenuOptions) => {
     if (!list.length) return;
     const head = document.createElement("div");
     head.className = "pl-group";

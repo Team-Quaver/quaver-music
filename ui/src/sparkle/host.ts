@@ -4,7 +4,7 @@
 // toast（SongMenu）、player 门面（player.ts）、nav DOM（shell.addNavItem）、
 // 侧栏重画（shell.repaintSidebarPlaylists）、主题 CSS 注入（document.head）。
 import type { SparkleContext, SparkleNpSpectrumMode, SparkleNpWidget, SparklePlugin, SparklePlayerFacade, SparkleTheme } from "@quaver/sparkle";
-import { toast } from "../components/SongMenu";
+import { toast } from "../lib/toast";
 import { OFFICIAL_META } from "./loader";
 import { player } from "../player";
 import { spectrumFacade } from "../lib/spectrum-controller";

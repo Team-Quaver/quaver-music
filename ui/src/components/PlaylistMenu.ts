@@ -13,7 +13,8 @@ import { player, type Song } from "../player";
 import { deleteSonglist } from "../lib/playlists";
 import { toggleFavSonglist } from "../lib/favs";
 import { sparklePlaylistMenuItems } from "../sparkle/registry";
-import { openMenuAt, toast, type MenuItem } from "./SongMenu";
+import { openMenuAt, type MenuItem } from "./SongMenu";
+import { toast } from "../lib/toast";
 
 /** 侧栏歌单条目最小契约（自建列表是上游原样对象，收藏列表是 FavPlaylist） */
 export interface PlaylistMenuTarget {

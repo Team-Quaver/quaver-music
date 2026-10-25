@@ -6,7 +6,7 @@ import { renderSongRows } from "../lib/songs";
 import { periodCaption } from "../lib/toplist-periods";
 import { player } from "../player";
 import type { Song } from "../player";
-import { toast } from "../components/SongMenu";
+import { toast } from "../lib/toast";
 import type {
   RecommendSonglistResp, SonglistCard, ToplistCard, ToplistCategoryResp, ToplistGroup,
 } from "./_shared";

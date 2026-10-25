@@ -10,7 +10,7 @@ import { DEFAULT_MARKET_URL } from "@quaver/sparkle/market/default-index";
 import { compareSparkleVersions, getSparkleHostVersionError } from "../../electron/sparkle-version.ts";
 import { showPluginSettingsDialog } from "../components/PluginSettingsDialog";
 import { showLocalPluginDialog } from "../components/LocalPluginDialog";
-import { toast } from "../components/SongMenu";
+import { toast } from "../lib/toast";
 import {
   applySparkleTheme, disableSparklePlugin, enableSparklePlugin, sparkActiveThemeId, sparkEnabledIds, sparkIsBroken,
 } from "./host";

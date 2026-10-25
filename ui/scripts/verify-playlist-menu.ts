@@ -67,9 +67,9 @@ ok("shell: 右键 preventDefault（不弹系统菜单）+ stopPropagation",
   re(src.shell, /addEventListener\("contextmenu"[\s\S]{0,120}preventDefault\(\)[\s\S]{0,120}stopPropagation\(\)/));
 
 ok("shell: 右键把条目元素作为锚点传下去（滚动收起判据要用它）",
-  re(src.shell, /openPlaylistMenu\(e\.clientX, e\.clientY, x, menu, a\)/));
+  re(src.shell, /openPlaylistMenu\(e\.clientX, e\.clientY, x as PlaylistMenuTarget, menu, a\)/));
 
-ok("shell: 双击直接播放该歌单", re(src.shell, /addEventListener\("dblclick", \(\) => \{ void playPlaylistNow\(x\); \}\)/));
+ok("shell: 双击直接播放该歌单", re(src.shell, /addEventListener\("dblclick", \(\) => \{ void playlistMenu\(\)\.then\(\(m\) => m\.playPlaylistNow\(x as PlaylistMenuTarget\)\); \}\)/));
 
 ok("shell: 菜单只挂自建/收藏两团（插件歌单组不挂）",
   re(src.shell, /group\("我创建的歌单", sidebarCreated, \(\) => "", \{[\s\S]{0,200}kind: "created"/)
@@ -101,7 +101,7 @@ ok("plMenu: 空歌单不静默（toast 提示，不把空列表灌进队列）",
 
 // 双击与菜单「立即播放」必须是同一条路：否则两处行为迟早分叉
 ok("plMenu: 双击与菜单共用 playPlaylistNow",
-  re(src.shell, /playPlaylistNow\(x\)/) && re(src.plMenu, /run: \(\) => playPlaylistNow\(pl\)/));
+  re(src.shell, /m\.playPlaylistNow\(x as PlaylistMenuTarget\)/) && re(src.plMenu, /run: \(\) => playPlaylistNow\(pl\)/));
 
 const enqBody = (src.player.match(/enqueueNextMany\(songs: Song\[\]\)(?:: boolean)? \{([\s\S]*?)\n  \}/) ?? [])[1] ?? "";
 

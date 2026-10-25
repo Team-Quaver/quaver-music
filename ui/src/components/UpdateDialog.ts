@@ -13,7 +13,7 @@
 //
 // 关闭语义：Esc / 点遮罩 = 「以后再说」，下载中先取消下载（AppImage 临时文件由主进程清理）。
 import "./dialog.css";
-import { toast } from "./SongMenu";
+import { toast } from "../lib/toast";
 import { channelLabel, describeBuild, renderNotes } from "../lib/update-core";
 import {
   type UpdateInfo, type DownloadHandle, STORE_NAMES, downloadUpdate, finalizeInstall,

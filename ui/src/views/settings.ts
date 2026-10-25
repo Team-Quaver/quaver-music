@@ -3,7 +3,7 @@ import "./settings.css";
 import { mountHotkeysPanel } from "../components/HotkeySettings";
 import { showCreditsDialog } from "../components/CreditsDialog";
 import { showDebugDialog } from "../components/DebugDialog";
-import { toast } from "../components/SongMenu";
+import { toast } from "../lib/toast";
 import { currentAccent, refreshAccent } from "../lib/accent";
 import { applyBackground } from "../lib/ambient";
 import { api, escHtml, getQuality, getStreamTiers, setQuality, setSessionQuality } from "../lib/api";

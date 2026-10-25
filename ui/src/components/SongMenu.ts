@@ -19,6 +19,7 @@ import {
   type MyPlaylist,
 } from "../lib/playlists";
 import { sparkleMenuItems } from "../sparkle/registry";
+import { toast } from "../lib/toast";
 
 export interface SongMenuContext {
   song: any;
@@ -51,24 +52,6 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, hi
 const VIEW_PAD = 8;      // 面板离视口边缘的最小余量
 const SUB_GAP = 4;       // 子菜单与父面板的水平间隙
 const SUB_GRACE_MS = 150; // 指针离开父项后给子菜单的宽限
-
-// —— 提示条：菜单动作的反馈（加入歌单/复制这类没有原地视觉结果的动作）——
-let toastEl: HTMLElement | null = null;
-let toastTimer = 0;
-
-export function toast(msg: string, kind: "ok" | "err" = "ok") {
-  if (!toastEl) {
-    toastEl = document.createElement("div");
-    toastEl.className = "toast";
-    document.body.append(toastEl);
-  }
-
-  toastEl.textContent = msg;
-  toastEl.classList.toggle("err", kind === "err");
-  toastEl.classList.add("show");
-  window.clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => toastEl?.classList.remove("show"), kind === "err" ? 3600 : 2000);
-}
 
 // —— 菜单层 ——
 let layer: HTMLElement | null = null;
