@@ -714,15 +714,20 @@ export default async function settingsView(root: HTMLElement) {
   const bgRendererCards = wrap.querySelector<HTMLElement>("#bg-renderer-cards")!;
   const npBgRendererCards = wrap.querySelector<HTMLElement>("#np-bg-renderer-cards")!;
 
-  const paintRendererCards = (cards: HTMLElement, get: () => BackgroundRenderer) => {
-    const locked = backgroundRendererOf(sparkleActiveTheme());
+  // renderer 在 host 下只锁主页那行，off 下只锁歌词页那行 —— 另一行仍归用户偏好
+  const paintRendererCards = (cards: HTMLElement, get: () => BackgroundRenderer, locked: BackgroundRenderer | null) => {
     cards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = locked !== null; });
     syncSel(cards, "opt", locked ?? get());
   };
 
   const paintBgRenderers = () => {
-    paintRendererCards(bgRendererCards, getBackgroundRenderer);
-    paintRendererCards(npBgRendererCards, getNpBackgroundRenderer);
+    const theme = sparkleActiveTheme();
+    const renderer = backgroundRendererOf(theme);
+
+    paintRendererCards(bgRendererCards, getBackgroundRenderer,
+      renderer !== null && theme?.background?.mode === "host" ? renderer : null);
+    paintRendererCards(npBgRendererCards, getNpBackgroundRenderer,
+      renderer !== null && theme?.background?.mode !== "host" ? renderer : null);
   };
 
   bgRendererCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
@@ -745,8 +750,11 @@ export default async function settingsView(root: HTMLElement) {
   const paintBgPolicy = () => {
     const locked = bgPolicy().mode === "off";
     bgCards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = locked; });
+    // 主题显式声明 off = 「强制关闭背景」；静默让位（不声明）才是「由主题接管」
     setHint(bgHint, locked
-      ? `由花火面具「${sparkleActiveTheme()?.name ?? ""}」接管背景。`
+      ? (sparkleActiveTheme()?.background?.mode === "off"
+        ? `主题「${sparkleActiveTheme()?.name ?? ""}」强制关闭主页背景。`
+        : `由花火面具「${sparkleActiveTheme()?.name ?? ""}」接管背景。`)
       : bgHintBase);
     paintBgMode(); // 顺带把按钮显隐与滑块可用性收口（那里也要叠加 locked）
     paintBgRenderers();

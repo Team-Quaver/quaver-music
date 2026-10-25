@@ -5,8 +5,11 @@
 // 所以归属必须显式声明，而不是靠「谁的特异性高」去抢。
 //
 // 契约（SDK 的 SparkleTheme.background）：
-//   · 不声明            → off ：主题自带背景，宿主让位（整层不画，设置页「背景」整组禁用并注明原因）
-//   · { mode: "host" }  → host：用户那三档 + 模糊强度照常生效
+//   · 不声明 / mode:"off" → off ：主题自带背景，宿主让位（整层不画，设置页「背景」整组禁用并注明原因；
+//                                 "off" 是主题的显式声明，设置页文案写「强制关闭」而不是「由主题接管」）
+//   · { mode: "host" }    → host：用户那三档 + 模糊强度照常生效
+// renderer 两边都能带：host 下锁主页呈现风格，off 下锁歌词页呈现风格（主题自带视觉时
+// 歌词页跟着主题口径走，不允许用户在设置里改成别的 —— 两处共用同一份 renderer 声明）。
 //
 // 本文件是**纯策略**：零 ui 依赖、无副作用（可在 node 里直接 import 做单测）。
 // 与 sparkle/theme-tint.ts 是同一套写法的姊妹模块 —— 两个「归谁管」的判定口径必须一致，
@@ -20,7 +23,12 @@ export interface SparkBackgroundPolicy {
   mode: SparkBackgroundMode;
   /** 声明这套策略的主题 id（无主题时为 null） */
   themeId: string | null;
+  /** 主题钉死的呈现风格（没声明 renderer / 无主题 = null，跟随用户偏好） */
+  renderer: SparkBackgroundRenderer | null;
 }
+
+/** renderer 声明的唯一合法值；主题是第三方代码，声明先校验再信。 */
+const RENDERERS: readonly SparkBackgroundRenderer[] = ["quaver", "mesh"];
 
 /**
  * 激活主题 → 背景策略。
@@ -29,20 +37,26 @@ export interface SparkBackgroundPolicy {
  * 宁可少画一层，也别把用户的自定义壁纸摁在一个自带完整视觉的主题底下。
  */
 export function backgroundPolicyOf(theme: SparkleTheme | null | undefined): SparkBackgroundPolicy {
-  if (!theme) return { mode: "host", themeId: null };
+  if (!theme) return { mode: "host", themeId: null, renderer: null };
   const b = theme.background;
+  const renderer = RENDERERS.includes(b?.renderer as SparkBackgroundRenderer)
+    ? b!.renderer as SparkBackgroundRenderer
+    : null;
 
-  if (!b || b.mode !== "host") return { mode: "off", themeId: theme.id };
+  if (!b || b.mode !== "host") return { mode: "off", themeId: theme.id, renderer };
 
-  return { mode: "host", themeId: theme.id };
+  return { mode: "host", themeId: theme.id, renderer };
 }
 
 /**
  * 主题声明的呈现风格（`background.renderer`）：quaver = Quaver Design 封面模糊铺底，
- * mesh = AMLL 网格流动渐变。只在 host 模式下生效；不声明 = null（跟随用户偏好）。
+ * mesh = AMLL 网格流动渐变。host 下锁主页那层，off 下锁歌词页；不声明 = null（跟随用户偏好）。
  */
 export function backgroundRendererOf(theme: SparkleTheme | null | undefined): SparkBackgroundRenderer | null {
-  const r = theme?.background?.renderer;
+  return backgroundPolicyOf(theme).renderer;
+}
 
-  return r === "quaver" || r === "mesh" ? r : null;
+/** 歌词页呈现风格是否被主题钉死（主题声明了 renderer 就锁，无论背景层归谁）。 */
+export function npBackgroundLocked(theme: SparkleTheme | null | undefined): boolean {
+  return backgroundPolicyOf(theme).renderer !== null;
 }

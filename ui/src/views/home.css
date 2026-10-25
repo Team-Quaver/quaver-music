@@ -210,6 +210,70 @@
 .home-recommendations .sec-head { margin-bottom: 12px; }
 .home-cards { margin-top: 0; }
 
+/* 右缘快速跳转轨道：齿轮刻度式。默认完全隐形，指针贴近右缘才出现。
+   触发链：容器 pointer-events:none（不挡内容），但每条刻度自带 24px 命中带
+   pointer-events:auto——正好落在 route 的右内边距里，那里没有可点内容；
+   hover 从刻度冒泡到容器，整条轨道才点亮。两条都不能少：容器 auto 会在隐形时
+   挡住右侧内容，刻度也 none 则 hover 永远到不了容器（轨道常驻隐形）。
+   出现时按钮向左展开到 148px，标签可点、鼠标移向标签不丢 hover。
+   轨道内容高 = 5 项 × 32px + 4 间距 × 5px = 180px；负 margin 抵消占位，
+   sticky top 取一半（90px）做居中。-83px 而非 -90px：route 的上/下内边距
+   是 6px/20px，sticky 的百分比按内容盒解算，补回这 7px 差才落在几何中心。 */
+.home-rail {
+  position: sticky; top: calc(50% - 83px); z-index: 7;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 5px;
+  width: max-content; margin-left: auto; margin-right: -24px; margin-bottom: -180px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .18s ease;
+}
+.home-rail__item {
+  position: relative; width: 24px; height: 32px; padding-right: 6px;
+  display: flex; align-items: center; justify-content: flex-end;
+  border: 0; background: transparent; color: var(--ink2);
+  font: inherit; font-size: 12.5px; letter-spacing: .02em;
+  cursor: pointer; pointer-events: auto;
+  transition: width .18s cubic-bezier(.22,.61,.36,1);
+}
+.home-rail:hover,
+.home-rail:focus-within { opacity: 1; }
+.home-rail:hover .home-rail__item,
+.home-rail:focus-within .home-rail__item { width: 148px; }
+.home-rail__tick {
+  width: 12px; height: 2px; border-radius: 1px; flex: none;
+  background: color-mix(in srgb, var(--ink2) 55%, transparent);
+  transition: width .18s cubic-bezier(.22,.61,.36,1), background .16s ease;
+}
+.home-rail__item > span {
+  position: absolute; right: 26px; max-width: 104px; padding: 3px 8px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--card) 72%, transparent);
+  backdrop-filter: blur(8px);
+  opacity: 0; transform: translateX(6px);
+  transition: opacity .16s ease, transform .18s cubic-bezier(.22,.61,.36,1);
+  pointer-events: none;
+}
+.home-rail:hover .home-rail__item > span,
+.home-rail:focus-within .home-rail__item > span {
+  opacity: 1; transform: none;
+}
+.home-rail__item.on > span { color: var(--cvg-accent, var(--acc)); font-weight: 650; }
+.home-rail__item.on .home-rail__tick {
+  width: 22px; background: var(--cvg-accent, var(--acc));
+}
+.home-rail__item:focus-visible { outline: none; }
+.home-rail__item:focus-visible .home-rail__tick {
+  width: 22px; background: var(--cvg-accent, var(--acc));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cvg-accent, var(--acc)) 30%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-rail { transition: none; }
+  .home-rail__item { transition: none; }
+  .home-rail__tick { transition: none; }
+  .home-rail__item > span { transition: none; }
+}
+
 /* 区块错误/空态：陈述 + 后果 + 出口，左对齐一列 */
 .home-status { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 24px 0; }
 .home-status p { margin: 0; }

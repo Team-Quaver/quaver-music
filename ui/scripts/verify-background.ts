@@ -459,8 +459,8 @@ check("文档点明两件事各自独立声明", guide.includes("各自独立声
 
 check("市场示例说明了两种写法", /background: \{ mode: "host" \}/.test(aurora) && /不写这个字段/.test(aurora));
 
-check("内置主题把呈现风格交还用户（声明 host 时不锁 renderer）",
-  !/background: \{ mode: "host", renderer: "(?:quaver|mesh)" \}/.test(srcVendor("vendor/Sparkle/marketplace/md3/index.ts")));
+check("内置主题强制关闭主页背景，歌词页呈现风格钉死 Quaver Design（off + renderer 契约）",
+  /background: \{ mode: "off", renderer: "quaver" \}/.test(srcVendor("vendor/Sparkle/marketplace/md3/index.ts")));
 
 check("内置主题不接管正在播放页（固定 Quaver Design）",
   !/data-md3-np|data-np=|是否介入正在播放/.test(srcVendor("vendor/Sparkle/marketplace/md3/index.ts")));

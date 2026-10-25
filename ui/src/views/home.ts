@@ -17,12 +17,13 @@ interface AISonglistResp extends RecommendSonglistResp { total?: number; hasmore
 // —— 首页：页头 + 双栏领区（快速开始 / 新歌速递）+ 推荐网格 + AI 歌单 + 排行榜 ——
 // 四个数据源并行、独立降级：任一失败不影响其他块，各自原地给重试。
 export default async function homeView(root: HTMLElement) {
+  const scroller = routeScroller(root);
   const homeHead = h("div", "sticky-head home-pagehead", `
     <h1 class="page-title">首页</h1>
     <p class="muted">从歌单和新歌开始，开启今日</p>`);
 
   root.append(homeHead);
-  const offHead = trackStuck(homeHead, routeScroller(root));
+  const offHead = trackStuck(homeHead, scroller);
 
   const lead = h("div", "home-lead");
 
@@ -204,6 +205,105 @@ export default async function homeView(root: HTMLElement) {
   toplist.append(topHead, topGrid);
 
   root.append(lead, recommendations, ai, toplist);
+
+  // 右缘快速跳转轨道：放在滚动容器而非视图 host 上，滚动时贴在可视区右侧不动。
+  const rail = h("nav", "home-rail");
+  rail.setAttribute("aria-label", "首页模块快速跳转");
+
+  const railSections = [
+    { target: quickStart, label: "快速开始", head: quickHead },
+    { target: newest, label: "新歌速递", head: newHead },
+    { target: recommendations, label: "推荐歌单", head: recommendations.querySelector<HTMLElement>(".sec-head") },
+    { target: ai, label: "AI 歌单", head: aiHead },
+    { target: toplist, label: "排行榜", head: topHead },
+  ];
+
+  const railItems = railSections.map(({ target, label, head }) => {
+    const item = h("button", "home-rail__item", `<span>${label}</span><i class="home-rail__tick" aria-hidden="true"></i>`) as HTMLButtonElement;
+
+    item.type = "button";
+    item.setAttribute("aria-label", `跳转到${label}`);
+    item.onclick = () => {
+      // 点谁锁谁：宽屏下快速开始/新歌速递并排同一行、top 相同，位置判定分不出
+      // 点了谁；平滑滚动途中也锁定目标，避免经过中间区块时高亮一路闪过去
+      railPin = head ?? target;
+      railJumping = true;
+
+      scroller.scrollTo({
+        // 落点 = 锚线：用标题本身而不是区块外框，避开区块间的分隔留白
+        top: (head ?? target).getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - railAnchor(),
+        behavior: "smooth",
+      });
+      syncRail();
+    };
+    rail.append(item);
+
+    return { item, head: head ?? target, label };
+  });
+
+  let railRaf = 0;
+  let railPin: HTMLElement | null = null;
+  let railJumping = false;
+
+  // 锚线 = 吸顶页头下缘 + 24px。trackStuck 已把页头高度写在 .content 的
+  // --stuck-h 上，直接复用；拿不到时退回 72px，加上 24px 与旧阈值口径一致
+  const railAnchor = () => {
+    const stuck = scroller.closest<HTMLElement>(".content")?.style.getPropertyValue("--stuck-h");
+    const head = Number.parseFloat(stuck ?? "");
+
+    return (Number.isFinite(head) && head > 0 ? head : 72) + 24;
+  };
+
+  const syncRail = () => {
+    railRaf = 0;
+    const top = scroller.getBoundingClientRect().top;
+    const anchor = railAnchor();
+    let active = railItems[0];
+    let activeTop = -Infinity;
+
+    for (const x of railItems) {
+      const offset = x.head.getBoundingClientRect().top - top;
+
+      if (offset > anchor) break;
+      // 并排区块 top 相同：保留先出现的；点了谁由 railPin 决定
+      if (offset > activeTop) {
+        active = x;
+        activeTop = offset;
+      }
+    }
+
+    // 点击目标优先，直到滚离它的锚线区间才交回位置判定
+    if (railPin) {
+      const pinOffset = railPin.getBoundingClientRect().top - top;
+
+      if (railJumping || Math.abs(pinOffset - anchor) <= 40) {
+      active = railItems.find((x) => x.head === railPin) ?? active;
+      } else railPin = null;
+    }
+
+    for (const x of railItems) {
+      const on = x === active;
+
+      x.item.classList.toggle("on", on);
+      x.item.setAttribute("aria-current", on ? "true" : "false");
+    }
+  };
+
+  const onRailScroll = () => {
+    if (!railRaf) railRaf = requestAnimationFrame(syncRail);
+  };
+
+  const endRailJump = () => {
+    railJumping = false;
+    syncRail();
+  };
+
+  scroller.addEventListener("scrollend", endRailJump);
+
+  scroller.prepend(rail);
+  scroller.addEventListener("scroll", onRailScroll, { passive: true });
+  window.addEventListener("resize", onRailScroll);
+  onRailScroll();
 
   const playlistCard = (x: SonglistCard, aiPick = false): HTMLElement | null => {
     const id = String(x.id ?? "");
@@ -410,5 +510,15 @@ export default async function homeView(root: HTMLElement) {
 
   await Promise.all([loadPlaylists(), loadNewSongs(), loadAISonglists(1), loadToplists()]);
 
-  return () => { offQuick(); offHead(); }; // 播放器与吸顶跟踪都在路由离开时退订
+  return () => { // 播放器订阅、吸顶跟踪与快速跳转轨道都在路由离开时退订/移除
+    offQuick();
+    offHead();
+    scroller.removeEventListener("scroll", onRailScroll);
+    scroller.removeEventListener("scrollend", endRailJump);
+    window.removeEventListener("resize", onRailScroll);
+
+    if (railRaf) cancelAnimationFrame(railRaf);
+
+    rail.remove();
+  };
 }

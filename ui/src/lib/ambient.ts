@@ -14,8 +14,8 @@
 // 两者同源（同一张封面）但互不依赖：一个管背景，一个管高亮色，关掉背景不该影响高亮。
 //
 // 还有一层归属：**启用的 Sparkle 主题可能接管背景**（契约见 sparkle/theme-background.ts）——
-// 主题不声明 background 就由它管，本模块让位（整层不画），设置页那一组同时禁用。判定与
-// tint 的让位是同一套口径，别只改一边。
+// 主题不声明 background（或显式声明 mode:"off" 强制关闭）就由它管，本模块让位（整层不画），
+// 设置页那一组同时禁用。判定与 tint 的让位是同一套口径，别只改一边。
 import { coverUrl } from "./api";
 import { getBackgroundBlur, getBackgroundFlow, getBackgroundImage, getBackgroundMode, getBackgroundRenderer, type BackgroundRenderer } from "./prefs";
 import { player } from "../player";
@@ -128,6 +128,7 @@ export async function applyBackground() {
     return;
   }
 
+  // host 模式下主题声明 renderer = 锁主页呈现风格；off 模式这层整层不画，走不到这
   const renderer: BackgroundRenderer = backgroundRendererOf(sparkleActiveTheme()) ?? getBackgroundRenderer();
   layer.dataset.renderer = renderer;
   layer.style.setProperty("--bg-blur", `${getBackgroundBlur()}px`);

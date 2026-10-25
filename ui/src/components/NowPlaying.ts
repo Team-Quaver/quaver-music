@@ -1047,6 +1047,8 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
 
   const npProxied = (url: string) => "/api/img?u=" + encodeURIComponent(url);
 
+  // 主题声明 renderer 时歌词页风格随之钉死（无论主页背景归谁）—— off 主题的视觉口径
+  // 连歌词页一起管，不允许设置页再把它改成另一套
   const npRendererNow = (): BackgroundRenderer => backgroundRendererOf(sparkleActiveTheme()) ?? getNpBackgroundRenderer();
 
   async function ensureNpAml(): Promise<NpAml | null> {
