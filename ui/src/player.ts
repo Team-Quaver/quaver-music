@@ -19,7 +19,7 @@ import { cjkConvert } from "./lib/cjk-convert";
 import { expandTtmlUrl, fetchTtml, ttmlMissCached, ttmlMissRemember } from "./lib/ttml";
 import { WebTransport, createEngineTransport, EngineTransport, type Transport, type TransportEvent, type AudioDeviceInfo } from "./lib/transport";
 import { normalizeEqState, type EqState } from "../electron/audio/eq-config.ts";
-import { loadSession, saveSession } from "./lib/session";
+import { clearSession, loadSession, saveSession } from "./lib/session";
 import { dayKey, daySeed, shuffleOrder, step, walk } from "./lib/shuffle";
 import { coerceLyricToLrc, parseLrc, type LyricLine } from "./lyric";
 import type {SparkleKaraokeLine, SparkleKaraokeProvider} from "@quaver/sparkle";
@@ -180,6 +180,8 @@ class Player {
   private savedPos = 0;
   /** 存档闸门：启动还原完成前不写盘 —— 否则启动瞬间的空队列会覆盖上一轮的存档 */
   private sessionReady = false;
+  /** 登出后的存档抑制：跳转/pagehide 前的任何通知都不许把空档写回 */
+  private sessionDiscard = false;
   private sessionAt = 0;
   private sessionTimer: number | null = null;
   /** 后端选择完成（首播若发生在启动检查完成前，startCurrent 会等它） */
@@ -407,7 +409,7 @@ class Player {
   }
 
   private saveSessionNow() {
-    if (!this.sessionReady) return;
+    if (!this.sessionReady || this.sessionDiscard) return;
 
     if (this.sessionTimer !== null) { window.clearTimeout(this.sessionTimer); this.sessionTimer = null; }
 
@@ -424,7 +426,7 @@ class Player {
 
   /** notify 每帧都会来（4Hz 位置广播），存档按 SESSION_EVERY 合并 */
   private scheduleSessionSave() {
-    if (!this.sessionReady) return;
+    if (!this.sessionReady || this.sessionDiscard) return;
     const elapsed = Date.now() - this.sessionAt;
 
     if (elapsed >= SESSION_EVERY) { this.saveSessionNow(); return; }
@@ -916,6 +918,20 @@ class Player {
     this.queueVersion++;
     this.interrupt();
     this.notify();
+  }
+
+  /** 登出边界：清队列并丢弃会话存档。抑制要先于清队列 —— notify 会安排节流存档，
+   *  整页跳转前那颗定时器/pagehide 会把空档重新写回 localStorage。 */
+  clearForLogout() {
+    this.sessionDiscard = true;
+
+    if (this.sessionTimer !== null) {
+      window.clearTimeout(this.sessionTimer);
+      this.sessionTimer = null;
+    }
+
+    this.clearQueue();
+    clearSession();
   }
 
   jump(i: number) {
