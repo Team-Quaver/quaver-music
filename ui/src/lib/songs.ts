@@ -27,7 +27,10 @@ function paintLove(btn: HTMLElement, on: boolean) {
   btn.textContent = on ? "♥" : "♡";
   btn.classList.toggle("on", on);
   btn.setAttribute("aria-pressed", String(on));
-  btn.title = on ? "取消收藏" : "收藏";
+  // 自绘 Tooltip 读 data-tooltip；再写 title 会被 MutationObserver 归一化，
+  // 已显示的提示也会因属性变化闪一下，所以这里直接写唯一数据源。
+  btn.dataset.tooltip = on ? "取消收藏" : "收藏";
+  btn.setAttribute("aria-label", btn.dataset.tooltip);
 }
 
 /** 按当前收藏态原地重画已挂载的行内红心（开机预载落定 / 别处取消收藏后调用） */
@@ -93,7 +96,7 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
 
     // 本地曲目：红心无意义（QQ 收藏概念）；时长未知（NAS 未解析到容器头）画「–」而不是假 0:00
     const loveBtn = hooks.hideLove || isLocal ? "" :
-      `<button class="row-love${loved ? " on" : ""}" data-love aria-label="收藏" aria-pressed="${loved}" title="${loved ? "取消收藏" : "收藏"}">${loved ? "♥" : "♡"}</button>`;
+      `<button class="row-love${loved ? " on" : ""}" data-love aria-label="${loved ? "取消收藏" : "收藏"}" aria-pressed="${loved}" data-tooltip="${loved ? "取消收藏" : "收藏"}">${loved ? "♥" : "♡"}</button>`;
 
     const durText = isLocal && !(s.interval > 0) ? "–" : fmtTime(s.interval);
     // 标题 = title（主名 + 版本后缀）；subtitle 是独立的一句话说明，跟在标题后做次级文本

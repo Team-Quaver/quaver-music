@@ -465,7 +465,7 @@ function navCard(href: string, cover: string, title: string, sub: string, play?:
   el.tabIndex = 0;
   el.setAttribute("role", "button");
   el.innerHTML = `<div class="art">${cover ? `<img src="${cover}" alt="" loading="lazy"/>` : ""}
-      ${play ? `<button type="button" class="card-play" aria-label="播放" title="播放">${PLAY_SVG}</button>` : ""}</div>
+      ${play ? `<button type="button" class="card-play" aria-label="播放" data-tooltip="播放">${PLAY_SVG}</button>` : ""}</div>
     <div class="name">${escHtml(title)}</div><div class="sub">${escHtml(sub)}</div>`;
   el.addEventListener("click", (e) => {
     if ((e.target as HTMLElement).closest(".card-play")) return;
@@ -531,7 +531,8 @@ async function favSonglistButton(meta: {
     const on = isFavSonglist(meta.id);
     btn.classList.toggle("on", on);
     btn.innerHTML = `<span class="fb-ic">${on ? "♥" : "♡"}</span><span>${on ? "已收藏" : "收藏"}</span>`;
-    btn.title = on ? "从我的收藏中移除" : "收藏这首歌单";
+    btn.dataset.tooltip = on ? "从我的收藏中移除" : "收藏这首歌单";
+    btn.removeAttribute("title");
   };
 
   paint();
@@ -549,7 +550,8 @@ async function favSonglistButton(meta: {
       console.warn("收藏歌单失败", e);
       btn.dataset.fail = "1";
       btn.classList.add("failed");
-      btn.setAttribute("title", errText(e));
+      btn.dataset.tooltip = errText(e);
+      btn.removeAttribute("title");
       btn.innerHTML = `<span class="fb-ic">!</span><span>收藏失败</span>`;
       window.setTimeout(() => {
         delete btn.dataset.fail;

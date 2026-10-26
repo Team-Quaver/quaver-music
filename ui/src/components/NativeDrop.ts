@@ -7,8 +7,9 @@
 //    三态 / 花火主题的 --menu-* 覆盖天然生效；也不嵌在任何 backdrop-filter 祖先里（那是
 //    浮窗只采到父级底图的病根，见 style.css 顶部的 backdrop 备注）。
 //  - Tooltip：事件委托接管整棵文档的 title。所有 title 会在出现/写入时被归一成
-//    data-tooltip，原生提示从源头没有素材；悬停只读 data-tooltip 画自绘浮窗。桌面歌词
-//    窗口是独立页面，不加载本模块，仍保留原生 title。
+//    data-tooltip，原生提示从源头没有素材；悬停只读 data-tooltip 画自绘浮窗。
+//    主窗与桌面歌词独立页都调用 bootNativeOverlays()，两扇窗共用同一套命中/延迟/
+//    定位逻辑；玻璃样式各随所在页面的 CSS。
 export interface DropdownOption {
   value: string;
   label: string;
@@ -164,27 +165,46 @@ export function openDropdown(sel: HTMLSelectElement): boolean {
   return true;
 }
 
-const tooltipTarget = (e: EventTarget | null): HTMLElement | null => {
-  if (!(e instanceof HTMLElement)) return null;
+/** 命中点可能落在图标的 <svg>/<path> 上（SVGElement 不是 HTMLElement）；
+ *  必须先从任意 Element 向上找宿主，否则同一排按钮会因为指针落在图标上还是留白里
+ *  表现成「Tooltip 随机出现」。 */
+function tooltipHostOf(el: Element | null): HTMLElement | null {
+  const host = el?.closest<HTMLElement>("[data-tooltip]");
 
-  const el = e.closest<HTMLElement>("[data-tooltip]");
+  return host && host.dataset.tooltip ? host : null;
+}
 
-  return el && el.dataset.tooltip ? el : null;
-};
+const tooltipTarget = (e: EventTarget | null): HTMLElement | null =>
+  e instanceof Element ? tooltipHostOf(e) : null;
 
 let tip: HTMLElement | null = null;
 let tipFor: HTMLElement | null = null;
 let tipTimer = 0;
 let pointerX = -1;
 let pointerY = -1;
+let pointerTarget: HTMLElement | null = null;
 
-/** 悬停目标的唯一判定：指针坐标下的几何真相。tip 自身 pointer-events:none，不会挡住命中。 */
+/** 指针坐标下的几何命中。tip 自身 pointer-events:none，不会挡住命中。
+ *  事件目标与几何结果各有用途：pointerover/pointermove 的宿主是「这一指针会话」
+ *  最可靠的来源，几何结果负责禁用控件与事件目标失效后的兜底。 */
 function pointerAt(): HTMLElement | null {
   if (pointerX < 0 || pointerY < 0) return null;
 
   const raw = document.elementFromPoint(pointerX, pointerY);
 
-  return raw instanceof HTMLElement ? raw.closest<HTMLElement>("[data-tooltip]") : null;
+  return tooltipHostOf(raw);
+}
+
+/** 禁用按钮的 Tooltip：Chrome 的 disabled 控件不派发指针事件，也不参与 hover，
+ *  但「为什么不能点」恰恰最需要提示。沿几何命中（而不是事件路径）找宿主，
+ *  再确认它确实是包裹指针的禁用控件。 */
+function disabledTooltipAt(): HTMLElement | null {
+  if (pointerX < 0 || pointerY < 0) return null;
+
+  const raw = document.elementFromPoint(pointerX, pointerY);
+  const host = raw?.closest<HTMLElement>("button:disabled[data-tooltip], [aria-disabled=\"true\"][data-tooltip]");
+
+  return host && host.dataset.tooltip ? host : null;
 }
 
 function hideTooltip() {
@@ -211,7 +231,12 @@ function scheduleTooltip(el: HTMLElement) {
     tipTimer = 0;
 
     // 到期重读悬停目标：延迟期间指针移走/换了目标（快速划过、斜穿按钮边缘）就别再弹。
-    const now = pointerAt();
+    // 移动事件的宿主优先：HiDPI/窗口右缘（尤其画廊全屏后）会把指针坐标取整到按钮外
+    // 一两像素，纯几何判定会把仍在按钮上的目标误判为已离开 —— 这正是同一排按钮
+    // 「有的有、有的没有」的来源。目标已断开或文案变了才放弃。
+    const now = pointerTarget?.isConnected && pointerTarget.dataset.tooltip === el.dataset.tooltip
+      ? pointerTarget
+      : pointerAt();
 
     if (!now || now.dataset.tooltip !== el.dataset.tooltip) {
       tipFor = null;
@@ -222,6 +247,36 @@ function scheduleTooltip(el: HTMLElement) {
     tipFor = now;
     showTooltip(now);
   }, TIP_DELAY_MS);
+}
+
+/** 主窗优先在目标上方；放不下就翻到下方，再不行退到左右。桌面歌词窗很矮，
+ *  单靠「上/下」会把提示裁出透明窗体，所以这里按四个方向找完整落点。 */
+function positionTooltip(node: HTMLElement, r: DOMRect) {
+  const gap = 7;
+  const w = node.offsetWidth;
+  const h = node.offsetHeight;
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+
+  const spots = [
+    { left: cx - w / 2, top: r.top - h - gap },
+    { left: cx - w / 2, top: r.bottom + gap },
+    { left: r.right + gap, top: cy - h / 2 },
+    { left: r.left - w - gap, top: cy - h / 2 },
+  ];
+
+  const inside = (p: { left: number; top: number }) =>
+    p.left >= VIEW_PAD && p.top >= VIEW_PAD
+    && p.left + w <= innerWidth - VIEW_PAD && p.top + h <= innerHeight - VIEW_PAD;
+
+  // 先按优先级挑方向，再夹进视口。不能拿「夹取位移最小」挑：目标贴底时
+  // 上方那条几乎不用夹，下方那条会被推回来 —— 最终仍会盖住目标。
+  const pick = spots.find(inside) ?? spots[0]!;
+  const left = Math.min(Math.max(VIEW_PAD, pick.left), Math.max(VIEW_PAD, innerWidth - w - VIEW_PAD));
+  const top = Math.min(Math.max(VIEW_PAD, pick.top), Math.max(VIEW_PAD, innerHeight - h - VIEW_PAD));
+
+  node.style.left = `${Math.round(left)}px`;
+  node.style.top = `${Math.round(top)}px`;
 }
 
 function showTooltip(el: HTMLElement) {
@@ -237,24 +292,20 @@ function showTooltip(el: HTMLElement) {
   node.className = "qtip";
   node.setAttribute("role", "tooltip");
   node.textContent = el.dataset.tooltip ?? "";
+  // 先藏在离屏首帧再落位；直接 append 会从左上角闪到目标旁。
+  node.style.visibility = "hidden";
+  node.style.left = "0px";
+  node.style.top = "0px";
   document.body.append(node);
   tip = node;
-  const r = el.getBoundingClientRect();
-  let left = r.left + r.width / 2 - node.offsetWidth / 2;
-
-  left = Math.min(Math.max(VIEW_PAD, left), innerWidth - node.offsetWidth - VIEW_PAD);
-  let top = r.top - node.offsetHeight - 7;
-
-  if (top < VIEW_PAD) top = r.bottom + 7;
-  node.style.left = `${Math.round(left)}px`;
-  node.style.top = `${Math.round(top)}px`;
+  positionTooltip(node, el.getBoundingClientRect());
+  node.style.visibility = "";
 }
 
 function onTipOver(e: Event) {
-  // 几何命中优先于事件目标：pointerover 会穿透 pointer-events:none 的元素命到下面的可命中
-  // 目标，closest 又会向上归并，两边的答案都可能对不上「指针此刻在谁上」。坐标未就绪时
-  // （如启动瞬间的合成事件）才退回事件目标。
-  const el = pointerAt() ?? tooltipTarget(e.target);
+  // 事件目标优先：它来自浏览器同一指针会话，不受 HiDPI/全屏后坐标取整的影响
+  // （窗口右缘 50px 内尤其明显）。事件目标不存在时再按几何位置兜底。
+  const el = tooltipTarget(e.target) ?? pointerAt();
 
   // 在同一个目标内部移动到子元素也会冒 pointerover；那不是离开，别把提示收掉。
   if (!el) {
@@ -266,11 +317,19 @@ function onTipOver(e: Event) {
 
   if (el === tipFor) {
     // textContent 赋值即使值相同也会替换文本节点，触发 observer 自激。
-    if (tip && tip.textContent !== (el.dataset.tooltip ?? "")) tip.textContent = el.dataset.tooltip ?? "";
+    const text = el.dataset.tooltip ?? "";
+
+    if (tip && tip.textContent !== text) {
+      tip.textContent = text;
+      positionTooltip(tip, el.getBoundingClientRect());
+    }
 
     return;
   }
 
+  // 到达的元素与「已显示/待显示」的目标不同，说明指针真正换了宿主；
+  // 先收旧层，避免同一时刻叠两个 .qtip。
+  if (tip || tipFor) hideTooltip();
   scheduleTooltip(el);
 }
 
@@ -281,13 +340,15 @@ function normalizeTooltip(el: HTMLElement) {
   if (text === null) return;
 
   // 空串是「清空提示」的既有写法（设置页背景路径），保留清空语义。
-  el.dataset.tooltip = text;
+  // 页面/视图代码若已直接写 data-tooltip（推荐写法），它是唯一真相：此时 title
+  // 可能只是遗留的无障碍文本，不能被旧值反向覆盖。
+  if (!el.hasAttribute("data-tooltip")) el.dataset.tooltip = text;
   el.removeAttribute("title");
 }
 
 function syncTooltipAtPointer() {
   // 指针尚未动过（程序化触发 Mutation）时只更新已显示文本，不凭空开层。
-  const el = pointerX < 0 || pointerY < 0 ? tipFor : pointerAt();
+  const el = pointerX < 0 || pointerY < 0 ? tipFor : pointerTarget?.isConnected ? pointerTarget : pointerAt();
 
   if (!el || !el.dataset.tooltip) {
     hideTooltip();
@@ -296,11 +357,15 @@ function syncTooltipAtPointer() {
   }
 
   if (el === tipFor) {
-    if (tip && tip.textContent !== el.dataset.tooltip) tip.textContent = el.dataset.tooltip;
+    if (tip && tip.textContent !== el.dataset.tooltip) {
+      tip.textContent = el.dataset.tooltip;
+      positionTooltip(tip, el.getBoundingClientRect());
+    }
 
     return;
   }
 
+  if (tip || tipFor) hideTooltip();
   scheduleTooltip(el);
 }
 
@@ -312,10 +377,15 @@ export function bootNativeOverlays() {
   document.addEventListener("pointermove", (e) => {
     pointerX = e.clientX;
     pointerY = e.clientY;
+    pointerTarget = tooltipTarget(e.target);
+
+    // pointerover 在「目标元素自身被重写/重插」时可能不补发；移动事件是同一指针
+    // 会话的高频真相，悬停目标消失时在这里立即收掉 pending 定时器。
+    if (!pointerTarget && tipFor && !tipFor.isConnected) hideTooltip();
 
     // 快速划过时目标切换可能不派发 pointerover（延迟期间从 A 换到 B 就是这样）；
     // move 路径按几何位置重判并续期定时器，保证「停在谁身上谁出提示」。
-    const el = pointerAt();
+    const el = pointerTarget ?? pointerAt();
 
     if (!el) {
       // 悬停目标已消失：连 pending 的定时器一起收，否则回到同一目标时会被
@@ -337,6 +407,24 @@ export function bootNativeOverlays() {
     e.stopPropagation();
   }, true);
   document.addEventListener("pointerover", onTipOver, true);
+  document.addEventListener("pointermove", () => {
+    // 禁用控件在 Chrome 里既不冒 pointerover，也不稳定冒 pointerout；指针停在它上面时
+    // 由上面的几何路径兜住。这里只做「指针在禁用控件内的持续确认」，不重复计时。
+    const host = disabledTooltipAt();
+
+    if (!host) {
+      if (!pointerTarget && (tip || tipFor)) hideTooltip();
+
+      return;
+    }
+
+    if (tipFor !== host) {
+      hideTooltip();
+      scheduleTooltip(host);
+    }
+
+    if (tip) positionTooltip(tip, host.getBoundingClientRect());
+  }, true);
   // 运行时/视图代码写 title 时立刻归一成 data-tooltip，原生提示没有素材；
   // 已悬停目标的 data-tooltip 变化则同步自绘层文本。
   new MutationObserver((mutations) => {
@@ -357,6 +445,8 @@ export function bootNativeOverlays() {
       }
     }
 
+    // data-tooltip 的运行时改写（播放态/队列/画廊按钮）也走这里：
+    // 已显示的提示换文案并重排，未显示的按新目标重新计时。
     syncTooltipAtPointer();
   }).observe(document.body, {
     subtree: true,
@@ -365,11 +455,28 @@ export function bootNativeOverlays() {
     attributeFilter: ["title", "data-tooltip"],
   });
   document.addEventListener("pointerout", (e) => {
+    if (!(e.target instanceof Element)) return;
+
     if (tipFor && !(e.relatedTarget instanceof Node && tipFor.contains(e.relatedTarget))) hideTooltip();
   }, true);
   document.addEventListener("pointerdown", (e) => {
+    if (e.target instanceof Element && tooltipHostOf(e.target)) return;
     if (!(e.target instanceof Node) || !tip?.contains(e.target)) hideTooltip();
   }, true);
   document.addEventListener("scroll", () => hideTooltip(), true);
+  // 画廊/全屏会改视口高度，播放条也可能随布局动画换位：已显示的提示跟着锚点重排，
+  // 锚点已被重建则直接收起，避免浮层停在旧坐标上。
+  window.addEventListener("resize", () => {
+    if (!tip && !tipFor) return;
+
+    if (!tip || !tipFor?.isConnected) {
+      hideTooltip();
+
+      return;
+    }
+
+    positionTooltip(tip, tipFor.getBoundingClientRect());
+  });
+  document.addEventListener("fullscreenchange", () => hideTooltip());
   window.addEventListener("blur", () => hideTooltip(), true);
 }

@@ -100,7 +100,7 @@ body {
   inset: 0;
   background: rgb(0 0 0 / var(--dl-win-alpha, 0));
   border-radius: 10px;
-  pointer-events: none; /* 别抢拖拽/悬停 */
+  pointer-events: none; /* 别抢拖拽、悬停或 Tooltip 命中 */
 }
 
 #dl-stage {
@@ -303,6 +303,30 @@ body {
   stroke: currentColor;
   stroke-width: 2;
   stroke-linecap: round;
+}
+
+/* —— 本窗自绘 Tooltip（NativeDrop）——
+ * 独立页不加载主窗 style.css，所以玻璃底、圆角与阴影在这里补一份；主窗那套 --menu-*
+ * 令牌在本窗没有定义，这里按桌面歌词的恒深色语境直接给值。
+ * 控件在悬停时才出现，提示层必须压在控制条之上；它自身 pointer-events:none，
+ * 不会截断按钮的 pointerleave。 */
+.qtip {
+  position: fixed;
+  z-index: 97;
+  width: max-content;
+  max-width: min(280px, calc(100vw - 16px));
+  padding: 5px 9px;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 8px;
+  background: rgb(18 21 27 / 92%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 42%);
+  color: #fff;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  pointer-events: none;
 }
 
 /* 歌词延迟读数：点一下归零，字号比图标略大保证可读 */

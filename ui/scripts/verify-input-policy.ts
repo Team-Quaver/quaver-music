@@ -74,6 +74,27 @@ ok("NativeDrop: 下拉层按触发 select 的祖先 z-index 动态抬层（不�
   && /getComputedStyle\(node\)\.zIndex/.test(nativeDrop)
   && /layer\.style\.zIndex = String\(overlayZFor\(sel\)\)/.test(nativeDrop));
 
+// —— 自绘 Tooltip 的命中必须从任意 Element 向上找宿主 ——
+// SVGElement 不是 HTMLElement：沿用 `instanceof HTMLElement` 时，指针落在图标 <svg>/<path>
+// 上会命不中，落在按钮留白里才中 —— 同一排按钮就表现成「Tooltip 随机出现」。
+ok("NativeDrop: Tooltip 命中从 Element 向上找宿主（图标 <svg>/<path> 也算悬停）",
+  /function tooltipHostOf\(el: Element \| null\): HTMLElement \| null/.test(nativeDrop)
+  && /el\?\.closest<HTMLElement>\("\[data-tooltip\]"\)/.test(nativeDrop)
+  && /e instanceof Element \? tooltipHostOf\(e\)/.test(nativeDrop)
+  && /return tooltipHostOf\(raw\)/.test(nativeDrop)
+  && !/raw instanceof HTMLElement \? raw\.closest/.test(nativeDrop));
+
+ok("NativeDrop: 桌面歌词独立页也启动同一套 Tooltip（不再只有原生 title）",
+  /bootNativeOverlays\(\)/.test(read("src/desktop-lyrics.ts"))
+  && /from "\.\/components\/NativeDrop"/.test(read("src/desktop-lyrics.ts")));
+
+ok("Playback controls: 画廊/桌面歌词/队列/上一首都有自绘提示源",
+  /id="pb-gallery" title="画廊模式"/.test(read("src/components/PlayerBar.ts"))
+  && /const galleryTip = galleryOn \? "退出画廊模式"/.test(read("src/components/PlayerBar.ts"))
+  && /id="pb-dl" title="桌面歌词"/.test(read("src/components/PlayerBar.ts"))
+  && /id="pb-queue" title="播放队列"/.test(read("src/components/PlayerBar.ts"))
+  && /prev\.dataset\.tooltip = canPrev \? "上一首"/.test(read("src/components/PlayerBar.ts")));
+
 console.log(`\n${checks - fails}/${checks} passed${fails ? ` — ${fails} FAILED` : ""}`);
 
 process.exit(fails ? 1 : 0);

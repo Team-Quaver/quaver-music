@@ -27,19 +27,19 @@ export function PlayerBar(): HTMLElement {
       </div>
     </div>
     <div class="pb-mid">
-      <button class="pb-btn" id="pb-prev" aria-label="上一首">${icons.prev}</button>
-      <button class="pb-btn pb-play" id="pb-play" aria-label="播放/暂停">${icons.play}</button>
-      <button class="pb-btn" id="pb-next" aria-label="下一首">${icons.next}</button>
+      <button class="pb-btn" id="pb-prev" title="上一首" aria-label="上一首">${icons.prev}</button>
+      <button class="pb-btn pb-play" id="pb-play" title="播放/暂停" aria-label="播放/暂停">${icons.play}</button>
+      <button class="pb-btn" id="pb-next" title="下一首" aria-label="下一首">${icons.next}</button>
     </div>
     <div class="pb-right">
       <span class="pb-time" id="pb-time">0:00 / 0:00</span>
       <!-- 音量钮 + 音量浮窗共用一个定位锚（.pb-volhost）：浮窗锚在钮的正上方，
            不锚在 Bar 右缘 —— 见 style.css 的 .pb-volpop 那段 -->
       <div class="pb-volhost">
-        <button class="pb-btn pb-ghost" id="pb-mute" aria-label="音量 / 静音"></button>
+        <button class="pb-btn pb-ghost" id="pb-mute" title="音量 / 静音" aria-label="音量 / 静音"></button>
         <!-- 音量浮窗：静音控制 + 滑杆 + 读数 -->
         <div class="pb-volpop" id="pb-volpop" role="group" aria-label="音量">
-          <button class="pb-btn pb-ghost" id="pb-mute2" aria-label="静音"></button>
+          <button class="pb-btn pb-ghost" id="pb-mute2" title="静音" aria-label="静音"></button>
           <input class="pb-vol" id="pb-vol" type="range" min="0" max="100" step="1" value="80" aria-label="音量" />
           <span class="pb-volnum" id="pb-volnum">80%</span>
           <button class="pb-eq-shortcut" id="pb-eq-shortcut" type="button" title="打开 Quark EQ（原生 / 兼容）" aria-label="打开 Quark EQ">
@@ -49,12 +49,12 @@ export function PlayerBar(): HTMLElement {
           </button>
         </div>
       </div>
-      <button class="pb-btn pb-ghost" id="pb-loop" aria-label="播放模式" aria-haspopup="menu" aria-expanded="false"></button>
-      <button class="pb-q" id="pb-quality" aria-label="音质"></button>
-      <button class="pb-btn pb-ghost" id="pb-love" aria-label="收藏">${icons.heart}</button>
+      <button class="pb-btn pb-ghost" id="pb-loop" title="播放模式" aria-label="播放模式" aria-haspopup="menu" aria-expanded="false"></button>
+      <button class="pb-q" id="pb-quality" title="音质" aria-label="音质"></button>
+      <button class="pb-btn pb-ghost" id="pb-love" title="收藏" aria-label="收藏">${icons.heart}</button>
       <button class="pb-btn pb-ghost" id="pb-gallery" title="画廊模式" aria-label="画廊模式"></button>
-      <button class="pb-btn pb-ghost" id="pb-dl" aria-label="桌面歌词"></button>
-      <button class="pb-btn pb-ghost" id="pb-queue" aria-label="播放队列">${icons.queue}</button>
+      <button class="pb-btn pb-ghost" id="pb-dl" title="桌面歌词" aria-label="桌面歌词"></button>
+      <button class="pb-btn pb-ghost" id="pb-queue" title="播放队列" aria-label="播放队列">${icons.queue}</button>
     </div>
     <!-- 播放模式浮窗：循环三档 + 随机播放（每日一套顺序） -->
     <div class="pb-lpop" id="pb-lpop" role="menu" aria-label="播放模式"></div>
@@ -484,7 +484,8 @@ export function PlayerBar(): HTMLElement {
     if (playSig !== lastPlaySig) {
       lastPlaySig = playSig;
       play.innerHTML = player.loading ? icons.spinner : player.error ? icons.retry : player.playing ? icons.pause : icons.play;
-      play.setAttribute("aria-label", player.loading ? "加载中，点击取消" : player.error ? "加载失败，点击重试" : "播放/暂停");
+      play.dataset.tooltip = player.loading ? "加载中，点击取消" : player.error ? "加载失败，点击重试" : "播放/暂停";
+      play.setAttribute("aria-label", play.dataset.tooltip);
     }
 
     paintQ();
@@ -493,14 +494,16 @@ export function PlayerBar(): HTMLElement {
     if (canPrev !== lastCanPrev) {
       lastCanPrev = canPrev;
       prev.disabled = !canPrev;
-      prev.setAttribute("aria-label", canPrev ? "上一首" : "无限电台只向前播放");
+      prev.dataset.tooltip = canPrev ? "上一首" : "无限电台只向前播放";
+      prev.setAttribute("aria-label", prev.dataset.tooltip);
     }
 
     if (player.radioActive !== lastRadioUi) {
       lastRadioUi = player.radioActive;
       queueBtn.hidden = player.radioActive;
       queueBtn.disabled = player.radioActive;
-      queueBtn.setAttribute("aria-label", "播放队列");
+      queueBtn.dataset.tooltip = "播放队列";
+      queueBtn.setAttribute("aria-label", queueBtn.dataset.tooltip);
 
       if (player.radioActive) closeLPop();
     }
@@ -532,7 +535,15 @@ export function PlayerBar(): HTMLElement {
     }
 
     // 画廊模式按钮点亮 = 正在播放页正处于全屏画廊会话
-    gallery.classList.toggle("on", player.gallery && player.expanded);
+    const galleryOn = player.gallery && player.expanded;
+    gallery.classList.toggle("on", galleryOn);
+    const galleryTip = galleryOn ? "退出画廊模式" : player.current ? "画廊模式" : "画廊模式（先播放一首歌）";
+
+    if (gallery.dataset.tooltip !== galleryTip) {
+      gallery.dataset.tooltip = galleryTip;
+      gallery.setAttribute("aria-label", galleryTip);
+      gallery.setAttribute("aria-pressed", String(galleryOn));
+    }
 
     if (!dragging) {
       const d = player.duration, t = player.time;
@@ -542,6 +553,18 @@ export function PlayerBar(): HTMLElement {
     }
 
     if (!volEditing) vol.value = String(Math.round((player.muted ? 0 : player.volume) * 100));
+    const muteTip = player.muted ? "取消静音" : "静音";
+
+    if (mute.dataset.tooltip !== muteTip) {
+      mute.dataset.tooltip = muteTip;
+      mute.setAttribute("aria-label", muteTip);
+    }
+
+    if (mute2.dataset.tooltip !== muteTip) {
+      mute2.dataset.tooltip = muteTip;
+      mute2.setAttribute("aria-label", muteTip);
+    }
+
     paintVol();
 
     // 行高亮只需在换曲时重扫（视图重画处会显式调 markActive，见 views/songs）；

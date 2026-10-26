@@ -21,17 +21,19 @@ export function QueuePanel(): HTMLElement {
     <div class="qp-head">
       <span class="qp-title">播放列表<i class="qp-cnt" id="qp-cnt"></i></span>
       <span class="qp-actions">
-        <button class="qp-act" id="qp-clear" title="清空队列" aria-label="清空队列">${icons.trash}</button>
-        <button class="qp-act" id="qp-close" title="收起" aria-label="收起">${icons.chevronDown}</button>
+        <button class="qp-act" id="qp-clear" type="button" title="清空队列" aria-label="清空队列">${icons.trash}</button>
+        <button class="qp-act" id="qp-close" type="button" title="收起" aria-label="收起">${icons.chevronDown}</button>
       </span>
     </div>
     <div class="qp-list" id="qp-list"></div>
   `;
   const list = el.querySelector<HTMLElement>("#qp-list")!;
   const cnt = el.querySelector<HTMLElement>("#qp-cnt")!;
-  el.querySelector<HTMLElement>("#qp-close")!.onclick = () => { player.queueOpen = false; player.notifyPublic(); };
+  const close = el.querySelector<HTMLButtonElement>("#qp-close")!;
+  close.onclick = () => { player.queueOpen = false; player.notifyPublic(); };
 
-  el.querySelector<HTMLElement>("#qp-clear")!.onclick = () => player.clearQueue();
+  const clear = el.querySelector<HTMLButtonElement>("#qp-clear")!;
+  clear.onclick = () => { if (player.queue.length) player.clearQueue(); };
 
   // —— 形态查询（停靠宽度、开合、全屏态都要用，先于宽度块定义） ——
   const contentEl = () => document.querySelector<HTMLElement>(".content");
@@ -230,6 +232,22 @@ export function QueuePanel(): HTMLElement {
     if (s === sig) return; // 内容没变不重建
     sig = s;
     syncMount();
+
+    const closeTip = player.queueOpen ? "收起播放列表" : "展开播放列表";
+
+    if (close.dataset.tooltip !== closeTip) {
+      close.dataset.tooltip = closeTip;
+      close.setAttribute("aria-label", closeTip);
+    }
+
+    const clearTip = player.queue.length ? `清空播放列表（${player.queue.length} 首）` : "播放列表为空";
+
+    if (clear.dataset.tooltip !== clearTip) {
+      clear.dataset.tooltip = clearTip;
+      clear.setAttribute("aria-label", clearTip);
+    }
+    clear.disabled = !player.queue.length;
+
     cnt.textContent = player.queue.length ? `${player.queue.length} 首` : "";
 
     // 拖拽中**绝不重建**：整表重画会把正在拖的那一行连节点带监听一起换掉，表现就是
@@ -265,14 +283,14 @@ export function QueuePanel(): HTMLElement {
     row.className = "qp-item" + (i === player.index ? " cur" : "");
     const pic = coverUrl(q, 90); // QQ 音乐 CDN 只认 90/150/300/500 等标准尺寸，64 会 404
     row.innerHTML = `
-      <span class="qi-grip" title="拖动排序" aria-hidden="true">${icons.grip}</span>
-      <span class="qi-thumb">${pic ? `<img src="${pic}" alt="" loading="lazy" draggable="false"/>` : ""}</span>
+      <span class="qi-grip" title="拖动调整播放顺序" aria-hidden="true">${icons.grip}</span>
+      <span class="qi-thumb" title="${escapeHtml(songTitle(q))} — 点击定位">${pic ? `<img src="${pic}" alt="" loading="lazy" draggable="false"/>` : ""}</span>
       <span class="qi-i">${i === player.index ? (player.loading ? "…" : player.playing ? "♪" : "❚❚") : i + 1}</span>
       <span class="qi-main">
         <span class="qi-n">${escapeHtml(songTitle(q))}</span>
         <span class="qi-a">${escapeHtml((q.singer ?? []).map((x) => x.name).join(" / "))}</span>
       </span>
-      <button class="qi-del" title="移出队列" aria-label="移出队列">${icons.close}</button>
+      <button class="qi-del" type="button" title="从播放列表移除" aria-label="从播放列表移除">${icons.close}</button>
     `;
     row.addEventListener("click", (e) => {
       if ((e.target as HTMLElement).closest(".qi-grip, .qi-del")) return; // 把手/删除钮不触发切歌

@@ -1646,6 +1646,8 @@ body[data-control-bar="floating"] .np.np-lyrics-full .np-inner {
 .qp-act { border: 0; background: transparent; color: var(--ink2); cursor: pointer;
   width: 26px; height: 26px; display: grid; place-items: center; border-radius: 8px; padding: 0; }
 .qp-act:hover { background: var(--hover); color: var(--ink); }
+.qp-act:disabled { opacity: .35; cursor: default; }
+.qp-act:disabled:hover { background: transparent; color: var(--ink2); }
 .qp-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px;
   transition: padding-bottom .34s cubic-bezier(.32,.72,.24,1); }
 .qp-item { display: flex; gap: 7px; align-items: center; padding: 6px 8px 6px 4px;
@@ -2238,9 +2240,10 @@ body:has(> .np.open) .player::before { backdrop-filter: none; }
 
 /* —— 自绘 Tooltip：小浮层同吃 --menu-*，主题/模糊开关与菜单一致 —— */
 .qtip {
-  position: fixed; z-index: 96; max-width: min(320px, calc(100vw - 16px));
+  position: fixed; z-index: 96; width: max-content; max-width: min(320px, calc(100vw - 16px));
   padding: 6px 10px; border-radius: 8px;
-  color: var(--ink); font-size: 12px; line-height: 1.45; white-space: pre-line;
+  color: var(--ink); font-size: 12px; line-height: 1.45;
+  white-space: pre-line; overflow-wrap: anywhere;
   pointer-events: none;
 }
 

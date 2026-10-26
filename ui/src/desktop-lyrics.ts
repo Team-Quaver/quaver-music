@@ -43,6 +43,7 @@ import { CLOCK_COMP_MS, type DlCmd, type DlLine, type DlStateSnapshot, type DlSy
 import { LayoutAlignAnchor, LayoutReason } from "@applemusic-like-lyrics/core";
 import { amllPlayerByHost, builtinKaraokeProvider } from "./lyrics/amll";
 import type { SparkleKaraokeLine } from "@quaver/sparkle";
+import { bootNativeOverlays } from "./components/NativeDrop";
 
 const bridge = window.quaverDesktopLyrics;
 const docEl = document.documentElement;
@@ -213,6 +214,7 @@ function syncTrackInfo(): void {
 
   if (!hasTrack) {
     trackMeta.textContent = "";
+    delete trackMeta.dataset.tooltip;
     trackMeta.removeAttribute("title");
     coverImg.removeAttribute("src");
     coverImg.hidden = true;
@@ -226,7 +228,7 @@ function syncTrackInfo(): void {
   const artist = String(track?.artist ?? "").trim();
   const label = title && artist ? `${title} - ${artist}` : title || artist || "未知曲目";
   trackMeta.textContent = label;
-  trackMeta.title = label;
+  trackMeta.dataset.tooltip = label;
   const cover = String(track?.cover ?? "").trim();
   const broken = !!cover && cover === failedCover;
   coverImg.hidden = !cover || broken;
@@ -692,7 +694,8 @@ function applyStyle(): void {
   const weight = getDesktopLyricsWeight();
   root.style.setProperty("--dl-font-weight", String(weight));
   weightVal.textContent = `B${weight}`;
-  weightVal.title = `字重 ${weight}（点击切换 300/400/500/600/700/800/900）`;
+  weightVal.dataset.tooltip = `字重 ${weight}（点击切换 300/400/500/600/700/800/900）`;
+  weightVal.removeAttribute("title");
   weightVal.setAttribute("aria-label", `当前字重 ${weight}，点击切换`);
   // 水平对齐：只有「单行 + 单行居中=开」才居中；单行关居中与双行都是左对齐。
   // 双行设置项里没有第二个对齐开关，默认左对齐是既定行为，不能被通用居中规则吃掉。
@@ -840,6 +843,8 @@ grip.addEventListener("pointerdown", (e) => {
 
 
 applyStyle();
+
+bootNativeOverlays();
 
 syncInteractionMode();
 
