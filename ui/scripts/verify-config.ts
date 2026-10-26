@@ -3,7 +3,8 @@
 // 覆盖：模板生成、INI 保注释解析、set 命中/追加/补段、值域校验、原子写与 0600 权限、路径规则。
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   CONFIG_NAME, configDir, configFile, credentialFile, credentialStoreFile, deviceFile,
   defaults, IniDoc, readValues, resetConfig, template, writeValues,
@@ -20,6 +21,7 @@ function check(name, cond, detail = "") {
 const eq = (name, got, want) => check(name, JSON.stringify(got) === JSON.stringify(want), `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
 
 const ROOT = mkdtempSync(join(tmpdir(), "quaver-conf-"));
+const UI_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dir = join(ROOT, "Quaver Music");
 
 process.env.QUAVER_CONFIG_DIR = dir;
@@ -446,6 +448,28 @@ eq("非法值给出 warning", r2.warnings.length, 1);
 check("warning 文案含键名", r2.warnings[0].includes("Quality.FallbackToQMAtmos"), r2.warnings[0]);
 
 check("手改后注释仍完整", readFileSync(FILE, "utf8").includes("# 可选 dark,light,follow-system"));
+
+// ——— [Quality] 默认音质：可选档位必须与 /stream/tiers 全量对齐 ———
+section("[Quality] 默认音质档位");
+
+const qualityTiers = ["96ogg", "128", "192ogg", "320", "320ogg", "flac", "640ogg", "atmos2", "atmos51", "atmos71", "master"];
+
+for (const q of qualityTiers) {
+  eq(`${q} 可落盘`, writeValues({ "Quality.DefaultQuality": q }), ["Quality.DefaultQuality"]);
+  eq(`${q} 读回`, readValues().values["Quality.DefaultQuality"], q);
+}
+
+eq("Auto 可落盘", writeValues({ "Quality.DefaultQuality": "Auto" }), ["Quality.DefaultQuality"]);
+
+eq("未知档位拒绝", writeValues({ "Quality.DefaultQuality": "hi-res-ultra" }), []);
+
+const playerSrc = readFileSync(join(UI_ROOT, "src/player.ts"), "utf8");
+const settingsSrc = readFileSync(join(UI_ROOT, "src/views/settings.ts"), "utf8");
+
+check("默认音质切换会重载当前流并保留播放态",
+  /applyDefaultQuality\(\)\s*\{\s*setSessionQuality\(null\);[\s\S]{0,260}?const wasPlaying = !this\.transport\.paused;[\s\S]{0,220}?void this\.startCurrent\(at > 1 \? at : 0, wasPlaying\)/.test(playerSrc));
+
+check("设置页默认音质切换调用 applyDefaultQuality", settingsSrc.includes("player.applyDefaultQuality();"));
 
 // ——— 重置 ———
 section("重置");

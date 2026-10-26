@@ -575,6 +575,20 @@ class Player {
   /** 当前持久化的 EQ。播放器不持有第二份真相，设置浮窗每次打开都从这里取。 */
   getEqualizer(): EqState { return getEqualizerState(); }
 
+  /** 设置页改了默认音质后，按当前曲的播放位置重新协商并续播。
+   *  默认档本身已由 setQuality 写进配置；清掉会话覆盖，保证这条重载不是被播放条的旧选择顶回去。 */
+  applyDefaultQuality() {
+    setSessionQuality(null);
+
+    if (!this.current || isLocalSong(this.current)) { this.notify(); return; }
+
+    const at = this.transport.position;
+    const wasPlaying = !this.transport.paused;
+    this.prefetch.clear();
+    this.prefetchedMid = "";
+    void this.startCurrent(at > 1 ? at : 0, wasPlaying);
+  }
+
   on(fn: Listener) {
     this.listeners.add(fn);
 

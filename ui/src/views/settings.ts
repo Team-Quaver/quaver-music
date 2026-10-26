@@ -6,7 +6,7 @@ import { showDebugDialog } from "../components/DebugDialog";
 import { toast } from "../lib/toast";
 import { currentAccent, refreshAccent } from "../lib/accent";
 import { applyBackground } from "../lib/ambient";
-import { api, escHtml, getQuality, getStreamTiers, setQuality, setSessionQuality } from "../lib/api";
+import { escHtml, getQuality, getStreamTiers, setQuality } from "../lib/api";
 import type { Quality } from "../lib/api";
 import { resetCjkConverter } from "../lib/cjk-convert";
 import { cmyk2rgb, hsl2rgb, parseHex, rgb2cmyk, rgb2hsl, toHex } from "../lib/color";
@@ -1806,9 +1806,9 @@ export default async function settingsView(root: HTMLElement) {
     qBox.querySelectorAll<HTMLButtonElement>("[data-q]").forEach((b) => {
       if (!b.disabled) b.onclick = () => {
         setQuality(b.dataset.q as Quality | "auto");
-        setSessionQuality(null); // 播放条会话覆盖让位给新的默认档（新档自下一首起生效）
         syncQ();
-        player.notifyPublic();
+        // 默认档是「立即生效」：有当前曲就按原进度重新协商；播放条临时选择同时让位。
+        player.applyDefaultQuality();
       };
     });
   };

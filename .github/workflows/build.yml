@@ -171,10 +171,10 @@ jobs:
           go-version: "1.27.3"
           cache-dependency-path: vendor/Typhoeus-go/go.sum
 
-      # qmc 与 unlock-music 的跨语言对拍向量 + zzc 签名对拍 —— 编译前先拦住算法回归
-      - name: Test (qmc 对拍 + 签名)
+      # qmc 与 unlock-music 的跨语言对拍向量 + zzc 签名对拍；server 含缓存命中/播放流回归
+      - name: Test (qmc 对拍 + 签名 + server)
         working-directory: vendor/Typhoeus-go
-        run: go test ./inhibit/ ./qmc/ ./qqmusic/
+        run: go test ./inhibit/ ./qmc/ ./qqmusic/ ./server/
 
       - name: Build
         working-directory: vendor/Typhoeus-go

@@ -328,7 +328,7 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
     // （AMLL 400KB、词典 1MB、各视图块……）。整块读进内存 = 主进程按请求数攒出
     // 几 MB 的一次性大 Buffer（还给 GC 添活），而 renderer 根本不会并发要这么多。
     await pipeline(createReadStream(file), res).catch((e) => {
-      log("[native-server] 静态文件发送失败:", String(e));
+      console.warn("[native-server] 静态文件发送失败:", String(e));
     });
   };
 
