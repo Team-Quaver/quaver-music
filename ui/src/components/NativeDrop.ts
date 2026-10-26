@@ -55,6 +55,21 @@ function optionEntries(sel: HTMLSelectElement): (DropdownOption | "sep")[] {
 
 let closeDropdown: (() => void) | null = null;
 
+/** 按钮量到的最高层级：从触发 select 往上看 `z-index`，让下拉至少压过它所属的模态/浮层。
+ *  普通页面的 select 会得到 80（与右键菜单同层）；EQ(84) / 更新弹窗(85) 内的 select
+ *  必须抬到各自模态之上，否则下拉层被遮罩盖住 —— 看得见触发框、却看不到也点不到选项。 */
+function overlayZFor(el: HTMLElement): number {
+  let z = 80;
+
+  for (let node: HTMLElement | null = el; node; node = node.parentElement) {
+    const value = Number.parseInt(getComputedStyle(node).zIndex, 10);
+
+    if (Number.isFinite(value) && value > z) z = value;
+  }
+
+  return z + 1;
+}
+
 /** 打开自绘下拉层。返回 false 表示当前环境仍应走浏览器原生行为。 */
 export function openDropdown(sel: HTMLSelectElement): boolean {
   if (!finePointer()) return false;
@@ -63,6 +78,7 @@ export function openDropdown(sel: HTMLSelectElement): boolean {
   const layer = document.createElement("div");
 
   layer.className = "ctx-layer dd-layer";
+  layer.style.zIndex = String(overlayZFor(sel));
 
   const panel = document.createElement("div");
 

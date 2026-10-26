@@ -33,6 +33,7 @@ const ok = (name, cond, note = "") => {
 const plain = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 const mainMjs = plain(read("electron/main.ts"));
 const mainTs = plain(read("src/main.ts"));
+const nativeDrop = plain(read("src/components/NativeDrop.ts"));
 
 // —— 主进程：关死浏览器式全局导航 ——
 ok("main.ts: setWindowOpenHandler 一律拒绝（新窗口没有合法场景）",
@@ -64,6 +65,14 @@ ok("main.ts: auxclick 兜底拦掉中键「新窗口打开」缺省动作",
 
 ok("main.ts: 渲染层不出现 window.open（Electron 侧 deny-all，dev 态也不许开新窗）",
   !/window\.open\(/.test(mainTs));
+
+// —— 自绘下拉必须压过触发它的模态窗 ——
+// EQ / 更新弹窗分别是 84 / 85，而普通右键菜单层是 80。下拉如果固定 80，
+// 在模态里会「看得见 select，却看不到弹层」，表现就是预设点了没反应。
+ok("NativeDrop: 下拉层按触发 select 的祖先 z-index 动态抬层（不写死 80）",
+  /function overlayZFor\(el: HTMLElement\): number/.test(nativeDrop)
+  && /getComputedStyle\(node\)\.zIndex/.test(nativeDrop)
+  && /layer\.style\.zIndex = String\(overlayZFor\(sel\)\)/.test(nativeDrop));
 
 console.log(`\n${checks - fails}/${checks} passed${fails ? ` — ${fails} FAILED` : ""}`);
 
