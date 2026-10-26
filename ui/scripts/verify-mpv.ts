@@ -262,6 +262,9 @@ check("PCM AnalyserNode 有静音下游，音频图会持续驱动 FFT",
     && /analyser\.connect\(this\.analyserOutput\)/.test(sinkSrc)
     && /analyserOutput\.connect\(ctx\.destination\)/.test(sinkSrc));
 
+check("PCM EQ 重建滤波链后重新接回 AnalyserNode（兼容模式频谱不消失）",
+  /private rebuildFilters\(\)[\s\S]{0,900}this\.analyserHint = false;[\s\S]{0,900}this\.connectAnalyser\(gain\)/.test(sinkSrc));
+
 check("兼容模式暂停不 suspend AudioContext（避免 WASAPI 重激活卡顿）",
   !/ctx\??\.suspend\(/.test(sinkSrc) && /type: "pause"/.test(sinkSrc) && /type: "resume"/.test(sinkSrc));
 

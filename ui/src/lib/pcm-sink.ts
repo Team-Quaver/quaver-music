@@ -353,6 +353,10 @@ export class PcmSink {
 
     this.filters = [];
     gain.disconnect();
+    // 这条输出链的节点连接被整段拆掉，分析旁路的旧连线也一起失效。
+    // 不把 hint 复位，下一次 connectAnalyser 会被误判为「已连接」而跳过，
+    // 兼容模式频谱就会在首次调 EQ / 切预置后永久断掉。
+    this.analyserHint = false;
 
     const eq = this.eq;
     preamp.gain.value = eq.enabled ? 10 ** (eq.preamp / 20) : 1;

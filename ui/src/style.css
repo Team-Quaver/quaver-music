@@ -2061,13 +2061,13 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 }
 
 /* ===================== 浮层菜单的玻璃（共享规则） =====================
-   七处菜单 + 三个模态弹窗（更新/本地插件/插件设置，共用 .upd-dialog）+ Quark EQ 浮窗的底片 / 描边 /
+   七处菜单 + 三个模态弹窗（更新/本地插件/插件设置，共用 .upd-dialog）+ Quark EQ 模态窗的底片 / 描边 /
    模糊 / 内高光只在这一条里定义：改玻璃观感只动文件顶部那几个
    --menu-* 令牌。各菜单自己的规则从此只管定位 / 尺寸 / 开合动画 —— 不再各写一份
    `background + border + box-shadow + backdrop-filter`（改造前是七份，且不透明度各不同，
    所以才会出现「有的菜单看着糊、有的看着是实心」）。
    模糊只写无前缀的 backdrop-filter —— 别补 -webkit-，原因见文件顶部那段。 */
-.ctx-menu, .pb-qpop, .pb-lpop, .pb-volpop, .tint-pop, .np-menu, .np-menu-sub-list, .np-qinfo, .queue-panel.float, .eq-float, .upd-dialog {
+.ctx-menu, .qtip, .pb-qpop, .pb-lpop, .pb-volpop, .tint-pop, .np-menu, .np-menu-sub-list, .np-qinfo, .queue-panel.float, .eq-dialog, .upd-dialog {
   background: var(--menu-surface);
   border: 1px solid var(--menu-line);
   box-shadow: var(--menu-shadow), inset 0 1px 0 var(--menu-edge);

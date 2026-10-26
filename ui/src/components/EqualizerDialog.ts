@@ -1,8 +1,8 @@
-// Quaver — Quark EQ 浮窗（设置 → 播放 / 音量浮窗快捷入口）。
+// Quaver — Quark EQ 模态窗（设置 → 播放 / 音量浮窗快捷入口）。
 //
 // 交互口径：
 //   · 点空白 = 在指针位置新建节点；拖节点 = 同时改频率与增益；双击 / 右键 / Delete = 删除
-//   · 滚轮停在节点上 = 改 Q；右侧检查器也能精确输入频率 / 增益 / Q / 滤波类型
+//   · 滚轮停在节点上 = 改 Q；曲线下方检查器也能精确输入频率 / 增益 / Q / 滤波类型
 //   · 所有改动先重画曲线，再以 ~40ms 节流下发 mpv af；听觉预览不等落盘
 //   · 只有 MPV 后端可编辑；浏览器后端仍能打开看结构，但控件锁定并明确提示
 import "./equalizer.css";
@@ -52,13 +52,9 @@ const dbForY = (y: number) => EQ_GAIN_LIMIT - clamp((y - PLOT_T) / PLOT_H, 0, 1)
 let layer: HTMLElement | null = null;
 let panel: HTMLElement | null = null;
 
-/** 打开（或聚焦）唯一的 EQ 模态浮窗。调用方通过动态 import 加载本模块，避免曲线代码塞进首屏。 */
 export function openEqualizer(): void {
   if (layer) {
-    panel?.classList.remove("eq-attention");
-    void panel?.offsetWidth;
-    panel?.classList.add("eq-attention");
-    window.setTimeout(() => panel?.classList.remove("eq-attention"), 320);
+    panel?.querySelector<HTMLSelectElement>("#eq-preset")?.focus();
 
     return;
   }
@@ -70,12 +66,12 @@ function mount(): void {
   const overlay = document.createElement("div");
   overlay.className = "eq-overlay";
   const host = document.createElement("div");
-  host.className = "eq-float";
+  host.className = "eq-dialog";
   host.setAttribute("role", "dialog");
   host.setAttribute("aria-modal", "true");
   host.setAttribute("aria-label", "EQ 图形均衡器");
   host.innerHTML = `
-    <header class="eq-head" data-eq-drag>
+    <header class="eq-head">
       <span class="eq-logo" aria-hidden="true">
         <svg viewBox="0 0 32 32" width="26" height="26" fill="none">
           <path d="M3 20h5l3-9 4 14 4-18 3 13h7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -87,7 +83,7 @@ function mount(): void {
       <button class="eq-power" id="eq-power" type="button" aria-pressed="true">
         <span class="eq-power-dot"></span><span class="eq-power-label">EQ ON</span>
       </button>
-      <button class="eq-close" id="eq-close" type="button" aria-label="关闭 EQ 浮窗">×</button>
+      <button class="eq-close" id="eq-close" type="button" aria-label="关闭 EQ 窗">×</button>
     </header>
 
     <div class="eq-unavailable" id="eq-unavailable" hidden>
@@ -96,6 +92,31 @@ function mount(): void {
     </div>
 
     <div class="eq-body" id="eq-body">
+      <div class="eq-toolbar">
+        <div class="eq-tool eq-preset-tool">
+          <label class="eq-tool-label" for="eq-preset">PRESET</label>
+          <select class="eq-preset-select" id="eq-preset" aria-label="EQ 预设">
+            <option value="">自定义</option>
+            ${EQ_PRESETS.map((p) => `<option value="${esc(p.id)}">${esc(p.label)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="eq-tool eq-preamp-tool">
+          <div class="eq-tool-label"><label for="eq-preamp">PREAMP</label><output id="eq-preamp-out">0.0 dB</output></div>
+          <div class="eq-preamp-line">
+            <input class="eq-preamp" id="eq-preamp" type="range" min="${-EQ_PREAMP_LIMIT}" max="${EQ_PREAMP_LIMIT}" step="0.5" value="0" aria-label="前级增益" />
+            <div class="eq-inline-num"><input id="eq-preamp-num" type="number" min="${-EQ_PREAMP_LIMIT}" max="${EQ_PREAMP_LIMIT}" step="0.1" value="0" aria-label="前级增益数值" /><em>dB</em></div>
+          </div>
+        </div>
+        <div class="eq-tool eq-import">
+          <span class="eq-tool-label">IMPORT</span>
+          <div class="eq-import-btns">
+            <button class="eq-btn" id="eq-import-apo" type="button">导入 APO</button>
+            <button class="eq-btn" id="eq-import-graphic" type="button">导入 APO Graphic EQ</button>
+          </div>
+        </div>
+        <input id="eq-file" type="file" accept=".txt,.apo,.conf,text/plain" hidden />
+      </div>
+
       <section class="eq-graph-wrap">
         <div class="eq-graph-head">
           <span class="eq-spectrum-legend"><b class="peak">PEAK</b><b class="loud">LOUDNESS</b><b class="eq">EQ</b><em>POST-FADER</em></span>
@@ -108,21 +129,8 @@ function mount(): void {
         </div>
       </section>
 
-      <aside class="eq-side">
-        <div class="eq-block eq-preset-block">
-          <div class="eq-block-title"><span>PRESET</span></div>
-          <select class="eq-preset-select" id="eq-preset" aria-label="EQ 预设">
-            <option value="">自定义</option>
-            ${EQ_PRESETS.map((p) => `<option value="${esc(p.id)}">${esc(p.label)}</option>`).join("")}
-          </select>
-        </div>
-        <div class="eq-block">
-          <div class="eq-block-title"><span>PREAMP</span><output id="eq-preamp-out">0.0 dB</output></div>
-          <input class="eq-preamp" id="eq-preamp" type="range" min="${-EQ_PREAMP_LIMIT}" max="${EQ_PREAMP_LIMIT}" step="0.5" value="0" aria-label="前级增益" />
-          <div class="eq-inline-num"><span>增益</span><input id="eq-preamp-num" type="number" min="${-EQ_PREAMP_LIMIT}" max="${EQ_PREAMP_LIMIT}" step="0.1" value="0" aria-label="前级增益数值" /><em>dB</em></div>
-        </div>
-
-        <div class="eq-block eq-band-block">
+      <section class="eq-band-block">
+        <div class="eq-band-head">
           <div class="eq-block-title"><span>BAND</span><span id="eq-band-caption">点击节点</span></div>
           <div class="eq-band-empty" id="eq-band-empty">点击曲线上的节点进行编辑。</div>
           <div class="eq-band-controls" id="eq-band-controls" hidden>
@@ -139,16 +147,10 @@ function mount(): void {
               <option value="lowPass">Low-Pass / 低通滤波</option>
             </select></label>
             <input class="eq-q-range" id="eq-q-range" type="range" min="${EQ_MIN_Q}" max="${EQ_MAX_Q}" step="0.01" aria-label="频段 Q 值" />
-            <button class="eq-delete" id="eq-delete" type="button">删除此频段</button>
           </div>
+          <button class="eq-delete" id="eq-delete" type="button">删除此频段</button>
         </div>
-
-        <div class="eq-import">
-          <button class="eq-btn" id="eq-import-apo" type="button">导入 APO</button>
-          <button class="eq-btn" id="eq-import-graphic" type="button">导入 APO Graphic EQ</button>
-        </div>
-        <input id="eq-file" type="file" accept=".txt,.apo,.conf,text/plain" hidden />
-      </aside>
+      </section>
     </div>
 
     <footer class="eq-foot">
@@ -165,7 +167,7 @@ function mount(): void {
   const $ = <T extends Element = HTMLElement>(sel: string) => host.querySelector<T>(sel)!;
   const svg = $<SVGSVGElement>("#eq-graph");
 
-  // SVG 的宽度坐标固定为 760；高度按左栏实际可用空间扩展。viewBox 与元素同比例，
+  // SVG 的宽度坐标固定为 760；高度按曲线实际可用空间扩展。viewBox 与元素同比例，
   // 所以圆点/文字不会被垂直拉伸，只有 dB 轴和频谱绘图区真正长高。
   const syncViewMetrics = (): void => {
     const r = svg.getBoundingClientRect();
@@ -198,6 +200,7 @@ function mount(): void {
   const q = $<HTMLInputElement>("#eq-q");
   const qRange = $<HTMLInputElement>("#eq-q-range");
   const type = $<HTMLSelectElement>("#eq-type");
+  const deleteBand = $<HTMLButtonElement>("#eq-delete");
   const fileInput = $<HTMLInputElement>("#eq-file");
   const importApo = $<HTMLButtonElement>("#eq-import-apo");
   const importGraphic = $<HTMLButtonElement>("#eq-import-graphic");
@@ -250,6 +253,7 @@ function mount(): void {
     const b = selected();
     empty.hidden = !!b;
     bandControls.hidden = !b;
+    deleteBand.hidden = !b;
 
     if (!b) empty.textContent = state.bands.length ? "点击曲线上的节点进行编辑。" : "点击曲线添加第一个频段。";
     bandCaption.textContent = b ? typeLabel(b.type) : "点击节点";
@@ -396,7 +400,13 @@ function mount(): void {
     const bottom = (PLOT_T + PLOT_H) * sy;
     const bins = frame.bins;
 
-    if (!bins.length) { clearSpectrum(); return; }
+    // 兼容模式的 analyser 在 AnalysisContext/滤波链重建后会短暂返回空帧；
+    // 此时只清掉本帧内容，不把衰减给零，否则重建期间看起来像频谱彻底消失。
+    if (!bins.length) {
+      c.clearRect(0, 0, r.width, r.height);
+
+      return;
+    }
 
     const binHz = frame.sampleRate / 2 / bins.length;
     const active = frame.active && !!player.current && !player.paused;
@@ -471,7 +481,7 @@ function mount(): void {
   };
 
   const startSpectrum = () => {
-    if (spectrumOff || !isMpv()) return;
+    if (spectrumOff) return;
     spectrumOff = audioSpectrum.onFrame(drawSpectrum);
   };
 
@@ -494,11 +504,9 @@ function mount(): void {
 
     if (!ok) {
       drag = null;
-      stopSpectrum();
       host.classList.add("is-unavailable");
     } else {
       host.classList.remove("is-unavailable");
-      startSpectrum();
 
       if (!backendWasMpv) applyNow(true);
     }
@@ -761,50 +769,6 @@ function mount(): void {
     }
   };
 
-  // —— 浮窗拖动：只在标题栏起手；按钮/开关不参与，避免点关闭时窗口先被拖走 ——
-  const head = $<HTMLElement>("[data-eq-drag]");
-  let winDrag: { dx: number; dy: number; pointerId: number } | null = null;
-
-  const clampPosition = () => {
-    if (!panel) return;
-    const r = panel.getBoundingClientRect();
-    const maxX = Math.max(8, window.innerWidth - r.width - 8);
-    const maxY = Math.max(8, window.innerHeight - r.height - 8);
-    panel.style.left = `${clamp(parseFloat(panel.style.left) || r.left, 8, maxX)}px`;
-    panel.style.top = `${clamp(parseFloat(panel.style.top) || r.top, 8, maxY)}px`;
-    panel.style.transform = "none";
-  };
-
-  head.addEventListener("pointerdown", (e) => {
-    if (eventElement(e)?.closest("button, input, select")) return;
-    const r = host.getBoundingClientRect();
-    host.style.left = `${r.left}px`;
-    host.style.top = `${r.top}px`;
-    host.style.transform = "none";
-    winDrag = { dx: e.clientX - r.left, dy: e.clientY - r.top, pointerId: e.pointerId };
-    head.setPointerCapture(e.pointerId);
-    host.classList.add("dragging");
-    e.preventDefault();
-  });
-  head.addEventListener("pointermove", (e) => {
-    if (!winDrag || e.pointerId !== winDrag.pointerId) return;
-    const r = host.getBoundingClientRect();
-    host.style.left = `${clamp(e.clientX - winDrag.dx, 8, Math.max(8, window.innerWidth - r.width - 8))}px`;
-    host.style.top = `${clamp(e.clientY - winDrag.dy, 8, Math.max(8, window.innerHeight - r.height - 8))}px`;
-  });
-
-  const stopWinDrag = (e?: PointerEvent) => {
-    if (!winDrag) return;
-
-    if (e && e.pointerId !== winDrag.pointerId) return;
-    winDrag = null;
-    host.classList.remove("dragging");
-  };
-
-  head.addEventListener("pointerup", stopWinDrag);
-  head.addEventListener("pointercancel", stopWinDrag);
-  head.addEventListener("lostpointercapture", () => stopWinDrag());
-
   const offPlayer = player.on(() => {
     const now = player.backend === "mpv" || player.backend === "mpv-compat";
 
@@ -813,7 +777,6 @@ function mount(): void {
   });
 
   const onResize = () => {
-    clampPosition();
     syncViewMetrics();
     renderGraph();
   };
@@ -852,13 +815,17 @@ function mount(): void {
   };
 
   $<HTMLButtonElement>("#eq-close").onclick = close;
-  // 真模态：点击遮罩空白处关闭，面板内部点击不冒泡成关闭。
+  // 真模态：点击遮罩空白处关闭，窗体内点击不冒泡成关闭。
   overlay.addEventListener("pointerdown", (e) => { if (e.target === overlay) close(); });
   window.addEventListener("keydown", onKey);
 
   paintAll();
   syncAvailability();
+  startSpectrum();
   // 初次打开统一回写一次：MPV 会立即套 af；Blink 只负责把旧开发版的 10 点默认迁成空曲线。
+  // 兼容模式的 PCM analyser 可能在窗口挂载后才由播放链路创建，订阅要一直活着等它。
   void player.setEqualizer(state);
-  $<HTMLButtonElement>("#eq-close").focus();
+  // 初始焦点放在预设上：全局 mousedown 会拦按钮的焦点转移，若先聚焦关闭钮，
+  // 某些窗口焦点状态下点原生 select 不会夺焦，change 也就不会提交。
+  presetSelect.focus();
 }
