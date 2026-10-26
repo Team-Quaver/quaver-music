@@ -461,6 +461,7 @@ export function bootNativeOverlays() {
   }, true);
   document.addEventListener("pointerdown", (e) => {
     if (e.target instanceof Element && tooltipHostOf(e.target)) return;
+
     if (!(e.target instanceof Node) || !tip?.contains(e.target)) hideTooltip();
   }, true);
   document.addEventListener("scroll", () => hideTooltip(), true);
