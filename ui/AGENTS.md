@@ -251,15 +251,18 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
 - 验证：`pnpm run verify:volume-bar`（源码接线 + 反向自证 + 活体：两种形态 × 六档尺寸的锚点与
   越界退位、滚轮四态四值一致、拖动跟手与松手回写；活体段需 dev server，`QBASE` 可指别处）。
 
-## Quark EQ（图形均衡器 · 仅 MPV）
+## Quark EQ（图形均衡器 · MPV 原生 / 兼容）
 
-设置 → 播放的「图形均衡器」与音量浮窗右侧的快捷入口打开同一个 body 常驻模态浮窗
-（`.eq-overlay` 遮罩 + 可拖拽 `.eq-float`；`src/components/EqualizerDialog.ts` +
-`equalizer.css`，均按需动态 import）。点遮罩空白处 / Esc 关闭。遮罩必须自己消费
-`--shell-filter`，否则会变成 backdrop root、面板只采到纯色遮罩，设置里的毛玻璃像被关掉。红线：
+设置 → 播放的「图形均衡器」与音量浮窗右侧的快捷入口打开同一个 body 常驻模态窗
+（`.eq-overlay` 黑遮罩 + `.eq-dialog` 玻璃窗体；`src/components/EqualizerDialog.ts` +
+`equalizer.css`，均按需动态 import）。与更新/调试等模态窗同一套 `--menu-*` 玻璃语言：
+窗体居中、不可拖动、点击标题不触发缩放缓动，避免玻璃整层重采样发闪；点遮罩空白处 / Esc 关闭。
+遮罩必须自己消费 `--shell-filter`，否则会变成 backdrop root、窗体只采到纯色遮罩，设置里的
+毛玻璃像被关掉。布局是「上工具条（预设 / 前级 / 导入）→ 全宽曲线 → 下频段检查器」，
+不要改回曲线与控件左右分栏。红线：
 
-- **只有 MPV 后端可编辑**：浏览器 / Blink 能让浮窗打开看结构，但控件锁定并写明
-  「当前不是 MPV 播放模式」；不要偷偷对 `<audio>` 做另一套实现。
+- **只有 MPV 后端可编辑**：`mpv` 原生直出与 `mpv-compat` PCM 兼容都算；浏览器 / Blink 能让窗
+  打开看结构，但控件锁定并写明「当前不是原生播放模式」；不要偷偷对 `<audio>` 做另一套实现。
 - 模型分两层：`electron/audio/eq-config.ts` 是首屏共享的轻量层（0 点默认 / 10 点上限、normalize、
   `af` 串生成）；`electron/audio/eq-core.ts` 才放曲线计算与 APO 解析（懒加载块）。
   整窗 CSS 也必须留在 `src/components/equalizer.css` —— 塞回 `style.css` 会顶爆首屏预算。
@@ -269,8 +272,10 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
 - 节点交互：点空白新建、拖动同时改频率/增益、双击/右键/Delete 删除、滚轮调 Q；默认 **0 点**，
   最多 10 点，不是预铺 10 段。频率 20..20000、增益/前级 ±24dB、Q 0.1..18。
   类型含 Bell、Low/High Shelf、High-Pass/Low-Pass；LP/HP 的 gain 固定 0，只沿频率轴拖。
-- 频谱：`audioSpectrum` 的 MPV 静音镜像 FFT 驱动 canvas，画 Peak（峰值保持线）+
-  Loudness（平滑能量填充），SVG 折线 EQ 与节点叠在上层。显示口径是 **Post-Fader**：
+- 频谱：`audioSpectrum` 的 MPV 静音镜像 / PCM `AnalyserNode` FFT 驱动 canvas，画 Peak（峰值
+  保持线）+ Loudness（平滑能量填充），SVG 折线 EQ 与节点叠在上层。兼容模式的 EQ 重建
+  `PcmSink` 滤波链时必须复位 `analyserHint` 并重新接回分析旁路，否则首次调 EQ / 切预置后
+  频谱会永久消失。显示口径是 **Post-Fader**：
   每个频点叠加当前音量推子（含 mute）与 EQ 响应后再进入 Loudness/Peak，图头直接标
   `POST-FADER`，不要再退回成只看原始流的 pre-fader 图。只有 MPV 打开浮窗时才订阅，
   关闭/切回 Blink 要退订，别留镜像音频在后台跑。

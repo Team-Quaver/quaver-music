@@ -222,6 +222,12 @@ check("滤波类型含真正的高通 / 低通", /value="highPass">High-Pass/.te
 
 check("预设下拉由 13 个内置预设生成并可即时应用", /EQ_PRESETS\.map/.test(dialog) && /id="eq-preset"/.test(dialog) && /presetSelect\.onchange/.test(dialog) && /presetBands\(preset\)/.test(dialog));
 
+check("预设下拉不被头部 pointerdown 拦截，打开时直接聚焦它（否则真实鼠标点击不生效）",
+  !/\.eq-head"\)\.addEventListener\("pointerdown"/.test(dialog)
+  && !/\.eq-head[^\n]*addEventListener\("pointerdown"/.test(dialog)
+  && /openEqualizer\(\)[\s\S]{0,180}querySelector<HTMLSelectElement>\("#eq-preset"\)\?\.focus\(\)/.test(dialog)
+  && /presetSelect\.focus\(\)/.test(dialog));
+
 check("手动改节点后预设回落到自定义", /matchPreset\(state\.bands\)\?\.id \?\? ""/.test(dialog));
 
 check("频谱 Peak + Loudness 真取 WebAudio FFT（不是随机动画）", /audioSpectrum\.onFrame\(drawSpectrum\)/.test(dialog) && /PEAK/.test(dialog) && /LOUDNESS/.test(dialog) && /getFloatFrequencyData/.test(src("src/lib/audio-spectrum.ts")));
@@ -232,7 +238,7 @@ check("可视化明确消费当前音量与 EQ 响应（Post-Fader）", /POST-FA
 
 check("图下描述语已删除", !/eq-graph-hint/.test(dialog) && !/eq-graph-hint/.test(dialogCss));
 
-check("桌面图形 EQ 吃掉左侧剩余高度（动态 viewBox，不拉伸圆点/文字）", /\.eq-graph-stage \{[^}]*flex: 1/.test(dialogCss) && /syncViewMetrics/.test(dialog) && /VIEW_H = VIEW_W \* r\.height \/ r\.width/.test(dialog) && /svg\.setAttribute\("viewBox"/.test(dialog));
+check("桌面图形 EQ 吃掉剩余高度（动态 viewBox，不拉伸圆点/文字）", /\.eq-graph-stage \{[^}]*flex: 1/.test(dialogCss) && /syncViewMetrics/.test(dialog) && /VIEW_H = VIEW_W \* r\.height \/ r\.width/.test(dialog) && /svg\.setAttribute\("viewBox"/.test(dialog));
 
 check("anti-slop：事件目标不再用 as 断言", !/e\.target as (Element|HTMLElement)/.test(dialog) && /e\.target instanceof Element/.test(dialog));
 
@@ -240,15 +246,28 @@ check("anti-slop：下拉类型不再 as 断言", !/type\.value as EqBandType/.t
 
 check("anti-slop：APO 属性不再用开放 dictionary", !/Record<string, number>/.test(core) && /attrs: \{ freq\?: number; gain\?: number; q\?: number; bw\?: number \}/.test(core));
 
-check("EQ 是模态浮窗：遮罩 + aria-modal + 点遮罩关闭", /className = "eq-overlay"/.test(dialog) && /aria-modal", "true"/.test(dialog) && /e\.target === overlay/.test(dialog) && dialogCss.includes(".eq-overlay"));
+check("EQ 是模态窗：遮罩 + aria-modal + 点遮罩关闭", /className = "eq-overlay"/.test(dialog) && /aria-modal", "true"/.test(dialog) && /e\.target === overlay/.test(dialog) && dialogCss.includes(".eq-overlay"));
 
 check("模态遮罩继续受设置里的统一模糊开关管理", /\.eq-overlay \{[\s\S]{0,180}backdrop-filter: var\(--shell-filter\)/.test(dialogCss) && !/-webkit-backdrop-filter/.test(dialogCss));
 
-check("APO 与 APO Graphic EQ 两个导入入口", /导入 APO/.test(dialog) && /导入 APO Graphic EQ/.test(dialog));
+check("与其它模态窗同壳：.eq-dialog 吃 --menu-* 玻璃，标题不可拖动且不挂脉冲动画",
+  /\.eq-dialog \{[\s\S]{0,260}border-radius: 16px/.test(dialogCss)
+  && /\.eq-head \{[\s\S]{0,160}cursor: default/.test(dialogCss)
+  && !/data-eq-drag/.test(dialog)
+  && !/eq-attention/.test(dialog)
+  && /\.eq-dialog, \.upd-dialog/.test(style));
+
+check("控制区围绕曲线：上预设/前级/导入，下频段检查器",
+  /class="eq-toolbar"/.test(dialog)
+  && dialog.indexOf('class="eq-toolbar"') < dialog.indexOf('class="eq-graph-wrap"')
+  && dialog.indexOf('class="eq-graph-wrap"') < dialog.indexOf('class="eq-band-block"')
+  && /\.eq-body \{[\s\S]{0,100}flex-direction: column/.test(dialogCss));
+
+check("APO 与 APO Graphic EQ 两个导入入口", /id="eq-import-apo"[^>]*>导入 APO/.test(dialog) && /id="eq-import-graphic"[^>]*>导入 APO Graphic EQ/.test(dialog));
 
 check("右下角 Powered By Quark EQ", /Powered By <b>Quark EQ<\/b>/.test(dialog));
 
-check("整窗 CSS 走懒加载（首屏 style.css 不再含 eq-float 大段）", !style.includes(".eq-float {") && dialogCss.includes(".eq-float {") && /import "\.\/equalizer\.css"/.test(dialog));
+check("整窗 CSS 走懒加载（首屏 style.css 不再含 EQ 大段）", !style.includes(".eq-dialog {") && dialogCss.includes(".eq-dialog {") && /import "\.\/equalizer\.css"/.test(dialog));
 
 check("配置 schema 有 Playing.Equalizer", /key: "Equalizer"/.test(config));
 

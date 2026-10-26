@@ -1,9 +1,12 @@
-/* ===================== Quark EQ 浮窗（components/EqualizerDialog.ts） =====================
-   模态 body 常驻浮窗：遮罩挡住背后交互，面板本身仍可拖动。玻璃底/描边/阴影来自上面的
-   共享规则；遮罩也要消费 --shell-filter，否则它会成为 backdrop root，面板只采到一层纯色。
-   本段只管布局、曲线 SVG 与控件。z 84 = 在右键菜单(80)之上、更新弹窗(85)之下。 */
+/* ===================== Quark EQ 模态窗（components/EqualizerDialog.ts） =====================
+   与其他模态窗共用 .upd-* 那套玻璃语言：黑色半透明遮罩、--menu-* 玻璃底、居中窗体、
+   只动画内容不抖玻璃本体。遮罩自己消费 --shell-filter，否则它会成为 backdrop root，
+   窗体只能采到一层纯色遮罩，设置里的毛玻璃看起来就像被关掉了。
+   z 84 = 在右键菜单(80)之上、更新弹窗(85)之下。 */
 .eq-overlay {
   position: fixed; inset: 0; z-index: 84;
+  display: grid; place-items: center;
+  padding: 14px;
   background: rgb(0 0 0 / .44);
   backdrop-filter: var(--shell-filter);
   animation: eq-overlay-in .16s ease both;
@@ -11,29 +14,26 @@
 .eq-overlay.leaving { animation: eq-overlay-out .18s ease forwards; pointer-events: none; }
 @keyframes eq-overlay-in { from { opacity: 0; } }
 @keyframes eq-overlay-out { to { opacity: 0; } }
-.eq-float {
-  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  z-index: 1; width: min(930px, calc(100vw - 28px)); max-height: calc(100vh - 28px);
-  display: flex; flex-direction: column; overflow: hidden;
-  border-radius: 18px; color: var(--ink);
-  animation: eq-float-in .18s ease both;
-}
-.eq-float.leaving { animation: eq-float-out .18s ease forwards; pointer-events: none; }
-.eq-float.eq-attention { animation: eq-float-attention .28s ease; }
-.eq-float.dragging { user-select: none; }
-@keyframes eq-float-in { from { opacity: 0; } }
-@keyframes eq-float-out { to { opacity: 0; } }
-@keyframes eq-float-attention {
-  0%, 100% { opacity: 1; }
-  45% { opacity: .82; }
-}
-.eq-float.dragging { animation: none; }
 
+.eq-dialog {
+  width: min(960px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
+  display: flex; flex-direction: column; overflow: hidden;
+  border-radius: 16px;
+  color: var(--ink);
+  box-shadow: 0 18px 60px rgb(0 0 0 / .35), inset 0 1px 0 var(--menu-edge);
+  animation: eq-dialog-in .22s cubic-bezier(.16, 1, .3, 1) both;
+}
+.eq-dialog.leaving { animation: eq-dialog-out .18s ease forwards; pointer-events: none; }
+@keyframes eq-dialog-in { from { opacity: 0; } }
+@keyframes eq-dialog-out { to { opacity: 0; } }
+
+/* 标题栏是不可拖动、不会因点击产生脉冲的定位头。光标保持默认，避免暗示可拖拽。 */
 .eq-head {
   display: flex; align-items: center; gap: 10px; padding: 13px 16px 12px;
-  border-bottom: 1px solid var(--line); cursor: grab; touch-action: none;
+  border-bottom: 1px solid var(--line);
+  cursor: default;
 }
-.eq-float.dragging .eq-head { cursor: grabbing; }
 .eq-logo {
   width: 36px; height: 36px; flex: 0 0 auto; display: grid; place-items: center;
   border-radius: 11px; color: var(--cvg-accent, var(--cyan));
@@ -74,12 +74,55 @@
 html[data-theme="dark"] .eq-unavailable b { color: #f0b24a; }
 .eq-unavailable span { color: var(--ink2); }
 
+/* —— 曲线区域是主视觉：工具条在上、曲线在中、频段检查器在下 —— */
 .eq-body {
-  display: grid; grid-template-columns: minmax(0, 1fr) 286px; gap: 16px;
-  padding: 14px 16px 8px; min-height: 0; overflow: auto;
+  display: flex; flex-direction: column; gap: 12px;
+  min-height: 0; padding: 14px 16px 10px; overflow: auto;
 }
 .eq-body.locked { opacity: .48; }
-.eq-graph-wrap { min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column; }
+
+.eq-toolbar {
+  display: grid;
+  grid-template-columns: minmax(150px, .9fr) minmax(250px, 1.5fr) auto;
+  gap: 10px; align-items: stretch;
+}
+.eq-tool {
+  min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 6px;
+  padding: 9px 11px; border-radius: 10px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--card) 46%, transparent);
+}
+.eq-tool-label {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-height: 12px; font: 600 9.5px ui-monospace, "JetBrains Mono", monospace;
+  letter-spacing: .85px; color: var(--ink2); text-transform: uppercase;
+}
+.eq-tool-label output { color: var(--cvg-accent, var(--cyan)); font-size: 10.5px; letter-spacing: .2px; }
+.eq-preset-tool { min-width: 0; }
+.eq-preset-select {
+  width: 100%; min-width: 0; height: 29px; padding: 0 8px; border-radius: 7px;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  font: 11.5px ui-monospace, "JetBrains Mono", monospace; cursor: pointer;
+}
+.eq-preamp-line { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.eq-preamp { flex: 1; min-width: 70px; width: 100%; height: 16px; margin: 0; accent-color: var(--cvg-accent, var(--cyan)); cursor: pointer; }
+.eq-inline-num { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; font-size: 11px; color: var(--ink2); }
+.eq-inline-num input {
+  width: 58px; height: 27px; padding: 0 6px; border-radius: 7px;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  font: 11px ui-monospace, "JetBrains Mono", monospace; font-variant-numeric: tabular-nums;
+}
+.eq-inline-num em { font-style: normal; font-size: 9.5px; color: var(--ink2); }
+.eq-import { flex: 0 0 auto; min-width: 0; }
+.eq-import-btns { display: flex; gap: 6px; }
+.eq-btn {
+  min-height: 29px; padding: 5px 9px; border-radius: 7px; border: 1px solid var(--line);
+  background: var(--card); color: var(--ink); font-size: 10.8px; cursor: pointer; white-space: nowrap;
+}
+.eq-btn:hover:not(:disabled) { border-color: var(--ink2); }
+.eq-btn:disabled, .eq-preamp:disabled, .eq-inline-num input:disabled { opacity: .45; cursor: not-allowed; }
+
+.eq-graph-wrap { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .eq-graph-head {
   display: flex; align-items: center; justify-content: space-between; gap: 8px 12px;
   padding: 0 2px 7px; font: 10px ui-monospace, "JetBrains Mono", monospace;
@@ -92,7 +135,7 @@ html[data-theme="dark"] .eq-unavailable b { color: #f0b24a; }
 .eq-spectrum-legend b.loud::before { background: var(--cvg-accent, var(--cyan)); opacity: .48; }
 .eq-spectrum-legend b.eq::before { height: 2.5px; background: var(--cvg-accent, var(--cyan)); opacity: 1; }
 .eq-spectrum-legend em { font-style: normal; padding-left: 8px; border-left: 1px solid var(--line); color: var(--ink2); opacity: .74; }
-.eq-graph-stage { position: relative; flex: 1; min-height: 240px; border-radius: 10px; }
+.eq-graph-stage { position: relative; flex: 1; min-height: 220px; border-radius: 10px; }
 .eq-spectrum {
   position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0;
   border-radius: 10px; pointer-events: none;
@@ -128,51 +171,42 @@ html[data-theme="dark"] .eq-unavailable b { color: #f0b24a; }
 .eq-graph.bypassed .eq-node-core { fill: var(--ink2); }
 .eq-graph.bypassed .eq-node.selected .eq-node-ring { fill: var(--ink2); }
 
-.eq-side { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-.eq-block {
-  border: 1px solid var(--line); border-radius: 11px; padding: 11px;
-  background: color-mix(in srgb, var(--card) 54%, transparent);
+/* —— 曲线下方的频段检查器：横排一行，横向占用而不是抢曲线高度 —— */
+.eq-band-block {
+  min-width: 0; padding: 10px 11px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: color-mix(in srgb, var(--card) 46%, transparent);
 }
+.eq-band-head { display: grid; grid-template-columns: minmax(88px, .65fr) minmax(0, 3fr) auto; align-items: center; gap: 10px; }
 .eq-block-title {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  margin-bottom: 8px; font: 600 10px ui-monospace, "JetBrains Mono", monospace;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  font: 600 10px ui-monospace, "JetBrains Mono", monospace;
   letter-spacing: .85px; color: var(--ink2);
 }
-.eq-block-title output { color: var(--cvg-accent, var(--cyan)); font-size: 11px; }
-.eq-preamp { width: 100%; height: 16px; margin: 1px 0 7px; accent-color: var(--cvg-accent, var(--cyan)); cursor: pointer; }
-.eq-inline-num { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--ink2); }
-.eq-inline-num input, .eq-value-line input, .eq-type-row select, .eq-preset-select {
+.eq-block-title span:last-child { font-size: 10.5px; letter-spacing: .2px; color: var(--ink2); font-weight: 500; }
+.eq-band-empty { font-size: 11.5px; color: var(--ink2); line-height: 1.55; white-space: nowrap; }
+.eq-band-controls[hidden], .eq-band-empty[hidden], .eq-delete[hidden] { display: none; }
+.eq-band-controls { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; }
+.eq-band-row3 { display: grid; grid-template-columns: 1fr 1fr .72fr; gap: 7px; }
+.eq-band-row3 label { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 10.5px; color: var(--ink2); }
+.eq-value-line { display: flex; align-items: center; gap: 3px; min-width: 0; }
+.eq-value-line input, .eq-type-row select {
   min-width: 0; height: 27px; padding: 0 7px; border-radius: 7px;
   border: 1px solid var(--line); background: var(--card); color: var(--ink);
   font: 11.5px ui-monospace, "JetBrains Mono", monospace; font-variant-numeric: tabular-nums;
 }
-.eq-inline-num input { width: 68px; }
-.eq-preset-select { width: 100%; cursor: pointer; }
-.eq-inline-num em, .eq-value-line em { font-style: normal; color: var(--ink2); }
-.eq-band-block { flex: 1; min-height: 152px; }
-.eq-band-empty { font-size: 11.5px; color: var(--ink2); line-height: 1.55; }
-.eq-band-controls[hidden], .eq-band-empty[hidden] { display: none; }
-.eq-band-row3 { display: grid; grid-template-columns: 1fr 1fr .72fr; gap: 7px; }
-.eq-band-row3 label { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 10.5px; color: var(--ink2); }
-.eq-value-line { display: flex; align-items: center; gap: 3px; min-width: 0; }
 .eq-value-line input { width: 100%; }
 .eq-value-line input:disabled { opacity: .38; cursor: not-allowed; }
-.eq-value-line em { font-size: 9.5px; }
-.eq-type-row { display: flex; align-items: center; gap: 8px; margin: 9px 0 7px; font-size: 10.5px; color: var(--ink2); }
+.eq-value-line em { font-size: 9.5px; font-style: normal; color: var(--ink2); }
+.eq-type-row { display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: var(--ink2); }
 .eq-type-row select { flex: 1; }
-.eq-q-range { width: 100%; height: 15px; margin: 0 0 7px; accent-color: var(--cvg-accent, var(--cyan)); }
+.eq-q-range { width: 100%; height: 15px; margin: 0; accent-color: var(--cvg-accent, var(--cyan)); }
 .eq-delete {
-  width: 100%; height: 27px; border-radius: 7px; border: 1px solid var(--line);
-  background: transparent; color: var(--ink2); font-size: 11px; cursor: pointer;
+  flex: 0 0 auto; height: 27px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--line);
+  background: transparent; color: var(--ink2); font-size: 10.8px; cursor: pointer; white-space: nowrap;
 }
 .eq-delete:hover { color: #e8465a; border-color: color-mix(in srgb, #e8465a 45%, var(--line)); }
-.eq-import { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
-.eq-btn {
-  min-height: 31px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line);
-  background: var(--card); color: var(--ink); font-size: 11px; cursor: pointer;
-}
-.eq-btn:hover:not(:disabled) { border-color: var(--ink2); }
-.eq-btn:disabled, .eq-preamp:disabled, .eq-inline-num input:disabled { opacity: .45; cursor: not-allowed; }
+.eq-delete:disabled { opacity: .4; cursor: not-allowed; }
 .eq-body.locked .eq-graph { cursor: not-allowed; }
 
 .eq-foot {
@@ -190,25 +224,34 @@ html[data-theme="dark"] .eq-unavailable b { color: #f0b24a; }
 .eq-powered b { color: color-mix(in srgb, var(--cvg-accent, var(--cyan)) 58%, var(--ink)); font-weight: 700; }
 
 @media (max-width: 760px) {
-  .eq-float { width: calc(100vw - 20px); max-height: calc(100vh - 20px); }
-  .eq-body { grid-template-columns: 1fr; padding: 12px 12px 6px; }
-  .eq-graph-stage { flex: none; min-height: 0; aspect-ratio: 760 / 338; }
-  .eq-side { display: grid; grid-template-columns: 1fr 1fr; }
-  .eq-band-block { grid-column: span 2; min-height: 132px; }
+  .eq-dialog { width: calc(100vw - 20px); max-height: calc(100vh - 20px); }
+  .eq-body { padding: 12px 12px 8px; }
+  .eq-toolbar { grid-template-columns: 1fr 1fr; }
   .eq-import { grid-column: span 2; }
+  .eq-import-btns { display: grid; grid-template-columns: 1fr 1fr; }
   .eq-head { padding: 10px 12px; }
   .eq-only { display: none; }
   .eq-foot { padding: 9px 12px 10px; }
   .eq-spectrum-legend { font-size: 9px; gap: 7px; }
-}
-@media (max-width: 520px) {
-  .eq-side { grid-template-columns: 1fr; }
-  .eq-band-block, .eq-import { grid-column: auto; }
-  .eq-foot { flex-wrap: wrap; row-gap: 4px; }
-  .eq-message { order: 3; flex-basis: 100%; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .eq-overlay, .eq-overlay.leaving, .eq-float, .eq-float.leaving, .eq-float.eq-attention { animation: none; }
-  .eq-node-ring { transition: none; }
+  .eq-graph-stage { flex: none; aspect-ratio: 760 / 300; min-height: 0; }
+  .eq-band-head { grid-template-columns: 1fr; }
+  .eq-band-controls { grid-template-columns: 1fr; }
 }
 
+@media (max-width: 520px) {
+  .eq-toolbar { grid-template-columns: 1fr; }
+  .eq-import { grid-column: auto; }
+  .eq-import-btns { display: flex; flex-wrap: wrap; }
+  .eq-import-btns .eq-btn { flex: 1 1 140px; }
+  .eq-preamp-line { flex-wrap: wrap; }
+  .eq-inline-num { margin-left: auto; }
+  .eq-foot { flex-wrap: wrap; row-gap: 4px; }
+  .eq-message { order: 3; flex-basis: 100%; }
+  .eq-band-row3 { grid-template-columns: 1fr 1fr; }
+  .eq-band-row3 label:last-child { grid-column: span 2; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eq-overlay, .eq-overlay.leaving, .eq-dialog, .eq-dialog.leaving { animation: none; }
+  .eq-node-ring { transition: none; }
+}
