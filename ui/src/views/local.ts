@@ -2,7 +2,7 @@
 import "./local.css";
 import { songListTools } from "../components/ListTools";
 import { toast } from "../lib/toast";
-import { api, escHtml } from "../lib/api";
+import { escHtml } from "../lib/api";
 import { addFolderSource, addWebdavSource, loadLocalLibrary, localSnapshot, onLocalLibraryChange, removeLocalSource, scanSummary, scrapeSummary, trackToSong, triggerLocalScan, triggerScrape } from "../lib/local.ts";
 import type { LibrarySnapshot } from "../lib/local.ts";
 import { renderSongRows } from "../lib/songs";
@@ -17,6 +17,7 @@ import { h, mountStickyBar, playAllButton } from "./_shared";
 //   ③ 刮削入口（未匹配的补、全部重刮、行级右键的单曲重刮在 SongMenu）。
 // 选目录是 Electron 专属（quaverLocal 桥）；浏览器 dev 给手输路径的输入框（NAS 挂载目录本来就是路径）。
 export default async function localView(root: HTMLElement) {
+  root.classList.add("local-page");
   const title = h("h1", "page-title", "本地音乐 ");
   const cnt = h("span", "muted cnt");
   title.append(cnt);
@@ -27,7 +28,7 @@ export default async function localView(root: HTMLElement) {
 
   const sticky = mountStickyBar(root, { name: "本地音乐" });
   const nameEl = sticky.bar.querySelector<HTMLElement>(".sticky-bar__name");
-  const box = h("div", "rows", `<div class="muted">载入中…</div>`);
+  const box = h("div", "rows local-rows", `<div class="muted">载入中…</div>`);
   root.append(box);
 
   let snap: LibrarySnapshot | null = null;
@@ -240,6 +241,6 @@ export default async function localView(root: HTMLElement) {
   apply();
 
   // 正在播放的是本地曲目时进页 → 立刻高亮所在行（markActive 由 player 订阅驱动，这里补一次）
-  return () => { off(); };
+  return () => { off(); sticky.off(); };
 }
 

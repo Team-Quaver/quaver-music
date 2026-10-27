@@ -35,6 +35,7 @@ export const nav = [
   { path: "#/liked", label: "我喜欢", icon: "heart" },
   // 歌单集合页入口：无条件常驻（菜单栏态下侧栏仍列歌单，这里只是「全部歌单」的落地页）
   { path: "#/playlists", label: "歌单", icon: "list" },
+  { path: "#/all", label: "所有歌曲", icon: "disc" },
   { path: "#/local", label: "本地音乐", icon: "folder" },
 ];
 
@@ -54,6 +55,9 @@ const icons: Record<string, string> = {
   // 歌单：堆叠的曲目行（三条带前置圆点的水平线），与「本地音乐」的容器形区分开。
   list:
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="4.5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="4.5" cy="18" r="1.4" fill="currentColor" stroke="none"/></svg>',
+  // 所有歌曲：CD 碟面（外圈 + 反光弧 + 中心轴孔），与「本地音乐」的文件夹容器形区分开。
+  disc:
+    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="8.4"/><circle cx="12" cy="12" r="5.2" opacity=".48"/><circle cx="12" cy="12" r="1.55" fill="currentColor" stroke="none"/><path d="M7.5 7.1a6.4 6.4 0 0 1 3.1-1.35" opacity=".72"/></svg>',
   // 设置：齿轮（外圈齿形 + 中心孔）。与其它线性图标同一套 24 网格 / currentColor 描边。
   settings:
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',

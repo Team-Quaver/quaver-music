@@ -1386,6 +1386,12 @@ if (process.platform === "linux" && !process.env.QUAVER_KEEP_MEDIATOR) {
 
 app.commandLine.appendSwitch("disable-features", disabledFeatures.join(","));
 
+// 平滑滚动 + 强制硬件加速：--enable-smooth-scrolling 走合成器滚动动画，
+// --ignore-gpu-blocklist 连 GPU 黑名单里的老卡/软渲染也强制走硬件路径；
+// Electron 默认开硬件加速，但旧机型可能命中黑名单，这里显式钉死开启口径。
+app.commandLine.appendSwitch("enable-smooth-scrolling");
+app.commandLine.appendSwitch("ignore-gpu-blocklist");
+
 // 渲染进程 V8 老生代上限：本应用的数据面很小（千首级歌单/队列也就几 MB 的 JS 对象），V8 默认
 // 无上限会按堆增长启发式惰性扩堆，渲染进程 RSS 轻松上 400MB。钉一个 256MB 顶部逼 V8 提前回收，
 // 行为零变化（正常使用远碰不到这个顶）。js-flags 只作用于 Chromium 子进程（渲染层/工具进程），

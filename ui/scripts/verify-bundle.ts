@@ -135,9 +135,9 @@ check("主窗首屏不含任何路由视图实现（src/views/<页面>.ts）",
 
 section("视图按路由分块");
 
-const viewChunks = Object.keys(graph).filter((f) => /^assets\/(home|search|guess|daily|liked|local|playlist|playlists|toplist|singer|singer-albums|album|settings|log|user|login)-/.test(f));
+const viewChunks = Object.keys(graph).filter((f) => /^assets\/(home|search|guess|daily|liked|local|all|playlist|playlists|toplist|singer|singer-albums|album|settings|log|user|login)-/.test(f));
 
-for (const v of ["home", "search", "guess", "daily", "liked", "local", "playlist", "playlists", "toplist", "singer", "album", "settings", "log", "user", "login"]) {
+for (const v of ["home", "search", "guess", "daily", "liked", "local", "all", "playlist", "playlists", "toplist", "singer", "album", "settings", "log", "user", "login"]) {
   check(`视图 ${v} 独立成块`, viewChunks.some((f) => f.startsWith(`assets/${v}-`)));
 }
 

@@ -1,0 +1,287 @@
+/* Quaver — 「所有歌曲」视图（随 /all 懒加载） */
+
+/* 列表视图 = 普通虚拟歌单：整页滚，标题与信息头先滚出，吸顶条随后固定。 */
+.all-page .sticky-bar { z-index: 7; }
+
+/* 歌手/专辑分类才锁成内容区双栏；列表视图保持 .route 原生滚动。 */
+.route:has(> .entering.all-page:is([data-view="artist"], [data-view="album"])) {
+  display: flex;
+  padding-bottom: 0;
+}
+
+.route > .entering.all-page:is([data-view="artist"], [data-view="album"]) {
+  flex: 1;
+  min-width: 0;
+}
+
+.all-page:is([data-view="artist"], [data-view="album"]) > .all-tabs-body {
+  height: var(--all-body-h, calc(100vh - 210px));
+  min-height: 240px;
+}
+
+.all-page:is([data-view="artist"], [data-view="album"]) .all-tabs-body > .tag-panel:not([hidden]) {
+  height: 100%; min-height: 0;
+}
+
+/* 信息头/吸顶条的 CD 封面：深色碟面 + Accent 反光，中心轴孔留空。 */
+.all-cover {
+  position: relative; width: 100%; height: 100%; overflow: hidden; border-radius: inherit;
+  background:
+    radial-gradient(circle at 31% 26%, rgb(255 255 255 / 48%) 0 2.5%, transparent 12%),
+    conic-gradient(from 214deg,
+      color-mix(in srgb, var(--cvg-accent, var(--acc)) 42%, #11151d) 0 7%,
+      #141821 7% 16%,
+      color-mix(in srgb, var(--cvg-accent, var(--acc)) 22%, #0d1017) 16% 25%,
+      #1b202a 25% 35%,
+      color-mix(in srgb, var(--cvg-accent, var(--acc)) 34%, #11151d) 35% 44%,
+      #0f131a 44% 56%,
+      color-mix(in srgb, var(--cvg-accent, var(--acc)) 24%, #11151d) 56% 66%,
+      #1b202a 66% 78%,
+      color-mix(in srgb, var(--cvg-accent, var(--acc)) 38%, #10141b) 78% 89%,
+      #12161e 89% 100%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 12%), inset 0 0 32px rgb(0 0 0 / 42%);
+}
+
+.all-cover::before {
+  content: ""; position: absolute; inset: 18%; border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 50%; box-shadow: inset 0 0 0 7px rgb(255 255 255 / 3%);
+}
+
+.all-cover::after {
+  content: ""; position: absolute; inset: 42.5%; border-radius: 50%;
+  background: var(--card, #f4f5f7); box-shadow: 0 0 0 5px rgb(0 0 0 / 28%);
+}
+
+.all-cover__glint {
+  position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(118deg, transparent 20%, rgb(255 255 255 / 18%) 36%, transparent 50%);
+}
+
+.sticky-bar__art .all-cover::after { box-shadow: 0 0 0 2px rgb(0 0 0 / 28%); }
+
+.all-source-note {
+  margin: -4px 0 14px; padding: 8px 11px; border: 1px dashed var(--line);
+  border-radius: 9px; color: var(--ink2); font-size: 12px;
+}
+
+.all-source-note[hidden] { display: none; }
+
+.all-list-toolbar {
+  display: flex; align-items: flex-start; justify-content: flex-end; gap: 10px;
+  margin-bottom: 12px;
+}
+
+.all-list-toolbar .list-tools { margin: 0; flex: 1 1 auto; }
+
+.all-page:is([data-view="artist"], [data-view="album"]) .all-list-panel:not([hidden]) {
+  display: flex; flex-direction: column;
+}
+
+.all-page:is([data-view="artist"], [data-view="album"]) .all-list-rows {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+.all-browser {
+  display: grid;
+  grid-template-columns: minmax(220px, 286px) minmax(0, 1fr);
+  grid-template-areas: "intro intro" "rail tracks";
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%; min-height: 0;
+}
+
+.all-browser--album {
+  grid-template-areas: "rail tracks";
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.all-group-intro {
+  grid-area: intro; margin: 0 0 12px;
+}
+
+.all-browser__rail {
+  grid-area: rail;
+  min-width: 0; min-height: 0; display: flex; flex-direction: column;
+  border-right: 1px solid var(--line);
+}
+
+.all-browser__rail-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 3px 12px 10px 0; color: var(--ink); font-size: 13px;
+}
+
+.all-browser__rail-head .muted { font-size: 11.5px; }
+
+.all-browser__list {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 2px; padding: 0 10px 10px 0;
+}
+
+.all-browser__item {
+  width: 100%; min-width: 0; display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  padding: 7px 8px; border: 1px solid transparent; border-radius: 8px;
+  background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  transition: background .14s ease, border-color .14s ease;
+}
+
+.all-browser__item:hover { background: var(--row-hover); }
+
+.all-browser__item.sel {
+  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 42%, var(--line));
+  background: color-mix(in srgb, var(--cvg-accent, var(--acc)) 10%, var(--row-hover));
+}
+
+.all-browser__thumb,
+.all-browser__head-art {
+  position: relative; overflow: hidden; background: var(--ph2);
+}
+
+.all-browser__thumb {
+  width: 38px; height: 38px; display: grid; place-items: center;
+  border-radius: 6px;
+  background:
+    radial-gradient(circle at 30% 25%, rgb(255 255 255 / 18%), transparent 45%),
+    color-mix(in srgb, var(--cvg-accent, var(--acc)) 16%, var(--ph));
+}
+
+.all-browser__thumb.round,
+.all-browser__head-art.round { border-radius: 50%; }
+
+.all-browser__thumb img,
+.all-browser__head-art img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+
+.all-browser__thumb .all-art-letter {
+  width: 27px; height: 27px; font-size: 13px;
+}
+
+.all-browser__thumb .all-art-fallback {
+  width: 27px;
+}
+
+.all-browser__thumb .all-art-fallback i {
+  bottom: -7px; font-size: 10px;
+}
+
+.all-browser__copy {
+  min-width: 0; display: flex; flex-direction: column; gap: 2px;
+}
+
+.all-browser__name {
+  overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 600;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+
+.all-browser__sub {
+  overflow: hidden; color: var(--ink2); font-size: 11.5px;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+
+.all-browser__count {
+  flex: 0 0 auto; color: var(--idx); font-size: 11px; white-space: nowrap;
+}
+
+.all-browser__tracks {
+  grid-area: tracks; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column;
+  padding: 2px 0 0 24px; overflow: hidden;
+}
+
+.all-browser__head {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 14px; padding-bottom: 13px; border-bottom: 1px solid var(--line);
+}
+
+.all-browser__rows {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding-bottom: 20px;
+}
+
+.all-browser__head-art {
+  width: 48px; height: 48px; flex: 0 0 auto; display: grid; place-items: center;
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 30% 25%, rgb(255 255 255 / 18%), transparent 45%),
+    color-mix(in srgb, var(--cvg-accent, var(--acc)) 16%, var(--ph));
+}
+
+.all-browser__head-art .all-art-letter {
+  width: 34px; height: 34px; font-size: 16px;
+}
+
+.all-browser__head-art .all-art-fallback {
+  width: 34px;
+}
+
+.all-browser__head-art .all-art-fallback i {
+  bottom: -8px; font-size: 11px;
+}
+
+.all-browser__heading {
+  min-width: 0; display: flex; flex-direction: column; gap: 3px;
+}
+
+.all-browser__heading h2 {
+  min-width: 0; margin: 0; overflow: hidden; color: var(--ink);
+  font-size: 18px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.all-browser__heading .muted {
+  overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.all-browser__head .ghost-btn { flex: 0 0 auto; margin-left: auto; }
+
+.all-browser__empty {
+  padding: 22px 12px; color: var(--ink2); font-size: 12.5px; text-align: center;
+}
+
+.all-artist-avatar {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+  border-radius: 50%;
+}
+
+.all-art-letter {
+  display: grid; place-items: center; width: 64%; height: 64%; border-radius: 50%;
+  background: color-mix(in srgb, var(--cvg-accent, var(--acc)) 74%, #11151d);
+  color: #fff; font-size: clamp(28px, 4.2vw, 44px); font-weight: 800;
+  line-height: 1; letter-spacing: -.03em; text-shadow: 0 2px 10px rgb(0 0 0 / 24%);
+}
+
+.all-art-fallback {
+  position: relative; display: grid; place-items: center;
+  width: 54%; aspect-ratio: 1; border-radius: 50%;
+  border: 1px solid rgb(255 255 255 / 24%);
+  background:
+    radial-gradient(circle, var(--card) 0 8%, transparent 9% 18%, rgb(255 255 255 / 8%) 19% 20%, transparent 21%),
+    conic-gradient(from 45deg, rgb(255 255 255 / 8%), transparent 20%, rgb(255 255 255 / 14%) 42%, transparent 62%, rgb(255 255 255 / 8%));
+}
+
+.all-art-fallback i {
+  position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%);
+  color: rgb(255 255 255 / 68%); font-size: 15px; font-style: normal; font-weight: 700;
+}
+
+@media (max-width: 860px) {
+  .all-browser {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "intro" "rail" "tracks";
+    grid-template-rows: auto minmax(180px, 0.8fr) minmax(220px, 1.2fr);
+  }
+  .all-browser--album {
+    grid-template-areas: "rail" "tracks";
+    grid-template-rows: minmax(180px, 0.8fr) minmax(220px, 1.2fr);
+  }
+  .all-browser__rail {
+    border-right: 0; border-bottom: 1px solid var(--line);
+    padding-bottom: 10px;
+  }
+  .all-browser__tracks {
+    padding: 16px 0 0;
+  }
+  .all-list-toolbar { flex-wrap: wrap; }
+  .all-list-toolbar .list-tools { flex-basis: 100%; }
+}

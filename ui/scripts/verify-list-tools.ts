@@ -101,10 +101,10 @@ ok("perf: 逐字符输入按 120ms 合并，立即画的场合先吃掉排队那
   && re(code, /timer = window\.setTimeout\(paint, INPUT_DEBOUNCE_MS\)/)
   && re(code, /function paint\(\) \{\s*window\.clearTimeout\(timer\);/));
 
-// 「没有匹配的歌曲」的调用方计数 = 歌单 / 我喜欢 / 歌手页条内搜索 / 本地音乐 四处
-// （本地音乐 = feat/herta/local-nas-track 新增的第四个 songListTools 消费者；加页时同步这里的数字）
-ok("空态: 组件只负责给列表，空态文案由调用方兜（歌单/我喜欢/歌手页条内搜索/本地音乐）",
-  (views.match(/没有匹配的歌曲/g) ?? []).length === 4);
+// 「没有匹配的歌曲」的调用方计数 = 歌单 / 我喜欢 / 歌手页条内搜索 / 本地音乐 / 所有歌曲 五处
+// （所有歌曲 = feat/jinhsi/unitrack 新增的第五个 songListTools 消费者；加页时同步这里的数字）
+ok("空态: 组件只负责给列表，空态文案由调用方兜（歌单/我喜欢/歌手页条内搜索/本地音乐/所有歌曲）",
+  (views.match(/没有匹配的歌曲/g) ?? []).length === 5);
 
 ok("空态: 回调带上 filtering，调用方能区分「搜索没命中」与「本来就没收藏」",
   has(toolsSrc, "paint: (list: any[], state: { filtering: boolean }) => void")
