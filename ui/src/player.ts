@@ -828,8 +828,20 @@ class Player {
   /** 用新列表替换队列并从 i 播放（整队列替换：视图语义一致）。不 await：双击即刻打断切歌。 */
   playList(songs: Song[], i = 0) {
     this.exitRadio();
-    this.queue = songs.filter((s) => s?.mid);
-    this.index = Math.max(0, Math.min(i, this.queue.length - 1));
+    // 上游歌单可能夹着没有 mid 的网盘条目，队列会跳过它们；下标必须按原列表
+    // 同步重映射，否则点网盘后面的歌会错位到再下一首。
+    const queue: Song[] = [];
+    let selected = -1;
+
+    for (const [at, song] of songs.entries()) {
+      if (!song?.mid) continue;
+
+      if (at === i) selected = queue.length;
+      queue.push(song);
+    }
+
+    this.queue = queue;
+    this.index = selected >= 0 ? selected : Math.max(0, Math.min(i, queue.length - 1));
     this.queueVersion++;
     void this.startCurrent();
   }

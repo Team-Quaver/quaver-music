@@ -156,6 +156,12 @@ ok("player: 立即插队队列空时退化成单曲起播",
 ok("player: 立即播放会退出无限电台（显式换台优先于电台锁）",
   /this\.exitRadio\(\);[\s\S]{0,120}this\.queue\.splice\(this\.index \+ 1, 0, song\);/.test(noComments(nowBody)));
 
+const playListBody = (src.player.match(/playList\(songs: Song\[\], i = 0\) \{([\s\S]*?)\n  \}/) ?? [])[1] ?? "";
+
+ok("player: 无 mid 条目被跳过时，选中下标按原列表重映射（网盘条目不让后一首错位）",
+  /for \(const \[at, song\] of songs\.entries\(\)\) \{\s*if \(!song\?\.mid\) continue;\s*if \(at === i\) selected = queue\.length;\s*queue\.push\(song\);\s*\}/.test(noComments(playListBody))
+  && /this\.index = selected >= 0 \? selected : Math\.max\(0, Math\.min\(i, queue\.length - 1\)\)/.test(noComments(playListBody)));
+
 ok("views: 搜索页双击走立即插队（不是 playList 整列灌队，也不是排到下一首）",
   /renderSongRows\(box, list, \{ showAlbum: true, onPlay: \(s\) => playNowWithToast\(s\) \}\)/.test(src.views));
 
