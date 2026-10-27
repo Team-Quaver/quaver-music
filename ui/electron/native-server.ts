@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createReadStream } from "node:fs";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { extname, isAbsolute, join, normalize, relative } from "node:path";
 import { backgroundResponse } from "./background.ts";
 import { accentPayload } from "./accent.ts";
@@ -152,6 +152,38 @@ async function proxyImage(u, res) {
   }
 }
 
+/** /api/log 的尾部窗口（字节）。与 relay.ts 的 serveLog 同值，两边别改一边。 */
+const LOG_TAIL_BYTES = 2_000_000;
+
+/** 只读文件末尾 LOG_TAIL_BYTES —— 绝不整文件进内存。
+ *  主进程日志上限 50MiB（electron/main.ts 的 LOG_MAX_BYTES）：整读的话每个滚动周期里
+ *  /api/log 都会按**文件大小**线性分配一次大 Buffer（开发态开 CROTCHET 时日志长得很快），
+ *  而调用方（src/views/log.ts）要的一向是尾部几百行（?tail=800）。
+ *  按 start 偏移定长读之后，分配只跟尾部窗口挂钩，与日志大小无关。 */
+function readLogTail(logFile: string): string {
+  const size = statSync(logFile).size;
+  const start = Math.max(0, size - LOG_TAIL_BYTES);
+  const buf = Buffer.allocUnsafe(size - start);
+  let got = 0;
+  const fd = openSync(logFile, "r");
+
+  try {
+    // readSync 不保证一次读满（POSIX 允许短读），按返回字节数推进直到读满或到 EOF
+    for (; got < buf.length;) {
+      const n = readSync(fd, buf, got, buf.length - got, start + got);
+
+      if (n <= 0) break; // 文件在读的过程中被滚动（rename 走）：只交已读到的那段
+      got += n;
+    }
+  } finally {
+    closeSync(fd);
+  }
+
+  // 截尾起点可能落在 UTF-8 多字节序列中间：坏首字节会被 toString 归成替换符 ——
+  // 与旧实现（整读后 subarray）同一行为，日志首行偶发一个乱码字符不影响可读性。
+  return buf.subarray(0, got).toString("utf8");
+}
+
 function serveLog(res, logFile, tail) {
   if (!logFile || !existsSync(logFile)) {
     res.statusCode = 404;
@@ -159,9 +191,7 @@ function serveLog(res, logFile, tail) {
     return res.end(JSON.stringify({ code: -1, msg: "log 文件不存在" }));
   }
 
-  const size = statSync(logFile).size;
-  const buf = readFileSync(logFile);
-  const text = size > 2_000_000 ? buf.subarray(size - 2_000_000).toString("utf8") : buf.toString("utf8");
+  const text = readLogTail(logFile);
   const lines = text.split("\n");
   res.statusCode = 200;
   res.setHeader("content-type", "text/plain; charset=utf-8");

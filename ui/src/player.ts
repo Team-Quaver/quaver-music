@@ -2053,13 +2053,77 @@ class Player {
     return on;
   }
 
-  /** 高亮当前页面对应的歌曲行（.playing 类），与旧行为一致 */
+  /** 已登记的歌曲行容器（弱引用），由 lib/songs.ts 的 renderSongRows 登记。
+   *  player 不能反向 import 它（会成环），所以这里只收元素、不认得「列表」这个概念。
+   *  全程弱引用：切走视图后旧列表连同它的行对象该回收就回收，不因为「被登记过」而留着。 */
+  private rowScopes = new Set<WeakRef<HTMLElement>>();
+
+  /** 上一次由 markActive 打上班记的元素（同样弱引用 —— 强引用会把已经弃用的整棵列表
+   *  从父节点方向拽住）。清高亮只需要动这几个元素，不必再遍历整页找 .playing。 */
+  private activeEls = new Set<WeakRef<HTMLElement>>();
+
+  /** 登记一个歌曲行容器：markActive 只在这些容器里找行。 */
+  registerRowScope(box: HTMLElement) {
+    // 按「元素身份」去重：同一个容器反复重画（搜索/排序每次都调）不许攒出多份弱引用，
+    // 否则 markActive 会把同一份列表扫 N 遍。集合规模就是个位数（当前可见的几个列表），
+    // 线性比对的代价可以忽略，换来的是「登记永远只有一份」。
+    for (const ref of this.rowScopes) if (ref.deref() === box) return;
+    this.rowScopes.add(new WeakRef(box));
+  }
+
+  /** 当前在文档里的行容器；元素已被回收的弱引用顺手摘掉。
+   *  「脱离文档」的容器不进扫描：整棵子树都不在 document 里，旧实现那次
+   *  document.querySelectorAll 本来就摸不到它（脱离的行会留着旧的 .playing），所以跳过 = 原语义，
+   *  又不至于让切过的视图把扫描成本越攒越多。条目本身仍留在集合里，等它被回收时才摘 ——
+   *  视图切回时会重新渲染并登记，中途短暂脱离不需要我们替它保留高亮。 */
+  private mountedRowScopes(): HTMLElement[] {
+    const live: HTMLElement[] = [];
+
+    for (const ref of this.rowScopes) {
+      const el = ref.deref();
+
+      if (!el) { this.rowScopes.delete(ref); continue; }
+
+      if (el.isConnected) live.push(el);
+    }
+
+    return live;
+  }
+
+  /** 高亮当前页面对应的歌曲行（.playing 类），效果与旧实现一致。
+   *
+   *  旧实现每次调用都要**整篇文档扫两遍**：先扫 `.card.playing,.row.playing` 清旧，再扫
+   *  `[data-songkey]` 打新。搜索框每敲一个字都会重画列表并调这里，列表越大越卡。改成：
+   *    ① 清旧 —— 只动记账过的那几个元素（全仓只有这里会给行/卡打 .playing；正在播放页的
+   *      .np.playing 是别的元素，见 NowPlaying.ts:1176，所以「我们打的」就是「要清的全集」）；
+   *    ② 打新 —— 只在已登记的容器里找，也就是当前真正在场的那几个列表。
+   *  两个口径都要求：所有带 data-songkey 的行都出自 renderSongRows（它负责登记容器）。这条不变量
+   *  由 scripts/verify-song-rows.ts 守着；将来谁在别处造行，那处也得登记，否则高亮会漏。
+   *  一个容器都没登记时（首帧前、或插件自绘视图）回落到整篇扫，与旧实现逐字一致。 */
   markActive() {
-    document.querySelectorAll(".card.playing,.row.playing").forEach((e) => e.classList.remove("playing"));
-    const key = this.current?.mid;
+    const key = this.current?.mid ?? "";
+    const scopes = this.mountedRowScopes();
+
+    if (scopes.length) {
+      for (const ref of this.activeEls) ref.deref()?.classList.remove("playing");
+    } else {
+      document.querySelectorAll(".card.playing,.row.playing").forEach((e) => e.classList.remove("playing"));
+    }
+
+    this.activeEls.clear();
 
     if (!key) return;
-    document.querySelectorAll(`[data-songkey="${CSS.escape(key)}"]`).forEach((e) => e.classList.add("playing"));
+    const sel = `[data-songkey="${CSS.escape(key)}"]`;
+    const roots: ParentNode[] = scopes.length ? scopes : [document];
+
+    // querySelectorAll 而不是 querySelector：同一首曲可以出现在同一列表多次
+    // （歌单顺序表允许重复），旧实现每处都点亮，这里保持一致。
+    for (const root of roots) {
+      root.querySelectorAll<HTMLElement>(sel).forEach((e) => {
+        e.classList.add("playing");
+        this.activeEls.add(new WeakRef(e));
+      });
+    }
   }
 }
 

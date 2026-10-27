@@ -5,7 +5,7 @@
 // 所以这里只剩纯透传 + 封面代理。
 import type { Connect } from "vite";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { isAbsolute, join, normalize, relative } from "node:path";
 import { configDir } from "../electron/config.ts";
 import { backgroundResponse } from "../electron/background.ts";
@@ -150,6 +150,34 @@ async function proxyImage(u: string | null, res: ServerResponse) {
 
 // 调试：日志页面数据源。Electron 壳层写 ui/electron-dev.log（见 electron/main.ts），
 // 这里以纯文本给出尾部 N 行；文件不存在（纯浏览器 dev）返回 404 JSON，前端显示占位提示。
+// 读取只取文件末尾 LOG_TAIL_BYTES，不整文件进内存 —— 与打包态 electron/native-server.ts 同构。
+
+/** /api/log 的尾部窗口（字节）。与 native-server.ts 同值，两边别改一边。 */
+const LOG_TAIL_BYTES = 2_000_000;
+
+/** 只读文件末尾 LOG_TAIL_BYTES —— 分配与日志大小无关，只跟尾部窗口挂钩。 */
+function readLogTail(file: string): string {
+  const size = statSync(file).size;
+  const start = Math.max(0, size - LOG_TAIL_BYTES);
+  const buf = Buffer.allocUnsafe(size - start);
+  let got = 0;
+  const fd = openSync(file, "r");
+
+  try {
+    // readSync 不保证一次读满（POSIX 允许短读），按返回字节数推进直到读满或到 EOF
+    for (; got < buf.length;) {
+      const n = readSync(fd, buf, got, buf.length - got, start + got);
+
+      if (n <= 0) break; // 读的过程中日志被滚动：只交已读到的那段
+      got += n;
+    }
+  } finally {
+    closeSync(fd);
+  }
+
+  return buf.subarray(0, got).toString("utf8");
+}
+
 function serveLog(res: ServerResponse, tail: number) {
   const file = join(import.meta.dirname ?? ".", "..", "electron-dev.log");
 
@@ -159,9 +187,7 @@ function serveLog(res: ServerResponse, tail: number) {
     return res.end(JSON.stringify({ code: -1, msg: "electron-dev.log 不存在" }));
   }
 
-  const size = statSync(file).size;
-  const buf = readFileSync(file);
-  const text = size > 2_000_000 ? buf.subarray(size - 2_000_000).toString("utf8") : buf.toString("utf8");
+  const text = readLogTail(file);
   const lines = text.split("\n");
   res.statusCode = 200;
   res.setHeader("content-type", "text/plain; charset=utf-8");

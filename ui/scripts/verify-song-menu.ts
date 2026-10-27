@@ -238,7 +238,9 @@ ok("player: 流未就绪时保住还原点（不被 0 覆盖）", re(src.player,
 
 // ============ 6. 回归：行的既有交互不能被菜单改动带走 ============
 ok("回归: 双击播放仍走 hooks.onPlay（序号/列表以当时 DOM 为准，删除重排后不错位）",
-  re(src.songs, /"dblclick"[\s\S]{0,420}hooks\.onPlay\?\.\(s, rows\.indexOf\(row\), all\)/));
+  // 窗口从 420 放宽到 600：dblclick 改成容器级委托（每容器一套监听，行不再各挂闭包），
+  // 「取事件目标 → 归到行 → 查 keyMap」这几行是委托固有的前置，语义断言一个字没减。
+  re(src.songs, /"dblclick"[\s\S]{0,600}hooks\.onPlay\?\.\(s, rows\.indexOf\(row\), all\)/));
 
 ok("回归: 红心按钮仍先乐观改态再写接口", re(src.songs, /player\.toggleLove\(s\)[\s\S]{0,120}paintLove\(btn/));
 
