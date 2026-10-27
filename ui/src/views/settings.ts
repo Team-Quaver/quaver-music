@@ -570,6 +570,7 @@ export default async function settingsView(root: HTMLElement) {
       wrap.classList.add("tab-anim");
       tabs.querySelectorAll(".set-tab").forEach((x) => x.classList.toggle("is-active", x === t));
       wrap.querySelectorAll<HTMLElement>(".set-panel").forEach((p) => { p.hidden = p.dataset.panel !== t.dataset.tab; });
+      wrap.scrollTop = 0; // 每个分区都从顶部开始，别沿用上一分区在滚动容器里的位置
     };
   });
 
