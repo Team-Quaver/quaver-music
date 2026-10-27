@@ -286,12 +286,15 @@ export function trackToSong(t: LocalTrackView, snapshotSources?: LocalSourceView
   const src = (snapshotSources ?? snapshot?.sources ?? []).find((x) => x.id === t.sourceId);
   const kind: "folder" | "webdav" = src?.kind === "webdav" ? "webdav" : "folder";
   const artists = (t.artist || t.albumArtist || "").split(/\s*\/\s*/).map((x) => x.trim()).filter(Boolean);
+  // 刮削只记录首位歌手的 mid：合唱曲把它复制给每个人会张冠李戴（头像/跳转都错），
+  // 所以只有单歌手曲目才信任这个 mid；合唱曲留空，按各自姓名解析。
+  const matchedSingerMid = artists.length === 1 ? (t.match?.singerMid ?? "") : "";
 
   return {
     mid: "local:" + t.id,
     name: t.title || t.relPath.split("/").pop() || t.relPath,
     title: t.title,
-    singer: artists.map((name) => ({ name, mid: t.match?.singerMid ?? "" })),
+    singer: artists.map((name) => ({ name, mid: matchedSingerMid })),
     album: { name: t.album, mid: t.match?.albumMid ?? "", pmid: t.match?.albumPmid ?? "" },
     interval: t.durationSec || 0,
     local: {
