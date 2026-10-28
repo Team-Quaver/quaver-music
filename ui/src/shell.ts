@@ -552,6 +552,11 @@ async function bootSidebar() {
     const st: any = await api("/login/status");
 
     if (!st?.logged_in) return; // 未登录：保持占位样式
+
+    // 请求期间用户可能已经登出并跳到登录页：这次晚到的登录态属于上一轮，
+    // 绝不能再把头像/昵称画回来。登录页的路由是当前页面唯一真相。
+    if (currentRoute().path === "/login") return;
+
     const c = st?.credential ?? {};
     const owner = String(c.str_musicid || c.musicid || c.encrypt_uin || "");
 

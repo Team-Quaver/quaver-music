@@ -268,6 +268,18 @@ ok("退出登录清掉播放队列与会话存档（并抑制跳转/pagehide 的
   /saveSessionNow\(\) \{\s*if \(!this\.sessionReady \|\| this\.sessionDiscard\) return;/.test(noComments(player)) &&
   player.includes("clearSession();"));
 
+ok("登出边界同时作废预取/歌词/电台的旧账号异步结果",
+  /clearForLogout\(\)[\s\S]{0,900}this\.prefetch\.clear\(\)/.test(noComments(player)) &&
+  /clearForLogout\(\)[\s\S]{0,900}this\.prefetchedMid = ""/.test(noComments(player)) &&
+  /clearForLogout\(\)[\s\S]{0,900}this\.lyricSeq\+\+/.test(noComments(player)) &&
+  /clearForLogout\(\)[\s\S]{0,900}this\.radioSeq\+\+/.test(noComments(player)) &&
+  /clearForLogout\(\)[\s\S]{0,900}this\.accountSeq\+\+/.test(noComments(player)));
+
+ok("起播链全程校验账号代际（load/play 晚到也不能写回新账号）",
+  /const account = this\.accountSeq/.test(noComments(player)) &&
+  /await this\.transport\.load\([\s\S]{0,180}account !== this\.accountSeq/.test(noComments(player)) &&
+  /await this\.transport\.play\(\)[\s\S]{0,260}account !== this\.accountSeq/.test(noComments(player)));
+
 ok("登录态变化仍走整页跳转（重置侧栏）", uv.includes('location.href = "/login.html"'));
 
 ok("连点只开一趟登出 + 按钮进禁用态", re(uv, /if \(leaving\) return;/) && re(uv, /btn\.disabled = true;/));

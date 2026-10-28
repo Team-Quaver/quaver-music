@@ -365,6 +365,14 @@ check("Go 侧 external 下 Adopt 直接交接、不落盘",
 check("Go 侧 external 下 Logout 发 null 而不是删文件",
   /if s\.mode == ModeExternal \{\s*\n\s*s\.emitCredential\(nil\)/.test(sessionGo));
 
+check("Go 侧 Logout 先清本地凭证、再异步通知上游",
+  /func \(s \*Session\) Logout\(\) error \{[\s\S]{0,500}s\.setCred\(&qqmusic\.Credential\{\}\)[\s\S]{0,500}go func\(\)/.test(sessionGo));
+
+check("Go 侧刷新结果按凭证代际校验，登出后不能复活旧账号",
+  sessionGo.includes("AdoptIfGeneration(gen uint64") &&
+  readFileSync(join(ROOT, "..", "vendor", "Typhoeus-go", "server", "app.go"), "utf8")
+    .includes("a.session.AdoptIfGeneration(gen, cred)"));
+
 check("**Go 侧不存在写明文的代码**（os.Create / os.WriteFile 都不该有）",
   !sessionGo.includes("os.Create") && !sessionGo.includes("os.WriteFile"));
 

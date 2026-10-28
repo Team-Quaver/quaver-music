@@ -52,6 +52,9 @@ check("引擎的 MPV 曲末按 entry id 只发一次",
 check("pause/idle 晚到不会重复推进队列",
   /d === true && this\.st\.idle\) this\.finishTrack\(\)/.test(engine));
 
+check("显式 stop 清掉 eof 后重挂用的 lastUrl（清队列后不会再复活旧曲）",
+  /case "stop":[\s\S]{0,900}this\.lastUrl = ""/.test(engine));
+
 console.log(`\n${fail === 0 ? "✅" : "❌"} playback-end: ${pass} pass, ${fail} fail`);
 
 process.exit(fail === 0 ? 0 : 1);

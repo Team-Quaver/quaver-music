@@ -166,6 +166,9 @@ class Player {
   private listeners = new Set<Listener>();
   private lyricSeq = 0;
   private playSeq = 0;   // startCurrent 竞态令牌：换曲即作废上一轮
+  /** 账号边界代际：登出时 +1。跨登录周期晚到的取链/起播结果一律作废，
+   *  即使它碰巧落在同一个 mid 上也不能写回新账号的播放器。 */
+  private accountSeq = 0;
   // —— 播放失败自动回退链（流加载失败 → 逐档降级重试 → 穷尽跳下一曲）——
   private fallbackMid = "";                  // 降级尝试记录归属的曲（换曲即重置）
   private fallbackTried = new Set<string>(); // 该曲已失败的档位：请求档与实际档都记（auto 降级下发它档时不绕回）
@@ -950,12 +953,22 @@ class Player {
    *  整页跳转前那颗定时器/pagehide 会把空档重新写回 localStorage。 */
   clearForLogout() {
     this.sessionDiscard = true;
+    this.accountSeq++;
 
     if (this.sessionTimer !== null) {
       window.clearTimeout(this.sessionTimer);
       this.sessionTimer = null;
     }
 
+    // 队列之外还有几份「上一首」的引用：预取 Promise、在途歌词/电台响应、原生引擎的
+    // lastUrl。只清 queue 会让重新登录后的第一次播放命中旧 token，或让 mpv 在 idle 时
+    // 按 lastUrl 重挂旧曲。账号边界必须把这些一并作废。
+    this.prefetch.clear();
+    this.prefetchedMid = "";
+    this.lyricSeq++;
+    this.radioSeq++;
+    this.clearRadioRetry();
+    this.listenReporter?.stopTarget();
     this.clearQueue();
     clearSession();
   }
@@ -1082,14 +1095,15 @@ class Player {
     // 歌词与取流/起播互不依赖：从换曲第一刻并行拉取，别让音频加载 RTT 串在歌词前面。
     void this.fetchLyric(s);
     const seq = this.playSeq;
+    const account = this.accountSeq;
 
     try {
       await this.backendInit; // 首播发生在启动后端检查完成前：等检查定再挂流
 
-      if (seq !== this.playSeq || this.current !== s) return; // 期间又切了歌：本轮作废
+      if (account !== this.accountSeq || seq !== this.playSeq || this.current !== s) return; // 期间又切了歌/换了账号：本轮作废
       const r = await this.getStream(s, overrideTier); // 命中单击预取的链接 → 直接跳过取链；降级重试带指定档
 
-      if (seq !== this.playSeq || this.current !== s) return;
+      if (account !== this.accountSeq || seq !== this.playSeq || this.current !== s) return;
       this.streamUrl = r.url;
       this.initListenReporter(s, r.url);
       setLastStream({ tier: r.tier, label: r.label, degraded: r.degraded });
@@ -1098,6 +1112,7 @@ class Player {
       // web 仍需等元数据就绪后由 consumePendingSeek 跳转。
       await this.transport.load(r.url, { paused: !autoplay, startAt });
 
+      if (account !== this.accountSeq || seq !== this.playSeq || this.current !== s) return;
       if (startAt > 1 && this.transport.kind === "web") this.pendingSeek = startAt;
 
       if (autoplay) {
@@ -1106,18 +1121,18 @@ class Player {
         } catch (pe: any) {
           // AbortError = play 被更新的 load 打断（web）。旧轮次直接弃；新轮次重试一次再放弃。
           if (pe?.name === "AbortError") {
-            if (seq !== this.playSeq || this.current !== s) return;
+            if (account !== this.accountSeq || seq !== this.playSeq || this.current !== s) return;
             await this.transport.play(); // load 竞态后的补播（此时资源选定应已稳定）
           } else throw pe;
         }
       }
 
-      if (seq !== this.playSeq) return;
+      if (account !== this.accountSeq || seq !== this.playSeq || this.current !== s) return;
       this.loading = false;
       this.error = "";
       this.prefetchNextForCrossfade();
     } catch (e: any) {
-      if (seq === this.playSeq && this.current === s) {
+      if (account === this.accountSeq && seq === this.playSeq && this.current === s) {
         // 取链失败：旧曲不能一直垫着，收掉后再走降级/跳曲。
         if (this.transport.kind === "engine" && this.transport.mode === "pcm") this.transport.stop();
         this.loading = false;

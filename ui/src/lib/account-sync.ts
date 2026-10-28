@@ -21,6 +21,8 @@ const WAKE_MIN_GAP = 5_000;
 let started = false;
 let lastAttemptAt = 0;
 let inflight: Promise<void> | null = null;
+let wakeOff: (() => void) | null = null;
+let pollTimer: number | null = null;
 
 /** 只在前台对账：最小化/隐藏时网络与缓存都没必要跟着跑。 */
 const foreground = () => document.visibilityState !== "hidden";
@@ -39,9 +41,11 @@ async function refresh(reason: "wake" | "poll" | "manual"): Promise<void> {
       // sidecar 已清本地凭证并交接 null 给主进程。先清账号态 UI 缓存再跳转，
       // 否则头像/侧栏歌单会带着上一个账号的数据残留在登录页旁边。
       resetFavSonglists();
+      stopAccountSync();
       resetSidebarUser();
       player.clearForLogout();
       location.href = "/login.html";
+
       return;
     }
   }
@@ -75,12 +79,37 @@ export function startAccountSync(): void {
 
   const wake = () => { void refresh("wake"); };
 
+  const onVisibility = () => {
+    if (foreground()) wake();
+  };
+
   window.addEventListener("focus", wake);
   window.addEventListener("online", wake);
-  document.addEventListener("visibilitychange", () => {
-    if (foreground()) wake();
-  });
-  window.setInterval(() => { void refresh("poll"); }, POLL_MS);
+  document.addEventListener("visibilitychange", onVisibility);
+  wakeOff = () => {
+    window.removeEventListener("focus", wake);
+    window.removeEventListener("online", wake);
+    document.removeEventListener("visibilitychange", onVisibility);
+  };
+
+  pollTimer = window.setInterval(() => { void refresh("poll"); }, POLL_MS);
+}
+
+/** 账号边界：登出/被下线时停掉旧账号的前台轮询。
+ *  重新登录后 startAccountSync 会再启动一轮；不停止的话，旧 30s 定时器会继续带着
+ *  上一个账号的节奏发 /login/probe，且 started 锁会让新账号无法重新绑定。 */
+export function stopAccountSync(): void {
+  if (!started) return;
+  started = false;
+  lastAttemptAt = 0;
+  inflight = null;
+  wakeOff?.();
+  wakeOff = null;
+
+  if (pollTimer !== null) {
+    window.clearInterval(pollTimer);
+    pollTimer = null;
+  }
 }
 
 // 开发钩子：不打开 DevTools 也能手动触发一轮，便于本地验证手机端改动是否上屏。

@@ -2,6 +2,7 @@
 import { api, escHtml, identityBadges } from "../lib/api";
 import { vipCardHtml, watchVip } from "../lib/vip.ts";
 import { resetFavSonglists } from "../lib/favs";
+import { stopAccountSync } from "../lib/account-sync";
 import { resetSidebarUser } from "../shell";
 import { player } from "../player";
 import type { UserMeResp } from "./_shared";
@@ -53,8 +54,11 @@ export default async function userView(root: HTMLElement) {
       // 账号边界：队列与会话存档都不跨账号残留（含跳转/pagehide 的节流回写）
       player.clearForLogout();
       resetFavSonglists();
+      stopAccountSync();
       resetSidebarUser();
-      // 离场动画与登出请求并行：动画短、请求可能慢，两个都不许把跳转卡住
+      // 离场动画与登出请求并行：动画短、请求可能慢，两个都不许把跳转卡住。
+      // 服务端现在先清本地凭证再异步通知上游，因此正常请求会很快返回；
+      // 1.5s 只是断网兜底，跳转后登录页仍会再清一次侧栏账号态。
       await Promise.all([exitMe(wrap), settleIn(api("/login/logout", { method: "POST" }), 1500)]);
       location.href = "/login.html";
     };

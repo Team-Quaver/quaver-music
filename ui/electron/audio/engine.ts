@@ -1156,6 +1156,10 @@ export class AudioEngine {
         // 先淡出、到 0 再真停；期间若来了新歌（load 会作废这一步）就交给它接管
         this.rampTo(0, this.fade.outMs, () => {
           void mpv.command(["stop"]).catch(() => {});
+          // stop 是显式「卸载当前流」：清掉 eof 后重挂用的 lastUrl，否则下次 play
+          // 会把上一首重新 loadfile 回来。登出/清队列后残留旧曲就是这条路径。
+          if (this.mpv === mpv) this.lastUrl = "";
+
           this.pcmPos = 0;
           this.pcmBase = 0;
           this.pcmSentSec = 0;
