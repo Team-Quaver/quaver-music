@@ -65,6 +65,9 @@ function slim(s: Song): Song | null {
     type: s.type,
     // 本地曲目指纹必须随存档走：kind/hasCover/path 供冷启动后取流、封面与右键菜单（缺了它本地歌恢复成坏 QQ 歌）
     local: (s as any).local,
+    // 微云直链必须随存档走；URL 是稳定的同源中继路径，sidecar 每次请求会重新换取短链。
+    directUrl: s.directUrl,
+    cloud: s.cloud,
     name: s.name,
     title: (s as any).title,
     subtitle: (s as any).subtitle,

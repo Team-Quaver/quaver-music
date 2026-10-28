@@ -135,6 +135,12 @@ contextBridge.exposeInMainWorld("quaverCredits", {
   open: (url: string) => ipcRenderer.invoke("quaver:credits-open", url),
 });
 
+// 微云音乐授权：只允许打开微云官方授权页；Token 交换由 sidecar 完成，
+// 不把授权码或 Token 暴露给渲染层之外的页面。
+contextBridge.exposeInMainWorld("quaverWeiyunAuth", {
+  open: (url: string) => ipcRenderer.invoke("quaver:weiyun-auth-open", url),
+});
+
 // 凭证存储状态（只读、不含凭证本体）：确认这次走的是系统密钥管理器还是 0600 明文。
 contextBridge.exposeInMainWorld("quaverSecurity", {
   info: () => ipcRenderer.invoke("quaver:credential-info"),

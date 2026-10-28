@@ -300,8 +300,8 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
           signal: ac.signal,
         });
 
-        // 播放流（/api/stream/<token>）：流式管道，绝不整段缓冲（边下边播 + 省内存）
-        if (/^\/(?:stream|cache\/music\/stream)\/[^/]+$/.test(sub) && upstream.body) {
+        // 播放流（QQ 中继 / 本地缓存 / 微云音乐文件）：流式管道，绝不整段缓冲
+        if (/^\/(?:stream|cache\/music\/stream|weiyun\/music)\/[^/]+$/.test(sub) && upstream.body) {
           res.statusCode = upstream.status;
           upstream.headers.forEach((v, k) => {
             if (k === "transfer-encoding" || k === "content-encoding" || k === "connection") return;

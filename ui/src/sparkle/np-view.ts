@@ -146,6 +146,9 @@ export function npViewCtx(): SparkleNpViewCtx {
       // 本地/NAS：音质即文件本身，标签恒为「本地文件 / NAS 流」——
       // lastStream 是全局的，刚切到本地曲的瞬间可能还挂着上一首在线曲的档，不能信
       if (isLocalSong(player.current)) return localSongStreamUrl(player.current).label;
+
+      if (player.current?.directUrl) return "微云文件";
+
       const ls = getLastStream();
 
       return player.current && ls

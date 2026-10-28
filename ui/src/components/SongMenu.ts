@@ -12,6 +12,10 @@
 import { player } from "../player";
 import { copyText, songShareUrl, songSubtitle, songTitle, stripEm, upPic } from "../lib/api";
 import { importLocalCover, importLocalLyric, isLocalSong, pickFile, revertLocalLyric, setLocalMeta, triggerScrape, type SongWithLocal } from "../lib/local.ts";
+import {
+  chooseCloudCoverFile, chooseCloudLyricFile, importCloudCover, importCloudLyric,
+  revertCloudLyric, setCloudMeta, triggerCloudScrape, type CloudSongFingerprint,
+} from "../lib/cloud";
 // 本地曲元信息对话框只在点那一项时才需要（LocalImportDialog）：右键菜单常驻首屏闭包，
 // 这份代码留到 run 里现拉 —— 菜单开合不受影响，少一块常驻字节。
 import {
@@ -364,6 +368,8 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
   const name = songTitle(song) || "这首歌";
   const sub = songSubtitle(song);
   const local = isLocalSong(song) ? (song as SongWithLocal).local : null;
+  const direct = !!song?.directUrl;
+  const cloud: CloudSongFingerprint | null = song?.cloud ?? null;
 
   const items: MenuItem[] = [
     {
@@ -372,8 +378,8 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
       disabled: player.radioActive,
       run: () => enqueueNextWithToast(song),
     },
-    // 加入歌单是 QQ 在线歌单概念：本地曲目没有这条通路
-    ...(local ? [] : [{ label: "加入歌单", sub: () => playlistItems(ctx) } as MenuItem]),
+    // 加入歌单是 QQ 在线歌单概念：本地/微云直链曲目没有这条通路
+    ...(local || direct ? [] : [{ label: "加入歌单", sub: () => playlistItems(ctx) } as MenuItem]),
   ];
 
   if (ctx.playlist?.removable) {
@@ -389,18 +395,20 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
   }
 
   items.push(
-    {
-      label: "跳转至",
-      sub: () => [
-        { label: "歌手", sub: () => artistItems(song) },
-        { label: "专辑", sub: () => albumItems(song) },
-        {
-          label: "同名搜索",
-          note: name,
-          run: () => { location.hash = `#/search?keyword=${encodeURIComponent(stripEm(song.name) || name)}`; },
-        },
-      ],
-    },
+    ...(direct
+      ? []
+      : [{
+          label: "跳转至",
+          sub: () => [
+            { label: "歌手", sub: () => artistItems(song) },
+            { label: "专辑", sub: () => albumItems(song) },
+            {
+              label: "同名搜索",
+              note: name,
+              run: () => { location.hash = `#/search?keyword=${encodeURIComponent(stripEm(song.name) || name)}`; },
+            },
+          ],
+        } as MenuItem]),
     {
       label: "更多操作",
       sub: () => [
@@ -411,6 +419,15 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
               run: async () => {
                 const ok = await copyText(local.path);
                 toast(ok ? "已复制文件路径" : "复制失败（剪贴板不可用）", ok ? "ok" : "err");
+              },
+            }
+          : direct
+          ? {
+              label: "复制微云文件 ID",
+              note: song.mid,
+              run: async () => {
+                const ok = await copyText(String(song.mid).replace(/^weiyun:/, ""));
+                toast(ok ? "已复制微云文件 ID" : "复制失败（剪贴板不可用）", ok ? "ok" : "err");
               },
             }
           : {
@@ -517,6 +534,85 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
                 },
               },
             ].filter(Boolean) as MenuItem[])
+          : cloud
+          ? ([
+              {
+                label: "导入歌词 ▸",
+                sub: () => [
+                  {
+                    label: "QRC / TTML / LRC 文件…",
+                    note: "手动导入，压过自动匹配",
+                    run: async () => {
+                      const f = await chooseCloudLyricFile();
+
+                      if (!f) return;
+
+                      try {
+                        const r = await importCloudLyric(cloud.key, f);
+                        toast(r.format === "lrc" ? `歌词已导入（${r.chars} 字）` : `已导入 ${r.format.toUpperCase()} 歌词（${r.chars} 字）`);
+                        player.patchCloudSong(cloud.key, { lyricImport: true, importFormat: r.format });
+                      } catch (e: any) { toast(String(e?.message ?? e), "err"); }
+                    },
+                  },
+                  ...(cloud.lyricImport
+                    ? [{
+                        label: "撤销导入（回到自动来源）",
+                        run: async () => {
+                          try {
+                            await revertCloudLyric(cloud.key);
+                            toast("已撤销导入的歌词");
+                            player.patchCloudSong(cloud.key, { lyricImport: false, importFormat: "" });
+                          } catch (e: any) { toast(String(e?.message ?? e), "err"); }
+                        },
+                      }]
+                    : []),
+                ],
+              },
+              {
+                label: "导入封面…",
+                run: async () => {
+                  const f = await chooseCloudCoverFile();
+
+                  if (!f) return;
+
+                  try {
+                    await importCloudCover(cloud.key, f);
+                    player.patchCloudSong(cloud.key, { hasCover: true });
+                    toast("封面已更新");
+                  } catch (e: any) { toast(String(e?.message ?? e), "err"); }
+                },
+              },
+              {
+                label: "重新设置刮削信息…",
+                note: "曲名 / 歌手 / 专辑",
+                run: async () => {
+                  const { showLocalMetaDialog } = await import("./LocalImportDialog");
+
+                  const cur = await showLocalMetaDialog({
+                    title: songTitle(song),
+                    artist: (song.singer ?? []).map((x: any) => x?.name).filter(Boolean).join(" / "),
+                    album: song.album?.name ?? "",
+                  });
+
+                  if (!cur) return;
+
+                  try {
+                    await setCloudMeta(cloud.key, cur);
+                    player.patchCloudSong(cloud.key, cur);
+                    const r = await triggerCloudScrape({ keys: [cloud.key], force: true });
+                    toast(r.busy ? "已保存；等当前刮削收尾后重刮" : "已保存，正在用新名字重新刮削");
+                  } catch (e: any) { toast(String(e?.message ?? e), "err"); }
+                },
+              },
+              {
+                label: "重新刮削此曲",
+                note: "在线匹配歌曲信息 / 歌词 / 封面",
+                run: async () => {
+                  await triggerCloudScrape({ keys: [cloud.key] });
+                  toast("已排入刮削队列");
+                },
+              },
+            ] as MenuItem[])
           : []),
       ],
     },

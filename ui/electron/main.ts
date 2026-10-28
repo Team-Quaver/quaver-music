@@ -1240,6 +1240,30 @@ ipcMain.handle("quaver:credits-open", async (_e, rawUrl) => {
   }
 });
 
+// 微云音乐授权页：仅放行官方 HTTPS 授权地址。Token 本体由 sidecar 保存，
+// 渲染层只拿到授权链接和“是否完成”的状态。
+ipcMain.handle("quaver:weiyun-auth-open", async (_e, rawUrl) => {
+  try {
+    const url = new URL(String(rawUrl ?? ""));
+
+    if (
+      url.protocol !== "https:"
+      || url.hostname !== "www.weiyun.com"
+      || url.pathname !== "/authorize/token"
+      || !url.searchParams.get("code")
+      || url.hash
+    ) {
+      return { ok: false, error: "不是允许打开的微云授权地址" };
+    }
+
+    await shell.openExternal(url.toString());
+
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+});
+
 // 进程/内存自检：一次拍平所有事实源，渲染层只负责摆出来（口径说明写在 DebugPanel 里）。
 // 为什么不在渲染层自己量：Chromium 的多进程模型里，渲染层看不见主进程、GPU 进程与外部子进程。
 ipcMain.handle("quaver:metrics", () => {

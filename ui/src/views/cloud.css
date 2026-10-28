@@ -1,0 +1,50 @@
+/* Quaver — 微云音乐网盘（随 /cloud 视图懒加载） */
+.cloud-page .page-title { margin-bottom: 2px; }
+.cloud-page .page-note { margin: 0 0 14px; }
+
+.cloud-actions {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 4px 0 14px;
+}
+.cloud-actions .ghost-btn { padding: 6px 14px; font-size: 12.5px; }
+.cloud-stat { color: var(--ink2); font-size: 12px; }
+.cloud-empty { padding: 18px 4px; }
+.cloud-scrape-status { margin: -6px 0 12px; font-size: 12px; }
+
+.cloud-music .rows { padding-bottom: 8px; }
+.cloud-row { cursor: default; }
+.cloud-row .rt { font-weight: 600; }
+.cloud-tags { display: flex; gap: 5px; flex: 0 0 auto; }
+.cloud-pill {
+  font-size: 10.5px; font-style: normal; color: var(--ink2);
+  border: 1px solid var(--line); border-radius: 999px; padding: 2px 7px;
+}
+.cloud-pill.ok {
+  color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 70%, var(--ink));
+  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 45%, var(--line));
+}
+
+.cloud-auth {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 4px 0 16px; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--card);
+}
+.cloud-auth-copy {
+  display: flex; flex-direction: column; gap: 3px; flex: 1 1 360px;
+  font-size: 12.5px; color: var(--ink2);
+}
+.cloud-auth-copy strong { color: var(--ink); font-size: 13px; }
+.cloud-auth-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cloud-auth-primary {
+  padding: 6px 14px; border-radius: 8px; border: 1px solid transparent; cursor: pointer;
+  color: #fff; background: var(--cvg-accent, var(--acc)); font-size: 12.5px;
+}
+.cloud-auth-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cvg-accent, var(--acc)) 88%, #000);
+}
+.cloud-auth-primary:disabled { opacity: .55; cursor: not-allowed; }
+
+@media (max-width: 760px) {
+  .cloud-auth { align-items: stretch; }
+  .cloud-auth-actions { width: 100%; }
+}

@@ -37,6 +37,7 @@ export const nav = [
   { path: "#/playlists", label: "歌单", icon: "list" },
   { path: "#/all", label: "所有歌曲", icon: "disc" },
   { path: "#/local", label: "本地音乐", icon: "folder" },
+  { path: "#/cloud", label: "微云网盘", icon: "cloud" },
 ];
 
 const icons: Record<string, string> = {
@@ -52,6 +53,8 @@ const icons: Record<string, string> = {
   // 本地音乐：文件夹（带 NAS 语境的通用容器形）。同一套 24 网格 / currentColor 描边。
   folder:
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 7a1.5 1.5 0 0 1 1.5-1.5h4L12 7h6.5A1.5 1.5 0 0 1 20 8.5V17a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17z"/><circle cx="12" cy="12.6" r="2.2" fill="currentColor" stroke="none"/></svg>',
+  cloud:
+    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18.5h10.2a4.3 4.3 0 0 0 .7-8.5 6 6 0 0 0-11.5 1.2A3.7 3.7 0 0 0 7 18.5z"/><path d="M9.5 13.2h5M12 10.8v6.4" opacity=".55"/></svg>',
   // 歌单：堆叠的曲目行（三条带前置圆点的水平线），与「本地音乐」的容器形区分开。
   list:
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="4.5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="4.5" cy="18" r="1.4" fill="currentColor" stroke="none"/></svg>',

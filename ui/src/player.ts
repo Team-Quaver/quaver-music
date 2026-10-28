@@ -27,6 +27,7 @@ import { onSparkleChange, sparkleKaraokeProvider, sparkleStreamSources } from ".
 import { isLocalSong, localSongStreamUrl, loadLocalLibrary, onLocalLibraryChange, trackById, type LocalSongFingerprint } from "./lib/local.ts";
 import type { ListenReportTarget, ListenTimeReporter } from "./lib/listen-report";
 import { PlaybackEndGate } from "./lib/playback-end";
+import type { CloudSongFingerprint } from "./lib/cloud";
 
 export type Song = {
   mid: string;
@@ -44,6 +45,11 @@ export type Song = {
   /** 本地/NAS 曲目指纹（「本地音乐」页与 lib/local.ts:trackToSong 生成）。
    *  带这个字段的歌不走 QQ 取链/红心/档位回退，取流 = /api/local/stream/<id>。 */
   local?: LocalSongFingerprint;
+  /** 同源直链（微云文件）：取流直接用该 URL，不走 QQ 取链、红心、歌词或档位回退。
+   *  链接由 sidecar 中继，微云下载 Cookie 不进入渲染层。 */
+  directUrl?: string;
+  /** 微云条目的本地化元数据指纹（封面 / 导入歌词 / 刮削结果）。 */
+  cloud?: CloudSongFingerprint;
 };
 
 /** 播放模式只剩循环两档：「顺序播放（off）」已移除 —— 列表到尾一律回绕。 */
@@ -583,7 +589,7 @@ class Player {
   applyDefaultQuality() {
     setSessionQuality(null);
 
-    if (!this.current || isLocalSong(this.current)) { this.notify(); return; }
+    if (!this.current || isLocalSong(this.current) || this.current.directUrl) { this.notify(); return; }
 
     const at = this.transport.position;
     const wasPlaying = !this.transport.paused;
@@ -1014,7 +1020,7 @@ class Player {
   private listenTargetOf(s: Song, url: string): ListenReportTarget | null {
     const prefix = "/api/stream/";
 
-    if (isLocalSong(s) || !s.id || !url.startsWith(prefix)) return null;
+    if (isLocalSong(s) || s.directUrl || !s.id || !url.startsWith(prefix)) return null;
     const streamToken = url.slice(prefix.length).split(/[?#]/, 1)[0] ?? "";
 
     if (!streamToken) return null;
@@ -1113,6 +1119,7 @@ class Player {
       await this.transport.load(r.url, { paused: !autoplay, startAt });
 
       if (account !== this.accountSeq || seq !== this.playSeq || this.current !== s) return;
+
       if (startAt > 1 && this.transport.kind === "web") this.pendingSeek = startAt;
 
       if (autoplay) {
@@ -1161,7 +1168,7 @@ class Player {
     if (!s) return;
 
     // 本地/NAS 曲目没有档位阶梯可下（文件就是那一档）：直接跳下一曲
-    if (isLocalSong(s)) { this.skipSong(msg); return; }
+    if (isLocalSong(s) || s.directUrl) { this.skipSong(msg); return; }
 
     if (this.fallbackMid !== s.mid) { this.fallbackMid = s.mid; this.fallbackTried.clear(); }
 
@@ -1211,7 +1218,7 @@ class Player {
   prefetchSong(song: Song | undefined) {
     if (!song?.mid) return;
 
-    if (isLocalSong(song)) return; // 本地流是现成的同源 URL，没有「取链预热」可言
+    if (isLocalSong(song) || song.directUrl) return; // 现成同源 URL，没有「取链预热」可言
     const q = String(effectiveQuality());
 
     if (song.mid === this.prefetchedMid && this.prefetch.has(q + "|" + song.mid)) return;
@@ -1255,6 +1262,10 @@ class Player {
   /** getPlayUrl 语义的内部入口：预取命中用预取结果，否则现场协商；
    *  overrideTier = 播放失败自动回退的指定档（预取按 effectiveQuality 键存，指定档时必须绕开）。 */
   private async getStream(s: Song, overrideTier?: string): Promise<StreamResult> {
+    if (s.directUrl) {
+      return { url: s.directUrl, tier: "weiyun", label: "微云文件", degraded: false };
+    }
+
     // 本地/NAS 曲目：同源流（Range 在服务端处理），档位就是文件本身，别过 QQ 取链。
     // 顺手确保库快照在手（一次 GET，命中缓存零成本）：封面标记与刮削命中的 qqMid
     // 经 onLocalLibraryChange → refreshLocalCurrent 回填到当前曲目。
@@ -1294,6 +1305,34 @@ class Player {
     this.notify();
   }
 
+  /** 微云条目的元信息/封面/歌词来源改动后，原地更新当前队列对象。 */
+  patchCloudSong(
+    key: string,
+    patch: Partial<CloudSongFingerprint> & { title?: string; artist?: string; album?: string },
+  ) {
+    for (const s of this.queue) {
+      if (!s.cloud || s.cloud.key !== key) continue;
+      Object.assign(s.cloud, patch);
+
+      if (patch.title) { s.name = patch.title; s.title = patch.title; }
+
+      if (patch.artist !== undefined) {
+        s.singer = patch.artist.split(/\s*\/\s*/).filter(Boolean).map((name) => ({ name }));
+      }
+
+      if (patch.album && s.album) s.album.name = patch.album;
+    }
+
+    if (this.current?.cloud?.key === key) {
+      if (patch.lyricImport !== undefined) void this.fetchLyric(this.current);
+      else this.notify();
+
+      return;
+    }
+
+    this.notify();
+  }
+
   /** 拉取并解析当前歌曲歌词（startCurrent 内部调用；也供外部预热/测试）。
    *
    *  在线管线（官方曲目恒用；本地曲目仅在**刮削命中 QQ 曲库**（local.qqMid）时优先尝试）：
@@ -1317,8 +1356,64 @@ class Player {
    *  在解析前过一次 cjkConvert；音译（罗马音/拼音）不转。原文缓存一律不动，档位关掉即回原样。 */
   async fetchLyric(s: Song) {
     const seq = ++this.lyricSeq;
+
+    if (s.directUrl && !s.cloud) {
+      this.lyrics = [];
+      this.karaoke = [];
+      this.lyricState = "none";
+      this.notify();
+
+      return;
+    }
+
     this.lyricState = "loading";
     this.notify();
+
+    if (s.cloud) {
+      try {
+        const d = await api<{ lyric: string; trans: string; roma: string; source: string; format?: string }>(
+          `/cloud/lyric/${encodeURIComponent(s.cloud.key)}`,
+        );
+
+        if (seq !== this.lyricSeq || this.current !== s) return;
+        if (String(d?.lyric ?? "").trim()) {
+          const raw = await cjkConvert(String(d?.lyric ?? ""));
+          const trans = await cjkConvert(String(d?.trans ?? ""));
+
+          if (seq !== this.lyricSeq || this.current !== s) return;
+
+          this.applyLyricText(raw, trans, String(d?.roma ?? ""), String(d?.format ?? "lrc"));
+          this.notify();
+
+          return;
+        }
+      } catch { /* 没有云盘歌词时继续尝试 QQ 在线歌词 */ }
+
+      if (!s.cloud.lyricImport && s.mid && !s.mid.startsWith("weiyun:")) {
+        const has = await this.pullQqLyric(s.mid, seq, s);
+
+        if (seq === this.lyricSeq && this.current === s) {
+          if (!has) {
+            this.karaoke = [];
+            this.lyrics = [];
+            this.lyricState = "none";
+            this.lyricRevision++;
+          }
+
+          this.notify();
+        }
+
+        return;
+      }
+
+      this.lyrics = [];
+      this.karaoke = [];
+      this.lyricState = "none";
+      this.notify();
+
+      return;
+    }
+
     const local = isLocalSong(s) ? s.local : null;
     // 手动导入的歌词 = 用户显式意图，压过在线 QRC（在线命中是机器猜的，导入是人给的）。
     const qqMid = local ? (local.lyricImport ? "" : String(local.qqMid ?? "")) : s.mid;
@@ -2035,7 +2130,7 @@ class Player {
 
     if (!mid) return null;
 
-    if (isLocalSong(song)) return null; // 红心是 QQ 侧概念：本地曲目无在线收藏
+    if (isLocalSong(song) || song.directUrl) return null; // 红心是 QQ 侧概念：本地/微云直链无在线收藏
     // 行对象可能来自不带数字 id 的上下文（如专辑曲目）：回落到预载时记下的 song_id
     const ref = song.id ? { id: song.id, type: song.type ?? 1 } : this.lovedRef.get(mid);
 
