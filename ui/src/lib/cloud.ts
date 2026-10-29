@@ -4,6 +4,7 @@
 // 不暴露微云目录、上传、删除等通用文件管理能力。
 import { api, bumpCloudCover } from "./api";
 import { fileToBase64, pickFile } from "./local";
+import type { Song } from "../player";
 
 export interface CloudSongFingerprint {
   key: string;
@@ -18,7 +19,107 @@ export interface CloudMetaEdit {
   album: string;
 }
 
+export interface CloudItem {
+  key: string;
+  fileId: string;
+  fileName: string;
+  matched: number;
+  playable: boolean;
+  title: string;
+  artist: string;
+  album: string;
+  editedMeta: boolean;
+  coverManual: boolean;
+  lyricImport: boolean;
+  importFormat: string;
+  scrapedAt: number;
+  hasCover: boolean;
+  hasLyric: boolean;
+  playbackError: string;
+  song?: Song;
+}
+
+export interface CloudLibrary {
+  items: CloudItem[];
+  count: number;
+  stats: { total: number; playable: number; withCover: number; withLyric: number };
+  scrape: {
+    running: boolean;
+    total: number;
+    processed: number;
+    matched: number;
+    unmatched: number;
+    failed: number;
+    lastError: string;
+  };
+}
+
+const CLOUD_LIBRARY_TTL = 30_000;
+let cloudLibraryCache: { at: number; data: CloudLibrary } | null = null;
+let cloudLibraryInflight: Promise<CloudLibrary> | null = null;
+let cloudLibraryGen = 0;
+
+/** 微云库整单快照（歌单兜底匹配与微云页共用）。TTL 内只吃内存；
+ *  库内容变更事件会立刻作废旧快照。失败不清空上次成功快照。 */
+export async function loadCloudLibrary(force = false): Promise<CloudLibrary> {
+  if (!force && cloudLibraryCache && Date.now() - cloudLibraryCache.at < CLOUD_LIBRARY_TTL) {
+    return cloudLibraryCache.data;
+  }
+
+  if (cloudLibraryInflight && !force) return cloudLibraryInflight;
+
+  const gen = cloudLibraryGen;
+
+  const req = api<CloudLibrary>("/cloud/library").then((data) => {
+    // 刮削/元数据变更会让旧请求结果过期；晚到的旧响应不能重新盖回缓存。
+    if (gen === cloudLibraryGen) cloudLibraryCache = { at: Date.now(), data };
+
+    return data;
+  }).finally(() => {
+    if (cloudLibraryInflight === req) cloudLibraryInflight = null;
+  });
+
+  cloudLibraryInflight = req;
+
+  return req;
+}
+
+export function invalidateCloudLibrary(): void {
+  cloudLibraryCache = null;
+  cloudLibraryGen++;
+}
+
+/** 微云条目 → 播放器 Song（歌单兜底与微云页共用同一份转换）。 */
+export function cloudItemToSong(item: CloudItem): Song | null {
+  if (!item.playable || !item.fileId) return null;
+
+  const song = item.song;
+  const title = item.title || item.fileName;
+  const matchedSong = item.matched === 1 ? song : undefined;
+  const directUrl = `/api/weiyun/music/${encodeURIComponent(item.fileId)}?name=${encodeURIComponent(item.fileName)}`;
+
+  return {
+    ...song,
+    mid: matchedSong?.mid || `weiyun:${item.fileId}`,
+    name: title,
+    title,
+    singer: item.artist ? [{ name: item.artist }] : song?.singer,
+    album: {
+      ...song?.album,
+      name: item.album || song?.album?.name || "",
+    },
+    directUrl,
+    cloud: {
+      key: item.key,
+      hasCover: item.hasCover,
+      lyricImport: item.lyricImport,
+      importFormat: item.importFormat,
+    },
+  };
+}
+
 const notifyCloudChanged = (key: string) => {
+  invalidateCloudLibrary();
   window.dispatchEvent(new CustomEvent("quaver:cloud-changed", { detail: { key } }));
 };
 

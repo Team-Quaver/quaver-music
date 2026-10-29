@@ -21,6 +21,8 @@ export const APP_DIR_NAME_POSIX = "quaver-music"; // Linux（XDG 风格小写）
 export const CONFIG_NAME = "quaver.conf";
 export const CREDENTIAL_NAME = "credential.json"; // 明文——只作为升级遗留的导入来源，导入后即删
 export const CREDENTIAL_STORE_NAME = "credential.enc"; // 密钥环模式：磁盘上只留密文，钥匙在系统密钥管理器里
+export const WEIYUN_STORE_NAME = "weiyun-auth.enc";
+export const WEIYUN_LEGACY_NAME = "weiyun-auth.json";
 export const DEVICE_NAME = "device.json";
 
 /** Quark EQ 的默认值：共享纯逻辑生成，避免 schema 与渲染层默认曲线各写一份。 */

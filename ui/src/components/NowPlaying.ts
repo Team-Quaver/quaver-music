@@ -1181,15 +1181,22 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
     // 音质胶囊：直接显示最后实际应用的档位（lastStream；未在播放时回落到当前设置）——
     // 与播放条胶囊同口径，↓ = 该流是被回退降档的
     const ls = getLastStream();
+    const fallback = player.playbackFallback;
 
     const qLabel = player.current && ls
-      ? (ls.degraded ? "↓" : "") + (QUALITY_SHORT[ls.tier] ?? ls.label)
+      ? fallback?.local
+        ? "本地"
+        : fallback?.directUrl
+        ? "微云"
+        : (ls.degraded ? "↓" : "") + (QUALITY_SHORT[ls.tier] ?? ls.label)
       : (QUALITY_SHORT[effectiveQuality()] ?? "音质");
 
     if (qLabel !== lastQLabel) {
       lastQLabel = qLabel;
       qPill.textContent = qLabel;
-      qPill.title = `音质：${qLabel}${player.current && ls ? "（实际档位）" : "（当前设置）"}；点看这条流的采样率/位深/编码/码率/声道`;
+    qPill.title = fallback
+      ? `音质：${qLabel}（本地/微云同曲文件）；点看这条流的采样率/位深/编码/码率/声道`
+      : `音质：${qLabel}${player.current && ls ? "（实际档位）" : "（当前设置）"}；点看这条流的采样率/位深/编码/码率/声道`;
     }
 
     if (qinfoOpen()) void syncQInfo();

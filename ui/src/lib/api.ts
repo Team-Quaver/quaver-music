@@ -206,7 +206,7 @@ export function songMissingTiers(song: any): Set<Quality> | null {
 }
 
 // —— Typhoeus 播放流：resolve 协商（会员门控 403 / 加密档 451 / 回退降级 degraded）→ token 中继 ——
-interface StreamResolved { token: string; path: string; tier: string; tier_label: string; degraded: boolean; mime: string; size: number }
+interface StreamResolved { token: string; path: string; tier: string; tier_label: string; degraded: boolean; mime: string; size: number; cached?: boolean }
 
 interface StreamTierView { id: string; label: string; rank: number; hi_res: boolean; locked?: boolean; requires?: number }
 
@@ -251,6 +251,23 @@ async function postResolve(body: { mid: string; media_mid: string; tier: string;
   }
 }
 
+async function postWeiyunResolve(body: { mid: string; tier: string; duration_ms: number; cache_seed?: string; cloud_file_id: string }): Promise<StreamResolved> {
+  try {
+    return await api<StreamResolved>("/stream/resolve", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(RESOLVE_TIMEOUT_MS),
+    });
+  } catch (e: any) {
+    if (e instanceof DOMException && (e.name === "TimeoutError" || e.name === "AbortError")) {
+      throw new ApiError(408, "微云取链超时，请重试");
+    }
+
+    throw e;
+  }
+}
+
 /** 曲长提示（毫秒）：后端版权闸门的限速按「≈3× 实时码率」推算（见
  *  vendor/Typhoeus-go/server/stream_guard.go）。interval 缺失时给 0，后端退到
  *  「整曲全速下载 ≥2 分钟」的兜底限速 —— 只影响限速倍率，不影响能否播放。 */
@@ -260,9 +277,34 @@ function durationHintMs(song: any): number {
   return sec > 0 && sec < 86_400 ? Math.round(sec * 1000) : 0;
 }
 
+function decodeWeiyunFileId(directUrl: string): string {
+  try {
+    const u = new URL(directUrl, location.origin);
+
+    return u.pathname.startsWith("/api/weiyun/music/")
+      ? decodeURIComponent(u.pathname.slice("/api/weiyun/music/".length))
+      : "";
+  } catch {
+    return "";
+  }
+}
+
 /** 协商一条可播流：永远带 Fallback（auto_downgrade）——高档被会员/加密/无源挡住时沿回退链
  *  降到最优可播明文档，degraded 标记实际降档；配合播放条音质胶囊（会话级、不持久化）。 */
 export async function resolveStreamUrl(song: any, quality: Quality | "auto" = effectiveQuality()): Promise<StreamResult> {
+  if (song?.directUrl && song?.cloud) {
+    const cloudFileId = decodeWeiyunFileId(song.directUrl);
+
+    if (cloudFileId) {
+      const r = await postWeiyunResolve({
+        mid: song.mid, tier: "weiyun", duration_ms: durationHintMs(song),
+        cache_seed: musicCacheSeed(), cloud_file_id: cloudFileId,
+      });
+
+      return { url: "/api" + r.path, tier: r.tier, label: r.cached ? "微云缓存" : r.tier_label, degraded: r.degraded };
+    }
+  }
+
   const mediaId: string = song.file?.media_mid ?? song.media_mid ?? song.mid;
   let tier = quality as string;
 

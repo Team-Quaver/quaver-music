@@ -6,47 +6,12 @@
 import "./cloud.css";
 import { api, postJson, coverUrl, escHtml, songArtists } from "../lib/api";
 import { toast } from "../lib/toast";
-import { player } from "../player";
-import type { Song } from "../player";
+import { player, type Song } from "../player";
+import { cloudItemToSong, invalidateCloudLibrary, loadCloudLibrary, type CloudLibrary } from "../lib/cloud";
 import { errText, h, mountStickyBar } from "./_shared";
 import { bindSongMenu } from "../components/SongMenu";
 
 interface CloudChangedDetail { key?: string }
-
-interface CloudItem {
-  key: string;
-  fileId: string;
-  fileName: string;
-  matched: number;
-  playable: boolean;
-  title: string;
-  artist: string;
-  album: string;
-  editedMeta: boolean;
-  coverManual: boolean;
-  lyricImport: boolean;
-  importFormat: string;
-  scrapedAt: number;
-  hasCover: boolean;
-  hasLyric: boolean;
-  playbackError: string;
-  song?: Song;
-}
-
-interface CloudLibrary {
-  items: CloudItem[];
-  count: number;
-  stats: { total: number; playable: number; withCover: number; withLyric: number };
-  scrape: {
-    running: boolean;
-    total: number;
-    processed: number;
-    matched: number;
-    unmatched: number;
-    failed: number;
-    lastError: string;
-  };
-}
 
 interface WeiyunStatus {
   configured: boolean;
@@ -61,36 +26,6 @@ const button = (label: string, cls = "ghost-btn") => {
   b.textContent = label;
 
   return b;
-};
-
-const cloudSong = (item: CloudItem): Song | null => {
-  if (!item.playable || !item.fileId) return null;
-
-  const song = item.song;
-  const title = item.title || item.fileName;
-  const matchedSong = item.matched === 1 ? song : undefined;
-  const directUrl = `/api/weiyun/music/${encodeURIComponent(item.fileId)}?name=${encodeURIComponent(item.fileName)}`;
-
-  return {
-    ...song,
-    // 未匹配曲库的上传文件没有 QQ song mid；用微云 file_id 建立稳定身份，
-    // 让播放器队列、会话存档和切歌仍能正常工作。
-    mid: matchedSong?.mid || `weiyun:${item.fileId}`,
-    name: title,
-    title,
-    singer: item.artist ? [{ name: item.artist }] : song?.singer,
-    album: {
-      ...song?.album,
-      name: item.album || song?.album?.name || "",
-    },
-    directUrl,
-    cloud: {
-      key: item.key,
-      hasCover: item.hasCover,
-      lyricImport: item.lyricImport,
-      importFormat: item.importFormat,
-    },
-  };
 };
 
 export default async function cloudView(root: HTMLElement) {
@@ -197,7 +132,7 @@ export default async function cloudView(root: HTMLElement) {
     const bar = h("div", "cloud-actions");
     bar.append(h("span", "cloud-stat", `${stats.total} 个文件 · ${stats.playable} 首可播放`));
 
-    songs = library.items.map(cloudSong).filter((s): s is Song => !!s);
+    songs = library.items.map(cloudItemToSong).filter((s): s is Song => !!s);
     const playAll = button(`播放全部（${songs.length}）`);
     playAll.disabled = !songs.length;
     playAll.onclick = () => player.playList(songs, 0);
@@ -215,6 +150,7 @@ export default async function cloudView(root: HTMLElement) {
 
       try {
         await postJson("/cloud/scrape", {});
+        invalidateCloudLibrary();
         toast("已开始刮削");
         await load();
       } catch (e) {
@@ -232,6 +168,7 @@ export default async function cloudView(root: HTMLElement) {
 
       try {
         await postJson("/cloud/scrape", { all: true, force: true });
+        invalidateCloudLibrary();
         toast("已开始重新刮削");
         await load();
       } catch (e) {
@@ -263,7 +200,7 @@ export default async function cloudView(root: HTMLElement) {
     const rows = h("div", "rows");
 
     for (const [i, item] of library.items.entries()) {
-      const song = cloudSong(item);
+      const song = cloudItemToSong(item);
       const row = h("div", "row cloud-row");
       row.innerHTML = `
         <span class="idx">${i + 1}</span>
@@ -312,7 +249,8 @@ export default async function cloudView(root: HTMLElement) {
   const load = async (quiet = false) => {
     try {
       const [lib, st] = await Promise.all([
-        api<CloudLibrary>("/cloud/library"),
+        // 云端页要如实显示刮削进度；缓存只给播放器兜底匹配用，页面本身每次都取新快照。
+        loadCloudLibrary(true),
         quiet ? Promise.resolve(status) : api<WeiyunStatus>("/weiyun/status").catch(() => null),
       ]);
 
@@ -330,6 +268,7 @@ export default async function cloudView(root: HTMLElement) {
 
   const onCloudChanged = (e: Event) => {
     if (!(e instanceof CustomEvent)) return;
+    invalidateCloudLibrary();
     // SAFETY: cloud.ts is the only producer of this private event and always sends {key:string}.
     const key = String((e.detail as CloudChangedDetail | null)?.key ?? "");
 

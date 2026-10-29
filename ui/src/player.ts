@@ -28,6 +28,7 @@ import { isLocalSong, localSongStreamUrl, loadLocalLibrary, onLocalLibraryChange
 import type { ListenReportTarget, ListenTimeReporter } from "./lib/listen-report";
 import { PlaybackEndGate } from "./lib/playback-end";
 import type { CloudSongFingerprint } from "./lib/cloud";
+import { findPlaybackFallback, hasPlayableTier, warmPlaybackFallbackSources } from "./lib/playback-fallback";
 
 export type Song = {
   mid: string;
@@ -40,6 +41,16 @@ export type Song = {
   subtitle?: string;
   singer?: { id?: number; name: string; mid?: string; pmid?: string }[];
   album?: { mid?: string; pmid?: string; name?: string };
+  /** QQ 曲目的 file 元数据：取链 media_mid 与各档位有源判断都读它。 */
+  file?: {
+    media_mid?: string;
+    size_96ogg?: number;
+    size_128mp3?: number;
+    size_192ogg?: number;
+    size_320mp3?: number;
+    size_flac?: number;
+    size_new?: number[];
+  };
   interval?: number;
   _key?: string;
   /** 本地/NAS 曲目指纹（「本地音乐」页与 lib/local.ts:trackToSong 生成）。
@@ -178,6 +189,11 @@ class Player {
   // —— 播放失败自动回退链（流加载失败 → 逐档降级重试 → 穷尽跳下一曲）——
   private fallbackMid = "";                  // 降级尝试记录归属的曲（换曲即重置）
   private fallbackTried = new Set<string>(); // 该曲已失败的档位：请求档与实际档都记（auto 降级下发它档时不绕回）
+  /** QQ 曲目取链/解码失败时，已经接上的本地或微云同曲源（仍保留歌单原曲身份）。 */
+  private fallbackForMid = "";
+  private fallbackSong: Song | null = null;
+  /** 起播看门狗：取链/挂流超时后给同曲本地/微云文件一次接管机会。 */
+  private startWatchdog: number | null = null;
   private failStreak = 0;                    // 自动跳曲连续失败数（真出声即清零；达队列长度停止跳，防断网时无限快跳）
   private lastAutoplay = true;               // 最近一轮 startCurrent 的 autoplay（error 分类：还原挂流失败不自动重试）
   private lastPrevPressAt = 0;               // 媒体键/热键「上一曲」连按判定时刻（prevPress 专用；播放条双击走原生 dblclick，不共用计时器）
@@ -271,14 +287,16 @@ class Player {
 
         break;
       case "playing": // playing = 真的出声了（起播/缓冲恢复）
+        this.endGate.reset();
+        this.clearStartWatchdog();
         this.listenReporter?.setPlaying(true);
 
         if (this.loading) { this.loading = false; this.error = ""; this.notify(); }
 
-        this.endGate.reset();
         this.failStreak = 0; // 出声即成功：自动跳曲的连续失败计数清零
         break;
       case "canplay":
+        this.clearStartWatchdog();
         if (this.loading && !this.transport.paused) { this.loading = false; this.notify(); }
 
         break;
@@ -295,6 +313,7 @@ class Player {
         this.onEnded();
         break;
       case "error": {
+        this.clearStartWatchdog();
         this.listenReporter?.setPlaying(false);
 
         // src 加载/解码失败（token 过期、上游断流、mpv 退出）→ 在播/正常起播态自动回退音质，
@@ -306,7 +325,7 @@ class Player {
 
         if (!this.lastAutoplay || (this.transport.paused && !wasLoading)) { this.notify(); return; }
 
-        this.handleStreamError(e.message ?? "音频流加载失败");
+        void this.handleStreamError(e.message ?? "音频流加载失败");
         break;
       }
     }
@@ -584,17 +603,25 @@ class Player {
   /** 当前持久化的 EQ。播放器不持有第二份真相，设置浮窗每次打开都从这里取。 */
   getEqualizer(): EqState { return getEqualizerState(); }
 
+  /** 当前曲是否已从本地/微云同曲文件接管播放（UI 可据此提示来源）。
+   *  返回当前实际播放源，不改动队列里的 QQ 曲目身份。 */
+  get playbackFallback() {
+    return this.current && this.fallbackForMid && this.fallbackSong ? this.fallbackSong : null;
+  }
+
   /** 设置页改了默认音质后，按当前曲的播放位置重新协商并续播。
    *  默认档本身已由 setQuality 写进配置；清掉会话覆盖，保证这条重载不是被播放条的旧选择顶回去。 */
   applyDefaultQuality() {
     setSessionQuality(null);
 
-    if (!this.current || isLocalSong(this.current) || this.current.directUrl) { this.notify(); return; }
+    if (!this.current || isLocalSong(this.current) || this.current.directUrl || this.playbackFallback) { this.notify(); return; }
 
     const at = this.transport.position;
     const wasPlaying = !this.transport.paused;
     this.prefetch.clear();
     this.prefetchedMid = "";
+    this.fallbackForMid = "";
+    this.fallbackSong = null;
     void this.startCurrent(at > 1 ? at : 0, wasPlaying);
   }
 
@@ -641,9 +668,17 @@ class Player {
   get lyricComp() { return this.backend === "mpv-compat" ? 0 : 0.2; }
   get duration() { return this.transport.duration || this.current?.interval || 0; }
   /** 供 MPRIS/外部控制的暂停（与 toggle 分离：不带重试/取消语义） */
-  pause() { if (!this.transport.paused) this.transport.pause(); }
+  pause() {
+    if (this.transport.paused) return;
+    this.clearStartWatchdog(); // 用户主动暂停：取消起播超时判定
+    this.transport.pause();
+  }
   /** 供 MPRIS/外部控制的续播 */
-  resume() { if (this.transport.paused && this.transport.src) void this.transport.play().catch(() => {}); }
+  resume() {
+    if (!this.transport.paused || !this.transport.src || !this.current) return;
+    if (this.loading) this.armStartWatchdog(this.current, true);
+    void this.transport.play().catch(() => {});
+  }
 
   // —— 音量 ——
   get volume() { return this._vol; }        // 0..1（静音时保留原值）
@@ -836,6 +871,8 @@ class Player {
 
   /** 用新列表替换队列并从 i 播放（整队列替换：视图语义一致）。不 await：双击即刻打断切歌。 */
   playList(songs: Song[], i = 0) {
+    void warmPlaybackFallbackSources();
+
     this.exitRadio();
     // 上游歌单可能夹着没有 mid 的网盘条目，队列会跳过它们；下标必须按原列表
     // 同步重映射，否则点网盘后面的歌会错位到再下一首。
@@ -852,6 +889,9 @@ class Player {
     this.queue = queue;
     this.index = selected >= 0 ? selected : Math.max(0, Math.min(i, queue.length - 1));
     this.queueVersion++;
+    // 新队列是新的播放身份：旧曲的兜底源不能带过来。
+    this.fallbackForMid = "";
+    this.fallbackSong = null;
     void this.startCurrent();
   }
 
@@ -960,6 +1000,7 @@ class Player {
   clearForLogout() {
     this.sessionDiscard = true;
     this.accountSeq++;
+    this.clearStartWatchdog();
 
     if (this.sessionTimer !== null) {
       window.clearTimeout(this.sessionTimer);
@@ -1005,6 +1046,7 @@ class Player {
 
   /** 立即打断当前取链/缓冲并跳转（双击新歌用：旧流的排队 play promise 一并作废） */
   private interrupt(stopOutput = true) {
+    this.clearStartWatchdog();
     this.listenReporter?.stopTarget();
     this.playSeq++;
     this.loading = false;
@@ -1025,7 +1067,7 @@ class Player {
 
     if (!streamToken) return null;
     const singer = s.singer?.[0];
-    const file = (s as Song & { file?: { media_mid?: string } }).file;
+    const file = s.file;
     const interval = Number(s.interval || this.transport.duration || 0);
 
     if (!(interval > 0)) return null;
@@ -1078,12 +1120,22 @@ class Player {
 
   private async startCurrent(resumeTo = 0, autoplay = true, overrideTier?: string) {
     const s = this.current;
+    // 「无音质源」的预检只跑一次：已有兜底源时不再重复匹配。
+    const fallbackPreflight = !!s && !overrideTier && !this.fallbackSong && !hasPlayableTier(s);
     // PCM 兼容模式切歌时先让旧曲继续出声，等新流链就绪后由 transport.load
     // 做交叉淡化。其它后端保持原来的硬打断语义。
     this.interrupt(!(this.transport.kind === "engine" && this.transport.mode === "pcm"));
 
+    // 兜底源只是底层播放源，队列行仍是原 QQ 曲目（current.mid 不变）；
+    // 换歌只认 current.mid，不能把“已接兜底”误判成换了一首。
+    const switchedSong = !!s && s.mid !== this.fallbackMid;
     // 降级尝试记录按曲归属：换到别的歌就重置（每首都有完整的一次回退机会）
-    if (s && s.mid !== this.fallbackMid) { this.fallbackMid = s.mid; this.fallbackTried.clear(); }
+    if (switchedSong) {
+      this.fallbackMid = s.mid;
+      this.fallbackTried.clear();
+      this.fallbackForMid = "";
+      this.fallbackSong = null;
+    }
 
     this.lastAutoplay = autoplay;
     this.lyrics = [];
@@ -1098,6 +1150,7 @@ class Player {
 
     this.loading = true;
     this.notify();
+    this.armStartWatchdog(s, autoplay);
     // 歌词与取流/起播互不依赖：从换曲第一刻并行拉取，别让音频加载 RTT 串在歌词前面。
     void this.fetchLyric(s);
     const seq = this.playSeq;
@@ -1107,6 +1160,8 @@ class Player {
       await this.backendInit; // 首播发生在启动后端检查完成前：等检查定再挂流
 
       if (account !== this.accountSeq || seq !== this.playSeq || this.current !== s) return; // 期间又切了歌/换了账号：本轮作废
+      // 上游 file 元数据明确没有任何音质源时，先走本地/微云同曲，别白等一轮取链超时。
+      if (s && fallbackPreflight && await this.tryPlaybackFallback(s, resumeTo)) return;
       const r = await this.getStream(s, overrideTier); // 命中单击预取的链接 → 直接跳过取链；降级重试带指定档
 
       if (account !== this.accountSeq || seq !== this.playSeq || this.current !== s) return;
@@ -1119,6 +1174,16 @@ class Player {
       await this.transport.load(r.url, { paused: !autoplay, startAt });
 
       if (account !== this.accountSeq || seq !== this.playSeq || this.current !== s) return;
+      // 兜底源本身已经挂上：让播放条音质胶囊如实显示来源，不再冒充 QQ 档位。
+      if (this.fallbackForMid === s.mid) {
+        const fb = this.fallbackSong;
+
+        setLastStream({
+          tier: fb?.local ? "local" : "weiyun",
+          label: fb?.local ? "本地文件" : "微云文件",
+          degraded: false,
+        });
+      }
 
       if (startAt > 1 && this.transport.kind === "web") this.pendingSeek = startAt;
 
@@ -1140,6 +1205,9 @@ class Player {
       this.prefetchNextForCrossfade();
     } catch (e: any) {
       if (account === this.accountSeq && seq === this.playSeq && this.current === s) {
+        const resumedAt = this.transport.position > 1 ? this.transport.position : resumeTo;
+
+        if (await this.tryPlaybackFallback(s, resumedAt)) return;
         // 取链失败：旧曲不能一直垫着，收掉后再走降级/跳曲。
         if (this.transport.kind === "engine" && this.transport.mode === "pcm") this.transport.stop();
         this.loading = false;
@@ -1162,10 +1230,21 @@ class Player {
   /** 前端降级链（与后端 tierTable rank 降序对齐，见 vendor/Typhoeus-go/typhoeus/quality.go） */
   private static readonly FALLBACK_CHAIN = ["master", "atmos71", "atmos51", "atmos2", "flac", "640ogg", "320ogg", "320", "192ogg", "128", "96ogg"];
 
-  private handleStreamError(msg: string) {
+  private async handleStreamError(msg: string) {
     const s = this.current;
 
     if (!s) return;
+
+    if (!isLocalSong(s) && !s.directUrl) {
+      if (this.fallbackForMid === s.mid && this.fallbackSong) {
+        // 兜底源本身加载失败：清掉源但保留「本曲已尝试兜底」标记，
+        // 继续原来的 QQ 档位回退，不能在同一曲上反复重接同一个坏文件。
+        this.fallbackSong = null;
+      } else if (this.fallbackForMid !== s.mid
+        && await this.tryPlaybackFallback(s, this.transport.position > 1 ? this.transport.position : 0)) {
+        return;
+      }
+    }
 
     // 本地/NAS 曲目没有档位阶梯可下（文件就是那一档）：直接跳下一曲
     if (isLocalSong(s) || s.directUrl) { this.skipSong(msg); return; }
@@ -1185,6 +1264,62 @@ class Player {
     this.notify();
     // 断流点续播：position ≤1（起播就失败）自然从头；换档后时长一致，pendingSeek 机制接管
     void this.startCurrent(this.transport.position > 1 ? this.transport.position : 0, true, nextTier);
+  }
+
+  /** 歌单原曲身份不变，只把底层播放源换成本地/微云同曲文件。
+   *  每首只尝试一次；兜底源自身失败后由 handleStreamError 继续原档位链或跳曲。 */
+  private async tryPlaybackFallback(s: Song, resumeAt: number): Promise<boolean> {
+    if (isLocalSong(s) || s.directUrl || this.fallbackForMid === s.mid || this.fallbackSong) return false;
+
+    this.fallbackForMid = s.mid;
+
+    try {
+      const found = await findPlaybackFallback(s);
+
+      // startCurrent() 在挂流前会 interrupt() 递增 playSeq；只有换曲才算本次结果作废。
+      // 队列行不替换：兜底源只改底层 URL，current 仍是原 QQ 曲目。
+      if (!found || this.current !== s) {
+        if (this.fallbackForMid === s.mid) this.fallbackForMid = "";
+
+        return false;
+      }
+      this.fallbackSong = found;
+      this.error = "";
+      this.loading = true;
+      this.notify();
+      void this.startCurrent(resumeAt > 1 ? resumeAt : 0);
+
+      return true;
+    } catch {
+      if (this.fallbackForMid === s.mid) this.fallbackForMid = "";
+
+      return false;
+    }
+  }
+
+  /** 起播看门狗：网络/解码链路能取到 URL 却迟迟不出声时，不无限转圈。
+   *  先尝试同曲本地/微云文件；没有匹配时按普通流失败进入档位回退。 */
+  private armStartWatchdog(s: Song, autoplay: boolean) {
+    this.clearStartWatchdog();
+    if (!autoplay || isLocalSong(s) || s.directUrl || this.playbackFallback) return;
+
+    const seq = this.playSeq;
+    this.startWatchdog = window.setTimeout(() => {
+      this.startWatchdog = null;
+
+      if (this.current !== s || seq !== this.playSeq || !this.loading) return;
+
+      this.error = "";
+      this.loading = false;
+      this.notify();
+      void this.handleStreamError("起播超时（20 秒未出声）");
+    }, 20_000);
+  }
+
+  private clearStartWatchdog() {
+    if (this.startWatchdog === null) return;
+    window.clearTimeout(this.startWatchdog);
+    this.startWatchdog = null;
   }
 
   /** 回退穷尽/取链失败 → 跳下一曲。failStreak 防全队列坏流/断网时无限快跳：连续失败满队列长度即停。
@@ -1218,8 +1353,12 @@ class Player {
   prefetchSong(song: Song | undefined) {
     if (!song?.mid) return;
 
-    if (isLocalSong(song) || song.directUrl) return; // 现成同源 URL，没有「取链预热」可言
-    const q = String(effectiveQuality());
+    if (isLocalSong(song)) return; // 本地文件没有取链预热
+    // 点歌即预热本地/微云库快照；真正匹配只在 QQ 取链或解码失败后发生。
+    void warmPlaybackFallbackSources();
+    // 明确无音质的 QQ 曲目不要预取注定失败的 QQ 链接；双击时直接走本地/微云兜底。
+    if (!song.directUrl && !hasPlayableTier(song)) return;
+    const q = song.directUrl ? "weiyun" : String(effectiveQuality());
 
     if (song.mid === this.prefetchedMid && this.prefetch.has(q + "|" + song.mid)) return;
     this.prefetch.clear(); // 清理旧预加载链接引用（token 由后端 TTL 回收；前端不再持有下载）
@@ -1262,8 +1401,24 @@ class Player {
   /** getPlayUrl 语义的内部入口：预取命中用预取结果，否则现场协商；
    *  overrideTier = 播放失败自动回退的指定档（预取按 effectiveQuality 键存，指定档时必须绕开）。 */
   private async getStream(s: Song, overrideTier?: string): Promise<StreamResult> {
+    if (!overrideTier && this.fallbackSong && this.fallbackForMid === this.current?.mid) {
+      return this.getStream(this.fallbackSong);
+    }
+
     if (s.directUrl) {
-      return { url: s.directUrl, tier: "weiyun", label: "微云文件", degraded: false };
+      // 微云条目也走 resolve：一次性 token + StreamGuard + LocalGuard。
+      // 老 sidecar 或 resolve 异常时回退稳定同源中继，保持基础可播。
+      try {
+        const hit = this.prefetch.get("weiyun|" + s.mid);
+        this.prefetch.clear();
+        if (hit) return await hit;
+        return await this.resolveWithSources(s, "weiyun" as any);
+      } catch (e) {
+        // 直链中继本身会做 StreamGuard 分类、Range 解密与断流续传；resolve
+        // 只是更严格的 token 通道。超时/老 sidecar 时继续可用比整首跳走更重要。
+        console.warn("[cloud] 微云 resolve 失败，回退直链", e);
+        return { url: s.directUrl, tier: "weiyun", label: "微云文件", degraded: false };
+      }
     }
 
     // 本地/NAS 曲目：同源流（Range 在服务端处理），档位就是文件本身，别过 QQ 取链。
@@ -1643,6 +1798,7 @@ class Player {
   // —— 播放条音质切换（会话级：不持久化；带 Fallback 协商，切档即从当前进度重挂流） ——
   switchQuality(q: Parameters<typeof setSessionQuality>[0]) {
     if (this.current && isLocalSong(this.current)) { this.notify(); return; } // 本地文件无在线档位
+    if (this.current && this.playbackFallback) { this.notify(); return; } // 兜底源是文件本身，无在线档位
 
     const cur = getSessionQuality();
 
@@ -1821,7 +1977,6 @@ class Player {
     if (!this.queue.length) return;
 
     if (this.radioOn) return; // 无限电台屏蔽上一曲（按钮/热键/媒体键最终都落到这里）
-
     // 「上一首」逻辑（Playing.PrevReplay，设置页即时生效）：
     // replay=把当前曲从头重放（播放条双击走 force 直接切上一首）；previous=直接切到队列里的上一首。
     // force 只由播放条双击与媒体键/热键的连按判定传：单次动作永远按单击逻辑走
@@ -2130,7 +2285,7 @@ class Player {
 
     if (!mid) return null;
 
-    if (isLocalSong(song) || song.directUrl) return null; // 红心是 QQ 侧概念：本地/微云直链无在线收藏
+    if (isLocalSong(song) || song.directUrl) return null; // 红心是 QQ 侧概念：本地/微云曲目无在线收藏
     // 行对象可能来自不带数字 id 的上下文（如专辑曲目）：回落到预载时记下的 song_id
     const ref = song.id ? { id: song.id, type: song.type ?? 1 } : this.lovedRef.get(mid);
 

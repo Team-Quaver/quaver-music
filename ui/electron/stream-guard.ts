@@ -30,7 +30,7 @@ export const PROBE_MAX_SPAN = 64 * 1024;
 export function classifyGuardedPath(pathname: string): "stream" | "legacy" | null {
   if (pathname === "/api/song/urls" || /^\/api\/song\/[^/]+\/url$/.test(pathname)) return "legacy";
 
-  const m = /^\/api\/(?:stream|cache\/music\/stream)\/([^/?#]+)$/.exec(pathname);
+  const m = /^\/api\/(?:stream|cache\/music\/stream|weiyun\/music)\/([^/?#]+)$/.exec(pathname);
 
   if (m && m[1] !== "resolve" && m[1] !== "tiers") return "stream";
 

@@ -12,6 +12,7 @@ import { api } from "../lib/api";
 import { player, type Song } from "../player";
 import { deleteSonglist } from "../lib/playlists";
 import { toggleFavSonglist } from "../lib/favs";
+import { loadSonglistDetail } from "../lib/songlist-detail";
 import { sparklePlaylistMenuItems } from "../sparkle/registry";
 import { openMenuAt, type MenuItem } from "./SongMenu";
 import { toast } from "../lib/toast";
@@ -33,9 +34,14 @@ export interface PlaylistMenuOptions {
   onDeleted?: (pl: PlaylistMenuTarget) => void;
 }
 
-/** 拉全歌单歌曲：与歌单页同一分页口径（页 100 首，页尽即止）。
- *  歌单可能超过一页，只拉首页会把大歌单截成「只播前 100 首」。失败抛给调用方。 */
+/** 拉全歌单歌曲：复用歌单页的整单缓存（TTL 内不发请求），未命中/过期才分页回源。
+ *  这样「先进歌单再双击侧栏」不会把整单再拉一遍；歌单可能超过一页，
+ *  只拉首页会把大歌单截成前 100 首。 */
 async function fetchPlaylistSongs(id: number | string): Promise<Song[]> {
+  const detail = await loadSonglistDetail(id);
+
+  if (detail?.songs?.length) return detail.songs;
+
   const songs: Song[] = [];
 
   for (let page = 1; ; page++) {

@@ -38,6 +38,10 @@ section("路径归类");
 
 check("播放流 token 路径 = stream", classifyGuardedPath("/api/stream/AbC-123_x") === "stream");
 
+check("本地缓存播放流 = stream", classifyGuardedPath("/api/cache/music/stream/AbC-123_x") === "stream");
+
+check("微云播放流 = stream", classifyGuardedPath("/api/weiyun/music/10001-abc") === "stream");
+
 check("resolve 不归 token 闸门管", classifyGuardedPath("/api/stream/resolve") === null);
 
 check("tiers 不归 token 闸门管", classifyGuardedPath("/api/stream/tiers") === null);

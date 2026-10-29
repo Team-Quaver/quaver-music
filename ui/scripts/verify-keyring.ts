@@ -398,8 +398,8 @@ check("**没有任何写出明文凭证的路径**（writeAtomic 只用于密文
 check("mirror / materialize 那套（会产出明文）已彻底删除",
   !keyringSrc.includes("mirrorLegacy") && !keyringSrc.includes("materializeLegacy") && !keyringSrc.includes("startLegacyMirror"));
 
-check("碰明文的写操作只有 migrateLegacy 里的 unlink",
-  (keyringSrc.match(/unlinkSync\(this\.legacy\)/g) ?? []).length === 1);
+check("明文迁移的唯一删除点在 CredentialStore 内",
+  (keyringSrc.match(/unlinkSync\((?:this\.legacy|legacy)\)/g) ?? []).length === 1);
 
 check("文档头写明这条红线", keyringSrc.includes("明文凭证一个字节都不落盘"));
 
@@ -438,7 +438,8 @@ check("stdout 先分行再分流（不按行处理会把多行粘在一起）", 
 check("凭证行先被识别、再决定是否写日志（顺序反了就泄露 musickey）",
   stdoutHandler.indexOf("decodeHandoff(line)") < stdoutHandler.indexOf('log("[sidecar]", line)'));
 
-check("普通日志行才进日志，凭证行走 applySidecarCredential", /if \(msg\) applySidecarCredential\(msg\.credential\);\s*\n\s*else log\("\[sidecar\]", line\);/.test(stdoutHandler));
+check("普通日志行才进日志，凭证/微云授权行走对应 handler",
+  /if \(msg\) applySidecarCredential\(msg\.credential\);\s*\n\s*else if \(weiyun\) applySidecarWeiyunAuth\(weiyun\.auth\);\s*\n\s*else log\("\[sidecar\]", line\);/.test(stdoutHandler));
 
 check("主进程从不把凭证本体写进日志（只允许 credentialSummary）",
   !/log\([^)]*JSON\.stringify\((cred|handoff)\b/.test(mainSrc) && mainSrc.includes("credentialSummary(handoff)"));
