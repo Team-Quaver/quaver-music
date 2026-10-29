@@ -251,9 +251,14 @@ async function postResolve(body: { mid: string; media_mid: string; tier: string;
   }
 }
 
-async function postWeiyunResolve(body: { mid: string; tier: string; duration_ms: number; cache_seed?: string; cloud_file_id: string }): Promise<StreamResolved> {
+async function postWeiyunResolve(
+  body: { mid: string; tier: string; duration_ms: number; cache_seed?: string; cloud_file_id: string },
+  name: string,
+): Promise<StreamResolved> {
   try {
-    return await api<StreamResolved>("/stream/resolve", {
+    const query = name ? `?name=${encodeURIComponent(name)}` : "";
+
+    return await api<StreamResolved>("/stream/resolve" + query, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -289,6 +294,16 @@ function decodeWeiyunFileId(directUrl: string): string {
   }
 }
 
+/** 微云直链的 name 查询参数就是原始文件名（含 [aq]/质量后缀），取链时显式带上，
+ *  不能只依赖下载票据缓存：票据可能先由另一条中继建立，那时并不总有文件名。 */
+function decodeWeiyunFileName(directUrl: string): string {
+  try {
+    return new URL(directUrl, location.origin).searchParams.get("name") ?? "";
+  } catch {
+    return "";
+  }
+}
+
 /** 协商一条可播流：永远带 Fallback（auto_downgrade）——高档被会员/加密/无源挡住时沿回退链
  *  降到最优可播明文档，degraded 标记实际降档；配合播放条音质胶囊（会话级、不持久化）。 */
 export async function resolveStreamUrl(song: any, quality: Quality | "auto" = effectiveQuality()): Promise<StreamResult> {
@@ -299,7 +314,7 @@ export async function resolveStreamUrl(song: any, quality: Quality | "auto" = ef
       const r = await postWeiyunResolve({
         mid: song.mid, tier: "weiyun", duration_ms: durationHintMs(song),
         cache_seed: musicCacheSeed(), cloud_file_id: cloudFileId,
-      });
+      }, decodeWeiyunFileName(song.directUrl));
 
       return { url: "/api" + r.path, tier: r.tier, label: r.cached ? "微云缓存" : r.tier_label, degraded: r.degraded };
     }
@@ -319,6 +334,10 @@ export async function resolveStreamUrl(song: any, quality: Quality | "auto" = ef
   } catch (e: any) {
     // 目标档本身取不到（会员/加密在 auto 模式已被后端裁剪，走到这里多为无源/网络）→ 兜底标准档
     if (tier !== "128") {
+      // auto=true 时后端已经沿整条档位链协商过；明确「无可播档位」就不要再为
+      // 128 重发一轮注定失败的请求。兜底匹配/跳曲也因此能提前约一个 RTT。
+      if (e instanceof ApiError && /无可播档位/.test(e.message)) throw e;
+
       const r = await postResolve({ mid: song.mid, media_mid: mediaId, tier: "128", auto: true, deprioritize, duration_ms: durationHintMs(song), cache_seed: musicCacheSeed() });
 
       return { url: "/api" + r.path, tier: "128", label: "标准音质", degraded: true };

@@ -192,6 +192,9 @@ class Player {
   /** QQ 曲目取链/解码失败时，已经接上的本地或微云同曲源（仍保留歌单原曲身份）。 */
   private fallbackForMid = "";
   private fallbackSong: Song | null = null;
+  /** 同一首曲的兜底匹配可能同时被 transport error 与 startCurrent catch 触发；
+   *  两边必须等同一轮匹配，不能把「正在找」误判成「已经找过且没有」。 */
+  private fallbackLookup: { mid: string; promise: Promise<Song | null> } | null = null;
   /** 起播看门狗：取链/挂流超时后给同曲本地/微云文件一次接管机会。 */
   private startWatchdog: number | null = null;
   private failStreak = 0;                    // 自动跳曲连续失败数（真出声即清零；达队列长度停止跳，防断网时无限快跳）
@@ -251,6 +254,12 @@ class Player {
     });
     // 本地库快照变化（扫描/自动刮削落定）→ 当前本地曲目的 qqMid/封面指纹原地跟进
     onLocalLibraryChange(() => this.refreshLocalCurrent());
+    // 兜底索引在空闲时预热。真正匹配仍只在 QQ 失败后发生；这里只是避免用户
+    // 第一次点歌时把「拉微云库 + 本地库」的 RTT 也算进起播转圈。
+    const warmFallback = () => { void warmPlaybackFallbackSources(); };
+
+    if (window.requestIdleCallback) window.requestIdleCallback(warmFallback, { timeout: 2_000 });
+    else window.setTimeout(warmFallback, 1_200);
   }
 
   // —— 传输层接线 ——
@@ -666,7 +675,14 @@ class Player {
   get time() { return this.transport.position; }
   /** 歌词时钟补偿（秒）：native/web 沿用现有 +0.2s；PCM 兼容模式启动有预缓冲，不能再叠这一层。 */
   get lyricComp() { return this.backend === "mpv-compat" ? 0 : 0.2; }
-  get duration() { return this.transport.duration || this.current?.interval || 0; }
+  get duration() {
+    const hint = Number(this.current?.interval) || 0;
+    // 换曲/切兜底源时引擎的上一首时长不会立刻清零；加载中先用队列行的曲长，
+    // 否则界面会短暂把上一首的 3:21 挂在这首 7:03 上。
+    if (this.loading && hint > 0) return hint;
+
+    return this.transport.duration || hint;
+  }
   /** 供 MPRIS/外部控制的暂停（与 toggle 分离：不带重试/取消语义） */
   pause() {
     if (this.transport.paused) return;
@@ -1161,7 +1177,27 @@ class Player {
       if (account !== this.accountSeq || seq !== this.playSeq || this.current !== s) return; // 期间又切了歌/换了账号：本轮作废
       // 上游 file 元数据明确没有任何音质源时，先走本地/微云同曲，别白等一轮取链超时。
       if (s && fallbackPreflight && await this.tryPlaybackFallback(s, resumeTo)) return;
-      const r = await this.getStream(s, overrideTier); // 命中单击预取的链接 → 直接跳过取链；降级重试带指定档
+      const qqStream = this.getStream(s, overrideTier); // 命中单击预取的链接 → 直接跳过取链；降级重试带指定档
+      let r: StreamResult;
+
+      if (!overrideTier && !fallbackPreflight && !s.directUrl && !isLocalSong(s)) {
+        // 有同曲网盘/本地文件时，额外用最低档并行探一次 QQ 曲库。探针只判断
+        // 「整首有没有源」，不会抢占正常曲目的音质：QQ 正常返回仍优先。
+        const quick = this.resolveQuickFallback(s);
+        const first = await Promise.race([
+          qqStream.then((qq) => ({ qq })),
+          quick.then((fb) => fb ? { fb } : new Promise<never>(() => {})),
+        ]);
+
+        if ("fb" in first) {
+          this.fallbackForMid = s.mid;
+          this.fallbackSong = first.fb.song;
+          r = first.fb.stream;
+          void qqStream.catch(() => { /* 慢速 QQ 结果已不再使用 */ });
+        } else r = first.qq;
+      } else {
+        r = await qqStream;
+      }
 
       if (account !== this.accountSeq || seq !== this.playSeq || this.current !== s) return;
       this.streamUrl = r.url;
@@ -1239,8 +1275,7 @@ class Player {
         // 兜底源本身加载失败：清掉源但保留「本曲已尝试兜底」标记，
         // 继续原来的 QQ 档位回退，不能在同一曲上反复重接同一个坏文件。
         this.fallbackSong = null;
-      } else if (this.fallbackForMid !== s.mid
-        && await this.tryPlaybackFallback(s, this.transport.position > 1 ? this.transport.position : 0)) {
+      } else if (await this.tryPlaybackFallback(s, this.transport.position > 1 ? this.transport.position : 0)) {
         return;
       }
     }
@@ -1268,12 +1303,25 @@ class Player {
   /** 歌单原曲身份不变，只把底层播放源换成本地/微云同曲文件。
    *  每首只尝试一次；兜底源自身失败后由 handleStreamError 继续原档位链或跳曲。 */
   private async tryPlaybackFallback(s: Song, resumeAt: number): Promise<boolean> {
-    if (isLocalSong(s) || s.directUrl || this.fallbackForMid === s.mid || this.fallbackSong) return false;
+    if (isLocalSong(s) || s.directUrl) return false;
+
+    if (this.fallbackSong && this.fallbackForMid === s.mid) return true;
+
+    // 已匹配过且没有结果（也没有在途匹配）：交给原档位回退/跳曲，不重复扫库。
+    if (this.fallbackForMid === s.mid && !this.fallbackLookup) return false;
 
     this.fallbackForMid = s.mid;
+    let lookup: Promise<Song | null> | null = null;
 
     try {
-      const found = await findPlaybackFallback(s);
+      lookup = this.fallbackLookup?.mid === s.mid ? this.fallbackLookup.promise : null;
+
+      if (!lookup) {
+        lookup = findPlaybackFallback(s);
+        this.fallbackLookup = { mid: s.mid, promise: lookup };
+      }
+
+      const found = await lookup;
 
       // startCurrent() 在挂流前会 interrupt() 递增 playSeq；只有换曲才算本次结果作废。
       // 队列行不替换：兜底源只改底层 URL，current 仍是原 QQ 曲目。
@@ -1282,6 +1330,9 @@ class Player {
 
         return false;
       }
+
+      if (this.fallbackSong && this.fallbackForMid === s.mid) return true;
+
       this.fallbackSong = found;
       this.error = "";
       this.loading = true;
@@ -1293,6 +1344,8 @@ class Player {
       if (this.fallbackForMid === s.mid) this.fallbackForMid = "";
 
       return false;
+    } finally {
+      if (lookup && this.fallbackLookup?.promise === lookup) this.fallbackLookup = null;
     }
   }
 
@@ -1300,9 +1353,13 @@ class Player {
    *  先尝试同曲本地/微云文件；没有匹配时按普通流失败进入档位回退。 */
   private armStartWatchdog(s: Song, autoplay: boolean) {
     this.clearStartWatchdog();
-    if (!autoplay || isLocalSong(s) || s.directUrl || this.playbackFallback) return;
+
+    if (!autoplay || isLocalSong(s) || s.directUrl) return;
 
     const seq = this.playSeq;
+    // 微云兜底也从文件本身取流，定位/票据/首字节仍可能挂住；给它比 QQ 档位
+    // 协商稍短的窗口。超时后 handleStreamError 会清掉坏兜底源再走原档位链。
+    const timeout = this.playbackFallback ? 15_000 : 20_000;
     this.startWatchdog = window.setTimeout(() => {
       this.startWatchdog = null;
 
@@ -1311,8 +1368,8 @@ class Player {
       this.error = "";
       this.loading = false;
       this.notify();
-      void this.handleStreamError("起播超时（20 秒未出声）");
-    }, 20_000);
+      void this.handleStreamError(`起播超时（${timeout / 1000} 秒未出声）`);
+    }, timeout);
   }
 
   private clearStartWatchdog() {
@@ -1382,6 +1439,32 @@ class Player {
     this.prefetchSong(this.queue[i]);
   }
 
+  /** 并行快探：只有同曲网盘/本地文件存在时才值得跑。
+   *  128 档能取到就立刻放行正常 QQ 链路；明确返回「无可播档位」才把
+   *  已取好的微云流交给 startCurrent，省掉高档位链完整协商的 2-3 秒。 */
+  private async resolveQuickFallback(s: Song): Promise<{ song: Song; stream: StreamResult } | null> {
+    try {
+      const found = await findPlaybackFallback(s);
+
+      if (!found || this.current !== s) return null;
+
+      try {
+        await this.resolveWithSources(s, "128");
+
+        return null;
+      } catch (e: any) {
+        if (!/无可播档位/.test(String(e?.message ?? e))) return null;
+      }
+
+      if (this.current !== s) return null;
+      const stream = await this.getStream(found);
+
+      return { song: found, stream };
+    } catch {
+      return null;
+    }
+  }
+
   /** 取流收口：先过 Sparkle 插件播放源链（注册序 FIFO，抛错/null 放行下一环），全落空走官方 resolve */
   private async resolveWithSources(song: Song, q: string): Promise<StreamResult> {
     for (const src of sparkleStreamSources()) {
@@ -1400,7 +1483,9 @@ class Player {
   /** getPlayUrl 语义的内部入口：预取命中用预取结果，否则现场协商；
    *  overrideTier = 播放失败自动回退的指定档（预取按 effectiveQuality 键存，指定档时必须绕开）。 */
   private async getStream(s: Song, overrideTier?: string): Promise<StreamResult> {
-    if (!overrideTier && this.fallbackSong && this.fallbackForMid === this.current?.mid) {
+    // 只有「当前队列曲目」这一层才转到兜底源；递归进来的 fallbackSong 自己
+    // 不能再走这条分支，否则 getStream(fallbackSong) 会无限自递归。
+    if (!overrideTier && s === this.current && this.fallbackSong && this.fallbackForMid === s.mid) {
       return this.getStream(this.fallbackSong);
     }
 

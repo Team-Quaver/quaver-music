@@ -329,9 +329,19 @@ check("切歌创建新 sink，旧 sink 独立淡出后再销毁（跨曲交叉�
   /retirePcm\(old\)/.test(pcmCtlSrc) && /fadingPcms/.test(pcmCtlSrc)
     && /sink\.fadeOut\(ms\)/.test(pcmCtlSrc) && /Math\.max\(fade\.inMs, fade\.outMs\)/.test(pcmCtlSrc));
 
-check("淡出后的旧 sink 关闭 AudioContext，不堆积音频会话",
+check("淡出后的旧 sink 销毁节点，不堆积音频会话",
   /setTimeout\(\(\) => \{[\s\S]{0,80}sink\.destroy\(\)/.test(pcmCtlSrc)
     && /for \(const \[sink, timer\] of this\.fadingPcms\)[\s\S]{0,120}sink\.destroy\(\)/.test(pcmCtlSrc));
+
+check("PCM 跨曲复用同一 AudioContext 与 Worklet 模块",
+  /let sharedCtx: AudioContext \| null/.test(pcmCtlSrc)
+    && /function acquirePcmContext\(\)/.test(pcmCtlSrc)
+    && /function loadPcmWorklet\(ctx: AudioContext\)/.test(pcmCtlSrc)
+    && /closePcmContext\(\)/.test(pcmCtlSrc));
+
+check("新流首块 PCM 到达前继续垫着旧曲",
+  /private pendingOld: PcmSink \| null/.test(pcmCtlSrc)
+    && /if \(this\.pendingOld\)[\s\S]{0,120}retirePcm\(old\)/.test(pcmCtlSrc));
 
 check("PCM EOF 先发 ending，让下一首在尾音排空前起播",
   /onEnding\?:/.test(sinkSrc) && /type: "ending"/.test(transportSrc) && /case "ending"/.test(playerSrc));

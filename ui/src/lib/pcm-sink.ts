@@ -19,6 +19,45 @@ const PCM_CHANNELS = 2;
 const PCM_FRAME_BYTES = PCM_CHANNELS * 4;
 const WORKLET_URL = "/pcm-worklet.js";
 
+let sharedCtx: AudioContext | null = null;
+let sharedWorklet: { ctx: AudioContext; promise: Promise<void> } | null = null;
+
+function acquirePcmContext(): AudioContext | null {
+  if (sharedCtx && sharedCtx.state !== "closed") {
+    if (sharedCtx.state === "suspended") void sharedCtx.resume().catch(() => {});
+
+    return sharedCtx;
+  }
+
+  const AC = window.AudioContext;
+
+  if (!AC) return null;
+
+  try {
+    sharedCtx = new AC({ latencyHint: "playback", sampleRate: PCM_RATE });
+  } catch {
+    sharedCtx = new AC({ latencyHint: "playback" });
+  }
+
+  if (sharedCtx.state === "suspended") void sharedCtx.resume().catch(() => {});
+
+  return sharedCtx;
+}
+
+function loadPcmWorklet(ctx: AudioContext): Promise<void> {
+  if (sharedWorklet?.ctx !== ctx) {
+    sharedWorklet = { ctx, promise: ctx.audioWorklet.addModule(WORKLET_URL) };
+  }
+
+  return sharedWorklet.promise;
+}
+
+function closePcmContext(): void {
+  if (sharedCtx) void Promise.resolve(sharedCtx.close()).catch(() => {});
+  sharedCtx = null;
+  sharedWorklet = null;
+}
+
 function filterType(type: EqBandType): BiquadFilterType {
   if (type === "lowShelf") return "lowshelf";
 
@@ -86,17 +125,9 @@ export class PcmSink {
       return this.ctx;
     }
 
-    const AC = window.AudioContext;
+    const ctx = acquirePcmContext();
 
-    if (!AC) return null;
-
-    let ctx: AudioContext;
-
-    try {
-      ctx = new AC({ latencyHint: "playback", sampleRate: PCM_RATE });
-    } catch {
-      ctx = new AC({ latencyHint: "playback" });
-    }
+    if (!ctx) return null;
 
     const input = ctx.createGain();
     const preamp = ctx.createGain();
@@ -119,14 +150,12 @@ export class PcmSink {
     this.rebuildFilters();
     void this.initWorklet(ctx);
 
-    if (ctx.state === "suspended") void ctx.resume().catch(() => {});
-
     return ctx;
   }
 
   private async initWorklet(ctx: AudioContext): Promise<void> {
     try {
-      await ctx.audioWorklet.addModule(WORKLET_URL);
+      await loadPcmWorklet(ctx);
 
       if (this.disposed) return;
 
@@ -334,7 +363,6 @@ export class PcmSink {
     this.preamp = null;
     this.gain = null;
 
-    if (this.ctx) void Promise.resolve(this.ctx.close()).catch(() => {});
     this.ctx = null;
   }
 
@@ -419,6 +447,8 @@ export interface PcmControllerOpts {
 
 export class PcmController {
   private sink: PcmSink;
+  /** 新流尚未交付第一块 PCM 时，继续垫着旧曲，避免取链/首字节延迟变成静音。 */
+  private pendingOld: PcmSink | null = null;
   private gainValue = 1;
   private eqValue = getEqualizerState();
   private progressTimer: number | null = null;
@@ -497,6 +527,12 @@ export class PcmController {
         if (Number(ev.epoch) !== this.opts.epoch()) return; // 旧 MPV 会话在途的尾巴
         const d = ev.data;
 
+        if (this.pendingOld) {
+          const old = this.pendingOld;
+          this.pendingOld = null;
+          this.retirePcm(old);
+        }
+
         if (d instanceof Uint8Array) this.sink.push(d);
         else if (d instanceof ArrayBuffer) this.sink.push(new Uint8Array(d));
         else if (d?.data && Array.isArray(d.data)) this.sink.push(Uint8Array.from(d.data));
@@ -541,7 +577,12 @@ export class PcmController {
 
     this.sink = next;
 
-    if (old) this.retirePcm(old);
+    if (old) {
+      // 连切时旧 sink 可能也没出过声：保留真正在响的那一条，销毁空壳。
+      if (this.pendingOld) old.destroy();
+      else this.pendingOld = old;
+    }
+
     next.reset(startAt);
     this.paused = paused;
 
@@ -629,6 +670,7 @@ export class PcmController {
     if (fadeOutMs <= 0) {
       this.stopTimer = null;
       this.sink.stop();
+      this.stopPending();
 
       return;
     }
@@ -636,6 +678,7 @@ export class PcmController {
     this.stopTimer = window.setTimeout(() => {
       this.stopTimer = null;
       this.sink.stop();
+      this.stopPending();
     }, fadeOutMs + 40);
   }
 
@@ -652,6 +695,7 @@ export class PcmController {
     }
 
     this.stopFading();
+    this.stopPending();
     this.sink.stop();
   }
 
@@ -682,7 +726,15 @@ export class PcmController {
     }
 
     this.stopFading();
+    this.stopPending();
     this.sink.destroy();
+    closePcmContext();
+  }
+
+  private stopPending() {
+    if (!this.pendingOld) return;
+    this.pendingOld.destroy();
+    this.pendingOld = null;
   }
 }
 

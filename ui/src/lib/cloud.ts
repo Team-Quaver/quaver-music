@@ -54,7 +54,10 @@ export interface CloudLibrary {
   };
 }
 
-const CLOUD_LIBRARY_TTL = 30_000;
+// 播放兜底要的是「用户点歌时已经有一份可用的同曲索引」。微云页的刮削/元数据
+// 变更会主动失效这份快照，所以不需要靠 30s 短 TTL 追新；反过来，短 TTL 会让
+// 用户在歌单里停留一会儿后，每首失败曲都重新等一次 /cloud/library。
+const CLOUD_LIBRARY_TTL = 5 * 60_000;
 let cloudLibraryCache: { at: number; data: CloudLibrary } | null = null;
 let cloudLibraryInflight: Promise<CloudLibrary> | null = null;
 let cloudLibraryGen = 0;

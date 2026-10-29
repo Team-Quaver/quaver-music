@@ -55,6 +55,46 @@ check("pause/idle 晚到不会重复推进队列",
 check("显式 stop 清掉 eof 后重挂用的 lastUrl（清队列后不会再复活旧曲）",
   /case "stop":[\s\S]{0,900}this\.lastUrl = ""/.test(engine));
 
+console.log("\n=== 同曲兜底 ===");
+
+check("兜底匹配共享同曲在途 Promise",
+  /private fallbackLookup: \{ mid: string; promise: Promise<Song \| null> \} \| null/.test(player)
+    && /this\.fallbackLookup\?\.mid === s\.mid \? this\.fallbackLookup\.promise : null/.test(player)
+    && /const found = await lookup/.test(player));
+
+check("在途兜底不会被并发失败分支当成「已失败」",
+  /if \(this\.fallbackForMid === s\.mid && !this\.fallbackLookup\) return false/.test(player)
+    && /if \(this\.fallbackSong && this\.fallbackForMid === s\.mid\) return true/.test(player));
+
+check("流错误分支也会加入同一轮在途兜底",
+  /} else if \(await this\.tryPlaybackFallback\(s, this\.transport\.position > 1/.test(player));
+
+check("兜底源不会再次重定向到自身",
+  /if \(!overrideTier && s === this\.current && this\.fallbackSong && this\.fallbackForMid === s\.mid\)/.test(player));
+
+check("起播异常先等兜底落定，再决定跳曲",
+  /if \(await this\.tryPlaybackFallback\(s, resumedAt\)\) return;[\s\S]{0,420}this\.skipSong\(msg\)/.test(player));
+
+check("空闲时预热本地/微云兜底索引",
+  /window\.requestIdleCallback\(warmFallback, \{ timeout: 2_000 \}\)/.test(player)
+    && /window\.setTimeout\(warmFallback, 1_200\)/.test(player));
+
+check("兜底源也受起播看门狗保护",
+  /if \(!autoplay \|\| isLocalSong\(s\) \|\| s\.directUrl\) return;/.test(player)
+    && /const timeout = this\.playbackFallback \? 15_000 : 20_000/.test(player));
+
+check("加载中优先用当前队列行曲长，不沿用上一首时长",
+  /if \(this\.loading && hint > 0\) return hint;/.test(player));
+
+check("同曲副本存在时并行快探 QQ 128 档",
+  /private async resolveQuickFallback\(s: Song\)/.test(player)
+    && /await this\.resolveWithSources\(s, "128"\)/.test(player)
+    && /const first = await Promise\.race\(\[/.test(player)
+    && /if \(!overrideTier && !fallbackPreflight && !s\.directUrl && !isLocalSong\(s\)\)/.test(player));
+
+check("后端明确无播档位时不再重复请求 128",
+  /if \(e instanceof ApiError && \/无可播档位\/\.test\(e\.message\)\) throw e;/.test(read("src/lib/api.ts")));
+
 console.log(`\n${fail === 0 ? "✅" : "❌"} playback-end: ${pass} pass, ${fail} fail`);
 
 process.exit(fail === 0 ? 0 : 1);
