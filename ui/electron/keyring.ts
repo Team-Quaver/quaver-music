@@ -32,8 +32,13 @@ export const STORE_NAME = CREDENTIAL_STORE_NAME;
 /** 升级遗留的明文档名：唯一的明文来源，迁完删除。 */
 export const LEGACY_NAME = CREDENTIAL_NAME;
 
+const legacyCredentialLabel = CREDENTIAL_NAME;
+
 /** sidecar stdout 上的凭证信封前缀。前缀之外的行一律当普通日志。 */
 export const HANDOFF_PREFIX = "QCRED1 ";
+
+/** sidecar stdout 上的微云 API Key 信封前缀；与 Go 侧 WeiyunHandoffPrefix 一致。 */
+export const WEIYUN_HANDOFF_PREFIX = "WYAUTH1 ";
 
 /** [Security] CredentialStore 的取值。没有 file —— 明文不在选项里。 */
 export const STORE_MODES = ["auto", "keyring", "memory"];
@@ -206,12 +211,12 @@ function writeAtomic(file, data) {
  * （凭证只在进程内存里活着，关掉即丢）。
  */
 export class CredentialStore {
-  constructor({ dir, safeStorage, plan, log = () => {} }) {
+  constructor({ dir, safeStorage, plan, log = () => {}, storeName = STORE_NAME }) {
     this.dir = dir;
     this.safeStorage = safeStorage;
     this.plan = plan;
     this.log = log;
-    this.file = join(dir, STORE_NAME);
+    this.file = join(dir, storeName);
     this.legacy = join(dir, LEGACY_NAME);
   }
 
@@ -302,16 +307,23 @@ export class CredentialStore {
    * 返回 migrated | none（无明文）| stale（明文更旧，忽略）| failed | skipped（存档不可用）。
    */
   migrateLegacy() {
+    return this.migrateLegacyNamed(this.legacy, legacyCredentialLabel);
+  }
+
+  /** 兼容不同历史文件名的迁移实现；读取、校验、删除始终只作用于传入路径。 */
+  migrateLegacyNamed(legacy, label) {
     if (!this.usable) return "skipped";
     let raw;
 
     try {
-      raw = readFileSync(this.legacy, "utf8");
+      raw = readFileSync(legacy, "utf8");
     } catch {
       return "none";
     }
 
-    const { legacyAt, storeAt } = this._mtimes();
+    const at = (p) => { try { return statSync(p).mtimeMs; } catch { return 0; } };
+    const legacyAt = at(legacy);
+    const storeAt = at(this.file);
 
     if (storeAt && legacyAt <= storeAt) return "stale";
     let cred;
@@ -321,7 +333,7 @@ export class CredentialStore {
 
       if (!isPlainObject(cred)) return "failed";
     } catch {
-      this.log("[quaver] credential.json 不是合法 JSON，保留原文件不迁移:", this.legacy);
+      this.log(`[quaver] ${label} 不是合法 JSON，保留原文件不迁移:`, legacy);
 
       return "failed";
     }
@@ -330,18 +342,18 @@ export class CredentialStore {
     const back = this.read();
 
     if (!back || JSON.stringify(back) !== JSON.stringify(cred)) {
-      this.log("[quaver] 迁移回读校验失败，保留 credential.json（存档已写入，下次再校验）");
+      this.log(`[quaver] ${label} 迁移回读校验失败，保留原文件（存档已写入，下次再校验）`);
 
       return "failed";
     }
 
     try {
-      unlinkSync(this.legacy);
+      unlinkSync(legacy);
     } catch (e) {
-      this.log("[quaver] 明文删除失败（下次启动会重迁，幂等）:", String(e));
+      this.log(`[quaver] ${label} 明文删除失败（下次启动会重迁，幂等）:`, String(e));
     }
 
-    this.log("[quaver] 已把明文 credential.json 迁入密钥环存档并删除明文");
+    this.log(`[quaver] 已把 ${label} 明文迁入密钥环存档并删除明文`);
 
     return "migrated";
   }
@@ -352,6 +364,15 @@ export class CredentialStore {
 /** 主进程 → sidecar stdin 的一行。credential 为 null 表示「本次没有已存凭证」。 */
 export function encodeHandoff(credential) {
   return HANDOFF_PREFIX + (isPlainObject(credential) ? JSON.stringify(credential) : "null") + "\n";
+}
+
+/** 主进程 → sidecar stdin 的微云授权行；auth 为 null 表示未配置。 */
+export function encodeWeiyunHandoff(auth) {
+  const normalized = isPlainObject(auth) && typeof auth.token === "string" && auth.token.trim()
+    ? { token: auth.token.trim(), mcpUrl: typeof auth.mcpUrl === "string" ? auth.mcpUrl.trim() : "" }
+    : null;
+
+  return WEIYUN_HANDOFF_PREFIX + (normalized ? JSON.stringify(normalized) : "null") + "\n";
 }
 
 /** sidecar stdout 的一行 → { credential } 或 null（不是交接行的就当普通日志）。 */
@@ -367,6 +388,26 @@ export function decodeHandoff(line) {
     const cred = JSON.parse(body);
 
     return isPlainObject(cred) ? { credential: cred } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** sidecar stdout 的一行 → 微云授权（或 null）；普通日志返回 null。 */
+export function decodeWeiyunHandoff(line) {
+  const text = String(line ?? "");
+
+  if (!text.startsWith(WEIYUN_HANDOFF_PREFIX)) return null;
+  const body = text.slice(WEIYUN_HANDOFF_PREFIX.length).trim();
+
+  if (body === "null") return { auth: null };
+
+  try {
+    const auth = JSON.parse(body);
+
+    return isPlainObject(auth) && typeof auth.token === "string" && auth.token.trim()
+      ? { auth: { token: auth.token.trim(), mcpUrl: typeof auth.mcpUrl === "string" ? auth.mcpUrl.trim() : "" } }
+      : null;
   } catch {
     return null;
   }

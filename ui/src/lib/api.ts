@@ -99,6 +99,7 @@ export async function copyText(text: string): Promise<boolean> {
 // 挂在旧图上 —— <img>/背景（no-store 救了网络层，救不了内存）、tint 的取色缓存、
 // tint 自身的 coverPic 空转判据。导入成功即 bump，URL 带 ?v= 自然穿透全部缓存。
 const localCoverVer = new Map<string, number>();
+const cloudCoverVer = new Map<string, number>();
 
 export function bumpLocalCover(id: string): void {
   localCoverVer.set(id, (localCoverVer.get(id) ?? 0) + 1);
@@ -107,7 +108,16 @@ export function bumpLocalCover(id: string): void {
 export const localCoverPath = (id: string) =>
   `/api/local/cover/${id}` + (localCoverVer.get(id) ? `?v=${localCoverVer.get(id)}` : "");
 
+export function bumpCloudCover(key: string): void {
+  cloudCoverVer.set(key, (cloudCoverVer.get(key) ?? 0) + 1);
+}
+
+export const cloudCoverPath = (key: string) =>
+  `/api/cloud/cover/${encodeURIComponent(key)}` + (cloudCoverVer.get(key) ? `?v=${cloudCoverVer.get(key)}` : "");
+
 export const coverUrl = (s: any, size = 300) => {
+  // 微云条目：刮削/手动导入的封面和条目元数据一起存在 sidecar 的云盘目录。
+  if (s?.cloud) return s.cloud.hasCover ? cloudCoverPath(s.cloud.key) : "";
   // 本地/NAS 曲目：封面走同源 /api/local/cover/<id>（hasCover 指纹随 Song 走，
   // 没封面回空串 —— 行渲染/正在播放页对空串都有占位）
   if (s?.local) return s.local.hasCover ? localCoverPath(s.local.id) : "";
@@ -196,7 +206,7 @@ export function songMissingTiers(song: any): Set<Quality> | null {
 }
 
 // —— Typhoeus 播放流：resolve 协商（会员门控 403 / 加密档 451 / 回退降级 degraded）→ token 中继 ——
-interface StreamResolved { token: string; path: string; tier: string; tier_label: string; degraded: boolean; mime: string; size: number }
+interface StreamResolved { token: string; path: string; tier: string; tier_label: string; degraded: boolean; mime: string; size: number; cached?: boolean }
 
 interface StreamTierView { id: string; label: string; rank: number; hi_res: boolean; locked?: boolean; requires?: number }
 
@@ -241,6 +251,28 @@ async function postResolve(body: { mid: string; media_mid: string; tier: string;
   }
 }
 
+async function postWeiyunResolve(
+  body: { mid: string; tier: string; duration_ms: number; cache_seed?: string; cloud_file_id: string },
+  name: string,
+): Promise<StreamResolved> {
+  try {
+    const query = name ? `?name=${encodeURIComponent(name)}` : "";
+
+    return await api<StreamResolved>("/stream/resolve" + query, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(RESOLVE_TIMEOUT_MS),
+    });
+  } catch (e: any) {
+    if (e instanceof DOMException && (e.name === "TimeoutError" || e.name === "AbortError")) {
+      throw new ApiError(408, "微云取链超时，请重试");
+    }
+
+    throw e;
+  }
+}
+
 /** 曲长提示（毫秒）：后端版权闸门的限速按「≈3× 实时码率」推算（见
  *  vendor/Typhoeus-go/server/stream_guard.go）。interval 缺失时给 0，后端退到
  *  「整曲全速下载 ≥2 分钟」的兜底限速 —— 只影响限速倍率，不影响能否播放。 */
@@ -250,9 +282,44 @@ function durationHintMs(song: any): number {
   return sec > 0 && sec < 86_400 ? Math.round(sec * 1000) : 0;
 }
 
+function decodeWeiyunFileId(directUrl: string): string {
+  try {
+    const u = new URL(directUrl, location.origin);
+
+    return u.pathname.startsWith("/api/weiyun/music/")
+      ? decodeURIComponent(u.pathname.slice("/api/weiyun/music/".length))
+      : "";
+  } catch {
+    return "";
+  }
+}
+
+/** 微云直链的 name 查询参数就是原始文件名（含 [aq]/质量后缀），取链时显式带上，
+ *  不能只依赖下载票据缓存：票据可能先由另一条中继建立，那时并不总有文件名。 */
+function decodeWeiyunFileName(directUrl: string): string {
+  try {
+    return new URL(directUrl, location.origin).searchParams.get("name") ?? "";
+  } catch {
+    return "";
+  }
+}
+
 /** 协商一条可播流：永远带 Fallback（auto_downgrade）——高档被会员/加密/无源挡住时沿回退链
  *  降到最优可播明文档，degraded 标记实际降档；配合播放条音质胶囊（会话级、不持久化）。 */
 export async function resolveStreamUrl(song: any, quality: Quality | "auto" = effectiveQuality()): Promise<StreamResult> {
+  if (song?.directUrl && song?.cloud) {
+    const cloudFileId = decodeWeiyunFileId(song.directUrl);
+
+    if (cloudFileId) {
+      const r = await postWeiyunResolve({
+        mid: song.mid, tier: "weiyun", duration_ms: durationHintMs(song),
+        cache_seed: musicCacheSeed(), cloud_file_id: cloudFileId,
+      }, decodeWeiyunFileName(song.directUrl));
+
+      return { url: "/api" + r.path, tier: r.tier, label: r.cached ? "微云缓存" : r.tier_label, degraded: r.degraded };
+    }
+  }
+
   const mediaId: string = song.file?.media_mid ?? song.media_mid ?? song.mid;
   let tier = quality as string;
 
@@ -267,6 +334,10 @@ export async function resolveStreamUrl(song: any, quality: Quality | "auto" = ef
   } catch (e: any) {
     // 目标档本身取不到（会员/加密在 auto 模式已被后端裁剪，走到这里多为无源/网络）→ 兜底标准档
     if (tier !== "128") {
+      // auto=true 时后端已经沿整条档位链协商过；明确「无可播档位」就不要再为
+      // 128 重发一轮注定失败的请求。兜底匹配/跳曲也因此能提前约一个 RTT。
+      if (e instanceof ApiError && /无可播档位/.test(e.message)) throw e;
+
       const r = await postResolve({ mid: song.mid, media_mid: mediaId, tier: "128", auto: true, deprioritize, duration_ms: durationHintMs(song), cache_seed: musicCacheSeed() });
 
       return { url: "/api" + r.path, tier: "128", label: "标准音质", degraded: true };

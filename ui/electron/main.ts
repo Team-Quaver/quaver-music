@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 // 音频引擎（mpv 后端）：窗口 URL 确定后 init（需要 baseUrl 绝对化 /api/stream 中继地址）
 import { audioEngine } from "./audio/engine.ts";
 // 配置文件（quaver.conf）与跨平台目录规则：路径单一真相，渲染层与 sidecar 都对齐这一份
-import { configDir, configFile, ensureConfigDir, logFile, readValues, resetConfig, writeValues } from "./config.ts";
+import { configDir, configFile, ensureConfigDir, logFile, readValues, resetConfig, WEIYUN_LEGACY_NAME, WEIYUN_STORE_NAME, writeValues } from "./config.ts";
 // 自定义背景图（默认主题）：路径只认 quaver.conf 里那一条，图片本体由 /api/bg 交给界面
 // （dev/preview 走 src/relay.ts、打包态走 native-server.ts，同一个 backgroundResponse）
 import { BG_DIALOG_EXTENSIONS, backgroundInfo, backgroundMime } from "./background.ts";
@@ -43,8 +43,8 @@ import { createGlobalHotkeys, GLOBAL_CONF_KEYS } from "./global-hotkeys.ts";
 import { setupUpdaterIPC } from "./update.ts";
 // 凭证的密钥环存取（系统密钥管理器 + credential.enc 密文）与 sidecar 交接信封
 import {
-  CredentialStore, credentialSummary, decodeHandoff, drainLines, encodeHandoff,
-  evaluateKeyring, pickPasswordStore,
+  CredentialStore, credentialSummary, decodeHandoff, decodeWeiyunHandoff, drainLines, encodeHandoff,
+  encodeWeiyunHandoff, evaluateKeyring, pickPasswordStore,
 } from "./keyring.ts";
 import { getSparkleHostVersionError } from "./sparkle-version.ts";
 // Linux MPRIS：主进程内直接挂 D-Bus，不再 spawn 外部 daemon。
@@ -255,6 +255,7 @@ let desktopLyrics = null;
 let sidecar = null;   // 自拉起的 Typhoeus-Go sidecar 子进程
 let mpris = null;     // Linux MPRIS 服务（进程内；win/mac 不走这里）
 let credentialStore = null; // 凭证存档（ready 之后才能建：safeStorage 要 ready 才可用）
+let weiyunAuthStore = null; // 微云 API Key 密文存档（同样只在密钥环可用时落盘）
 
 // 窗口装饰模式：csd=自绘（frame:false，右上角按钮簇）；ssd=系统标题栏。初值取 quaver.conf 的 [Window] Decor。
 let decorMode = bootConf["Window.Decor"] === "ssd" ? "ssd" : "csd";
@@ -522,6 +523,21 @@ function applySidecarCredential(cred) {
   else log(`[quaver] 凭证未写入存档（persist=${credentialStore.status().persist}）—— 本次登录只在内存里:`, credentialSummary(cred));
 }
 
+/** sidecar 交回微云 API Key → 加密落盘；null 表示撤销授权。Token 本体永不进日志。 */
+function applySidecarWeiyunAuth(auth) {
+  if (!weiyunAuthStore) return;
+
+  if (!auth) {
+    weiyunAuthStore.clear();
+    log("[quaver] 微云授权存档已清除");
+
+    return;
+  }
+
+  if (weiyunAuthStore.write(auth)) log("[quaver] 微云授权已存入密钥环");
+  else log(`[quaver] 微云授权未写入存档（persist=${weiyunAuthStore.status().persist}）—— 本次授权只在内存里`);
+}
+
 /**
  * 开发态 sidecar 的启动方式（Go 后端 vendor/Typhoeus-go）：优先仓库里已编译的二进制
  * （go build -o typhoeus-go ./cmd/quaver-server，快、不依赖 PATH），没有就 go run 现编。
@@ -572,10 +588,11 @@ function spawnSidecar() {
   // 随机端口：从 3201 起 —— 3200 是「手工跑 sidecar」的默认端口，开发态很可能正被占着
   const port = 3201 + Math.floor(Math.random() * 200);
   process.env.QUAVER_API = `http://127.0.0.1:${port}`; // native-server.ts / vite relay 的中继目标
-  // 凭证交接：sidecar 自己不落盘 —— 主进程把已存凭证写进它的 stdin，
-  // 之后每次登录/刷新/登出，它再从 stdout 交回来（前缀 QCRED1）。
-  // 顺序要紧：注入行必须在 spawn 之后立刻写 —— sidecar 在 import 阶段**阻塞**读这一行。
+  // 凭证交接：sidecar 自己不落盘 —— 主进程把已存凭证与微云 API Key 写进它的 stdin，
+  // 之后每次登录/刷新/登出/授权变更，它再从 stdout 交回来（QCRED1 / WYAUTH1）。
+  // 顺序要紧：两行注入必须在 spawn 之后立刻写 —— sidecar 在 import 阶段阻塞读到第二行。
   const handoff = credentialStore ? credentialStore.read() : null;
+  const weiyunHandoff = weiyunAuthStore ? weiyunAuthStore.read() : null;
   log("[quaver] spawning sidecar:", command.label, "port", port, `凭证=交接（${handoff ? credentialSummary(handoff) : "无已存凭证"}）`);
 
   const child = spawn(command.cmd, command.args, {
@@ -594,6 +611,7 @@ function spawnSidecar() {
   try {
     child.stdin.on("error", (e) => log("[quaver] sidecar stdin 写入失败:", String(e))); // EPIPE：子进程已退出
     child.stdin.write(encodeHandoff(handoff));
+    child.stdin.write(encodeWeiyunHandoff(weiyunHandoff));
   } catch (e) {
     log("[quaver] sidecar 凭证注入失败:", String(e));
   }
@@ -608,8 +626,10 @@ function spawnSidecar() {
 
     for (const line of lines) {
       const msg = decodeHandoff(line);
+      const weiyun = decodeWeiyunHandoff(line);
 
       if (msg) applySidecarCredential(msg.credential);
+      else if (weiyun) applySidecarWeiyunAuth(weiyun.auth);
       else log("[sidecar]", line);
     }
   });
@@ -1240,6 +1260,30 @@ ipcMain.handle("quaver:credits-open", async (_e, rawUrl) => {
   }
 });
 
+// 微云音乐授权页：仅放行官方 HTTPS 授权地址。Token 本体由 sidecar 保存，
+// 渲染层只拿到授权链接和“是否完成”的状态。
+ipcMain.handle("quaver:weiyun-auth-open", async (_e, rawUrl) => {
+  try {
+    const url = new URL(String(rawUrl ?? ""));
+
+    if (
+      url.protocol !== "https:"
+      || url.hostname !== "www.weiyun.com"
+      || url.pathname !== "/authorize/token"
+      || !url.searchParams.get("code")
+      || url.hash
+    ) {
+      return { ok: false, error: "不是允许打开的微云授权地址" };
+    }
+
+    await shell.openExternal(url.toString());
+
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+});
+
 // 进程/内存自检：一次拍平所有事实源，渲染层只负责摆出来（口径说明写在 DebugPanel 里）。
 // 为什么不在渲染层自己量：Chromium 的多进程模型里，渲染层看不见主进程、GPU 进程与外部子进程。
 ipcMain.handle("quaver:metrics", () => {
@@ -1429,6 +1473,7 @@ app.whenReady().then(() => {
   }
 
   credentialStore = new CredentialStore({ dir: CONFIG_DIR, safeStorage, plan, log });
+  weiyunAuthStore = new CredentialStore({ dir: CONFIG_DIR, safeStorage, plan, log, storeName: WEIYUN_STORE_NAME });
   log(`[quaver] 凭证存储: ${plan.persist}（${plan.backend}）— ${plan.reason}`);
 
   if (keyringPick.switchValue) log(`[quaver] --password-store=${keyringPick.switchValue}（${keyringPick.why}）`);
@@ -1436,6 +1481,9 @@ app.whenReady().then(() => {
   if (plan.persist === "keyring") {
     // 升级遗留的明文 credential.json：读一次 → 加密存进密钥环 → 回读校验 → 删掉。之后磁盘上只有密文。
     if (credentialStore.migrateLegacy() === "migrated") log("[quaver] 明文 credential.json 已迁入密钥环并删除");
+    if (weiyunAuthStore.migrateLegacyNamed(join(CONFIG_DIR, WEIYUN_LEGACY_NAME), WEIYUN_LEGACY_NAME) === "migrated") {
+      log("[quaver] 明文微云授权已迁入密钥环并删除");
+    }
   } else {
     log("[quaver] 警告：系统密钥管理器不可用，凭证只驻内存 —— 本次登录关掉应用就没了，需要重新扫码。",
         "修法：起 KWallet / gnome-keyring，或在 quaver.conf 的 [Security] KeyringBackend 里显式指定后端。",

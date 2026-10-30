@@ -17,9 +17,12 @@ function randomSeed(): string {
 
 export function musicCacheSeed(accountKey?: string): string {
 	let seed = localStorage.getItem(SEED_KEY) ?? "";
-	const owner = accountKey ?? localStorage.getItem(SEED_OWNER_KEY) ?? "";
+	const storedOwner = localStorage.getItem(SEED_OWNER_KEY) ?? "";
+	// resolveStreamUrl 不带账号键（歌曲上下文不持有账号），此时沿用当前已绑定
+	// 的 owner；只有调用方显式换了账号才触发半种轮换。
+	const owner = accountKey ?? storedOwner;
 
-	if (seed.length >= 32 && owner === accountKey) return seed;
+	if (seed.length >= 32 && (accountKey === undefined || owner === accountKey)) return seed;
 	// 已绑定过别的账号时必须换半种：后端会随 seed 变化作废旧账号的缓存。
 	if (seed.length < 32 || (owner !== "" && owner !== accountKey)) seed = randomSeed();
 	localStorage.setItem(SEED_KEY, seed);

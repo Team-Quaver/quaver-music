@@ -272,8 +272,10 @@ export function apiRelay(): Connect.NextHandleFunction {
         signal: ac.signal,
       });
 
-      // 播放流（/api/stream/<token>）：流式管道，绝不整段缓冲（边下边播 + 省内存）
-      if (/^(?:stream|cache\/music\/stream)\/[^/]+$/.test(path) && upstream.body) {
+      // 播放流（QQ 中继 / 本地缓存 / 微云音乐文件）：流式管道，绝不整段缓冲
+      // （边下边播 + 省内存）。微云 WAV 原文件可达数十 MB，整段缓冲会让 mpv 迟迟
+      // 拿不到首块数据，表现为“一直加载”。
+      if (/^(?:stream|cache\/music\/stream|weiyun\/music)\/[^/]+$/.test(path) && upstream.body) {
         res.statusCode = upstream.status;
         upstream.headers.forEach((v, k) => {
           if (k === "transfer-encoding" || k === "content-encoding" || k === "connection") return;

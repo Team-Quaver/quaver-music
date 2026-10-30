@@ -9,6 +9,7 @@ import { loadFavSonglists } from "./favs";
 import { api, ApiError } from "./api";
 import { resetFavSonglists } from "./favs";
 import { resetSidebarUser } from "../shell";
+import { invalidateCloudLibrary } from "./cloud";
 
 /** 前台轮询间隔：足够让手机操作在回到桌面后很快出现，又不至于把两个读接口打穿。 */
 const POLL_MS = 30_000;
@@ -41,6 +42,7 @@ async function refresh(reason: "wake" | "poll" | "manual"): Promise<void> {
       // sidecar 已清本地凭证并交接 null 给主进程。先清账号态 UI 缓存再跳转，
       // 否则头像/侧栏歌单会带着上一个账号的数据残留在登录页旁边。
       resetFavSonglists();
+      invalidateCloudLibrary();
       stopAccountSync();
       resetSidebarUser();
       player.clearForLogout();

@@ -7,10 +7,8 @@ import { player } from "./player";
 import { bootShell } from "./shell";
 import { startMprisBridge } from "./mpris";
 import { startDesktopLyricsBridge } from "./lib/desktop-lyrics";
-import { startInhibitBridge } from "./lib/inhibit";
 import { startHotkeysBridge } from "./lib/hotkeys";
 import { initSparkle } from "./sparkle/init";
-import { bootNativeOverlays } from "./components/NativeDrop";
 
 applyTheme();
 
@@ -70,8 +68,9 @@ if (!location.hash) location.replace("#/");
 
 bootShell();
 
-// 自绘下拉 / Tooltip：接管浏览器原生弹层，让它们与宿主菜单吃同一套玻璃与主题令牌
-bootNativeOverlays();
+// 自绘下拉 / Tooltip：接管浏览器原生弹层，让它们与宿主菜单吃同一套玻璃与主题令牌。
+// 它只服务首帧后的交互：按需加载，别再把 34KB 的共享块拖进启动静态闭包。
+void import("./components/NativeDrop").then((m) => m.bootNativeOverlays());
 
 // Sparkle 插件系统：必须在 bootShell 之后（要操作 nav DOM / np 插槽 / views 查表）；
 // void 不阻塞首帧 —— 插件视图/侧栏项在首帧后补挂，属渐进增强
@@ -83,7 +82,9 @@ startDesktopLyricsBridge(); // 桌面歌词镜像桥（同样仅 Electron 壳层
 
 startHotkeysBridge(); // 全局热键回程 + 焦点内热键 keydown（后者浏览器 dev 也生效）
 
-startInhibitBridge(); // 播放音频时睡眠禁止（[Playing] InhibitSleep；播放态 → sidecar /api/inhibit）
+// 播放音频时睡眠禁止（[Playing] InhibitSleep；播放态 → sidecar /api/inhibit）。
+// 睡眠抑制不是首帧阻塞项：模块解析完成后会立即补首次同步，按需加载即可移出首屏闭包。
+void import("./lib/inhibit").then((m) => m.startInhibitBridge());
 
 // 启动延迟检查更新（[Update] AutoCheck 默认开；发现新版先弹窗提醒，绝不静默安装）。
 // 3s 后才需要的东西不配占首屏：updater + update-core + UpdateDialog 约 22KB，到点再动态拉。

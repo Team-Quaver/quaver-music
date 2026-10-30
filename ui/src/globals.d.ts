@@ -79,6 +79,10 @@ interface Window {
   quaverCredits?: {
     open(url: string): Promise<{ ok: boolean; error?: string }>;
   };
+  /** 微云音乐授权页：主进程仅放行 weiyun.com 的授权 URL。 */
+  quaverWeiyunAuth?: {
+    open(url: string): Promise<{ ok: boolean; error?: string }>;
+  };
 
   quaverUpdate?: {
     invoke(msg: UpdateInvokeMsg): Promise<any>;

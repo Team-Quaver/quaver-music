@@ -278,7 +278,14 @@ export function PlayerBar(): HTMLElement {
     const want = getSessionQuality();
 
     // 有已应用的流 → 实际档位（↓=被回退降档）；否则显示当前生效选择（未选=设置页默认）
-    const label = player.current && ls
+    const fallback = player.playbackFallback;
+    const label = fallback?.local
+      ? "本地"
+      : fallback?.directUrl
+      ? "微云"
+      : player.current?.directUrl
+      ? "微云"
+      : player.current && ls
       ? (ls.degraded ? "↓" : "") + (QUALITY_SHORT[ls.tier] ?? ls.label)
       : (QUALITY_SHORT[want ?? effectiveQuality()] ?? "音质");
 
@@ -302,10 +309,15 @@ export function PlayerBar(): HTMLElement {
   function buildQPop() {
     qPop.innerHTML = "";
 
-    // 本地/NAS 曲目：文件本身就是那一档，没有在线档位阶梯可换
-    if (player.current && (player.current as { local?: unknown }).local) {
+    // 本地/NAS/微云直链：文件本身就是那一档，没有在线档位阶梯可换
+    if (player.current && ((player.current as { local?: unknown }).local || player.current.directUrl || player.playbackFallback)) {
       const ls = getLastStream();
-      qPop.innerHTML = `<div class="qp-note">${ls?.label ?? "本地文件"}：曲目来自本地库/NAS，无在线档位可切（音质即文件本身）</div>`;
+      const source = player.playbackFallback?.local
+        ? "本地库同曲文件"
+        : player.playbackFallback?.directUrl
+        ? "微云同曲原文件"
+        : ls?.label ?? "本地文件";
+      qPop.innerHTML = `<div class="qp-note">${source}：无在线档位可切（音质即文件本身）</div>`;
 
       return;
     }
