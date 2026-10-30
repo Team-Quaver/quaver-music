@@ -13,6 +13,13 @@ export type ConfigSnapshot = Record<string, string>;
 
 const LS_KEY = "quaver.conf.v1";
 
+/** 浏览器 dev 没有主进程快照，只能从 UA 判断 Darwin；桌面端真正的默认值来自 electron/config.ts。 */
+function defaultDecor(): string {
+  const ua = navigator.userAgent;
+
+  return /Macintosh|Mac OS X/.test(ua) ? "ssd" : "csd";
+}
+
 // 与 electron/config.ts 的 SCHEMA 默认值保持一致（浏览器 dev 兜底 / 文件缺键时用；
 // 桌面端主进程 readValues() 已补齐全量，这里只是不让两种环境的行为分叉）。改一处要改两处。
 const FALLBACK: ConfigSnapshot = {
@@ -36,7 +43,7 @@ const FALLBACK: ConfigSnapshot = {
   "Style.MenuBlur": "True",
   "Style.Spectrum": "False",
   "Style.SpectrumMode": "bars",
-  "Window.Decor": "csd",
+  "Window.Decor": defaultDecor(),
   "Window.CloseAction": "tray",
   "Window.SidebarCollapsed": "False",
   "Window.SidebarWidth": "",

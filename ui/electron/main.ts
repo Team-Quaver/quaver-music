@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 // 音频引擎（mpv 后端）：窗口 URL 确定后 init（需要 baseUrl 绝对化 /api/stream 中继地址）
 import { audioEngine } from "./audio/engine.ts";
 // 配置文件（quaver.conf）与跨平台目录规则：路径单一真相，渲染层与 sidecar 都对齐这一份
-import { configDir, configFile, ensureConfigDir, logFile, readValues, resetConfig, WEIYUN_LEGACY_NAME, WEIYUN_STORE_NAME, writeValues } from "./config.ts";
+import { configDir, configFile, defaultDecor, ensureConfigDir, logFile, readValues, resetConfig, WEIYUN_LEGACY_NAME, WEIYUN_STORE_NAME, writeValues } from "./config.ts";
 // 自定义背景图（默认主题）：路径只认 quaver.conf 里那一条，图片本体由 /api/bg 交给界面
 // （dev/preview 走 src/relay.ts、打包态走 native-server.ts，同一个 backgroundResponse）
 import { BG_DIALOG_EXTENSIONS, backgroundInfo, backgroundMime } from "./background.ts";
@@ -258,7 +258,10 @@ let credentialStore = null; // 凭证存档（ready 之后才能建：safeStorag
 let weiyunAuthStore = null; // 微云 API Key 密文存档（同样只在密钥环可用时落盘）
 
 // 窗口装饰模式：csd=自绘（frame:false，右上角按钮簇）；ssd=系统标题栏。初值取 quaver.conf 的 [Window] Decor。
-let decorMode = bootConf["Window.Decor"] === "ssd" ? "ssd" : "csd";
+const configuredDecor = bootConf["Window.Decor"];
+let decorMode = configuredDecor === "csd" || configuredDecor === "ssd"
+  ? configuredDecor
+  : defaultDecor(process.platform);
 let rebuilding = false;
 let tray = null; // Linux 走 D-Bus StatusNotifierItem（KDE/GNOME 托盘）
 

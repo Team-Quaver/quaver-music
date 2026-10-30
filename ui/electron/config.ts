@@ -309,6 +309,11 @@ export function parsePluginIdList(raw: unknown): string[] {
 export const isPluginIdList = (v: string): boolean =>
   !/[\r\n\u0000]/.test(v) && parsePluginIdList(v).every((id) => SPARKLE_ID_RE.test(id));
 
+/** 窗口装饰的出厂默认：macOS（darwin）用系统标题栏，Linux / Windows 保持无边窗口。 */
+export function defaultDecor(platform: string = process.platform): "csd" | "ssd" {
+  return platform === "darwin" ? "ssd" : "csd";
+}
+
 /** schema 里一个键的完整描述：默认值、文件内注释、值域校验器。 */
 export interface KeySpec {
   key: string;
@@ -501,8 +506,8 @@ export const SCHEMA: SectionSpec[] = [
     keys: [
       {
         key: "Decor",
-        def: "csd",
-        doc: ["窗口装饰：csd=自绘标题栏（默认）｜ssd=系统标题栏。切换后自动重建窗口"],
+        def: defaultDecor(),
+        doc: ["窗口装饰：csd=自绘标题栏｜ssd=系统标题栏（macOS 默认 ssd，Linux / Windows 默认 csd）。切换后自动重建窗口"],
         valid: (v: string) => ["csd", "ssd"].includes(v),
       },
       {
@@ -987,17 +992,19 @@ export function schemaIndex(): Record<string, KeySpec> {
   return idx;
 }
 
-/** 默认值表 { "Section.Key": default }。 */
-export function defaults(): Record<string, string> {
+/** 默认值表 { "Section.Key": default }。platform 可注入，便于测试 macOS 的装饰默认值。 */
+export function defaults(platform: string = process.platform): Record<string, string> {
   const out: Record<string, string> = {};
 
   for (const sec of SCHEMA) for (const k of sec.keys) out[`${sec.section}.${k.key}`] = k.def;
+
+  out["Window.Decor"] = defaultDecor(platform);
 
   return out;
 }
 
 /** 文件模板（首次运行写入；注释即使用说明）。 */
-export function template(): string {
+export function template(platform: string = process.platform): string {
   const head = [
     "# Quaver Music 配置文件（INI）",
     "#",
@@ -1013,6 +1020,7 @@ export function template(): string {
   ];
 
   const body: string[] = [];
+  const defs = defaults(platform);
 
   for (const sec of SCHEMA) {
     if (body.length) body.push("");
@@ -1020,7 +1028,7 @@ export function template(): string {
 
     for (const k of sec.keys) {
       if (k.doc) for (const line of k.doc) body.push(`# ${line}`);
-      body.push(`${k.key}=${k.def}`);
+      body.push(`${k.key}=${defs[`${sec.section}.${k.key}`]}`);
     }
   }
 
@@ -1045,17 +1053,17 @@ function writeAtomic(file: string, text: string): void {
 }
 
 /** 读配置；文件不存在时写入模板。返回 IniDoc。 */
-export function readDoc(env: Env = process.env): IniDoc {
+export function readDoc(env: Env = process.env, platform: string = process.platform): IniDoc {
   const file = configFile(env);
 
   if (!existsSync(file)) {
     let doc: IniDoc;
 
     try {
-      writeAtomic(file, template());
-      doc = IniDoc.parse(template());
+      writeAtomic(file, template(platform));
+      doc = IniDoc.parse(template(platform));
     } catch {
-      doc = IniDoc.parse(template()); // 只读文件系统（只读挂载/权限不足）：内存里照样能用
+      doc = IniDoc.parse(template(platform)); // 只读文件系统（只读挂载/权限不足）：内存里照样能用
     }
 
     return doc;
@@ -1072,18 +1080,21 @@ export function readDoc(env: Env = process.env): IniDoc {
  * 读成平面表并补齐默认值 + 值域校验。返回 { values, warnings }。
  * 值域不合法的键回落到默认值并记一条 warning（不静默吞掉用户的手误）。
  */
-export function readValues(env: Env = process.env): { values: Record<string, string>; warnings: string[] } {
+export function readValues(
+  env: Env = process.env,
+  platform: string = process.platform,
+): { values: Record<string, string>; warnings: string[] } {
   const idx = schemaIndex();
-  const values = defaults();
+  const values = defaults(platform);
   const warnings: string[] = [];
 
-  for (const [k, v] of Object.entries(readDoc(env).values())) {
+  for (const [k, v] of Object.entries(readDoc(env, platform).values())) {
     const spec = idx[k];
 
     if (!spec) continue; // 用户自加的键：留在文件里，但不进运行时配置
 
     if (!spec.valid(v)) {
-      warnings.push(`${k}=${v} 不合法，已回落默认值 ${spec.def}`);
+      warnings.push(`${k}=${v} 不合法，已回落默认值 ${values[k]}`);
       continue;
     }
 
@@ -1116,8 +1127,8 @@ export function writeValues(patch: Record<string, unknown>, env: Env = process.e
 }
 
 /** 用模板重建配置文件（旧的会被整体替换）。 */
-export function resetConfig(env: Env = process.env): Record<string, string> {
-  writeAtomic(configFile(env), template());
+export function resetConfig(env: Env = process.env, platform: string = process.platform): Record<string, string> {
+  writeAtomic(configFile(env), template(platform));
 
-  return readValues(env).values;
+  return readValues(env, platform).values;
 }
