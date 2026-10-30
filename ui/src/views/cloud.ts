@@ -7,7 +7,7 @@ import "./cloud.css";
 import { api, postJson, coverUrl, escHtml, songArtists } from "../lib/api";
 import { toast } from "../lib/toast";
 import { player, type Song } from "../player";
-import { cloudItemToSong, invalidateCloudLibrary, loadCloudLibrary, type CloudLibrary } from "../lib/cloud";
+import { cloudItemToSong, invalidateCloudLibrary, loadCloudLibrary, peekCloudLibrary, type CloudLibrary } from "../lib/cloud";
 import { errText, h, mountStickyBar } from "./_shared";
 import { bindSongMenu } from "../components/SongMenu";
 
@@ -292,6 +292,12 @@ export default async function cloudView(root: HTMLElement) {
 
   window.addEventListener("quaver:cloud-changed", onCloudChanged);
 
+  // 先画缓存快照，页面不再白屏等一次完整上游列表；新快照到了原地替换。
+  const cached = peekCloudLibrary();
+  if (cached) {
+    library = cached;
+    render();
+  }
   await load();
 
   return () => {

@@ -62,6 +62,12 @@ let cloudLibraryCache: { at: number; data: CloudLibrary } | null = null;
 let cloudLibraryInflight: Promise<CloudLibrary> | null = null;
 let cloudLibraryGen = 0;
 
+/** 最近一次成功快照（即使已过 TTL 也返回）：微云页先用它出首帧，再后台换新。
+ *  播放器兜底仍走 loadCloudLibrary 的 TTL 语义，不能拿过期快照冒充新匹配结果。 */
+export function peekCloudLibrary(): CloudLibrary | null {
+  return cloudLibraryCache?.data ?? null;
+}
+
 /** 微云库整单快照（歌单兜底匹配与微云页共用）。TTL 内只吃内存；
  *  库内容变更事件会立刻作废旧快照。失败不清空上次成功快照。 */
 export async function loadCloudLibrary(force = false): Promise<CloudLibrary> {
