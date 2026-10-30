@@ -8,3 +8,8 @@
 	path = vendor/Typhoeus-go
 	url = https://github.com/Team-Quaver/typhoeus-go
 	shallow = true
+
+[submodule "Team-Quaver/liino"]
+	path = vendor/Liino
+	url = https://github.com/Team-Quaver/liino
+	shallow = true
