@@ -287,6 +287,13 @@ export class EngineTransport implements Transport {
         if (!this.pcmHook) this.emit({ type: "ended" });
 
         return;
+      case "loaded":
+        // loadfile 是异步下发的；mpv 的 file-loaded 才是「这个文件真的能播」。
+        // 对渲染层映射成 canplay：结束 loading 转圈，但曲末/播放态仍由 state 驱动。
+        if (ev.epoch !== undefined && Number(ev.epoch) !== this.pcmEpoch) return;
+        this.emit({ type: "canplay" });
+
+        return;
       case "error":
         this.emit({ type: "error", message: String(ev.message ?? "") });
 
@@ -381,10 +388,14 @@ export class EngineTransport implements Transport {
       this.syncPcmReady();
     }
 
+    // 异步 loadfile 的错误可能先于 invoke 回包到达（end-file(error)）；
+    // 先记下 src，播放器的 error 分支才不会把它当成「没有挂流的杂散错误」丢掉。
+    this.loadedUrl = url;
+
     const r = await this.invoke({ cmd: "load", url, paused: !!opts?.paused, startAt, epoch });
 
     if (!r?.ok) throw new Error(r?.error ?? "音频引擎加载失败");
-    this.loadedUrl = url;
+
     this.frozen = 0;
 
     this.syncPcmReady();

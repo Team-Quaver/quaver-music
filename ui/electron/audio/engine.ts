@@ -15,6 +15,7 @@ import { formatOsVersion, machOMinOs, osVersionGt, parseOsVersion } from "./mach
 import { MpvIpc, PCM_REBIND_TIMEOUT_MS, type MpvEvent, type MpvObject, type MpvValue } from "./mpv-ipc.ts";
 import { PcmPipe } from "./pcm-pipe.ts";
 import { eqFilterString, normalizeEqState, type EqState } from "./eq-config.ts";
+import { loadfileArgs, mpvLoadfileWantsIndex } from "./mpv-loadfile.ts";
 
 const POS_BROADCAST_MS = 250; // 位置广播节流：4Hz 足够渲染层外推出平滑进度/歌词
 
@@ -29,6 +30,15 @@ const PCM_FRAME_BYTES = PCM_CHANNELS * PCM_SAMPLE_BYTES;
 const PCM_CHUNK_FRAMES = PCM_RATE / 20; // 50ms（比 20ms 少 60% AudioBuffer/IPC 调度）
 const PCM_CHUNK_BYTES = PCM_CHUNK_FRAMES * PCM_FRAME_BYTES;
 const PCM_MAX_AHEAD_SEC = 1.0; // 主进程硬窗口：不能等 renderer 的 250ms 心跳才刹车
+
+/** loadfile 的异步回执超时：只等 mpv 读完命令并确认参数，不等文件打开。
+ *  正常 <20ms；命令线程卡死时给一次快速失败，交给播放器降档/跳曲。 */
+const LOAD_ACK_TIMEOUT_MS = 3000;
+
+/** 已下发 loadfile 却迟迟没有 start-file/file-loaded 的兜底。
+ *  mpv 的命令线程被旧 AO 写线程卡住时，命令回执可能永远不来；此时重启整个
+ *  mpv 比在坏连接上继续排队更可靠（下一次 load 会拉起新进程）。 */
+const LOAD_STALL_MS = 25000; // 比渲染层起播看门狗（12/15/20s）更晚：先让播放器换源/跳曲
 
 // 看门狗脚本：父进程（本进程）无论怎么死，mpv 都会被它杀掉（注销/崩溃时 will-quit 跑不到）
 const WATCHDOG_SCRIPT = fileURLToPath(new URL("./mpv-watchdog.ts", import.meta.url));
@@ -81,6 +91,16 @@ export class AudioEngine {
   device: string;                    // 音频设备（renderer 持久化，引擎记住以便 respawn 后复用）
   lastUrl: string;                   // 最近挂过的流（eof 后 idle 重挂用）
   currentEntryId: number;            // 当前 playlist entry；丢弃上一首迟到的 end-file
+  /** loadfile 载入代次：每次 load / PCM seek 重挂递增。
+   *  start-file / file-loaded / end-file 都盖当前代次；旧代次的迟到事件一律丢弃。 */
+  loadGen: number;
+  startGen: number;                  // 收到 start-file 的代次
+  loadedGen: number;                 // 收到 file-loaded 的代次
+  loadErrGen: number;                // 载入失败归属的代次
+  loadRetried: number;               // 已换过 loadfile 参数布局的代次
+  loadEntryId: number;               // 本代 loadfile 的 playlist entry id（旧 mpv 可能拿不到，保持 0）
+  loadfileIndex: boolean;            // 当前 mpv 是否需要 loadfile 的 index 占位参数
+  loadWatchdog: NodeJS.Timeout | null;
   mode: AudioOutputMode;              // native / pcm（原生兼容）
   pcmPipe: PcmPipe | null;           // pcm 模式的 MPV 输出管道
   pcmReady: boolean;                 // renderer 已接上并允许消费 PCM
@@ -123,6 +143,14 @@ export class AudioEngine {
     this.device = "auto";
     this.lastUrl = "";
     this.currentEntryId = 0;
+    this.loadGen = 0;
+    this.startGen = 0;
+    this.loadedGen = 0;
+    this.loadErrGen = 0;
+    this.loadRetried = 0;
+    this.loadEntryId = 0;
+    this.loadfileIndex = false;
+    this.loadWatchdog = null;
     this.mode = "native";
     this.pcmPipe = null;
     this.pcmReady = false;
@@ -218,6 +246,7 @@ export class AudioEngine {
 
   /** 完整停掉当前 mpv 会话：模式切换 / 退出时用。下一次命令会按新模式重拉。 */
   stopMpv(): void {
+    this.cancelLoadWatchdog();
     this.stopWatchdog();
 
     if (this.mpv) this.retiredMpvs.add(this.mpv);
@@ -253,6 +282,11 @@ export class AudioEngine {
         if (mpv.dead || String((e as Error)?.message).includes("timeout")) throw e;
       }
 
+      // stop 成功后再关旧读端：AO 线程即使还没完全退出，写端也会立刻拿到
+      // EPIPE 而收尾。等 configurePcmOutput 时才关的话，ao=null 可能一直等
+      // 那个卡在 FIFO write 的 AO 线程，1.5s 超时后整个 mpv 被重启。
+      old?.close();
+
       const pipeAt = Date.now();
       next = await this.openPcmPipe(epoch);
 
@@ -269,7 +303,6 @@ export class AudioEngine {
       this.pcmPipe = next;
       this.pcmBuf = Buffer.alloc(0);
       this.pcmLastDataAt = Date.now();
-      old?.close();
 
       if (this.pcmClientReady) {
         this.pcmReady = true;
@@ -415,7 +448,8 @@ export class AudioEngine {
 
     if (!this.mpv || this.mpv.dead) return;
     const v = this.st.volume * this.fadeLevel * 100;
-    void this.mpv.setProp("volume", Math.round(v * 100) / 100).catch(() => {});
+    // 淡入淡出 30ms 一步：高频命令只写不等回执，别让 pending/定时器排队。
+    this.mpv.commandQuiet(["set_property", "volume", Math.round(v * 100) / 100]);
   }
 
   /** 把共享模型生成的 af 串原子替换到 mpv。空串 = bypass；滤镜运行时可换，不用重挂流。
@@ -639,6 +673,7 @@ export class AudioEngine {
 
       this.armWatchdog(mpv);
       this.mpv = mpv;
+      this.loadfileIndex = mpvLoadfileWantsIndex(mpv.mpvVersion);
       this.log("[audio] mpv ready:", mpv.mpvVersion);
 
       return mpv;
@@ -686,6 +721,102 @@ export class AudioEngine {
     return Number.isFinite(n) ? n : 0;
   }
 
+  /** 开一代新载入：上一代的 start-file/file-loaded/end-file 从此刻起全部作废。 */
+  private beginLoadGeneration(): number {
+    this.cancelLoadWatchdog();
+    this.loadGen++;
+    this.startGen = 0;
+    this.loadedGen = 0;
+    this.loadErrGen = 0;
+    this.loadEntryId = 0;
+
+    return this.loadGen;
+  }
+
+  private cancelLoadWatchdog(): void {
+    if (this.loadWatchdog === null) return;
+    clearTimeout(this.loadWatchdog);
+    this.loadWatchdog = null;
+  }
+
+  /** loadfile 已接受但一直没有 start-file/file-loaded：重启 mpv 并把错误交还播放器。
+   *  常见于旧 AO 写线程卡死导致 mpv 命令线程停摆 —— 继续在同一条坏连接上换档只会
+   *  把整条队列排队到超时。 */
+  private armLoadWatchdog(gen: number): void {
+    this.cancelLoadWatchdog();
+    this.loadWatchdog = setTimeout(() => {
+      this.loadWatchdog = null;
+
+      if (gen !== this.loadGen || this.loadedGen === gen || this.loadErrGen === gen) return;
+
+      this.loadErrGen = gen;
+      this.log(`[audio] load e${gen} stalled for ${LOAD_STALL_MS}ms; restarting mpv`);
+      this.stopMpv();
+      // 走 dead 而不是 error：渲染层会一并 kill PCM sink，别让旧的预写尾巴继续响。
+      this.send({ t: "dead", message: "mpv 载入超时（命令通道无响应），已重启播放引擎" });
+    }, LOAD_STALL_MS);
+    this.loadWatchdog.unref?.();
+  }
+
+  /** 异步下发 loadfile，并把 mpv 的即时参数错误（尤其 0.38 前后的 index 布局差异）
+   *  当场接住。真正的载入结果由 start-file/file-loaded/end-file 事件补齐。 */
+  private async sendLoadfile(mpv: MpvIpc, gen: number, url: string, startAt: number): Promise<void> {
+    const send = async (): Promise<MpvValue> => mpv.commandAsync(loadfileArgs(url, startAt, this.loadfileIndex), LOAD_ACK_TIMEOUT_MS);
+    let data: MpvValue;
+
+    try {
+      data = await send();
+    } catch (e) {
+      const msg = String(e);
+
+      if (gen === this.loadGen && /invalid parameter/.test(msg) && this.loadRetried !== gen) {
+        // 版本探测失配（或宿主 mpv 比预期旧）：换另一种布局原样重发一次。
+        this.loadRetried = gen;
+        this.loadfileIndex = !this.loadfileIndex;
+        this.log(`[audio] loadfile layout rejected; retry ${this.loadfileIndex ? "new" : "old"} layout`);
+
+        try {
+          data = await send();
+        } catch (retryErr) {
+          const retryMsg = String(retryErr);
+
+          if (/timeout|not running|socket closed/i.test(retryMsg)) this.stopMpv();
+
+          throw retryErr;
+        }
+      } else {
+        if (/timeout|not running|socket closed/i.test(msg)) this.stopMpv();
+
+        throw e;
+      }
+    }
+
+    if (gen !== this.loadGen) return;
+
+    const entry = this.entryIdOf(data);
+
+    if (entry) {
+      this.loadEntryId = entry;
+      this.currentEntryId = entry;
+    }
+
+    this.armLoadWatchdog(gen);
+  }
+
+  /** 播放态意图下发。async 回执只证明命令被接收；超时/连接断开意味着命令线程
+   *  已经不服务这条连接，直接重启 mpv，别让下一次换档继续排在坏连接后面。 */
+  private async setPauseIntent(mpv: MpvIpc, paused: boolean): Promise<void> {
+    try {
+      await mpv.setPropAsync("pause", paused, LOAD_ACK_TIMEOUT_MS);
+    } catch (e) {
+      const msg = String(e);
+
+      if (/timeout|not running|socket closed/i.test(msg)) this.stopMpv();
+
+      throw e;
+    }
+  }
+
   onMpvEvent(ev: MpvEvent, source: MpvIpc | null = this.mpv): void {
     // seek 重拉 / 崩溃重拉会短暂出现旧实例的迟到事件；它们不能覆盖新实例状态。
     if (source && (this.retiredMpvs.has(source) || (this.mpv && source !== this.mpv))) return;
@@ -710,13 +841,18 @@ export class AudioEngine {
           this.pushState(true);
           break;
         case 3:
-          if (!(this.mode === "pcm" && this.pcmEnding)) this.st.paused = !!d;
+          {
+            const loadPending = this.loadedGen !== this.loadGen && this.loadErrGen !== this.loadGen;
 
-          // mpv 回 idle 时 pause 可能先于 end-file 到达；这时补发曲末，别把队列挂死。
-          if (this.mode !== "pcm" && d === true && this.st.idle) this.finishTrack();
+            if (!loadPending && !(this.mode === "pcm" && this.pcmEnding)) this.st.paused = !!d;
 
-          this.pushState(true);
-          break;
+            // mpv 回 idle 时 pause 可能先于 end-file 到达；这时补发曲末，别把队列挂死。
+            // 只认当前载入代：换曲/stop 后的旧 pause 事件不能把新队列项判成曲末。
+            if (this.mode !== "pcm" && this.startGen === this.loadGen && d === true && this.st.idle) this.finishTrack();
+
+            this.pushState(true);
+            break;
+          }
         case 4:
           // pcm 模式的真实缓冲在 renderer AudioBuffer 队列里；mpv 的
           // paused-for-cache 会被 ao_pcm 背压误触发，不能拿它卡住 loading。
@@ -729,7 +865,11 @@ export class AudioEngine {
         case 5:
           {
             this.st.idle = !!d;
-            const holdIdle = this.mode === "pcm" && (this.pcmEnding || this.pcmReloading);
+            // loadfile 已下发、file-loaded 未到：这次的 idle=true 多半来自上一首
+            // 被 replace 的瞬间。不能让它清掉新曲的 buffering/paused（否则 UI 会
+            // 在真正出声前先跳成「暂停」）。
+            const loadPending = this.loadedGen !== this.loadGen && this.loadErrGen !== this.loadGen;
+            const holdIdle = loadPending || (this.mode === "pcm" && (this.pcmEnding || this.pcmReloading));
 
             if (this.st.idle && !holdIdle) {
               this.st.pos = 0;
@@ -753,22 +893,76 @@ export class AudioEngine {
     }
 
     switch (ev.event) {
+      case "start-file":
+        // mpv 总是 start-file 先于 file-loaded/end-file。给当前载入盖章后，
+        // 后续事件才允许改播放状态；没有这层，旧档的迟到 end-file(error)
+        // 会被算到刚下发的新档头上，好档被判成坏档、整条回退链一起误判。
+        // entry id 已经能从异步回执里拿到时，旧载入迟到的 start-file 不许给新代盖章。
+        // 旧 mpv 的回执不带 entry id：此时用 start-file 自己补上，别把正常载入误杀。
+        const startEntry = Number(ev.playlist_entry_id ?? 0) || 0;
+
+        if (this.loadEntryId && startEntry && startEntry !== this.loadEntryId) {
+          this.log("[audio] ignored stale start-file:", startEntry, "current", this.loadEntryId);
+          break;
+        }
+
+        if (!this.loadEntryId && startEntry) this.loadEntryId = startEntry;
+        this.startGen = this.loadGen;
+        break;
       case "file-loaded":
-        this.currentEntryId = Number(ev.playlist_entry_id ?? this.currentEntryId) || this.currentEntryId;
+        if (this.startGen !== this.loadGen) {
+          this.log("[audio] ignored stale file-loaded");
+          break;
+        }
+
+        const fileEntry = Number(ev.playlist_entry_id ?? 0) || 0;
+
+        if (this.loadEntryId && fileEntry && fileEntry !== this.loadEntryId) {
+          this.log("[audio] ignored stale file-loaded:", fileEntry, "current", this.loadEntryId);
+          break;
+        }
+
+        if (!this.loadEntryId && fileEntry) this.loadEntryId = fileEntry;
+        this.cancelLoadWatchdog();
+        this.loadedGen = this.loadGen;
+        this.currentEntryId = fileEntry || this.loadEntryId || this.currentEntryId;
         this.st.idle = false;
         this.st.buffering = false;
         this.pcmReloading = false;
 
         // 真正出声的这一刻开始淡入（loadfile 被接受到 file-loaded 之间是静音窗口）
         if (!this.st.paused) this.rampTo(1, this.fade.inMs);
+        // 渲染层据此结束 loading（canplay 语义）。loadfile 是异步下发的，
+        // 不能再用 invoke 返回当作「已经能播」。
+        this.send({ t: "loaded", epoch: this.pcmEpoch });
         this.pushState(true);
         break;
-      case "end-file":
-        // loadfile replace 后可能还有上一首的迟到 end-file；entry id 不匹配就丢弃。
-        if (ev.playlist_entry_id && this.currentEntryId && ev.playlist_entry_id !== this.currentEntryId) {
-          this.log("[audio] ignored stale end-file:", ev.playlist_entry_id, "current", this.currentEntryId);
+      case "end-file": {
+        const endEntryForGate = Number(ev.playlist_entry_id ?? 0) || 0;
+        // 正常事件必须先见 start-file；但 loadfile 直接失败时 mpv 可能只回
+        // end-file(error)，没有 start-file。entry id 与本次回执一致时放行这条错误，
+        // 别让用户干等 12s 的载入看门狗。
+        const directLoadError = ev.reason === "error" && !!endEntryForGate
+          && !!this.loadEntryId && endEntryForGate === this.loadEntryId;
+
+        // 只认归属于本次载入的 end-file。换曲时我们主动打断的上一首也会补一条
+        // reason=stop；把它算到新曲头上会把新曲判成已结束。
+        if (this.startGen !== this.loadGen && !directLoadError) {
+          this.log("[audio] ignored stale end-file:", ev.playlist_entry_id ?? "?", "gen", this.loadGen);
           break;
         }
+
+        this.cancelLoadWatchdog();
+        // loadfile replace 后可能还有上一首的迟到 end-file；entry id 不匹配就丢弃。
+        const endEntry = endEntryForGate;
+        const expected = this.loadEntryId || this.currentEntryId;
+
+        if (endEntry && expected && endEntry !== expected) {
+          this.log("[audio] ignored stale end-file:", endEntry, "current", expected);
+          break;
+        }
+
+        if (this.loadEntryId && endEntry) this.currentEntryId = this.loadEntryId;
 
         // stop 命令也发 end-file(reason=stop)：那是我们自己打断，不是自然播完
         if (ev.reason === "eof") {
@@ -785,12 +979,18 @@ export class AudioEngine {
 
           this.pushState(true);
         } else if (ev.reason === "error") {
-          this.send({ t: "error", message: `mpv 播放失败：${ev.file_error ?? ev.reason}` });
+          this.loadErrGen = this.loadGen;
+          this.st.buffering = false;
+          this.st.paused = true;
+          this.send({ t: "error", epoch: this.pcmEpoch, message: `mpv 播放失败：${ev.file_error ?? ev.reason}` });
+          this.pushState(true);
         }
 
         break;
+      }
       case "__exit__":
         this.log("[audio] mpv exited:", ev.code);
+        this.cancelLoadWatchdog();
         this.mpv = null;
         this.stopPcmPipe();
         this.st = { ...this.st, pos: 0, dur: 0, paused: true, buffering: false, idle: true };
@@ -831,6 +1031,7 @@ export class AudioEngine {
   private async loadPcm(url: string, paused: boolean, startAt: number, epoch: number) {
     if (epoch !== this.pcmEpoch) return { ok: true, stale: true };
     const startedAt = Date.now();
+    const gen = this.beginLoadGeneration();
 
     // restartPcmSession 的 stop→重绑期间 mpv 会短暂回 idle；保持 loading 态，
     // 别让 idle-active 事件把新歌的 buffering/paused 清掉。
@@ -840,6 +1041,7 @@ export class AudioEngine {
     const mpv = this.lastUrl
       ? await this.restartPcmSession(epoch)
       : await this.ensureStarted();
+
     const outputAt = Date.now();
 
     if (epoch !== this.pcmEpoch) return { ok: true, stale: true };
@@ -851,19 +1053,16 @@ export class AudioEngine {
 
     // 播放态意图先落到引擎状态，再显式置 mpv pause（loadfile 默认自动开播）：
     // 显式置位还有个副作用是必发 property-change —— 上一次 stop/eof 留下的 pause 分歧靠它收敛。
-    await mpv.setProp("pause", paused);
+    await this.setPauseIntent(mpv, paused);
     const pausedAt = Date.now();
 
     if (epoch !== this.pcmEpoch) return { ok: true, stale: true };
 
-    const loaded = await mpv.command(startAt > 0
-      ? ["loadfile", url, "replace", -1, `start=${startAt}`]
-      : ["loadfile", url, "replace"]);
+    await this.sendLoadfile(mpv, gen, url, startAt);
     const loadedAt = Date.now();
 
     if (epoch !== this.pcmEpoch) return { ok: true, stale: true };
 
-    this.currentEntryId = this.entryIdOf(loaded);
     this.lastUrl = url;
     this.drainPcm();
 
@@ -872,7 +1071,7 @@ export class AudioEngine {
       + `pause ${pausedAt - outputAt}ms, loadfile ${loadedAt - pausedAt}ms, total ${loadedAt - startedAt}ms`,
     );
 
-    return { ok: true };
+    return { ok: true, gen };
   }
 
   /** 原生兼容模式的 seek：复用 MPV 进程，换新一代 FIFO 后用 `start=` 重挂。
@@ -892,6 +1091,7 @@ export class AudioEngine {
     const at = Math.max(0, sec);
     const wasPaused = this.st.paused;
     const dur = this.st.dur;
+    const gen = this.beginLoadGeneration();
 
     this.pcmReloading = true;
     this.pcmBase = at;
@@ -917,13 +1117,12 @@ export class AudioEngine {
     this.pcmEofSent = false;
     this.pcmLastDataAt = Date.now();
 
-    if (this.mode !== "pcm") await mpv.setProp("pause", wasPaused);
+    if (this.mode !== "pcm") await this.setPauseIntent(mpv, wasPaused);
 
-    const loaded = await mpv.command(["loadfile", url, "replace", -1, `start=${at}`]);
+    await this.sendLoadfile(mpv, gen, url, at);
 
     if (epoch !== this.pcmEpoch) return;
 
-    this.currentEntryId = this.entryIdOf(loaded);
     this.lastUrl = url;
 
     if (wasPaused) this.pcmPipe?.pause();
@@ -1079,21 +1278,19 @@ export class AudioEngine {
 
         if (epoch !== this.pcmEpoch) return { ok: true, stale: true };
 
+        const gen = this.beginLoadGeneration();
         this.beginLoadState(paused, startAt);
-        await mpv.setProp("pause", paused);
+        await this.setPauseIntent(mpv, paused);
 
         if (epoch !== this.pcmEpoch) return { ok: true, stale: true };
 
-        const loaded = await mpv.command(startAt > 0
-          ? ["loadfile", url, "replace", -1, `start=${startAt}`]
-          : ["loadfile", url, "replace"]);
+        await this.sendLoadfile(mpv, gen, url, startAt);
 
         if (epoch !== this.pcmEpoch) return { ok: true, stale: true };
 
-        this.currentEntryId = this.entryIdOf(loaded);
         this.lastUrl = url;
 
-        return { ok: true };
+        return { ok: true, gen };
       }
 
       case "play": {
@@ -1110,22 +1307,27 @@ export class AudioEngine {
         this.drainPcm();
         this.pushState(true);
 
-        if (this.mode !== "pcm") await mpv.setProp("pause", false);
+        if (this.mode !== "pcm") await this.setPauseIntent(mpv, false);
         else {
           // 用户暂停时我们刻意不动 mpv 的 pause；但「挂流不自动播」/seek 重拉
           // 会把它置真。恢复播放只在确实 paused 时解一次，避免向卡在 FIFO 写端的
           // AO 线程重复发命令。
-          const mpvPaused = await mpv.getProp("pause").catch(() => false);
+          const mpvPaused = await mpv.command(["get_property", "pause"], LOAD_ACK_TIMEOUT_MS).catch(() => false);
 
-          if (mpvPaused) await mpv.setProp("pause", false);
+          if (mpvPaused) await this.setPauseIntent(mpv, false);
         }
         // eof 后 mpv 回 idle 会卸载文件：按上一次 URL 重挂（单曲循环/播完再点播放）。
         // 判据实查 mpv（不信缓存的 idle 态）：渲染层的 ended→play 往返可能快过 idle-active 事件落库。
 
-        const idleNow = await mpv.getProp("idle-active").catch(() => this.st.idle);
-        this.st.idle = !!idleNow;
+        const idleNow = await mpv.command(["get_property", "idle-active"], LOAD_ACK_TIMEOUT_MS).catch(() => this.st.idle);
+        // loadfile 已下发但 file-loaded 还没到时，idle-active 可能仍是上一刻的 true。
+        // 这时绝不能按「放下一次」重挂：会把刚发起的载入 replace 掉，表现为切歌慢/切回旧曲。
+        const loadPending = this.loadedGen !== this.loadGen && this.loadErrGen !== this.loadGen;
+
+        this.st.idle = !!idleNow && !loadPending;
 
         if (this.st.idle && this.lastUrl) {
+          const gen = this.beginLoadGeneration();
           this.st.buffering = true;
           this.st.idle = false;
           this.pcmPos = 0;
@@ -1133,14 +1335,15 @@ export class AudioEngine {
           this.pcmSentSec = 0;
           this.pcmEnding = false;
           this.pcmEofSent = false;
+          this.pcmReloading = false;
           this.pcmBuf = Buffer.alloc(0);
           this.pushState(true);
-          await mpv.command(["loadfile", this.lastUrl, "replace"]);
+          await this.sendLoadfile(mpv, gen, this.lastUrl, 0);
         }
 
         if (this.mode !== "pcm") this.rampTo(1, this.fade.inMs); // 从当前包络淡入（淡出途中按播放 = 掉头回升）
 
-        return { ok: true };
+        return { ok: true, gen: this.loadGen };
       }
 
       case "pause":
@@ -1150,15 +1353,26 @@ export class AudioEngine {
       case "stop": {
         if (!this.mpv || this.mpv.dead) return { ok: true };
         const mpv = this.mpv;
+        this.cancelLoadWatchdog();
+        const stopGen = this.loadGen;
         this.pcmPipe?.pause();
         this.st.paused = true;
         this.pushState(true);
         // 先淡出、到 0 再真停；期间若来了新歌（load 会作废这一步）就交给它接管
         this.rampTo(0, this.fade.outMs, () => {
-          void mpv.command(["stop"]).catch(() => {});
+          void mpv.commandAsync(["stop"], LOAD_ACK_TIMEOUT_MS).catch(() => {});
           // stop 是显式「卸载当前流」：清掉 eof 后重挂用的 lastUrl，否则下次 play
           // 会把上一首重新 loadfile 回来。登出/清队列后残留旧曲就是这条路径。
-          if (this.mpv === mpv) this.lastUrl = "";
+          // 只有仍是同一代才清；淡出期间已经切到新歌时，lastUrl 属于新歌。
+
+          if (this.mpv === mpv && this.loadGen === stopGen) {
+            this.beginLoadGeneration();
+            // 显式 stop 后不会再有 file-loaded；把这一代标成已结算，
+            // 后续 idle/pause 事件才能正常落库（loadPending 不再永久为真）。
+            this.loadedGen = this.loadGen;
+
+            this.lastUrl = "";
+          }
 
           this.pcmPos = 0;
           this.pcmBase = 0;
@@ -1187,7 +1401,13 @@ export class AudioEngine {
         }
 
         if (!this.mpv || this.mpv.dead) return { ok: false, error: "mpv not running" };
-        await this.mpv.command(["seek", at, "absolute"]);
+
+        try {
+          await this.mpv.commandAsync(["seek", at, "absolute"], LOAD_ACK_TIMEOUT_MS);
+        } catch (e) {
+          return { ok: false, error: String(e) };
+        }
+
         this.st.pos = at; // 乐观位置：state 事件马上会对齐
         this.pushState(true);
 

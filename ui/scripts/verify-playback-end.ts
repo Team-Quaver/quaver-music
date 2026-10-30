@@ -80,8 +80,9 @@ check("空闲时预热本地/微云兜底索引",
     && /window\.setTimeout\(warmFallback, 1_200\)/.test(player));
 
 check("兜底源也受起播看门狗保护",
-  /if \(!autoplay \|\| isLocalSong\(s\) \|\| s\.directUrl\) return;/.test(player)
-    && /const timeout = this\.playbackFallback \? 15_000 : 20_000/.test(player));
+  /if \(!autoplay\) return;/.test(player)
+    && /const direct = isLocalSong\(s\) \|\| !!s\.directUrl/.test(player)
+    && /const timeout = direct \? 12_000 : this\.playbackFallback \? 15_000 : 20_000/.test(player));
 
 check("加载中优先用当前队列行曲长，不沿用上一首时长",
   /if \(this\.loading && hint > 0\) return hint;/.test(player));
