@@ -254,7 +254,7 @@ export default async function settingsView(root: HTMLElement) {
       <div class="set-group">
         <div class="set-label">播放引擎 <span class="set-note-inline" id="engine-note">- 默认 MPV，可选原生兼容 / 浏览器</span></div>
         <div class="opt-radios" id="decode-radios">
-          ${decodeRow("MPV", "原生直出（MPV）")}${decodeRow("MPVCompat", "原生兼容（MPV 仅解码模式，实验性支持）")}${decodeRow("Blink", "兼容模式（Blink）")}
+          ${decodeRow("MPV", "原生直出（MPV）")}${decodeRow("MPVCompat", "原生兼容（MPV 仅解码模式，实验性支持）")}${decodeRow("Liino", "Liino（实验性原生模式）")}${decodeRow("Blink", "兼容模式（Blink）")}
         </div>
         <p class="muted set-hint" id="engine-hint" hidden></p>
       </div>
@@ -1735,24 +1735,26 @@ export default async function settingsView(root: HTMLElement) {
   const engNote = wrap.querySelector<HTMLElement>("#engine-note")!;
 
   /** mpv 来源标签：随包运行时 / 系统 mpv / QUAVER_MPV 指定（排障时一眼看出跑的哪一份） */
-  const MPV_SOURCE_LABEL: Record<string, string> = { bundled: "随包运行时", path: "系统 mpv", env: "QUAVER_MPV 指定" };
+  const MPV_SOURCE_LABEL: Record<string, string> = { bundled: "随包运行时", path: "系统 mpv", env: "QUAVER_MPV/QUAVER_LIINO 指定", vendor: "vendor/Liino 构建", packaged: "随包 libliino" };
 
   async function paintBackend() {
     const st = await player.probeEngine();
     radios.forEach((r) => {
-      r.disabled = (r.value === "MPV" || r.value === "MPVCompat") && !st.available;
+      r.disabled = (r.value === "MPV" || r.value === "MPVCompat" || r.value === "Liino") && !st.available;
       r.checked = r.value === getDecode();
       r.onchange = () => {
         const v = r.value;
 
-        if (!r.checked || (v !== "MPV" && v !== "MPVCompat" && v !== "Blink")) return;
+        if (!r.checked || (v !== "MPV" && v !== "MPVCompat" && v !== "Liino" && v !== "Blink")) return;
         void player.setBackend(v).then(paintAll);
       };
     });
     const src = MPV_SOURCE_LABEL[st.source] ?? "";
-    engNote.textContent = player.backend === "mpv"
-      ? `- 原生直出运行中${src ? "（" + src + "）" : ""}`
-      : player.backend === "mpv-compat"
+    engNote.textContent = player.backend === "liino"
+      ? `- Liino 原生直出运行中（${st.version || "?"}）${src ? "，" + src : ""}；无 PCM 兼容模式，窗口级音频捕获请改回 MPV`
+      : player.backend === "mpv"
+        ? `- 原生直出运行中${src ? "（" + src + "）" : ""}`
+        : player.backend === "mpv-compat"
         ? `- 原生（兼容）运行中${src ? "（" + src + "）" : ""}`
         : st.available ? `- 默认 MPV（${src}），当前浏览器兜底` : "- " + (st.reason || "mpv 不可用，已回退浏览器音频");
   }

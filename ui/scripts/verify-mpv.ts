@@ -288,7 +288,8 @@ check("PCM FIFO 以附加模式重开写端（stop 重挂不会截断读端）",
 
 check("PCM 每代管道绑定 epoch，旧 stdout 在途数据按代丢弃",
   /openPcmPipe\(epoch: number\)/.test(engineSrc)
-    && /onData: \(chunk\) => this\.onPcmData\(chunk, epoch\)/.test(engineSrc)
+    && /onData: \(chunk, generation\) => this\.onPcmData\(chunk, generation \?\? epoch\)/.test(engineSrc)
+    && /setGeneration\(epoch\)/.test(engineSrc)
     && /epoch !== this\.pcmEpoch\) return/.test(engineSrc));
 
 check("PCM 换输出先放行旧读端再 stop 旧文件（AO 拆除走正常停播路径，不硬等卡住的写线程）",

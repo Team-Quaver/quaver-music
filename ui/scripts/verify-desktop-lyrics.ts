@@ -402,7 +402,7 @@ const proto = src("src/lib/desktop-lyrics-protocol.ts");
 
 check("时钟补偿按后端下发（native/web 200ms，兼容模式 0）",
   proto.includes("CLOCK_COMP_MS = 200")
-  && /get lyricComp\(\) \{ return this\.backend === "mpv-compat" \? 0 : 0\.2; \}/.test(src("src/player.ts"))
+  && /get lyricComp\(\) \{ return this\.backend === "mpv-compat" \|\| this\.backend === "liino" \? 0 : 0\.2; \}/.test(src("src/player.ts"))
   && /\(player\.time \+ player\.lyricComp\) \* 1000/.test(src("src/components/NowPlaying.ts")));
 
 check("posMs 是裸播放头（不含补偿不含延迟）", /posMs: Math\.max\(0, \(player\.time \|\| 0\) \* 1000\)/.test(bridge));

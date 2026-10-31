@@ -17,7 +17,7 @@ import {
 } from "./lib/prefs";
 import { cjkConvert } from "./lib/cjk-convert";
 import { expandTtmlUrl, fetchTtml, ttmlMissCached, ttmlMissRemember } from "./lib/ttml";
-import { WebTransport, createEngineTransport, EngineTransport, type Transport, type TransportEvent, type AudioDeviceInfo } from "./lib/transport";
+import { WebTransport, createEngineTransport, EngineTransport, type Transport, type TransportEvent, type AudioDeviceInfo, type EngineMode } from "./lib/transport";
 import { normalizeEqState, type EqState } from "../electron/audio/eq-config.ts";
 import { clearSession, loadSession, saveSession } from "./lib/session";
 import { dayKey, daySeed, shuffleOrder, step, walk } from "./lib/shuffle";
@@ -66,8 +66,9 @@ export type Song = {
 /** 播放模式只剩循环两档：「顺序播放（off）」已移除 —— 列表到尾一律回绕。 */
 export type Mode = "all" | "one";
 
-/** 实际生效的播放管线（transport.kind 投影；设置页据此展示） */
-export type ActiveBackend = "mpv" | "mpv-compat" | "web";
+/** 实际生效的播放管线（transport.kind 投影；设置页据此展示）。
+ *  "liino" = 主进程 Liino 后端（纯 Go 管线 + FFI，同进程原生直出）。 */
+export type ActiveBackend = "mpv" | "mpv-compat" | "liino" | "web";
 
 type Listener = () => void;
 
@@ -169,14 +170,16 @@ class Player {
   lyricAux: LyricAuxMode = getLyricAux(); // 歌词辅助行：off/translation/romanization
   /** 行级/插件门面：非 off 即显示辅助行（翻译档优先翻译、音译档优先音译，缺则回落另一路） */
   get showTrans(): boolean { return this.lyricAux !== "off"; }
-  /** 实际生效后端（"mpv"=原生直出；"mpv-compat"=MPV 解码 + renderer 出声；"web"=浏览器 <audio>） */
+  /** 实际生效后端（"mpv"=原生直出；"mpv-compat"=MPV 解码 + renderer 出声；"liino"=主进程 Liino 原生直出；"web"=浏览器 <audio>） */
   backend: ActiveBackend = "web";
   /** 当前已挂载播放流的 URL（/api/stream/<token> 或插件源；运行时态，不进存档）。
    *  流信息探测（lib/streaminfo）据此取头字节；打断/换曲即失效。 */
   streamUrl = "";
   /** 后端不可用/回退原因（设置页提示；空 = 正常） */
   backendNotice = "";
-  /** 引擎（mpv）版本串；未拉起时为空 */
+  /** 主进程引擎到底是哪条管线（"mpv" | "liino"）：status 回报，决定输出拓扑与标签。 */
+  engineKind: "mpv" | "liino" = "mpv";
+  /** 引擎（mpv / liino）版本串；未拉起时为空 */
   engineVersion = "";
   private _vol = 0.8;    // 0..1（静音前保留）
   private _muted = false;
@@ -342,6 +345,23 @@ class Player {
     }
   }
 
+  /** 引擎侧后端身份（status.backend）：Liino 只支持原生直出，没有 mpv 那条 PCM 兼容管道。 */
+  private engineMode(pref: DecodeBackend): EngineMode {
+    if (this.engineKind === "liino" || pref !== "MPVCompat") return "native";
+
+    return "pcm";
+  }
+
+  /** 实际生效标签：Liino 不按 PCM 分档（它只有 native），mpv 才分原生/原生（兼容）。 */
+  private engineLabel(mode: EngineMode): ActiveBackend {
+    if (this.engineKind === "liino") return "liino";
+
+    return mode === "pcm" ? "mpv-compat" : "mpv";
+  }
+
+  /** 主进程引擎在出声（mpv 原生/兼容、Liino 原生都算）：Quark EQ 可编辑、静音镜像频谱可用。 */
+  get engineBacked(): boolean { return this.backend !== "web"; }
+
   /** 启动时的后端选择：偏好 MPV 且引擎可用 → 热切到引擎传输（此时通常还没开播，无损替换） */
   private async initBackend() {
     const pref = getDecode();
@@ -357,14 +377,21 @@ class Player {
         return;
       }
 
-      const mode = pref === "MPVCompat" ? "pcm" : "native";
+      this.engineKind = st.backend === "liino" ? "liino" : "mpv";
+      const mode = this.engineMode(pref);
       const t = await createEngineTransport(window.quaverAudio, { mode });
       const dev = getAudioDevice();
 
       if (mode === "native" && dev) void t.setDevice?.(dev).catch(() => {});
       const resume = this.swapTransport(t);
-      this.backend = mode === "pcm" ? "mpv-compat" : "mpv";
+      this.backend = this.engineLabel(mode);
       this.engineVersion = String(st.version ?? "");
+      if (mode === "native" && this.engineKind === "liino" && pref === "MPVCompat") {
+        this.backendNotice = "Liino 后端只支持原生直出；需要窗口级音频捕获请改用 MPV 后端";
+      }
+      else if (pref === "Liino" && this.engineKind !== "liino") {
+        this.backendNotice = "Liino 后端不可用，已回落 MPV";
+      }
       await resume; // 启动竞态里已有歌在播：换传输后从原进度续播
     } catch {
       this.backendNotice = "音频引擎桥接失败，已回退浏览器音频";
@@ -520,10 +547,10 @@ class Player {
       return;
     }
 
-    const mode = kind === "MPVCompat" ? "pcm" : "native";
+    const mode = this.engineMode(kind);
 
     if (this.transport.kind === "engine" && this.transport.mode === mode) {
-      this.backend = mode === "pcm" ? "mpv-compat" : "mpv";
+      this.backend = this.engineLabel(mode);
       this.backendNotice = "";
       this.notify();
 
@@ -540,14 +567,20 @@ class Player {
         return;
       }
 
-      const t = await createEngineTransport(window.quaverAudio, { mode });
+      this.engineKind = st.backend === "liino" ? "liino" : "mpv";
+      const want = this.engineMode(kind);
+      const t = await createEngineTransport(window.quaverAudio, { mode: want });
       const dev = getAudioDevice();
 
-      if (mode === "native" && dev) void t.setDevice?.(dev).catch(() => {});
+      if (want === "native" && dev) void t.setDevice?.(dev).catch(() => {});
       await this.swapTransport(t);
-      this.backend = mode === "pcm" ? "mpv-compat" : "mpv";
+      this.backend = this.engineLabel(want);
       this.engineVersion = String(st.version ?? "");
-      this.backendNotice = "";
+      // 偏好与实况不一致时说实话（Liino 无 PCM 兼容模式，窗口级音频捕获请切回 MPV）
+      this.backendNotice = want === (kind === "MPVCompat" ? "pcm" : "native")
+        ? ""
+        : "Liino 后端只支持原生直出；需要窗口级音频捕获请改用 MPV 后端";
+      if (kind === "Liino" && this.engineKind !== "liino") this.backendNotice = "Liino 后端不可用，已回落 MPV";
     } catch (e: any) {
       this.backendNotice = String(e?.message ?? e);
     }
@@ -556,15 +589,17 @@ class Player {
   }
 
   /** 引擎可用性（设置页禁用态/提示用；后端偏好的归 setBackend） */
-  async probeEngine(): Promise<{ available: boolean; reason: string; version: string; source: string }> {
-    if (!window.quaverAudio) return { available: false, reason: "当前环境无原生音频引擎", version: "", source: "" };
+  async probeEngine(): Promise<{ available: boolean; reason: string; version: string; source: string; backend: string }> {
+    if (!window.quaverAudio) return { available: false, reason: "当前环境无原生音频引擎", version: "", source: "", backend: "" };
 
     try {
       const st = await window.quaverAudio.invoke({ cmd: "status" });
 
-      return { available: !!st?.ok && !!st.available, reason: st?.reason ?? "", version: String(st?.version ?? ""), source: String(st?.source ?? "") };
+      this.engineKind = st?.backend === "liino" ? "liino" : "mpv";
+
+      return { available: !!st?.ok && !!st.available, reason: st?.reason ?? "", version: String(st?.version ?? ""), source: String(st?.source ?? ""), backend: String(st?.backend ?? "mpv") };
     } catch {
-      return { available: false, reason: "音频引擎桥接失败", version: "", source: "" };
+      return { available: false, reason: "音频引擎桥接失败", version: "", source: "", backend: "" };
     }
   }
 
@@ -675,8 +710,9 @@ class Player {
   /** 上一曲是否可用：电台只向前走，必须把按钮/媒体键的入口一并关掉，不能只藏 UI */
   get canPrev() { return this.queue.length > 0 && !this.radioOn; }
   get time() { return this.transport.position; }
-  /** 歌词时钟补偿（秒）：native/web 沿用现有 +0.2s；PCM 兼容模式启动有预缓冲，不能再叠这一层。 */
-  get lyricComp() { return this.backend === "mpv-compat" ? 0 : 0.2; }
+  /** 歌词时钟补偿（秒）：mpv native/web 沿用现有 +0.2s；PCM 兼容模式启动有预缓冲，不能再叠这一层。
+   *  Liino 的位置来自 clock()（已减掉输出延迟的可听位置），再叠补偿就是双重修正 → 取 0。 */
+  get lyricComp() { return this.backend === "mpv-compat" || this.backend === "liino" ? 0 : 0.2; }
   get duration() {
     const hint = Number(this.current?.interval) || 0;
     // 换曲/切兜底源时引擎的上一首时长不会立刻清零；加载中先用队列行的曲长，

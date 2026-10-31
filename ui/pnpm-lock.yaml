@@ -8,6 +8,12 @@ importers:
 
   .:
     dependencies:
+      '@team-quaver/liino-node':
+        specifier: file:../vendor/Liino/node
+        version: file:../vendor/Liino/node(koffi@2.16.3)
+      koffi:
+        specifier: ^2.16.3
+        version: 2.16.3
       mpris-service:
         specifier: 2.1.2
         version: 2.1.2
@@ -464,6 +470,12 @@ packages:
   '@szmarczak/http-timer@4.0.6':
     resolution: {integrity: sha512-4BAffykYOgO+5nzBWYwE3W90sBgLJoUPRWWcL8wlyiM8IB8ipJz3UMJ9KXQd1RKQXpKp8Tutn80HZtWsu2u76w==}
     engines: {node: '>=10'}
+
+  '@team-quaver/liino-node@file:../vendor/Liino/node':
+    resolution: {directory: ../vendor/Liino/node, type: directory}
+    engines: {node: '>=18'}
+    peerDependencies:
+      koffi: ^2.9.0
 
   '@types/cacheable-request@6.0.3':
     resolution: {integrity: sha512-IQ3EbTzGxIigb1I3qPZc1rWJnH0BmSKv5QYTalEwweFvyBDLSAe24zP0le/hyi7ecGfZVlIVAg4BZqb8WBwKqw==}
@@ -1282,6 +1294,9 @@ packages:
 
   keyv@4.5.4:
     resolution: {integrity: sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==}
+
+  koffi@2.16.3:
+    resolution: {integrity: sha512-E9y1AsgYGlaxMhcZzHr8y96QF2U5XzA12GGVAfbWqIubTwPNMXQarfBzePNXHe0xtIEtNd6ifAv3GAKYGUeBAQ==}
 
   lazy-val@1.0.5:
     resolution: {integrity: sha512-0/BnGCCfyUMkBpeDgWihanIAF9JmZhHBgUhEqzvf+adhNGLoP6TaiI5oF8oyb3I45P+PcnrqihSf01M0l0G5+Q==}
@@ -2441,6 +2456,10 @@ snapshots:
     dependencies:
       defer-to-connect: 2.0.1
 
+  '@team-quaver/liino-node@file:../vendor/Liino/node(koffi@2.16.3)':
+    dependencies:
+      koffi: 2.16.3
+
   '@types/cacheable-request@6.0.3':
     dependencies:
       '@types/http-cache-semantics': 4.2.0
@@ -3316,6 +3335,8 @@ snapshots:
   keyv@4.5.4:
     dependencies:
       json-buffer: 3.0.1
+
+  koffi@2.16.3: {}
 
   lazy-val@1.0.5: {}
 

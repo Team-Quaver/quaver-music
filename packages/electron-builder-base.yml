@@ -29,6 +29,18 @@ extraResources:
       - "**/*"
       - "!**/*.AppImage"
       - "!**/.work/**"
+  - from: build-res/liino
+    to: liino
+    filter:
+      - "**/*"
+      - "!**/.work/**"
+
+# koffi 的 dlopen 只认真实文件路径；libliino 必须解出 asar（与 mpv 运行时同口径）。
+# 引擎解析路径（electron/audio/liino-engine.ts）对打包态都算在 resources 下，
+# asarUnpack 展开后 resourcesPath 本身不变，无需额外改逻辑。
+asarUnpack:
+  - resources/liino/**
+  - resources/audio/**
 linux:
   category: Audio
   desktop:

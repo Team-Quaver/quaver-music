@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import { createServer, type Server, type Socket } from "node:net";
 
 export interface PcmPipeOpts {
-  onData: (chunk: Buffer) => void;
+  onData: (chunk: Buffer, generation?: number) => void;
   onError?: (e: Error) => void;
   log?: (...a: unknown[]) => void;
 }
@@ -33,6 +33,13 @@ export class PcmPipe {
   private dir = "";
   private paused = true;
   private closed = false;
+  /** 当前会话代际：换流/seek 都会推进；旧代 stdout drain 不再进入新播放会话。 */
+  private generation = 0;
+
+  /** 换代后旧代 drain 的数据必须被识别并丢弃；主进程以这个代际做双保险。 */
+  setGeneration(value: number): void {
+    this.generation = value;
+  }
 
   constructor(opts: PcmPipeOpts) {
     this.opts = opts;
@@ -78,7 +85,7 @@ export class PcmPipe {
       detached: true, // 独立进程组：close 时能连 helper 一起收掉
     });
 
-    child.stdout?.on("data", (chunk) => this.opts.onData(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    child.stdout?.on("data", (chunk) => this.opts.onData(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk), this.generation));
     child.stdout?.on("error", (e) => {
       if (!this.closed) this.opts.onError?.(e);
     });
@@ -109,7 +116,7 @@ export class PcmPipe {
   private attachSocket(sock: Socket) {
     if (this.closed) { sock.destroy(); return; }
 
-    sock.on("data", (chunk) => this.opts.onData(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    sock.on("data", (chunk) => this.opts.onData(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk), this.generation));
     sock.on("error", (e) => {
       if (!this.closed) this.opts.onError?.(e);
     });

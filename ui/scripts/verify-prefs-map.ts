@@ -3,7 +3,7 @@
 // window/document/localStorage 桩，验证「配置文件取值 ⇄ 内部枚举」的双向映射与写盘键名
 // —— 这层写错了最难从界面上看出来。
 // 跑： node scripts/verify-prefs-map.ts
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,6 +34,9 @@ const res = await viteBuild({
 const chunk = res[0].output.find((o) => o.type === "chunk");
 
 writeFileSync(OUT, chunk.code);
+
+// 后续 import(?query) 会复用同一文件路径的 ESM 缓存：改完源码重新打包后，覆写后再复制一份带版本号的副本
+for (let i = 0; i < 4; i++) copyFileSync(OUT, OUT + '.' + i + '.mjs');
 
 // —— 最小 DOM 桩 ——
 const ls = new Map();
@@ -76,7 +79,7 @@ globalThis.window = {
 const P = await import(OUT);
 
 let pass = 0, fail = 0;
-const section = (t) => console.log(`\n=== ${t} ===`);
+const section = (title: string) => console.log(`\n=== ${title} ===`);
 
 const check = (name, cond, detail = "") => {
   if (cond) { pass++; console.log(`  ✅ ${name}`); }
@@ -167,6 +170,8 @@ P.setDecode("Blink");   eq("Blink → Chromium", conf()["Playing.Backend"], "Chr
 P.setDecode("MPV");     eq("MPV → MPV", conf()["Playing.Backend"], "MPV");
 
 P.setDecode("MPVCompat"); eq("MPVCompat → 原生兼容", conf()["Playing.Backend"], "MPVCompat");
+
+P.setDecode("Liino");     eq("Liino → 实验性原生模式", conf()["Playing.Backend"], "Liino");
 
 P.setFallbackSort("rank");  eq("rank → FallbackToQMAtmos=True", conf()["Quality.FallbackToQMAtmos"], "True");
 
@@ -576,6 +581,10 @@ await reload({ "Playing.Backend": "MPVCompat" });
 
 eq("MPVCompat → 原生兼容", P.getDecode(), "MPVCompat");
 
+await reload({ "Playing.Backend": "Liino" });
+
+eq("Liino → 实验性原生模式", P.getDecode(), "Liino");
+
 await reload({ "Playing.Backend": "mpv" });
 
 eq("大小写不符的取值回落 MPV", P.getDecode(), "MPV");
@@ -789,7 +798,7 @@ section("桌面端启动快照（quaverConfig.boot）");
     set: (p) => { setCalls.push(p); return Promise.resolve({ ok: true }); },
     reveal: () => Promise.resolve({ ok: true }),
   };
-  const D = await import(`${OUT}?desktop=1`); // 新实例：模块顶层的同步装载会再跑一次
+  const D = await import(`${OUT}.0.mjs?desktop=1`); // 新实例：模块顶层的同步装载会再跑一次
   eq("boot 快照优先于 localStorage", D.getTheme(), "dark");
   eq("音量来自 boot 快照", D.getVolume(), 0.42);
   const inf = D.configInfo();
@@ -808,7 +817,7 @@ section("高频项（音量）合并落盘");
   ls.clear(); seed({});
   let calls = [];
   globalThis.window.quaverConfig = { boot: { ok: false }, set: (p) => { calls.push(p); return Promise.resolve({ ok: true }); } };
-  const V = await import(`${OUT}?debounce=1`);
+  const V = await import(`${OUT}.1.mjs?debounce=1`);
 
   for (const v of [0.1, 0.2, 0.3, 0.4, 0.5]) V.setVolume(v);
   eq("拖拽期间内存即时反映", V.getVolume(), 0.5);
@@ -834,7 +843,7 @@ section("macOS 浏览器兜底");
   });
 
   try {
-    const M = await import(`${OUT}?mac=1`);
+    const M = await import(`${OUT}.2.mjs?mac=1`);
     await M.loadConfig();
     eq("浏览器 dev 在 macOS 默认 ssd", M.getDecor(), "ssd");
   } finally {

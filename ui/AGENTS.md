@@ -249,6 +249,53 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
   全都回不到滑杆上 —— 条与读数冻在聚焦那一刻的值，声音明明在变。松手立刻回写播放器真值，
   别留「拖中滚过轮」的那一截差（94 vs 98 那种假读数）。
 - 验证：`pnpm run verify:volume-bar`（源码接线 + 反向自证 + 活体：两种形态 × 六档尺寸的锚点与
+## Liino 后端（实验 · 纯 Go 音频管线，设置 → Liino（实验性原生模式））
+
+主进程音频后端有两个：「mpv」（默认，生产形态）与「liino」（实验，显式打开）。Liino 源在
+`vendor/Liino`（AGPL，子模块）：纯 Go 解码（ffgo 动态加载系统 FFmpeg）+ 纯 Go DSP + 平台输出
+（Linux PipeWire / Windows WASAPI）打成一份 c-shared 库（`libliino.so` ≈3.5MB），主进程经
+koffi FFI **同进程**调用 —— 没有子进程、没有 IPC socket、没有看门狗。想试：
+
+```sh
+cd vendor/Liino && bash scripts/build-capi.sh      # 先出库（开发态落到 build/<os>-<arch>/）
+cd ui && pnpm run app                              # 真出声跑一圈（设置页选 Liino，或仍可用 QUAVER_AUDIO_BACKEND=liino）
+```
+
+- 门面在 `electron/audio/backend.ts`：`bootAudioEngine()` 按启动快照的 `[Playing] Backend`
+  二选一（`QUAVER_AUDIO_BACKEND=liino` 仍是排障顶掉口），
+  且 **init 之前必须先 probe**（`ipcMain.handle("quaver:audio")` 一个进程只能有一个主人，先到先得）
+  —— Liino dlopen 失败就地回落 mpv 并写日志。`main.ts` 不再直接 `audioEngine.init()`；
+  外部进程账走 `audioExternalPids()`（Liino 无外部 pid，内存面板自然少两行）。
+- 引擎在 `electron/audio/liino-engine.ts`，与 mpv 引擎共享同一套 `quaver:audio` 命令面与
+  `quaver:audio-event` 广播（渲染层 `src/lib/transport.ts` 的 `EngineTransport` 零改动就能开）。
+  位置真相来自 `clock()`（已减输出延迟的可听位置，亚毫秒）；状态真相来自事件里的 snapshot。
+  **两条 FFI 纪律**：① 绝不用 `waitEvent()`（它阻塞调用线程，等于冻窗断流），只用
+  `nextEvent()` 25ms 轮询；② 位置要钳在时长里（native 的 clock 是「已消费 PCM」的算术时间，
+  曲末 drain 会越过 duration 继续涨，不钳进度条就甩出 3:21 之外）。
+- 纯逻辑（库解析 / EQ 映射 / 状态映射 / 设备列表）在 `electron/audio/liino-runtime.ts`（零
+  electron 值导入，verify 直接跑）。Quark EQ 映射：bell/lowShelf/highShelf 直落 Liino 双二阶，
+  **LP/HP 目前没有对应实现**，如实报 `dropped` 数并写进回包 note，不许悄悄冒充；bypass =
+  `setBypass(true)`，与 mpv 的 `af=""` 同语义（Open 会 Reset DSP 链，load 之后必须重新套 EQ+增益）。
+- Liino 只有原生直出，**没有 PCM 兼容模式**（mpv `--ao=pcm` 那条窗口捕获管道在它这里不存在）：
+  `mode(pcm)` 必须回 `ok:false`，渲染层把偏好如实改落 native 并提示「窗口级音频捕获请改回 MPV」。
+  `status.captureCompatible` 恒 false，设置页/频谱的判定都基于这一点。
+- stop = 卸载当前流（清 `lastUrl`）；Liino 的真停会话不能裸 `play()`（native 不重排环形缓冲
+  世代，永远停在 ready），引擎按 mpv 的「idle 重挂 lastUrl」语义先重开流；没有可重挂的流就
+  老实回 `ok:false`，渲染层重新取链起播。
+- 「播放中 seek 到贴尾」是 native 上游的独立问题（重排缓冲后 underrun 不恢复），归
+  vendor/Liino；引擎只用 `load(startAt)` 语义换镜头位置。
+- 随包/暂存：`scripts/stage-liino.sh [目标目录]`（默认 `build-res/liino/<os>-<arch>/`）；
+  打包经 `packages/electron-builder-base.yml`（extraResources `liino/` + `asarUnpack`
+  `resources/**` —— koffi 的 dlopen 不认 asar 虚拟路径）。`QUAVER_LIINO` 可显式顶掉库路径
+  （排障口，认文件也认目录）。
+- 诊断口径：Liino 是主进程 FFI 会话，没有独立音频进程；`ps` 里看到的 mpv 进程说明当前实际
+  后端不是 Liino（渲染层应显示「Liino 后端不可用，已回落 MPV」）。电流声先把播放偏好切回
+  MPV 对照；「Liino 模式仍有 mpv 进程」一律按回落态排查，而不是把 mpv 的输出当 Liino 的病。
+- 验证：`pnpm run verify:liino`（静态接线）+ `./node_modules/.bin/electron scripts/probe-liino.ts
+  [--device=pipewire/default|--device=null]`（真 dlopen / 真出声 / 真取流：契约、事件、世代丢弃、
+  EQ 丢弃数、曲末只发一次 ended、shutdown 收尾）。设置页解析状态按 `status.backend`
+  （`mpv` | `liino`）分列显示；渲染层判定「引擎后端」统一走 `player.engineBacked`。
+
   越界退位、滚轮四态四值一致、拖动跟手与松手回写；活体段需 dev server，`QBASE` 可指别处）。
 
 ## Quark EQ（图形均衡器 · MPV 原生 / 兼容）

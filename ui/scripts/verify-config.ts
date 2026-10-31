@@ -11,7 +11,7 @@ import {
 } from "../electron/config.ts";
 
 let pass = 0, fail = 0;
-const section = (t) => console.log(`\n=== ${t} ===`);
+const section = (title: string) => console.log(`\n=== ${title} ===`);
 
 function check(name, cond, detail = "") {
   if (cond) { pass++; console.log(`  ✅ ${name}`); }
@@ -404,6 +404,8 @@ writeValues({ "Playing.Fade": "long" });
 eq("Backend 接受 Chromium", (writeValues({ "Playing.Backend": "Chromium" }), readValues().values["Playing.Backend"]), "Chromium");
 
 eq("Backend 接受 MPVCompat", (writeValues({ "Playing.Backend": "MPVCompat" }), readValues().values["Playing.Backend"]), "MPVCompat");
+
+eq("Backend 接受 Liino", (writeValues({ "Playing.Backend": "Liino" }), readValues().values["Playing.Backend"]), "Liino");
 
 eq("空字体值合法（表示不覆盖）", (writeValues({ "Style.DefaultUIFonts": "" }), readValues().values["Style.DefaultUIFonts"]), "");eq("字体值拒绝 CSS 注入", writeValues({ "Style.DefaultUIFonts": "x; } body{display:none" }), []);
 

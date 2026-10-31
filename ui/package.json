@@ -79,6 +79,7 @@
     "verify:tint": "node scripts/verify-tint.ts",
     "verify:accent": "node scripts/verify-accent.ts",
     "verify:mpv": "node scripts/verify-mpv.ts",
+    "verify:liino": "node scripts/verify-liino.ts",
     "verify:redflag": "node scripts/verify-redflag.ts",
     "verify:local": "node scripts/verify-local.ts",
     "verify:all-songs": "node scripts/verify-all-songs.ts",
@@ -88,6 +89,8 @@
     "verify:listen-report": "node scripts/verify-listen-report.ts"
   },
   "dependencies": {
+    "@team-quaver/liino-node": "file:../vendor/Liino/node",
+    "koffi": "^2.16.3",
     "mpris-service": "2.1.2"
   },
   "devDependencies": {

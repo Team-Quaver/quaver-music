@@ -77,6 +77,7 @@ type EngineCmd = Record<string, any>;
 type AfterFade = (() => void) | null;
 
 export class AudioEngine {
+  readonly kind = "mpv" as const;     // 后端身份（backend.ts 里与 LiinoEngine 同一口径）
   baseUrl: string;                   // 渲染层服务 origin（load 传相对 URL 时绝对化用）
   getWin: () => BrowserWindow | null; // 当前 BrowserWindow getter（CSD 重建窗口后引用会换）
   log: EngineLog;
@@ -205,12 +206,13 @@ export class AudioEngine {
   private async openPcmPipe(epoch: number): Promise<PcmPipe> {
     const pipe = new PcmPipe({
       log: this.log,
-      onData: (chunk) => this.onPcmData(chunk, epoch),
+      onData: (chunk, generation) => this.onPcmData(chunk, generation ?? epoch),
       onError: (e) => this.log("[audio] PCM pipe error:", String(e)),
     });
 
     try {
       await pipe.start();
+      pipe.setGeneration(epoch);
 
       return pipe;
     } catch (e) {
@@ -407,6 +409,9 @@ export class AudioEngine {
   /** MPV 的写端可能任意切块；先攒进 pcmBuf，再由 drainPcm 按窗口消费。 */
   onPcmData(chunk: Buffer, epoch = this.pcmEpoch): void {
     if (this.mode !== "pcm" || !this.pcmReady || epoch !== this.pcmEpoch) return;
+
+    // 旧代管道 drain 的最后一截也拒绝入库；代际 + 管道实例双保险
+    if (epoch !== this.pcmEpoch) return;
 
     this.pcmLastDataAt = Date.now();
     this.pcmBuf = this.pcmBuf.length ? Buffer.concat([this.pcmBuf, chunk]) : chunk;
