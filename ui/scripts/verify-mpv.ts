@@ -288,7 +288,8 @@ check("PCM FIFO 以附加模式重开写端（stop 重挂不会截断读端）",
 
 check("PCM 每代管道绑定 epoch，旧 stdout 在途数据按代丢弃",
   /openPcmPipe\(epoch: number\)/.test(engineSrc)
-    && /onData: \(chunk\) => this\.onPcmData\(chunk, epoch\)/.test(engineSrc)
+    && /onData: \(chunk, generation\) => this\.onPcmData\(chunk, generation \?\? epoch\)/.test(engineSrc)
+    && /setGeneration\(epoch\)/.test(engineSrc)
     && /epoch !== this\.pcmEpoch\) return/.test(engineSrc));
 
 check("PCM 换输出先放行旧读端再 stop 旧文件（AO 拆除走正常停播路径，不硬等卡住的写线程）",
@@ -410,7 +411,9 @@ check("PCM EOF 先发 ending，让下一首在尾音排空前起播",
 
 check("PCM 切歌不在取链前停旧曲（由 load 做交叉淡化）",
   /this\.interrupt\(!\(this\.transport\.kind === "engine" && this\.transport\.mode === "pcm"\)\)/.test(playerSrc)
-    && /private interrupt\(stopOutput = true\)/.test(playerSrc) && /if \(stopOutput\)/.test(playerSrc));
+    && /private interrupt\(stopOutput = true\)/.test(playerSrc)
+    // 换后端后的首轮起播例外：新引擎里没有旧流，这条 stop 会打到刚挂的新歌上
+    && /const stop = stopOutput && !this\.suppressInterruptStop/.test(playerSrc) && /if \(stop\)/.test(playerSrc));
 
 check("PCM 起播后预取下一首，EOF 交叉淡化不等取链 RTT",
   /prefetchNextForCrossfade\(\)/.test(playerSrc)

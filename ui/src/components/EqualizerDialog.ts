@@ -210,10 +210,11 @@ function mount(): void {
   let drag: { id: string; moved: boolean } | null = null;
   let applyTimer = 0;
   let importMode: EqImportMode = "auto";
-  let backendWasMpv = player.backend === "mpv" || player.backend === "mpv-compat";
+  let backendWasEngine = player.engineBacked;
   let destroyed = false;
 
-  const isMpv = () => player.backend === "mpv" || player.backend === "mpv-compat";
+  /** Quark EQ 只有主进程引擎后端可编辑（mpv 原生/兼容、Liino 原生）；Blink <audio> 没有对应实现。 */
+  const isEngine = () => player.engineBacked;
   const selected = () => state.bands.find((b) => b.id === selectedId) ?? null;
 
   let sayTimer = 0;
@@ -229,10 +230,10 @@ function mount(): void {
     window.clearTimeout(applyTimer);
     applyTimer = 0;
 
-    if (!isMpv()) return;
+    if (!isEngine()) return;
 
     const send = () => {
-      if (destroyed || !isMpv()) return;
+      if (destroyed || !isEngine()) return;
       void player.setEqualizer(state);
     };
 
@@ -241,10 +242,10 @@ function mount(): void {
   };
 
   const syncHead = () => {
-    const active = isMpv() && state.enabled;
+    const active = isEngine() && state.enabled;
     power.classList.toggle("on", active);
     power.setAttribute("aria-pressed", active ? "true" : "false");
-    powerLabel.textContent = !isMpv() ? "ENGINE ONLY" : state.enabled ? "EQ ON" : "BYPASS";
+    powerLabel.textContent = !isEngine() ? "ENGINE ONLY" : state.enabled ? "EQ ON" : "BYPASS";
     count.textContent = `${state.bands.length} / ${EQ_MAX_BANDS} BANDS`;
     svg.classList.toggle("bypassed", !active);
   };
@@ -492,7 +493,7 @@ function mount(): void {
   };
 
   const syncAvailability = () => {
-    const ok = isMpv();
+    const ok = isEngine();
     unavailable.hidden = ok;
     body.classList.toggle("locked", !ok);
     power.disabled = !ok;
@@ -508,11 +509,11 @@ function mount(): void {
     } else {
       host.classList.remove("is-unavailable");
 
-      if (!backendWasMpv) applyNow(true);
+      if (!backendWasEngine) applyNow(true);
     }
 
     syncHead();
-    backendWasMpv = ok;
+    backendWasEngine = ok;
   };
 
   const syncPreset = () => {
@@ -553,7 +554,7 @@ function mount(): void {
   };
 
   const removeBand = (id: string) => {
-    if (!isMpv()) return;
+    if (!isEngine()) return;
     const b = state.bands.find((x) => x.id === id);
 
     if (!b) return;
@@ -573,7 +574,7 @@ function mount(): void {
   };
 
   svg.addEventListener("pointerdown", (e) => {
-    if (!isMpv()) return;
+    if (!isEngine()) return;
     e.preventDefault();
     const node = eventElement(e)?.closest<SVGGElement>("[data-band-id]");
 
@@ -602,7 +603,7 @@ function mount(): void {
   });
 
   svg.addEventListener("pointermove", (e) => {
-    if (!drag || !isMpv()) return;
+    if (!drag || !isEngine()) return;
     const p = plotPoint(e);
     drag.moved = true;
     state.enabled = true;
@@ -638,7 +639,7 @@ function mount(): void {
     removeBand(node.dataset.bandId);
   });
   svg.addEventListener("wheel", (e) => {
-    if (!isMpv()) return;
+    if (!isEngine()) return;
     const node = eventElement(e)?.closest<SVGGElement>("[data-band-id]");
     const id = node?.dataset.bandId;
 
@@ -665,13 +666,13 @@ function mount(): void {
   };
 
   power.onclick = () => {
-    if (!isMpv()) return;
+    if (!isEngine()) return;
     state.enabled = !state.enabled;
     mutate(true);
   };
 
   preamp.addEventListener("input", () => {
-    if (!isMpv()) return;
+    if (!isEngine()) return;
     state.preamp = Number(preamp.value);
     state.enabled = true;
     mutate();
@@ -680,7 +681,7 @@ function mount(): void {
   // 数字框用 change（回车/失焦）而不是逐键 input：每敲一个字符就 normalize 回写会把
   // `12.5` 这类输入的中间态吞掉。滑杆仍走 input 实时预览。
   preampNum.addEventListener("change", () => {
-    if (!isMpv() || preampNum.value.trim() === "") return;
+    if (!isEngine() || preampNum.value.trim() === "") return;
     state.preamp = Number(preampNum.value);
     state.enabled = true;
     mutate(true);
@@ -688,7 +689,7 @@ function mount(): void {
 
   const commitNumeric = (el: HTMLInputElement, fn: (n: number) => void) => {
     el.addEventListener("change", () => {
-      if (!isMpv() || el.value.trim() === "") return;
+      if (!isEngine() || el.value.trim() === "") return;
       const n = Number(el.value);
 
       if (!Number.isFinite(n)) return;
@@ -722,7 +723,7 @@ function mount(): void {
   $("#eq-delete").addEventListener("click", () => { if (selectedId) removeBand(selectedId); });
 
   $("#eq-flat").addEventListener("click", () => {
-    if (!isMpv()) return;
+    if (!isEngine()) return;
     state = { enabled: state.enabled, preamp: state.preamp, bands: [] };
     selectedId = null;
     mutate(true);
@@ -730,14 +731,14 @@ function mount(): void {
   });
 
   importApo.onclick = () => {
-    if (!isMpv()) return;
+    if (!isEngine()) return;
     importMode = "apo";
     fileInput.value = "";
     fileInput.click();
   };
 
   importGraphic.onclick = () => {
-    if (!isMpv()) return;
+    if (!isEngine()) return;
     importMode = "graphic";
     fileInput.value = "";
     fileInput.click();
@@ -770,9 +771,9 @@ function mount(): void {
   };
 
   const offPlayer = player.on(() => {
-    const now = player.backend === "mpv" || player.backend === "mpv-compat";
+    const now = player.engineBacked;
 
-    if (now !== backendWasMpv) syncAvailability();
+    if (now !== backendWasEngine) syncAvailability();
     else host.classList.toggle("is-unavailable", !now);
   });
 
@@ -789,7 +790,7 @@ function mount(): void {
     window.clearTimeout(applyTimer);
     window.clearTimeout(sayTimer);
 
-    if (isMpv()) void player.setEqualizer(state);
+    if (isEngine()) void player.setEqualizer(state);
     stopSpectrum();
     offPlayer();
     window.removeEventListener("resize", onResize);

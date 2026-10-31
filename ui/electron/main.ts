@@ -10,8 +10,9 @@ import { appendFileSync, existsSync, readFileSync, renameSync, statSync, unlinkS
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { basename, extname, join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-// 音频引擎（mpv 后端）：窗口 URL 确定后 init（需要 baseUrl 绝对化 /api/stream 中继地址）
-import { audioEngine } from "./audio/engine.ts";
+// 音频引擎：默认 mpv 后端，播放偏好或 QUAVER_AUDIO_BACKEND 选 Liino 且库可 dlopen 时换 Liino（见 audio/backend.ts）。
+// 窗口 URL 确定后 init（两边都需要 baseUrl 绝对化 /api/stream 中继地址）。
+import { audioExternalPids, bootAudioEngine, getAudioEngine, shutdownAudioEngine } from "./audio/backend.ts";
 // 配置文件（quaver.conf）与跨平台目录规则：路径单一真相，渲染层与 sidecar 都对齐这一份
 import { configDir, configFile, defaultDecor, ensureConfigDir, logFile, readValues, resetConfig, WEIYUN_LEGACY_NAME, WEIYUN_STORE_NAME, writeValues } from "./config.ts";
 // 自定义背景图（默认主题）：路径只认 quaver.conf 里那一条，图片本体由 /api/bg 交给界面
@@ -184,6 +185,10 @@ try {
 }
 
 const bootTheme = bootConf["Style.Style"] ?? "dark";
+
+// 播放后端（MPV / MPVCompat / Liino / Chromium）落在 quaver.conf；Liino 作为显式偏好随应用启动时生效。
+// 这里只保留一个启动快照：bootAudioEngine 在 whenReady 里按它二选一 init（进程一个 IPC handle 只能有一个主人）。
+const bootAudioBackend = bootConf["Playing.Backend"] ?? "MPV";
 
 // 窗口底色：按 quaver.conf 的主题预判，避免加载首帧白闪（dark、或跟随系统且系统为深色 → 深底）。
 // 跟随系统的判据走我们自己的探测：nativeTheme 在 whenReady 之前不可靠，且 Linux 上它只认 GTK
@@ -732,6 +737,16 @@ async function createWindow() {
     win.webContents.on("preload-error", (_e, path, err) => log("[renderer:preload-error]", path, String(err)));
     win.webContents.on("render-process-gone", (_e, gone) => log("[renderer:gone]", JSON.stringify(gone)));
   }
+  else {
+    // Liino 是同进程 FFI；渲染进程一旦崩了就必须留下证据，否则只能靠“点播放就全没了”猜。
+    win.webContents.on("console-message", (details) => {
+      if (details?.level === "error" || details?.level === "warning") {
+        log("[renderer]", details?.level ?? "", details?.message ?? "", details?.sourceId ? `(${details.sourceId}:${details.lineNumber})` : "");
+      }
+    });
+    win.webContents.on("preload-error", (_e, path, err) => log("[renderer:preload-error]", path, String(err)));
+    win.webContents.on("render-process-gone", (_e, gone) => log("[renderer:gone]", JSON.stringify(gone)));
+  }
 
   // 闪屏的 data: 载入同样路过 did-finish-load：按 URL 分流，别把闪屏报成应用
   win.webContents.on("did-finish-load", () => {
@@ -818,9 +833,10 @@ async function createWindow() {
 
   if (process.env.QUAVER_URL) url = process.env.QUAVER_URL; // 集成测试：指向 vite dev server（含 __quaverPlayer 钩子）
 
-  // 引擎拿真实加载地址的 origin 做流中继（幂等：重建窗口只刷新引用与 baseUrl）
+  // 引擎拿真实加载地址的 origin 做流中继（幂等：重建窗口只刷新引用与 baseUrl）。
+  // 必须 await：渲染层起来第一件事就是 status 探测后端，handler 还没挂上 = 直接掉到 <audio>。
   try {
-    audioEngine.init({ baseUrl: new URL(url).origin, getWin: () => win, log });
+    await bootAudioEngine({ baseUrl: new URL(url).origin, getWin: () => win, log, backendPreference: bootAudioBackend });
   } catch (e) { log("[quaver] audio engine init failed:", String(e)); }
 
   const appOrigin = new URL(url).origin;
@@ -1320,8 +1336,8 @@ ipcMain.handle("quaver:metrics", () => {
 
   const external = [
     { pid: sidecar?.pid, tag: "外部 · sidecar（typhoeus-go）" },
-    { pid: audioEngine.mpv?.child?.pid ?? null, tag: "外部 · mpv（音频）" },
-    { pid: audioEngine.watchdog?.pid ?? null, tag: "外部 · mpv 看门狗" },
+    // Liino 是同进程 FFI，没有外部 pid 可报（audioExternalPids 对它就返回空）
+    ...audioExternalPids(),
   ].flatMap((x) => {
     const entry = { pid: x.pid ?? 0, tag: x.tag, rssKB: rssKBOf(x.pid), privKB: pssKBOf(x.pid) };
 
@@ -1354,6 +1370,19 @@ ipcMain.handle("quaver:metrics", () => {
       count: procs.length + external.length,
     },
   };
+});
+
+// Liino 实时诊断（临时排障口）：读当前 DSP 级别表，判断“状态在走但无电平”这类输出断点。
+ipcMain.handle("quaver:audio-diag", async () => {
+  const engine = getAudioEngine();
+
+  if (engine.kind !== "liino") return { backend: engine.kind, level: null };
+
+  try {
+    const player = (engine as unknown as { player: { level(): string | null } | null }).player;
+
+    return { backend: "liino", level: player ? JSON.parse(player.level() ?? "{}") : null };
+  } catch (e) { return { backend: "liino", level: null, error: String(e) }; }
 });
 
 
@@ -1444,6 +1473,12 @@ app.commandLine.appendSwitch("ignore-gpu-blocklist");
 // 行为零变化（正常使用远碰不到这个顶）。js-flags 只作用于 Chromium 子进程（渲染层/工具进程），
 // 主进程的 Node V8 不受影响。
 app.commandLine.appendSwitch("js-flags", "--max-old-space-size=256");
+
+// 进程身份：开发态跑的是 node_modules/electron 那份二进制，ps/top/任务管理器里会显示
+// "electron" —— 用户看到的是「一个 Electron 进程」而不是 Quaver Music。产品名在
+// package.json 里（productName / desktopName），这里把进程标题也钉成同一个名字；
+// 打包态二进制本身就叫 quaver，这一行只是让开发态与发布态在进程列表里长得一样。
+process.title = "Quaver Music";
 
 log("[quaver] main.ts entered, app name:", app.name || "(unset)");
 
@@ -1606,7 +1641,7 @@ for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
   process.on(sig, () => {
     log("[quaver] signal:", sig, "— 清理子进程后退出");
 
-    try { audioEngine.shutdown(); } catch {}
+    try { shutdownAudioEngine(); } catch {}
 
     try { sidecar?.kill(); } catch {}
 
@@ -1624,5 +1659,5 @@ app.on("will-quit", () => {
 
   try { mpris?.destroy(); } catch {}
 
-  try { audioEngine.shutdown(); } catch {}
+  try { shutdownAudioEngine(); } catch {}
 });

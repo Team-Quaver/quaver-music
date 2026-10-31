@@ -208,9 +208,9 @@ check("设置 → 播放有打开 EQ 浮窗按钮", /id="open-equalizer"/.test(s
 
 check("EQ 浮窗是懒加载块（设置/播放条不静态 import）", !/^import .*EqualizerDialog/m.test(bar) && !/^import .*EqualizerDialog/m.test(settings));
 
-check("浮窗在原生直出 / 原生兼容都可编辑",
-  /const isMpv = \(\) => player\.backend === "mpv" \|\| player\.backend === "mpv-compat"/.test(dialog)
-  && /const ok = isMpv\(\)/.test(dialog));
+check("浮窗在原生直出 / 原生兼容 / Liino 都可编辑",
+  /const isEngine = \(\) => player\.engineBacked/.test(dialog)
+  && /const ok = isEngine\(\)/.test(dialog));
 
 check("点空白添加、拖动节点、双击/右键删除、滚轮调 Q", /state\.bands\.push\(\{ id, freq: p\.freq/.test(dialog) && /pointermove/.test(dialog) && /dblclick/.test(dialog) && /contextmenu/.test(dialog) && /addEventListener\("wheel"/.test(dialog));
 

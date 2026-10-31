@@ -38,7 +38,10 @@ export const icons = {
   volMute: svg('<path d="M11 4.5 6.5 8H2v8h4.5L11 19.5z" fill="currentColor" stroke="none"/><path d="M15.5 9.5l5 5M20.5 9.5l-5 5"/>', 18, 1.7),
   volLow: svg('<path d="M11 4.5 6.5 8H2v8h4.5L11 19.5z" fill="currentColor" stroke="none"/><path d="M14.8 9.2a4.2 4.2 0 0 1 0 5.6"/>', 18, 1.7),
   volMid: svg('<path d="M11 4.5 6.5 8H2v8h4.5L11 19.5z" fill="currentColor" stroke="none"/><path d="M14.8 9.2a4.2 4.2 0 0 1 0 5.6"/><path d="M18 6.8a8 8 0 0 1 0 10.4"/>', 18, 1.7),
-  volHigh: svg('<path d="M11 4.5 6.5 8H2v8h4.5L11 19.5z" fill="currentColor" stroke="none"/><path d="M14.8 9.2a4.2 4.2 0 0 1 0 5.6"/><path d="M18 6.8a8 8 0 0 1 0 10.4"/><path d="M21 4.3a12.2 12.2 0 0 1 0 15.4"/>', 18, 1.7),
+  // 高音量最外层声波：起笔与半径都收了一档。旧版 21/12.2 的弧顶算到 x≈23.74，
+  // 加上 1.7 描边的半宽就顶出 24 视窗（右侧被裁、音量拉满时像「出界」）——
+  // 这一版弧的墨迹右缘约 x=22.98，左右留白对称，描边完整落在视窗内。
+  volHigh: svg('<path d="M11 4.5 6.5 8H2v8h4.5L11 19.5z" fill="currentColor" stroke="none"/><path d="M14.8 9.2a4.2 4.2 0 0 1 0 5.6"/><path d="M18 6.8a8 8 0 0 1 0 10.4"/><path d="M19.6 5.2a10.4 10.4 0 0 1 0 13.6"/>', 18, 1.7),
   pin: svg('<path d="M12 16V4M8 8l4-4 4 4"/><path d="M4 20h16"/>', 16),
   spinner: svg('<circle cx="12" cy="12" r="8" opacity=".25"/><path d="M12 4a8 8 0 0 1 8 8"/>', 18, 2.2),
   retry: svg('<path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v4h-4"/>', 18, 2),

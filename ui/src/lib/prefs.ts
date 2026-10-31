@@ -433,9 +433,10 @@ export function setDecor(m: DecorMode) {
 // —— 播放模式：
 //    MPV        = 原生直出（默认，mpv 自己打开音频设备）
 //    MPVCompat  = 原生（兼容）：mpv 解码，PCM 交给 renderer WebAudio 出声
+//    Liino      = 实验性原生模式：主进程经 FFI 直出（无 PCM 兼容拓扑）
 //    Blink      = 浏览器 <audio>（兜底/对照，配置文件里写 Chromium）
 //    偏好只决定启动选择；引擎不可用时播放器自动落 Blink 并在设置页提示。 ——
-export type DecodeBackend = "MPV" | "MPVCompat" | "Blink";
+export type DecodeBackend = "MPV" | "MPVCompat" | "Liino" | "Blink";
 
 export function getDecode(): DecodeBackend {
   const v = cfg("Playing.Backend");
@@ -443,6 +444,8 @@ export function getDecode(): DecodeBackend {
   if (v === "Chromium" || v === "Blink") return "Blink";
 
   if (v === "MPVCompat") return "MPVCompat";
+
+  if (v === "Liino") return "Liino";
 
   return "MPV";
 }
