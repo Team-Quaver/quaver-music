@@ -2,7 +2,8 @@
 //
 // 它守的是「契约仍在」：
 //   • main.ts 走 bootAudioEngine（二选一 init，Liino dlopen 失败必须回落 mpv）
-//   • ipcMain.handle("quaver:audio") 全进程只许两处注册且互斥（mpv 引擎 / Liino 引擎）
+//   • ipcMain.handle("quaver:audio") 全进程只注册一次（backend.ts 门面），引擎只实现命令；
+//     运行时切换经门面的 { cmd: "backend" } 拆旧建新，两个引擎自己不许抢注册
 //   • Liino 禁用 waitEvent（FFI 阻塞 = 冻窗）
 //   • 渲染层按 backend 识别 liino，EQ/fake-audio 用 engineBacked 单一判断
 //   • 打包把 libliino 带上（extraResources + asarUnpack）
@@ -29,7 +30,9 @@ const backend = src("electron/audio/backend.ts");
 const engine = src("electron/audio/liino-engine.ts");
 const runtime = src("electron/audio/liino-runtime.ts");
 
-ok("main.ts 从 backend.ts 引擎门面接入", /import \{ audioExternalPids, bootAudioEngine, shutdownAudioEngine \} from "\.\/audio\/backend\.ts"/.test(main));
+ok("main.ts 从 backend.ts 引擎门面接入",
+  /import \{[^}]*\bbootAudioEngine\b[^}]*\} from "\.\/audio\/backend\.ts"/.test(main)
+    && /import \{[^}]*\bshutdownAudioEngine\b[^}]*\} from "\.\/audio\/backend\.ts"/.test(main));
 
 ok("main.ts 不再直接 init 引擎", !/audioEngine\.init\(/.test(main));
 
@@ -42,9 +45,17 @@ ok("backend.ts：QUAVER_AUDIO_BACKEND 或启动快照=Liino 才进 Liino", /sele
 
 ok("backend.ts：dlopen 失败回落 mpv", /Liino 后端不可用，回落 mpv/.test(backend));
 
-ok("backend.ts：init 前先 probe（ipcMain.handle 先到先得）", /await liinoEngine\.probe\(\)/.test(backend) && /liinoEngine\.init\(boot\)/.test(backend));
+ok("backend.ts：init 前先 probe（dlopen 成功才算选中 Liino）", /await liinoEngine\.probe\(\)/.test(backend) && /liinoEngine\.init\(boot\)/.test(backend));
 
-ok("Liino 引擎对齐 IPC 契约（quaver:audio）", /ipcMain\.handle\("quaver:audio"/.test(engine));
+ok("quaver:audio 只有一个主人（backend.ts 门面注册）",
+  /ipcMain\.handle\("quaver:audio"/.test(backend) && !/ipcMain\.handle\("quaver:audio"/.test(engine) && !/ipcMain\.handle\("quaver:audio"/.test(src("electron/audio/engine.ts")));
+
+ok("backend.ts 按 backend 命令运行时换引擎", /cmd\.cmd === "backend"/.test(backend) && /switchAudioBackend\(/.test(backend));
+
+ok("运行时切换以用户选择为准（env 只顶启动）",
+  /active = await bootOne\(want, \{ \.\.\.boot, backendPreference: preference \}\)/.test(backend));
+
+ok("Liino 引擎对齐 IPC 契约（命令面 onInvoke）", /async onInvoke\(cmd: CommandEnvelope\)/.test(engine));
 
 ok("Liino 引擎广播同一事件通道（quaver:audio-event）", /wc\.send\("quaver:audio-event"/.test(engine));
 

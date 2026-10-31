@@ -6,7 +6,7 @@
 // 生命周期：mpv 惰性拉起（boot/load/device 等需要它的命令触发）；native 换曲不重启，
 // PCM 兼容模式为了丢掉无帧边界的管道尾巴会重开会话；
 // 崩溃后引擎标记 dead 并复位，下一次命令自动重拉（重试语义交给播放器的错误态，不无限自愈）。
-import { app, ipcMain, type BrowserWindow } from "electron";
+import { app, type BrowserWindow } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -75,6 +75,20 @@ type EngineCmd = Record<string, any>;
 
 /** 淡出收尾时要执行的动作；null = 无。 */
 type AfterFade = (() => void) | null;
+
+/**
+ * quaver.conf 的 `Playing.AudioDevice` 是两个后端共用的一个字符串，但命名空间不同：
+ * Liino 用 `pipewire/default` / `null`，mpv 的 --audio-device 不认这些值（实测 bundled
+ * mpv 的列表只有 auto + pulse/*）。把 Liino 的 ID 直接交给 mpv，AO 初始化会失败，
+ * 表现就是“切到 MPV 后进度停在原地、完全没有声音”。这类值一律回落系统默认。
+ */
+function mpvAudioDevice(id: string): string {
+  const v = String(id ?? "").trim();
+
+  if (!v || v === "auto") return "auto";
+
+  return v === "pipewire/default" || v === "null" ? "auto" : v;
+}
 
 export class AudioEngine {
   readonly kind = "mpv" as const;     // 后端身份（backend.ts 里与 LiinoEngine 同一口径）
@@ -189,10 +203,9 @@ export class AudioEngine {
 
     if (log) this.log = log;
 
-    if (!this.wired) {
-      this.wired = true;
-      ipcMain.handle("quaver:audio", (_e, cmd) => this.onInvoke(cmd).catch((e) => ({ ok: false, error: String(e?.message ?? e) })));
-    }
+    // `quaver:audio` 的 handler 归 backend.ts 门面所有（一个通道只能有一个主人）；
+    // 引擎只负责命令实现，运行时换后端才不会被「先到先得」钉死在启动时那一份。
+    this.wired = true;
   }
 
   send(ev: unknown): void {
@@ -642,7 +655,7 @@ export class AudioEngine {
         log: this.log,
         volume: this.mode === "pcm" ? 1 : this.st.volume * this.fadeLevel, // PCM 音量在 renderer 侧
         muted: this.mode === "pcm" ? false : this.st.muted,
-        audioDevice: this.device,
+        audioDevice: mpvAudioDevice(this.device),
         pcmFile,
         extraArgs,
       });
@@ -773,6 +786,8 @@ export class AudioEngine {
       data = await send();
     } catch (e) {
       const msg = String(e);
+
+      this.log("[audio] loadfile failed:", msg);
 
       if (gen === this.loadGen && /invalid parameter/.test(msg) && this.loadRetried !== gen) {
         // 版本探测失配（或宿主 mpv 比预期旧）：换另一种布局原样重发一次。
@@ -1486,7 +1501,7 @@ export class AudioEngine {
       }
 
       case "device": {
-        const id = String(cmd.id ?? "auto");
+        const id = mpvAudioDevice(String(cmd.id ?? "auto"));
         this.device = id;
 
         if (this.mpv && !this.mpv.dead) await this.mpv.setProp("audio-device", id).catch(() => {});

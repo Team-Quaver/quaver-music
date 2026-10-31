@@ -167,11 +167,13 @@ app.whenReady().then(async () => {
 
   ok("EQ 落地并如实报丢弃数", eq.ok === true && eq.bands === 2 && eq.dropped === 1, JSON.stringify({ bands: eq.bands, dropped: eq.dropped, note: eq.note }));
 
-  // —— 世代丢弃：旧 epoch 的 load 不许盖住正在放的歌（epoch 0 = 渲染层「你自定」，不走这里）——
-  const stale = await liinoEngine.call({ cmd: "load", url: stream.url, paused: true, startAt: 0, epoch: 4 });
+  // —— 世代：更小的 epoch 只可能来自「换了一页的渲染层」（窗口重建 / reload 从 1 重新计数）。
+  //    必须接受并以它为当前世代；丢掉的话新页面点了播放会永远停在加载，旧声还在响。 ——
+  const reload = await liinoEngine.call({ cmd: "load", url: stream.url, paused: true, startAt: 0, epoch: 4 });
 
-  ok("旧世代 load 被丢弃", stale.ok === true && stale.stale === true, JSON.stringify(stale));
-  ok("丢弃后当前流不受影响", liinoEngine.lastUrl === stream.url && !liinoEngine.st.idle);
+  ok("新页面的小世代 load 被接受（不当作迟到旧命令）",
+    reload.ok === true && !reload.stale && liinoEngine.epoch === 4, JSON.stringify(reload));
+  ok("接受后当前流仍是这一条", liinoEngine.lastUrl === stream.url && !liinoEngine.st.idle);
 
   // —— 曲末：用 startAt 贴尾重挂，等 ended（只发一次，重复会被渲染层当双倍切歌）——
   // 注：不测「播放中 seek 到贴尾」，那个场景 native 有独立问题（native 侧重排缓冲后

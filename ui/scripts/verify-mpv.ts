@@ -411,7 +411,9 @@ check("PCM EOF 先发 ending，让下一首在尾音排空前起播",
 
 check("PCM 切歌不在取链前停旧曲（由 load 做交叉淡化）",
   /this\.interrupt\(!\(this\.transport\.kind === "engine" && this\.transport\.mode === "pcm"\)\)/.test(playerSrc)
-    && /private interrupt\(stopOutput = true\)/.test(playerSrc) && /if \(stopOutput\)/.test(playerSrc));
+    && /private interrupt\(stopOutput = true\)/.test(playerSrc)
+    // 换后端后的首轮起播例外：新引擎里没有旧流，这条 stop 会打到刚挂的新歌上
+    && /const stop = stopOutput && !this\.suppressInterruptStop/.test(playerSrc) && /if \(stop\)/.test(playerSrc));
 
 check("PCM 起播后预取下一首，EOF 交叉淡化不等取链 RTT",
   /prefetchNextForCrossfade\(\)/.test(playerSrc)

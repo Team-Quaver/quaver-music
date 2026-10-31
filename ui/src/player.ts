@@ -186,6 +186,8 @@ class Player {
   private listeners = new Set<Listener>();
   private lyricSeq = 0;
   private playSeq = 0;   // startCurrent 竞态令牌：换曲即作废上一轮
+  /** 换后端后的首轮 startCurrent：interrupt 不再向刚建好的新引擎发 stop（见 interrupt 注释）。 */
+  private suppressInterruptStop = false;
   /** 账号边界代际：登出时 +1。跨登录周期晚到的取链/起播结果一律作废，
    *  即使它碰巧落在同一个 mid 上也不能写回新账号的播放器。 */
   private accountSeq = 0;
@@ -362,6 +364,17 @@ class Player {
   /** 主进程引擎在出声（mpv 原生/兼容、Liino 原生都算）：Quark EQ 可编辑、静音镜像频谱可用。 */
   get engineBacked(): boolean { return this.backend !== "web"; }
 
+  /** 偏好与实况不一致时说人话：Liino 没有 PCM 兼容档，回落 mpv 也必须让用户看见。 */
+  private backendNoticeFor(kind: DecodeBackend, mode: EngineMode): string {
+    if (this.engineKind === "liino" && (kind === "MPVCompat" || mode === "pcm")) {
+      return "Liino 后端只支持原生直出；需要窗口级音频捕获请改用 MPV 后端";
+    }
+
+    if (kind === "Liino" && this.engineKind !== "liino") return "Liino 后端不可用，已回落 MPV";
+
+    return "";
+  }
+
   /** 启动时的后端选择：偏好 MPV 且引擎可用 → 热切到引擎传输（此时通常还没开播，无损替换） */
   private async initBackend() {
     const pref = getDecode();
@@ -382,16 +395,12 @@ class Player {
       const t = await createEngineTransport(window.quaverAudio, { mode });
       const dev = getAudioDevice();
 
-      if (mode === "native" && dev) void t.setDevice?.(dev).catch(() => {});
+      // 设备名是各后端的私有命名空间：mpv 的 pipewire/default 交给 Liino 只会打开失败。
+      if (mode === "native" && dev && this.engineKind === "mpv") void t.setDevice?.(dev).catch(() => {});
       const resume = this.swapTransport(t);
       this.backend = this.engineLabel(mode);
       this.engineVersion = String(st.version ?? "");
-      if (mode === "native" && this.engineKind === "liino" && pref === "MPVCompat") {
-        this.backendNotice = "Liino 后端只支持原生直出；需要窗口级音频捕获请改用 MPV 后端";
-      }
-      else if (pref === "Liino" && this.engineKind !== "liino") {
-        this.backendNotice = "Liino 后端不可用，已回落 MPV";
-      }
+      this.backendNotice = this.backendNoticeFor(pref, mode);
       await resume; // 启动竞态里已有歌在播：换传输后从原进度续播
     } catch {
       this.backendNotice = "音频引擎桥接失败，已回退浏览器音频";
@@ -502,15 +511,17 @@ class Player {
   }
 
   /** 换传输：停旧、绑新、复用音量。返回「续播闭包」（有歌在播/加载中时由调用方 await）；
-   *  播放态保留：原本在播就续播，原本暂停就停在原进度。 */
-  private swapTransport(t: Transport): Promise<void> {
+   *  播放态保留：原本在播就续播，原本暂停就停在原进度。
+   *  `stopOld:false` 用于**换后端**：旧引擎已经被主进程拆掉了，再发 stop 只会打到刚建好的
+   *  新引擎上（mpv 的 stop 带淡出收尾，会在新歌 load 之后把新歌卸掉 → 播几秒又回到 0）。 */
+  private swapTransport(t: Transport, opts: { stopOld?: boolean } = {}): Promise<void> {
     const song = this.current;
     const at = this.transport.position;
     const wasPlaying = !this.transport.paused;
     const hadStream = !!this.transport.src || this.loading;
     this.listenReporter?.setPlaying(false);
 
-    try { this.transport.stop(); } catch { /* noop */ }
+    if (opts.stopOld !== false) { try { this.transport.stop(); } catch { /* noop */ } }
 
     try { this.transport.dispose?.(); } catch { /* noop */ }
 
@@ -520,10 +531,12 @@ class Player {
 
     if (!song || !hadStream || this.current !== song) return Promise.resolve();
 
+    if (opts.stopOld === false) this.suppressInterruptStop = true;
+
     return this.startCurrent(at > 1 ? at : 0, wasPlaying);
   }
 
-  /** 设置页切换播放模式：MPV 原生 / 原生（兼容）/ Blink 浏览器。
+  /** 设置页切换播放模式：MPV 原生 / 原生（兼容）/ Liino / Blink 浏览器。
    *  热切换当前曲目换轨续播、保留播放态；兼容模式由 MPV 解码、renderer 打开音频设备。 */
   async setBackend(kind: DecodeBackend): Promise<void> {
     setDecode(kind);
@@ -547,18 +560,11 @@ class Player {
       return;
     }
 
-    const mode = this.engineMode(kind);
-
-    if (this.transport.kind === "engine" && this.transport.mode === mode) {
-      this.backend = this.engineLabel(mode);
-      this.backendNotice = "";
-      this.notify();
-
-      return;
-    }
-
     try {
-      const st = await window.quaverAudio.invoke({ cmd: "status" });
+      // **先换主进程真正在答话的引擎**：只换 renderer 的 transport 不够 —— 两个后端共用
+      // 同一个 `quaver:audio` 通道，以前 handler 被启动时那个引擎抢走，界面写 Liino、
+      // 实际仍是 mpv 在答（反之亦然）。门面现在负责拆旧建新，并把新 status 回给我们。
+      const st = await window.quaverAudio.invoke({ cmd: "backend", value: kind });
 
       if (!st?.ok || !st.available) {
         this.backendNotice = st?.reason ?? "mpv 不可用";
@@ -569,18 +575,29 @@ class Player {
 
       this.engineKind = st.backend === "liino" ? "liino" : "mpv";
       const want = this.engineMode(kind);
+      const label = this.engineLabel(want);
+      // 主进程保留旧后端时会给一条 note（目标不可用）；它比本地推断更权威
+      const note = String(st.note ?? "");
+
+      // 引擎已经是目标后端、传输也同拓扑：不重建（重复 load 会把正在放的歌掐一下）
+      if (this.transport.kind === "engine" && this.transport.mode === want && this.backend === label) {
+        this.engineVersion = String(st.version ?? "");
+        this.backendNotice = note || this.backendNoticeFor(kind, want);
+        this.notify();
+
+        return;
+      }
+
       const t = await createEngineTransport(window.quaverAudio, { mode: want });
       const dev = getAudioDevice();
 
-      if (want === "native" && dev) void t.setDevice?.(dev).catch(() => {});
-      await this.swapTransport(t);
-      this.backend = this.engineLabel(want);
+      // 设备名是各后端的私有命名空间：mpv 的 pipewire/default 交给 Liino 只会打开失败。
+      if (want === "native" && dev && this.engineKind === "mpv") void t.setDevice?.(dev).catch(() => {});
+      // 旧引擎在主进程里已经被拆掉；别把旧 transport 的 stop 发到新引擎（见 swapTransport 注释）
+      await this.swapTransport(t, { stopOld: false });
+      this.backend = label;
       this.engineVersion = String(st.version ?? "");
-      // 偏好与实况不一致时说实话（Liino 无 PCM 兼容模式，窗口级音频捕获请切回 MPV）
-      this.backendNotice = want === (kind === "MPVCompat" ? "pcm" : "native")
-        ? ""
-        : "Liino 后端只支持原生直出；需要窗口级音频捕获请改用 MPV 后端";
-      if (kind === "Liino" && this.engineKind !== "liino") this.backendNotice = "Liino 后端不可用，已回落 MPV";
+      this.backendNotice = note || this.backendNoticeFor(kind, want);
     } catch (e: any) {
       this.backendNotice = String(e?.message ?? e);
     }
@@ -1108,7 +1125,13 @@ class Player {
     this.pendingSeek = 0;
     this.streamUrl = "";
 
-    if (stopOutput) { try { this.transport.stop(); } catch { /* noop */ } }
+    // 换后端后的首轮起播：新引擎里没有旧流，这条 stop 只会被当成「停下刚挂的新歌」
+    // （mpv 的 stop 带淡出收尾，会在 loadfile 之后落地，把新歌卸成 idle）。
+    const stop = stopOutput && !this.suppressInterruptStop;
+
+    this.suppressInterruptStop = false;
+
+    if (stop) { try { this.transport.stop(); } catch { /* noop */ } }
   }
 
   /** 当前流对应的听歌时长上报目标；本地/NAS 曲目和异常 URL 一律返回 null。 */

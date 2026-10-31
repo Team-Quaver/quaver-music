@@ -1474,6 +1474,12 @@ app.commandLine.appendSwitch("ignore-gpu-blocklist");
 // 主进程的 Node V8 不受影响。
 app.commandLine.appendSwitch("js-flags", "--max-old-space-size=256");
 
+// 进程身份：开发态跑的是 node_modules/electron 那份二进制，ps/top/任务管理器里会显示
+// "electron" —— 用户看到的是「一个 Electron 进程」而不是 Quaver Music。产品名在
+// package.json 里（productName / desktopName），这里把进程标题也钉成同一个名字；
+// 打包态二进制本身就叫 quaver，这一行只是让开发态与发布态在进程列表里长得一样。
+process.title = "Quaver Music";
+
 log("[quaver] main.ts entered, app name:", app.name || "(unset)");
 
 // 先抓一份 Electron 默认菜单（SSD 模式用），随后按 decorMode 应用。

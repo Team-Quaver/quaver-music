@@ -11,7 +11,7 @@
 //   1. **绝不用 waitEvent()**：它阻塞调用线程。位置广播、取流中继、窗口事件都在同一条
 //      主进程事件循环上 —— 阻塞 5s 等于冻窗 + 断流。只用非阻塞的 nextEvent() 轮询。
 //   2. 位置读 clock()（亚毫秒、不碰设备），状态读事件里的 snapshot；两者都只在会话存在时读。
-import { ipcMain, type BrowserWindow } from "electron";
+import { type BrowserWindow } from "electron";
 import { fileURLToPath } from "node:url";
 import type { Liino, LiinoPlayer } from "@team-quaver/liino-node";
 import { normalizeEqState, type EqState } from "./eq-config.ts";
@@ -227,11 +227,11 @@ export class LiinoEngine {
 
     if (log) this.log = log;
 
+    // `quaver:audio` 的 handler 归 backend.ts 门面所有（一个通道只能有一个主人）；
+    // 这样设置页运行时切 Liino/MPV 才能真正换掉在答话的引擎。
     if (!this.wired) {
       this.wired = true;
       this.resolveRuntime();
-      // SAFETY: catch 边界进来的都是 unknown；只取 message 拼日志/回包，字段缺失兜 "unknown"
-      ipcMain.handle("quaver:audio", (_e, cmd) => this.onInvoke(cmd).catch((e) => ({ ok: false, error: String(caught(e)) })));
     }
   }
 
@@ -363,7 +363,9 @@ export class LiinoEngine {
     if (isFinite(dur) && dur >= 0) this.st.dur = dur / 1000;
     this.st = { ...this.st, ...liinoStateFields(state, this.st.paused) };
 
-    if (snap?.device) this.device = String(snap.device);
+    // 注意：snapshot.device 是**人话设备名**（"PipeWire default sink"），不是设备 ID。
+    // 把它写回 this.device 会在下一次 create() 时变成 device_id，输出直接打不开 ——
+    // 表现就是切一次后端再切回来，状态在走、PCM 在算，但一直没有声。
 
     switch (ev.kind) {
       case "loaded":
@@ -528,12 +530,9 @@ export class LiinoEngine {
     try { player.close(); } catch (e) { this.log("[liino] close failed:", String(caught(e))); }
   }
 
+  /** 当前设备 **ID**（设置页下拉的选中值）。snapshot.device 是显示名，不能拿来当键。 */
   currentDeviceId(): string {
-    const fallback = this.device === "auto" ? "" : this.device;
-
-    if (!this.player || this.dead) return fallback;
-
-    return String(this.parseJSON<SnapshotFields>(this.player.snapshot())?.device ?? "") || fallback;
+    return this.device;
   }
 
   /** 设置页/日志用的自述（随包还是 vendor，路径是什么）。 */
@@ -613,9 +612,12 @@ export class LiinoEngine {
 
         if (!url) return { ok: false, error: "missing url" };
 
+        // 世代**不按「只能变大」判旧**：渲染层换了一页（窗口 CSD/SSD 重建、页面 reload）
+        // 后从 1 重新计数，而主进程里的引擎还停在旧的较大值。把它当成迟到的旧命令丢掉，
+        // 新页面就永远等不到 loaded/playing —— 用户看到的是「点了播放没声音、一直在加载」。
+        // 同一页面的命令经 IPC 保序，所以更小的世代只可能来自新页面，直接以它为准。
         const epoch = Number(cmd.epoch) || this.epoch + 1;
 
-        if (epoch < this.epoch) return { ok: true, stale: true };
         this.epoch = epoch;
 
         const paused = !!cmd.paused;
@@ -790,11 +792,19 @@ export class LiinoEngine {
 
       case "device": {
         const id = String(cmd.id ?? "auto");
-        this.device = id;
+        const target = id === "auto" ? "" : id;
 
-        // Liino 能活切设备（重建输出会话，不重挂解码流）；「auto」= 交回平台默认
+        // Liino 能活切设备（重建输出会话，不重挂解码流）；「auto」= 交回平台默认。
+        // 失败时**不改** this.device：把 mpv 的设备名（pipewire/default 之类）记成 Liino 的
+        // 选择，下一次 create() 会带着一个它认不出的 id，输出打开即失败（用户只看到没声）。
         // SAFETY: catch 边界进来的都是 unknown；只取 message 拼日志/回包，字段缺失兜 "unknown"
-        try { this.player?.setDevice(id === "auto" ? "" : id); } catch (e) { this.log("[liino] set device failed:", String(caught(e))); }
+        try {
+          if (this.player && !this.dead) this.player.setDevice(target);
+        } catch (e) {
+          return { ok: false, error: String(caught(e)) };
+        }
+
+        this.device = id;
 
         return { ok: true, current: id };
       }
