@@ -941,6 +941,9 @@ body[data-control-bar="floating"] .list-fabs {
   height: 64px; border-radius: 14px;
   display: flex; align-items: center; gap: 14px; padding: 0 16px; color: var(--ink2);
   background: var(--control-bar-surface, var(--glass)); border: 1px solid var(--glass-line);
+  /* 上缘不画描边：条顶那条 1px 冷白线悬在内容与条之间的空隙里，看起来就是凭空多出来的
+     一层高光（用户报过「底栏上缘的一条亮线」）。侧/下缘保留，条仍靠玻璃底与投影成形。 */
+  border-top-color: transparent;
   box-shadow: 0 6px 28px rgba(15,20,30,.12);
   /* 本元素的玻璃**不写在这里**，见下面 .player::before。
      原因：带 filter 系属性的元素会成为后代 backdrop-filter 的 backdrop root —— 挂在条上方
@@ -1050,8 +1053,11 @@ body[data-control-bar="floating"] .settings-page .set-view {
 /* 进度 = 染色本身（.pb-fill 即进度指示，整条 Bar 可拖拽 seek，无需额外细线）。
    色源由 lib/tint.ts 统一给出（固定青色 / 跟随封面 / 自定义），亮度那一版是 toBarColors 另调的——
    别改回自己从封面取色，那会绕过「设置 → 外观 → 高亮颜色」。 */
-/* 拖拽 seek 中：整条高亮 + 染色块描边反馈 */
-.player.scrubbing { outline: 2px solid color-mix(in srgb, var(--cvg-accent, var(--cyan)) 40%, transparent); outline-offset: 1px; cursor: ew-resize; }
+/* 拖拽 seek 中：只保留染色块与前沿线。
+   不要再给整条加 outline：带 outline-offset 的描边画在 Bar 外面，顶部那条会悬在
+   条与内容之间的空隙里，看起来就是「凭空多出来的一圈高光」（用户报过预期外）；
+   进度填充本身已经是足够的拖动反馈。 */
+.player.scrubbing { cursor: ew-resize; }
 .player.scrubbing .pb-fill { box-shadow: 2px 0 0 0 var(--cvg-bar-line, var(--cyan)); }
 
 .pb-left { display: flex; align-items: center; gap: 10px; width: 250px; min-width: 0; height: 100%; }
