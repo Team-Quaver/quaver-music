@@ -231,6 +231,10 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
 - 形态只有一条 DOM 状态：`body[data-control-bar]`（外加 `.control-bar-floating`），由
   `lib/prefs.ts:applyControlBarMode()` 写、`lib/control-bar.ts` 与 Sparkle 主题策略合流；布局全在
   style.css 的 `--control-bar-*` 令牌（悬浮态 = fixed + 在内容区居中，不 JS 量高度）。
+- **条上缘不画描边、拖拽 seek 不画整条 outline**：`border-top-color: transparent` 摘掉条顶那条
+  1px 冷白线（它悬在内容与条之间的空隙里，重绘后像凭空多出来的一层高光）；拖进度只靠
+  `.pb-fill` 染色块 + 前沿线反馈，`outline` 一律不加（带 offset 的描边会画到条外一圈）。
+  `verify:volume-bar` 对两处都有正反断言。
 - **挂在条上方的浮窗，锚点必须跟着它自己的按钮走**，不贴 Bar 右缘、也不写死 `right: calc(...)`。
   两个原因：① 悬浮态条只有 `--control-bar-width`（默认 720px）且在内容区居中，贴右缘会把整块浮窗
   甩到收藏/画廊/队列那一排上面（音量浮窗实测差 55px+，就是用户报的「悬浮模式错位」）；② 右侧按钮
