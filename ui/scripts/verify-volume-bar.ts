@@ -69,14 +69,46 @@ check("松手立刻回到播放器真值（拖中被滚轮改过也不留假读�
   /volEditing = false;[\s\S]{0,240}?vol\.value = String\(Math\.round\(\(player\.muted \? 0 : player\.volume\) \* 100\)\);\s*\n\s*paintVol\(\);/.test(bar));
 
 // 音量图标曾只画到 x=13（24 视窗），视觉面积比旁边的红心/队列小一圈。四档喇叭本体
-// 必须统一从 x=2 起笔，高音量三层声波铺到 x≈21；同时锁住旧的小号路径不再回来。
+// 必须统一从 x=2 起笔，高音量三层声波铺到接近右缘；同时锁住旧的小号路径不再回来。
 const volumeIcons = [...icons.matchAll(/vol(?:Mute|Low|Mid|High): svg\('<path d="([^"]+)"/g)].map((m) => m[1]);
 
 check("四档音量图标都存在且使用大视窗喇叭本体", volumeIcons.length === 4 && volumeIcons.every((d) => d.startsWith("M11 4.5 6.5 8H2v8h4.5L11 19.5z")));
 
-check("高音量图标铺满横向视窗（不再明显小于相邻图标）", /volHigh: svg\('[^']*M21 4\.3a12\.2 12\.2 0 0 1 0 15\.4/.test(icons));
+check("高音量三层声波都在（不再明显小于相邻图标）", /volHigh: svg\('[^']*M19\.6 5\.2a10\.4 10\.4 0 0 1 0 13\.6/.test(icons));
+
+// 声音拉满时用户报的「音量图标出界」：旧版外弧 M21 4.3a12.2… 的中心线最右到
+// x≈23.74，加上 1.7 描边半宽 = 24.59，右缘被 24 视窗裁掉。这里从源码路径直接算墨迹
+// 右缘，锁住「描边完整在视窗内 + 左右留白大体对称」。
+const highArc = icons.match(/volHigh: svg\('[^']*M([\d.]+) ([\d.]+)a([\d.]+) [\d.]+ 0 0 1 0 ([\d.]+)"\/>', 18, 1\.7\)/);
+const inkRight = highArc
+  ? Number(highArc[1]) + (Number(highArc[3]) - Math.sqrt(Number(highArc[3]) ** 2 - (Number(highArc[4]) / 2) ** 2)) + 0.85
+  : Infinity;
+
+check("高音量外弧的描边不越出 24 视窗（拉满不再被裁）", inkRight <= 23.5,
+  `inkRight=${Number.isFinite(inkRight) ? inkRight.toFixed(2) : "路径没匹配上"}`);
 
 check("旧版只到 x=13 的小号喇叭路径已移除", !icons.includes("M4 9v6h4l5 4V5L8 9H4z"));
+
+// 拖拽 seek 的整条 outline 曾悬在 Bar 外 1px（顶部就是用户报的「预期外高光」）。
+// 反馈只留进度填充与前沿线；这里锁死 outline 不再回来。
+const scrubRule = ruleOf(css, ".player.scrubbing");
+
+check("拖拽 seek 不再画条外 outline（顶部那圈「预期外高光」）", scrubRule.length > 0 && !/outline/.test(scrubRule),
+  scrubRule.replace(/\s+/g, " ").slice(0, 120));
+
+check("…反向：旧的 outline 写法会被逮住",
+  /outline/.test(ruleOf("\n.player.scrubbing { outline: 2px solid red; cursor: ew-resize; }\n}", ".player.scrubbing")));
+
+// 播放条上缘的 1px 玻璃描边同样被报过「凭空多出来的一层高光」：它悬在内容与条之间的
+// 空隙里，压暗/重绘后才显出来。侧/下缘保留描边，只把上缘设为透明。
+const playerRule = ruleOf(css, ".player");
+const hasTopRim = (r: string) => /border:\s*1px solid/.test(r) && !/border-top-color:\s*transparent/.test(r);
+
+check("播放条上缘不画描边（不再悬一条亮线）", playerRule.length > 0 && !hasTopRim(playerRule),
+  playerRule.replace(/\s+/g, " ").slice(0, 120));
+
+check("…反向：只写 border、不摘上缘的写法会被逮住",
+  hasTopRim(ruleOf("\n.player { border: 1px solid var(--glass-line); }\n}", ".player")));
 
 const volpopRule = ruleOf(css, ".pb-volpop");
 
