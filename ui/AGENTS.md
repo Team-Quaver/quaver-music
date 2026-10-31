@@ -313,6 +313,23 @@ cd ui && pnpm run app                              # 真出声跑一圈（设置
 - 诊断口径：Liino 是主进程 FFI 会话，没有独立音频进程；`ps` 里看到的 mpv 进程说明当前实际
   后端不是 Liino（渲染层应显示「Liino 后端不可用，已回落 MPV」）。电流声先把播放偏好切回
   MPV 对照；「Liino 模式仍有 mpv 进程」一律按回落态排查，而不是把 mpv 的输出当 Liino 的病。
+- **音量/淡入淡出必须在 ring 之后**：渲染层 `swapTransport`/`setVolume` 只发 `volume`/`mute`
+  命令；主进程 `liinoMasterGain` 把用户音量 × 淡入淡出包络 × EQ 前级折成一个线性值，交给
+  `player.setVolume`。Liino 的 jitter ring 预解码 5 秒，**把增益放在解码侧会让滑杆/淡出滞后
+  整段缓冲**（实测短曲拖到音量 0 也毫无变化）。因此 `Player.SetVolume/SetMuted` 写
+  `dsp.AtomicGain`（原子 target，音频回调里 ramp），`Player.Read` 在把 PCM 交给设备前应用它；
+  解码侧 `dsp.Pipeline` 只跑 EQ/效果并保持 unity。`AtomicGain` 的 target 跨线程原子、`Process`
+  只在回调线程，`TestPlayerReadAppliesVolumeToBufferedFrames` 守着「已缓冲帧也立即受音量影响」。
+- **多声道不靠 swresample 混**：解码端保留源声道数（5.1 / 7.1 / 7.1.4）；QQ「臻品全景声 7.1」
+  是 12ch Opus（mapping family 3，`AVFrame.ch_layout` 未指定），让 swr 做 12→2 会在第一帧就
+  失败、整首无声。native 解码在 resample 前给 frame 套默认布局（`FrameWrapper.SetChannelLayout`），
+  播放器 `Read` 再按端点声道数用 `pcm.MapChannels` 折叠。端点选择在 `outputChannelPlan`：
+  PipeWire 保留源声道（管道自会下混到立体声 sink），Windows/macOS 按设备格式，放不下就 2ch。
+  `output.Pump` 的 scratch 必须按实际声道数分配（别退回 `DefaultChannels`）。
+- **系统混音器里的名字**：PipeWire 的 `application.name` 默认取进程名（开发态 = `electron`，
+  `process.title` 改不到它）。vendor 的 purego-pipewire fork 经 `pw_properties_new_dict` 把
+  `application.name` / `media.name` / `node.name` 传给 `pw_stream_new_simple`，值来自
+  `sessionConfig` 的 `app_name` / `stream_name`（见 `third_party/VENDORED.md`）。
 - 验证：`pnpm run verify:liino`（静态接线）+ `./node_modules/.bin/electron scripts/probe-liino.ts
   [--device=pipewire/default|--device=null]`（真 dlopen / 真出声 / 真取流：契约、事件、
   小世代（新页面）被接受、EQ 丢弃数、曲末只发一次 ended、shutdown 收尾）。设置页解析状态按 `status.backend`
