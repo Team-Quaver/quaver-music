@@ -821,6 +821,27 @@ section("高频项（音量）合并落盘");
   delete globalThis.window.quaverConfig;
 }
 
+// ——— macOS 浏览器兜底：没有主进程快照时按 UA 认 Darwin ———
+section("macOS 浏览器兜底");
+
+{
+  ls.clear();
+  const realNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/140.0 Safari/537.36" },
+  });
+
+  try {
+    const M = await import(`${OUT}?mac=1`);
+    await M.loadConfig();
+    eq("浏览器 dev 在 macOS 默认 ssd", M.getDecor(), "ssd");
+  } finally {
+    if (realNavigator) Object.defineProperty(globalThis, "navigator", realNavigator);
+  }
+}
+
 rmSync(OUT_DIR, { recursive: true, force: true });
 
 console.log(`\n${fail === 0 ? "✅" : "❌"} verify-prefs-map: ${pass} passed, ${fail} failed`);

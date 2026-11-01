@@ -249,6 +249,25 @@ function scheduleTooltip(el: HTMLElement) {
   }, TIP_DELAY_MS);
 }
 
+export interface TipSpot {
+  left: number;
+  top: number;
+}
+
+/** 选落点（纯函数，便于回归测试）：上/下优先，横向越界交给调用方夹回视口；
+ *  只有上/下都放不下时才退到左右，避免「上方 left 为负」直接跳到右侧盖住目标。 */
+export function pickTooltipSpot(spots: TipSpot[], w: number, h: number, vw: number, vh: number): TipSpot {
+  const inside = (p: TipSpot) =>
+    p.left >= VIEW_PAD && p.top >= VIEW_PAD
+    && p.left + w <= vw - VIEW_PAD && p.top + h <= vh - VIEW_PAD;
+  const vertical = (p: TipSpot) => p.top >= VIEW_PAD && p.top + h <= vh - VIEW_PAD;
+
+  return spots.slice(0, 2).find(inside)
+    ?? spots.slice(0, 2).find(vertical)
+    ?? spots.find(inside)
+    ?? spots[0]!;
+}
+
 /** 主窗优先在目标上方；放不下就翻到下方，再不行退到左右。桌面歌词窗很矮，
  *  单靠「上/下」会把提示裁出透明窗体，所以这里按四个方向找完整落点。 */
 function positionTooltip(node: HTMLElement, r: DOMRect) {
@@ -265,13 +284,11 @@ function positionTooltip(node: HTMLElement, r: DOMRect) {
     { left: r.left - w - gap, top: cy - h / 2 },
   ];
 
-  const inside = (p: { left: number; top: number }) =>
-    p.left >= VIEW_PAD && p.top >= VIEW_PAD
-    && p.left + w <= innerWidth - VIEW_PAD && p.top + h <= innerHeight - VIEW_PAD;
-
   // 先按优先级挑方向，再夹进视口。不能拿「夹取位移最小」挑：目标贴底时
   // 上方那条几乎不用夹，下方那条会被推回来 —— 最终仍会盖住目标。
-  const pick = spots.find(inside) ?? spots[0]!;
+  // 播放条封面贴着左缘时，上方 left 会是负数；这里仍优先上方再夹回视口，
+  // 不能因此退到右侧 —— 那会正好盖住歌名，悬停时像一层会闪的假高亮。
+  const pick = pickTooltipSpot(spots, w, h, innerWidth, innerHeight);
   const left = Math.min(Math.max(VIEW_PAD, pick.left), Math.max(VIEW_PAD, innerWidth - w - VIEW_PAD));
   const top = Math.min(Math.max(VIEW_PAD, pick.top), Math.max(VIEW_PAD, innerHeight - h - VIEW_PAD));
 

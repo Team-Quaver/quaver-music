@@ -306,7 +306,9 @@ class Player {
         break;
       case "canplay":
         this.clearStartWatchdog();
-        if (this.loading && !this.transport.paused) { this.loading = false; this.notify(); }
+        // file-loaded / <audio> canplay 都是「文件与解码器已就绪」的权威信号。
+        // 异步 loadfile 下 invoke 返回不代表能播，进度转圈要等这条事件收尾。
+        if (this.loading) { this.loading = false; this.notify(); }
 
         break;
       case "ending":
@@ -1235,7 +1237,11 @@ class Player {
       }
 
       if (account !== this.accountSeq || seq !== this.playSeq || this.current !== s) return;
-      this.loading = false;
+      // 引擎的 loadfile 现在异步下发：invoke 返回只代表命令被接收，真正能播要等
+      // file-loaded → canplay/playing。这里不能急着熄 loading，否则起播看门狗会
+      // 在「命令已收、文件还没打开」的窗口里失去判据。其它后端维持原语义。
+
+      if (!autoplay || this.transport.kind !== "engine") this.loading = false;
       this.error = "";
       this.prefetchNextForCrossfade();
     } catch (e: any) {
@@ -1354,12 +1360,15 @@ class Player {
   private armStartWatchdog(s: Song, autoplay: boolean) {
     this.clearStartWatchdog();
 
-    if (!autoplay || isLocalSong(s) || s.directUrl) return;
+    if (!autoplay) return;
 
     const seq = this.playSeq;
     // 微云兜底也从文件本身取流，定位/票据/首字节仍可能挂住；给它比 QQ 档位
     // 协商稍短的窗口。超时后 handleStreamError 会清掉坏兜底源再走原档位链。
-    const timeout = this.playbackFallback ? 15_000 : 20_000;
+    // 本地/NAS/微云直链没有档位可降，但同样需要「挂流后不出声」的兜底；
+    // 否则异步 loadfile 一旦卡在命令通道，队列会永远停在 loading。
+    const direct = isLocalSong(s) || !!s.directUrl;
+    const timeout = direct ? 12_000 : this.playbackFallback ? 15_000 : 20_000;
     this.startWatchdog = window.setTimeout(() => {
       this.startWatchdog = null;
 

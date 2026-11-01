@@ -36,6 +36,19 @@ interface PendingReq {
   reject: (e: Error) => void;
 }
 
+export interface MpvCommandOpts {
+  /** 异步命令：mpv 只回「已接收/参数错误」，真正执行由后续事件回答。
+   *  loadfile/seek 这类可能等文件打开或网络缓冲的命令必须走这里。 */
+  async?: boolean;
+}
+
+/** 线上命令对象（JSON IPC 顶层必须是对象）。 */
+interface MpvWireCommand {
+  command: MpvValue[];
+  request_id: number;
+  async?: true;
+}
+
 /** mpv 线协议事件（JSON.parse 后的原始对象）：已知字段可选，其余走索引签名兜底。 */
 export interface MpvEvent {
   event?: string;
@@ -261,6 +274,9 @@ export class MpvIpc {
         else p.reject(new Error(`mpv: ${msg.error}`));
       } else if (msg.event) {
         this.eventCb?.(msg);
+      } else if (msg.request_id !== undefined && msg.error && msg.error !== "success") {
+        // 迟到/无人等待的命令回执：至少把原因写进日志，别让 invalid parameter 静默消失。
+        this.log("[audio] mpv command error:", msg.error, "request", msg.request_id);
       }
     }
   }
@@ -275,8 +291,11 @@ export class MpvIpc {
     this.rejectAll(new Error("mpv IPC socket closed"));
   }
 
-  /** 发一条命令，返回 data（error 非 success 时 reject）。dead 时 reject。 */
-  command(args: MpvValue[], timeoutMs = 8000): Promise<MpvValue> {
+  /** 发一条命令，返回 data（error 非 success 时 reject）。dead 时 reject。
+   *
+   *  async=true 时 mpv 会立即回执（只验证命令参数），执行结果由事件流告知；
+   *  这不是「不等回执」——参数被拒仍必须当场 reject，否则调用方会等到天荒地老。 */
+  command(args: MpvValue[], timeoutMs = 8000, opts: MpvCommandOpts = {}): Promise<MpvValue> {
     const sock = this.sock; // 本地收口：可写性判过之后，后面闭包里不再重读可变属性
 
     if (this.dead || !sock?.writable) return Promise.reject(new Error("mpv not running"));
@@ -294,7 +313,13 @@ export class MpvIpc {
       });
 
       try {
-        sock.write(JSON.stringify({ command: args, request_id: id }) + "\n");
+        const payload: MpvWireCommand = {
+          command: args,
+          request_id: id,
+        };
+
+        if (opts.async) payload.async = true;
+        sock.write(JSON.stringify(payload) + "\n");
       } catch (e) {
         this.pending.delete(id);
         clearTimeout(timer);
@@ -303,10 +328,38 @@ export class MpvIpc {
     });
   }
 
+  /** 异步命令（仍等参数校验回执）。 */
+  commandAsync(args: MpvValue[], timeoutMs = 3000): Promise<MpvValue> {
+    return this.command(args, timeoutMs, { async: true });
+  }
+
+  /** 只写不回头等：用于音量包络这类高频、失败不改变控制流的命令。
+   *  回执照样会被 onData 读到（错误进日志），只是不占 pending / 定时器。 */
+  commandQuiet(args: MpvValue[]): boolean {
+    const sock = this.sock;
+
+    if (this.dead || !sock?.writable) return false;
+
+    const payload: MpvWireCommand = { command: args, request_id: ++this.reqId, async: true };
+
+    try {
+      sock.write(JSON.stringify(payload) + "\n");
+
+      return true;
+    } catch (e) {
+      this.log("[audio] mpv quiet command failed:", String(e));
+
+      return false;
+    }
+  }
+
   observe(id: number, prop: string): Promise<MpvValue> { return this.command(["observe_property", id, prop]); }
   getProp(prop: string): Promise<MpvValue> { return this.command(["get_property", prop]); }
   setProp(prop: string, value: MpvValue, timeoutMs?: number): Promise<MpvValue> {
     return this.command(["set_property", prop, value], timeoutMs);
+  }
+  setPropAsync(prop: string, value: MpvValue, timeoutMs = 3000): Promise<MpvValue> {
+    return this.commandAsync(["set_property", prop, value], timeoutMs);
   }
 
   /** 兼容模式换输出：先卸掉旧 AO（释放旧 FIFO 写端），再绑定新 FIFO 并重新启用 pcm。

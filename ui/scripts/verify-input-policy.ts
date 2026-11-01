@@ -15,6 +15,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pickTooltipSpot } from "../src/components/NativeDrop.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
@@ -83,6 +84,30 @@ ok("NativeDrop: Tooltip 命中从 Element 向上找宿主（图标 <svg>/<path> 
   && /e instanceof Element \? tooltipHostOf\(e\)/.test(nativeDrop)
   && /return tooltipHostOf\(raw\)/.test(nativeDrop)
   && !/raw instanceof HTMLElement \? raw\.closest/.test(nativeDrop));
+
+// 播放条封面贴左缘、条本身贴底：上方 left 为负时，旧实现会退到右侧落点，
+// 正好盖住歌名（悬停时像一层会闪的假高亮）。上/下方向必须优先于左右。
+{
+  const spots = [
+    { left: -20.5, top: 596 },
+    { left: -20.5, top: 688 },
+    { left: 74, top: 642 },
+    { left: -116, top: 642 },
+  ];
+  const coverPick = pickTooltipSpot(spots, 129, 31.39, 1000, 700);
+
+  ok("NativeDrop: 贴左/贴底目标优先上方（不会退到右侧盖住播放条歌名）",
+    coverPick === spots[0], JSON.stringify(coverPick));
+
+  const topSpots = [
+    { left: 100, top: -30 },
+    { left: 100, top: 80 },
+    { left: 300, top: 50 },
+    { left: -120, top: 50 },
+  ];
+
+  ok("NativeDrop: 贴顶目标翻到下方", pickTooltipSpot(topSpots, 120, 40, 1000, 700) === topSpots[1]);
+}
 
 ok("NativeDrop: 桌面歌词独立页也启动同一套 Tooltip（不再只有原生 title）",
   /bootNativeOverlays\(\)/.test(read("src/desktop-lyrics.ts"))
