@@ -704,6 +704,8 @@ class Player {
   get current(): Song | undefined { return this.queue[this.index]; }
   get playing() { return !this.transport.paused; }
   get paused() { return this.transport.paused; }
+  /** 播放中但还没真出声（起播预缓冲 / 网络卡顿）：歌词/桌面歌词据此停表。 */
+  get buffering() { return this.transport.buffering; }
   /** 浏览器 <audio> 后端时的真实媒体元素（频谱分析直接接管它；mpv 后端为 null）。
    *  只给同页的只读采集用，不参与队列/状态语义。 */
   get webAudioElement(): HTMLAudioElement | null {
@@ -1202,6 +1204,8 @@ class Player {
     // 做交叉淡化。其它后端保持原来的硬打断语义。
     this.interrupt(!(this.transport.kind === "engine" && this.transport.mode === "pcm"));
 
+    const startAt = resumeTo > 1 ? resumeTo : 0;
+
     // 兜底源只是底层播放源，队列行仍是原 QQ 曲目（current.mid 不变）；
     // 换歌只认 current.mid，不能把“已接兜底”误判成换了一首。
     const switchedSong = !!s && s.mid !== this.fallbackMid;
@@ -1223,6 +1227,11 @@ class Player {
     this.lyricSeq++;
 
     if (!s) { this.notify(); return; }
+
+    // 换曲后界面立刻是新曲，但取流（resolve/token）与 loadfile 安装都可能卡好几秒。
+    // 播放头先钉到这次要起播的位置：歌词/进度/桌面歌词都吃后端时钟，不能在这段时间
+    // 继续报上一首唱到哪（否则新曲歌词会一上来就滚到末尾再跳回开头）。
+    this.transport.prepare?.(startAt);
 
     this.loading = true;
     this.notify();
@@ -1264,7 +1273,6 @@ class Player {
       this.streamUrl = r.url;
       this.initListenReporter(s, r.url);
       setLastStream({ tier: r.tier, label: r.label, degraded: r.degraded });
-      const startAt = resumeTo > 1 ? resumeTo : 0;
       // engine 直接把 start= 交给 mpv，避免「先从头加载再 seek」多一次重拉；
       // web 仍需等元数据就绪后由 consumePendingSeek 跳转。
       await this.transport.load(r.url, { paused: !autoplay, startAt });

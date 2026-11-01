@@ -41,6 +41,11 @@ export interface Transport {
   readonly duration: number;
   /** 无媒体或暂停时为 true */
   readonly paused: boolean;
+  /** 播放中但还没真出声（起播预缓冲 / 网络卡顿）。歌词时钟据此停走，别自己往下跑。 */
+  readonly buffering: boolean;
+  /** 换曲预置：取流/解析可能卡好几秒，先把播放头钉到即将起播的位置并挡住旧流迟到的
+   *  状态 —— 否则新曲歌词会拿上一首的位置当进度，直接滚到末尾。load() 落地后解除。 */
+  prepare?(sec: number): void;
   /** pcm 兼容模式的分析节点；web/native 没有。 */
   readonly pcmAnalyser?: () => AnalyserNode | null;
   /** 结束一轮 seek（进度条拖拽抬手）。 */
@@ -70,12 +75,15 @@ export class WebTransport implements Transport {
   readonly kind = "web" as const;
   readonly audio = new Audio();
   private listeners = new Set<(e: TransportEvent) => void>();
+  /** 换曲预置位置（见 Transport.prepare）；媒体真的给出时间后再交还 currentTime。 */
+  private pendingStart: number | null = null;
 
   constructor() {
     this.audio.preload = "auto";
     const a = this.audio;
     const emit = (e: TransportEvent) => this.emit(e);
-    a.addEventListener("timeupdate", () => emit({ type: "time" }));
+    // 媒体时钟真的报数 = 新流已在走，预置位置退场，之后一律听 <audio> 的
+    a.addEventListener("timeupdate", () => { this.pendingStart = null; emit({ type: "time" }); });
     a.addEventListener("durationchange", () => emit({ type: "duration" }));
     a.addEventListener("loadedmetadata", () => emit({ type: "duration" }));
     a.addEventListener("play", () => emit({ type: "play" }));
@@ -101,9 +109,12 @@ export class WebTransport implements Transport {
   }
 
   get src() { return this.audio.src; }
-  get position() { return this.audio.currentTime || 0; }
+  get position() { return this.pendingStart ?? (this.audio.currentTime || 0); }
   get duration() { return isFinite(this.audio.duration) ? this.audio.duration : 0; }
   get paused() { return this.audio.paused; }
+  get buffering() { return !this.audio.paused && this.audio.readyState < 3; } // < HAVE_FUTURE_DATA
+
+  prepare(sec: number) { this.pendingStart = Math.max(0, sec); }
 
   async load(url: string, _opts?: { paused?: boolean; startAt?: number }) {
     // src 赋值本身就会触发媒体 load 算法，绝不能再补 load()——
@@ -122,6 +133,8 @@ export class WebTransport implements Transport {
 
   stop() {
     // 断开旧流下载（token 中继无 Range 请求即停）；load() 让旧 play() promise 以 AbortError 结束
+    this.pendingStart = null;
+
     try { this.audio.pause(); } catch { /* noop */ }
 
     this.audio.removeAttribute("src");
@@ -130,7 +143,12 @@ export class WebTransport implements Transport {
   }
 
   seek(sec: number) {
-    try { this.audio.currentTime = Math.max(0, sec); } catch { /* 无媒体时抛 InvalidStateError，忽略 */ }
+    const at = Math.max(0, sec);
+
+    // 取流中拖动进度：预置位置跟着走（否则歌词/进度条还停在加载起点）
+    if (this.pendingStart !== null) this.pendingStart = at;
+
+    try { this.audio.currentTime = at; } catch { /* 无媒体时抛 InvalidStateError，忽略 */ }
   }
 
   setVolume(vol: number, muted: boolean) {
@@ -191,6 +209,9 @@ export class EngineTransport implements Transport {
   protected st = { pos: 0, dur: 0, paused: true, buffering: false, idle: true };
   private posAt = 0; // 最近一次位置采样时刻（performance.now）
   private frozen = 0; // 播放中位置连续不动的采样数（≥2 → 冻结外推）
+  /** 换曲预置位置（见 Transport.prepare）：非 null 期间旧流的 state 一律不采信。 */
+  private pendingStart: number | null = null;
+  private pendingToken = 0; // 连续换曲时只有最后那轮 prepare 能被它的 load 解除
   protected loadedUrl = "";
   protected offEngine: () => void;
   protected modeReady: Promise<any>;
@@ -243,6 +264,10 @@ export class EngineTransport implements Transport {
 
     switch (ev.t) {
       case "state": {
+        // 新曲还在取流/等待安装：引擎此刻报的是上一首（stop 的暂停快照、淡出尾巴）。
+        // 采信它就会把旧位置当新曲进度 —— 歌词直接滚到末尾，音量/进度条也跟着回跳。
+        if (this.pendingStart !== null) return;
+
         const prev = { ...this.st };
         this.st = {
           pos: this.pcmHook ? this.pcmHook.position() : Number(ev.pos) || 0,
@@ -311,7 +336,27 @@ export class EngineTransport implements Transport {
   get src() { return this.loadedUrl; }
   get paused() { return this.st.paused || this.st.idle; }
   get duration() { return this.st.dur; }
+  get buffering() { return this.st.buffering; }
+
+  /** 换曲预置：立刻把播放头钉到目标位置，并冻结旧流的外推时钟。
+   *  取流（QQ resolve / token）与 loadfile 安装都可能卡数秒，这段时间界面已经切到新曲，
+   *  播放头必须同样站到新曲起点 —— 而不是继续报上一首唱到哪。 */
+  prepare(sec: number) {
+    this.pendingStart = Math.max(0, sec);
+    this.pendingToken++;
+    const wasPaused = this.paused;
+
+    this.st = { pos: this.pendingStart, dur: 0, paused: true, buffering: true, idle: false };
+    this.posAt = performance.now();
+    this.frozen = 0;
+
+    if (!wasPaused) this.emit({ type: "pause" });
+    this.emit({ type: "time" });
+  }
+
   get position() {
+    if (this.pendingStart !== null) return this.pendingStart;
+
     if (this.pcmHook) {
       const p = this.pcmHook.position();
 
@@ -350,6 +395,7 @@ export class EngineTransport implements Transport {
    *  此后引擎的 4Hz state 广播照常驱动进度/歌词。 */
   adopt(url: string, s: { pos: number; dur: number; paused: boolean; buffering: boolean; idle: boolean }) {
     this.loadedUrl = url;
+    this.pendingStart = null; // 接管的是引擎里真在放的流：预置位置退场
     this.st = { pos: s.pos, dur: s.dur, paused: s.paused, buffering: s.buffering, idle: s.idle };
     this.pcmHook?.reset(s.pos);
     this.posAt = performance.now();
@@ -381,6 +427,12 @@ export class EngineTransport implements Transport {
 
     const startAt = Math.max(0, Number(opts?.startAt) || 0);
     const epoch = ++this.pcmEpoch;
+    const token = this.pendingToken;
+
+    // 引擎接受 load 之前的旧流位置一律作废：播放头就是这次要起播的位置。
+    this.st = { pos: startAt, dur: 0, paused: !!opts?.paused, buffering: true, idle: false };
+    this.posAt = performance.now();
+    this.frozen = 0;
 
     if (this.pcmHook) {
       this.pcmHook.load(epoch, startAt, !!opts?.paused);
@@ -392,11 +444,14 @@ export class EngineTransport implements Transport {
     // 先记下 src，播放器的 error 分支才不会把它当成「没有挂流的杂散错误」丢掉。
     this.loadedUrl = url;
 
-    const r = await this.invoke({ cmd: "load", url, paused: !!opts?.paused, startAt, epoch });
+    try {
+      const r = await this.invoke({ cmd: "load", url, paused: !!opts?.paused, startAt, epoch });
 
-    if (!r?.ok) throw new Error(r?.error ?? "音频引擎加载失败");
-
-    this.frozen = 0;
+      if (!r?.ok) throw new Error(r?.error ?? "音频引擎加载失败");
+    } finally {
+      // 只解除本轮 prepare（连续换曲时最后一次 load 说了算）；解除后引擎 state 恢复采信。
+      if (this.pendingToken === token) this.pendingStart = null;
+    }
 
     this.syncPcmReady();
   }
@@ -429,6 +484,8 @@ export class EngineTransport implements Transport {
 
   stop() {
     this.loadedUrl = "";
+    this.pendingStart = null;
+    this.pendingToken++;
     void this.invoke({ cmd: "stop" }).catch(() => {});
     this.pcmHook?.stop();
   }
@@ -438,6 +495,9 @@ export class EngineTransport implements Transport {
     const at = Math.max(0, sec);
 
     this.queueSeek(at, !!opts?.immediate);
+
+    // 取流中拖动进度：预置位置跟着走（否则歌词/进度条还停在加载起点）
+    if (this.pendingStart !== null) this.pendingStart = at;
 
     if (opts?.immediate) this.pcmHook?.resetNow(at);
     else this.pcmHook?.reset(at);

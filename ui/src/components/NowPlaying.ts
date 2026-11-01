@@ -813,7 +813,10 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
     karaProvider = provider;
     karaCleanup = provider.render(karaHost, player.karaoke, {
       time: () => (player.time + player.lyricComp) * 1000, // 补偿按后端区分，见 player.lyricComp
-      paused: () => player.paused,
+      // 缓冲中（起播预缓冲/网络卡顿/seek 到未缓存区）也算「暂停」：AMLL 的逐词
+      // 遮罩是 Web Animations 实时动画，enable 之后按墙钟自己走 —— 只把 time() 冻住
+      // 挡不住它，当前句会一路扫到行尾停住。必须同时 pause，声音回来再 resume。
+      paused: () => player.paused || player.buffering,
       expanded: () => player.expanded,
       showTrans: () => player.showTrans,
       lyricAux: () => player.lyricAux,

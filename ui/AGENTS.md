@@ -305,11 +305,35 @@ cd ui && pnpm run app                              # 真出声跑一圈（设置
 - **FFI 不许把主线程卡住**（vendor/Liino 侧的实现纪律，重建库才生效）：decodeLoop 的网络
   `stream.Seek` 移到 `p.mu` 之外；`ensureOutput` 的 `output.Open` 用独立 `openMu` 串行、
   不持 `p.mu`；capi 的 `liino_destroy` / `liino_stop` / `liino_set_device` 异步执行
-  （三者都可能等网络/设备）；网络源的 `rw_timeout` 默认 5s。任何一处持锁做 I/O，都会让
-  Electron 主线程的 `clock()/nextEvent()` 一起冻住：窗口还在画、没声、切后端也像死了。
+  （三者都可能等网络/设备）；网络源的 `rw_timeout` 默认 **15s**（与 sidecar 回源预算同档；
+  旧的 5s 会在 CDN 慢回一次 Range 时误杀），并默认开 FFmpeg 的 reconnect 族选项
+  （`decode/native/native.go:networkAVOptions`，`avopt:*` 仍可逐项顶掉）。任何一处持锁做
+  I/O，都会让 Electron 主线程的 `clock()/nextEvent()` 一起冻住：窗口还在画、没声、切后端也像死了。
   输出设备 ID 的 `FindDevice` 同时接受带/不带驱动前缀的写法（`pipewire/default`）。
 - 「播放中 seek 到贴尾」是 native 上游的独立问题（重排缓冲后 underrun 不恢复），归
   vendor/Liino；引擎只用 `load(startAt)` 语义换镜头位置。
+- **seek 是单一队列，不是一次一条 goroutine**：`Player.Seek` 只把目标塞进容量 1 的 `seekReq`
+  （新目标覆盖旧目标），由 **decode goroutine** 的 `applyPendingSeek` 执行。旧实现每条 UI seek
+  都起一个 goroutine 抢 `stream.mu`，拖一下进度会排队几十个网络 seek，解码器在整个队列排空前
+  一个字节都不出（「拖进度就卡住/一卡一卡」的病根）。另外 `loopAlive`/`retireLoop` 保证
+  **EOF 之后到达的 seek 会重开源**（解码 goroutine 已退出时没人读队列），别把这两条删了。
+- **seek 失败不是曲终**：HTTP 源的 seek 是一串 Range 读（FLAC 无 seektable 时走 demuxer 的
+  二分搜索），一次慢回源就会在 FFmpeg 里变成 `Error reading HTTP response: Connection timed out`
+  + `read_timestamp() failed in the middle` —— 而 seek 失败后的 demuxer 状态是未定义的。
+  原位 seek 失败时 `liino.go:rebuildAfterSeek` 在目标位置**重建解码器**（`reopenIf` 带世代守卫，
+  不会被迟到的旧 seek 顶掉），加载起始 seek 与播放中 Read 失败同样走重建（`rebuildAfterRead`
+  按已听到的位置重开）；每代有 `seekRebuildBudget` 上限，永久损坏的源仍如实报错。
+- **FLAC 有 SEEKTABLE 就走 fastseek + 前滚对齐**：`decode/native/native.go` 在 open 前嗅探
+  前 8KiB（本地文件直读；HTTP 只对宿主 `/stream/` 中继发一次小 Range 请求——第三方插件给的一次性
+  直链不能被多取一次），看到 `fLaC` + SEEKTABLE（type 3）才设
+  `fflags=+fastseek`。二分搜索准确但要 ~log2(文件大小) 次 Range 往返，限速回源上一次拖进度
+  要好几秒；索引 seek 一次到位，但**索引点之间可差近 10s**，所以 `stream.Seek` 之后
+  `discardBefore` 会按帧 PTS 前滚到目标时间（最多 512 帧），时钟才不会和声音脱钩。
+  没有 seektable 的 FLAC 不许开 fastseek（`flac_seek` 会直接失败）。
+- **损坏帧只跳过，不判死**：QQ 的 FLAC 文件**结尾常带一个截断帧**（整首能解，最后一帧
+  `invalid sync code`/`decode_frame() failed`；本地文件也一样）。`native.stream.Read` 对
+  `AVERROR_INVALIDDATA` 最多连跳 16 帧；把它当致命错误会让曲末永远到不了 EOF → `ended` 不发
+  → **自动切歌失效**。别把这条容错删掉，也别把上限调成无限。
 - 随包/暂存：`scripts/stage-liino.sh [目标目录]`（默认 `build-res/liino/<os>-<arch>/`）；
   打包经 `packages/electron-builder-base.yml`（extraResources `liino/` + `asarUnpack`
   `resources/**` —— koffi 的 dlopen 不认 asar 虚拟路径）。`QUAVER_LIINO` 可显式顶掉库路径
