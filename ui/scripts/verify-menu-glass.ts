@@ -213,10 +213,45 @@ check(".player 自己的规则不带 backdrop-filter（带了就是那三颗浮�
 
 const playerBefore = ruleOf(noComments(css), ".player::before");
 
-check(".player 的玻璃挪到 ::before：铺满 + 圆角继承 + z-index:-1（压在内容之下、自身背景之上）",
+// 玻璃必须用**非负** z-index（0），并且填充（1）/控件（2）都压在它上面。
+// 负 z 的 backdrop-filter 伪元素会被合成器单独提层，重绘（鼠标移动）时可能反排到内容之上，
+// 把 blur 过的封面/填充当成自己的 backdrop 画出来 —— 用户报的「封面右侧一条跟封面色的模糊高光」
+// 就是这么来的。层序必须是「玻璃 0 < 填充 1 < 控件 2」。
+const fillClip = ruleOf(noComments(css), ".pb-fill-clip");
+const barControls = ruleOf(noComments(css), ".pb-left, .pb-mid, .pb-right");
+
+const zOf = (rule: string) => {
+  const m = rule.match(/z-index:\s*(-?\d+)/);
+
+  return m ? Number(m[1]) : null;
+};
+
+const glassZ = zOf(playerBefore), fillZ = zOf(fillClip), controlsZ = zOf(barControls);
+
+check(".player 的玻璃挪到 ::before：铺满 + 圆角继承 + z-index:0（不压条内内容）",
   playerBefore.includes("inset: 0") && playerBefore.includes("border-radius: inherit")
-  && playerBefore.includes("z-index: -1") && playerBefore.includes("backdrop-filter: var(--shell-filter)"),
+  && glassZ === 0 && playerBefore.includes("backdrop-filter: var(--shell-filter)"),
   playerBefore.replace(/\s+/g, " ").slice(0, 150));
+
+check("…层序：玻璃 0 < 进度填充 1 < 控件 2（负 z 的玻璃会被合成器反排到内容之上）",
+  glassZ !== null && fillZ !== null && controlsZ !== null && glassZ < fillZ && fillZ < controlsZ,
+  `glass=${glassZ} fill=${fillZ} controls=${controlsZ}`);
+
+check("…反向：旧的 z-index:-1 写法会被逮住",
+  zOf(ruleOf("\n.player::before {\n  z-index: -1;\n}\n", ".player::before")) !== 0);
+
+// 停靠态的条后面只有页面底色/环境色（环境色本身已模糊），这层 12px 采样没有可见收益；
+// Chromium 却会在页面重绘时把条自己的封面/填充吸进 backdrop，blur 出一条跟封面色走的
+// 模糊「高光」（用户回归）。停靠态必须关掉采样；悬浮态条压在内容上，保留毛玻璃。
+const dockedRule = ruleOf(noComments(css), 'body[data-control-bar="bottom"] .player::before');
+
+check("停靠态播放条不给毛玻璃采样（防重绘把封面/填充 blur 成「高光」）",
+  /backdrop-filter:\s*none/.test(dockedRule), dockedRule.replace(/\s+/g, " ").slice(0, 120));
+
+const brokenDocked = '\nbody[data-control-bar="bottom"] .player::before {\n  backdrop-filter: var(--shell-filter);\n}\n';
+
+check("…反向：停靠态仍开 backdrop-filter 的写法会被逮住",
+  !/backdrop-filter:\s*none/.test(ruleOf(brokenDocked, 'body[data-control-bar="bottom"] .player::before')));
 
 check("…且 ::before 不吃指针（它铺满整条）", /\.player::before \{[\s\S]*?pointer-events: none/.test(css));
 
