@@ -235,6 +235,16 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
   1px 冷白线（它悬在内容与条之间的空隙里，重绘后像凭空多出来的一层高光）；拖进度只靠
   `.pb-fill` 染色块 + 前沿线反馈，`outline` 一律不加（带 offset 的描边会画到条外一圈）。
   `verify:volume-bar` 对两处都有正反断言。
+- **停靠态不给条画毛玻璃（`body[data-control-bar="bottom"] .player::before { backdrop-filter: none }`）**：
+  停靠时条后面只有页面底色 / 环境色（环境色本身已经过 70px 模糊），12px 采样没有可见收益；
+  而 Chromium 在页面重绘（悬停内容、切歌、拖窗口）时会偶发把条自己的封面 / `.pb-fill`
+  也吸进 backdrop 再 blur 出来 —— 表现是封面或进度填充右沿外一条跟封面色走的模糊「高光」，
+  位置不跟进度、会闪（用户回归；录屏逐帧可复现，拖尾模糊半径正好等于 `--shell-filter` 的 12px）。
+  悬浮态条压在内容上，毛玻璃有实际作用，保留。
+- **玻璃层序恒定「玻璃 0 < 进度填充 1 < 控件 2」**（`.player::before` / `.pb-fill-clip` /
+  `.pb-left,.pb-mid,.pb-right`）：不写负 z-index，层序由 CSS 定死、不交给合成器猜；
+  `.player` 上的 `isolation:isolate` 只收口本条的层叠上下文，**不是** backdrop root，
+  浮窗仍拿页面当底。`verify:menu-glass` 对层序与停靠态关闭都有正反断言。
 - **挂在条上方的浮窗，锚点必须跟着它自己的按钮走**，不贴 Bar 右缘、也不写死 `right: calc(...)`。
   两个原因：① 悬浮态条只有 `--control-bar-width`（默认 720px）且在内容区居中，贴右缘会把整块浮窗
   甩到收藏/画廊/队列那一排上面（音量浮窗实测差 55px+，就是用户报的「悬浮模式错位」）；② 右侧按钮

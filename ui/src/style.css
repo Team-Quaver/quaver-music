@@ -950,16 +950,27 @@ body[data-control-bar="floating"] .list-fabs {
      那三颗浮窗（音质 / 播放模式 / 音量）的盒子整个在条外，它们的 backdrop 就只采样条内
      （条外一片空白）→ 采样到空的 → 浮窗等于没有毛玻璃。把模糊挪到 ::before 之后，
      .player 自身不再是 backdrop root，浮窗才拿得到「页面」当背景。
-     代价：几乎没有 —— ::before 铺满内边距盒、圆角继承、z-index:-1 压在内容之下、自身背景之上
-     （.player 是 position:relative + z-index:60，自带层叠上下文，负 z 跑不出去）。 */
+     isolation:isolate 只把本条的层叠上下文收口（不改变 backdrop 采样，浮窗照常拿页面当底），
+     配合下面那组正 z-index，让「玻璃永远压在内容之下」不依赖合成器的层序猜测。 */
+  isolation: isolate;
 }
 .player::before {
-  content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: -1;
+  /* z-index 用 0（非负）并让填充(1)/控件(2)压在它上面：负 z 的 backdrop-filter 层会被
+     合成器单独提层，重绘时的层序不再由 CSS 保证。改任何一条都要维持
+     「玻璃 0 < 填充 1 < 控件 2」。 */
+  content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: 0;
   /* 控制条也吃「菜单毛玻璃」总开关：开关只控制模糊，不抢 .player 的 --glass 底片 ——
      主题依旧可用 --glass 自己换皮；大面积外壳外观可覆盖 --shell-filter。 */
   backdrop-filter: var(--shell-filter); /* 无前缀！见文件顶部「别补 -webkit-」那段 */
   pointer-events: none;
 }
+/* 停靠态**不要**这层毛玻璃。停靠时条后面只有页面底色/环境色（环境色本身已经过 70px 模糊），
+   12px 采样没有可见收益；而 Chromium 在页面重绘（悬停内容、切歌、拖窗口）时会偶发地把条
+   自己的封面 / `.pb-fill` 也吸进 backdrop，再 blur 出来 —— 表现就是封面或进度填充右沿外
+   一条跟封面色走的模糊「高光」，会闪、位置不跟进度（用户回归，录屏逐帧可复现）。
+   `.player` 的 --glass 底片仍在，条依旧是半透明玻璃观感；悬浮态条压在内容上，毛玻璃有
+   实际作用，保留。 */
+body[data-control-bar="bottom"] .player::before { backdrop-filter: none; }
 /* 窄窗口防溢出：三列可收缩 + 中列按钮间隙收紧（播放/暂停永远留位） */
 @media (max-width: 1020px) {
   .pb-left { width: auto; max-width: 250px; flex: 0 1 auto; }
@@ -1036,11 +1047,10 @@ body[data-control-bar="floating"] .settings-page .set-view {
    刚开播时宽度只有几像素，圆角被等比缩成 ~1px，尖角顶出 Bar 的圆角玻璃边
    看起来像出界；交给母容器统一裁切后，任意进度（含 0 与满）都严格在形状内。
    不能直接给 .player 加 overflow:hidden —— 音量/音质浮窗挂在 Bar 上方会被一起裁掉。
-   z-index:0 而非负值——.player 有 backdrop-filter（filter 系），
-   负 z-index 会连元素一起被压到 .player 自身背景之下而不可见。
-   块级背景天然在常规流文字/按钮之下，故裁切层置 0、控件置 1 即可。 */
+   z-index:0（非负）并与 .player::before（玻璃，0）配套：填充 1、控件 2 ——
+   玻璃恒在最底，填充与封面永远压在它上面（层序不交给合成器猜）。 */
 .pb-fill-clip {
-  position: absolute; inset: 1px; z-index: 0;
+  position: absolute; inset: 1px; z-index: 1;
   border-radius: 13px; overflow: hidden;
   pointer-events: none;
 }
@@ -1049,7 +1059,7 @@ body[data-control-bar="floating"] .settings-page .set-view {
   background: var(--cvg-bar-fill, rgb(25,194,216));
   transition: background-color .5s ease;
 }
-.pb-left, .pb-mid, .pb-right { position: relative; z-index: 1; }
+.pb-left, .pb-mid, .pb-right { position: relative; z-index: 2; }
 /* 进度 = 染色本身（.pb-fill 即进度指示，整条 Bar 可拖拽 seek，无需额外细线）。
    色源由 lib/tint.ts 统一给出（固定青色 / 跟随封面 / 自定义），亮度那一版是 toBarColors 另调的——
    别改回自己从封面取色，那会绕过「设置 → 外观 → 高亮颜色」。 */
