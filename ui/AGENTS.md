@@ -327,18 +327,25 @@ cd ui && pnpm run app                              # 真出声跑一圈（设置
   都起一个 goroutine 抢 `stream.mu`，拖一下进度会排队几十个网络 seek，解码器在整个队列排空前
   一个字节都不出（「拖进度就卡住/一卡一卡」的病根）。另外 `loopAlive`/`retireLoop` 保证
   **EOF 之后到达的 seek 会重开源**（解码 goroutine 已退出时没人读队列），别把这两条删了。
-- **seek 失败不是曲终**：HTTP 源的 seek 是一串 Range 读（FLAC 无 seektable 时走 demuxer 的
+- **seek 失败不是曲终**：HTTP 源的 seek 是一串 Range 读（byteSeek 回退时走 demuxer 的
   二分搜索），一次慢回源就会在 FFmpeg 里变成 `Error reading HTTP response: Connection timed out`
   + `read_timestamp() failed in the middle` —— 而 seek 失败后的 demuxer 状态是未定义的。
   原位 seek 失败时 `liino.go:rebuildAfterSeek` 在目标位置**重建解码器**（`reopenIf` 带世代守卫，
   不会被迟到的旧 seek 顶掉），加载起始 seek 与播放中 Read 失败同样走重建（`rebuildAfterRead`
   按已听到的位置重开）；每代有 `seekRebuildBudget` 上限，永久损坏的源仍如实报错。
-- **FLAC 有 SEEKTABLE 就走 fastseek + 前滚对齐**：`decode/native/native.go` 在 open 前嗅探
-  前 8KiB（本地文件直读；HTTP 只对宿主 `/stream/` 中继发一次小 Range 请求——第三方插件给的一次性
-  直链不能被多取一次），看到 `fLaC` + SEEKTABLE（type 3）才设
-  `fflags=+fastseek`。二分搜索准确但要 ~log2(文件大小) 次 Range 往返，限速回源上一次拖进度
-  要好几秒；索引 seek 一次到位，但**索引点之间可差近 10s**，所以 `stream.Seek` 之后
-  `discardBefore` 会按帧 PTS 前滚到目标时间（最多 512 帧），时钟才不会和声音脱钩。
+- **网络源 seek 先走「按平均码率估算字节偏移」（byteSeek）**：`decode/native/native.go` 的
+  `seekByByte` 用 `meta.BitRate/8` 把时间换算成绝对字节位置，`AVSEEK_FLAG_BYTE` 一次跳转，
+  再由 `discardTo` 按帧 PTS 前滚到目标（±1s 容差）。FFmpeg 的时间戳二分搜索每一探都是一次
+  Range 往返（~log2(文件大小) 次），限速回源上点一次歌词要好几秒——字节跳转只有一次往返。
+  任何没把握的落点（无 PTS、超前/落后超出容差、EOF）都回退到准确的时间戳搜索。
+  **只对 seek 后 PTS 仍绝对的 demuxer 开**（`demuxerKeepsAbsolutePTS`：FLAC 帧头带样本号、
+  MP4 读 sample table）；**MP3 不能开**——它没有绝对时间戳，字节 seek 后 demuxer 从头计数，
+  且在这个状态上回退时间戳搜索会直接落到曲尾（有回归测试守着）。
+- **FLAC 有 SEEKTABLE 仍保留 fastseek + 前滚对齐**：byteSeek 不可用（码率未知 / 非网络源）时
+  的回退路径。`decode/native/native.go` 在 open 前嗅探前 8KiB（本地文件直读；HTTP 只对宿主
+  `/stream/` 中继发一次小 Range 请求——第三方插件给的一次性直链不能被多取一次），看到
+  `fLaC` + SEEKTABLE（type 3）才设 `fflags=+fastseek`。索引点之间可差近 10s，所以 seek 之后
+  `discardBefore` 按帧 PTS 前滚到目标时间（最多 512 帧），时钟才不会和声音脱钩。
   没有 seektable 的 FLAC 不许开 fastseek（`flac_seek` 会直接失败）。
 - **损坏帧只跳过，不判死**：QQ 的 FLAC 文件**结尾常带一个截断帧**（整首能解，最后一帧
   `invalid sync code`/`decode_frame() failed`；本地文件也一样）。`native.stream.Read` 对
