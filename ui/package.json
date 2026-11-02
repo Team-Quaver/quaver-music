@@ -108,9 +108,11 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "dmg-license",
       "electron",
+      "electron-winstaller",
       "esbuild",
-      "dmg-license"
+      "koffi"
     ]
   }
 }
