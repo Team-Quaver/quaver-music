@@ -35,7 +35,7 @@ import { LayoutAlignAnchor, LayoutReason, LyricPlayer, type LyricLine as CoreLyr
 import "@applemusic-like-lyrics/core/style.css";
 import type { SparkleKaraokeLine, SparkleKaraokeProvider, SparkleKaraokeRenderCtx } from "@quaver/sparkle";
 import type { LyricAuxMode } from "../lib/prefs";
-import { cleanAuxText, extractQrcPayload, parseTimedAux, pickAux } from "../lyric";
+import { cleanAuxText, extractQrcPayload, matchAuxLines, parseTimedAux, pickAux } from "../lyric";
 import { applyKanaToLines, extractKanaTag, stripKanaTag } from "./qrc-kana";
 
 // —— 解析 ——
@@ -161,34 +161,21 @@ function auxLines(src: string): KaraLine[] {
   }));
 }
 
-/** 翻译 / 音译各自一对一挂到主歌词行。同一主行只收最近的一条，空占位同样参与匹配。 */
+/** 翻译 / 音译各自一对一挂到主歌词行。占位（空串）也参与匹配并占住自己那一行，
+ *  匹配规则与行级视图共用 src/lyric.ts:matchAuxLines —— 上游粗粒度时间戳会把名单行与
+ *  首句挤在同一秒，顺序分配才能让 `//` 占住名单行、译文落到首句。 */
 function alignAuxField(
   lines: Array<{ startTime: number; translatedLyric?: string; romanLyric?: string }>,
   aux: RawLine[],
   field: "translatedLyric" | "romanLyric",
 ) {
-  const matched = new Map<(typeof lines)[number], { d: number; text: string }>();
+  const hits = matchAuxLines(
+    lines.map((l) => l.startTime),
+    aux.map((t) => ({ t: t.startTime, text: cleanAuxText(t.words.map((w) => w.word).join("")) })),
+    1500, // 这里的 startTime 是毫秒
+  );
 
-  for (const t of aux) {
-    const text = cleanAuxText(t.words.map((w) => w.word).join(""));
-    let best: (typeof lines)[number] | undefined;
-    let bd = 1500;
-
-    for (const l of lines) {
-      const d = Math.abs(t.startTime - l.startTime);
-
-      if (d < bd) { bd = d; best = l; }
-    }
-
-    if (!best) continue;
-    const prev = matched.get(best);
-
-    if (!prev || bd < prev.d || (bd === prev.d && !text && prev.text)) {
-      matched.set(best, { d: bd, text });
-    }
-  }
-
-  for (const [l, hit] of matched) l[field] = hit.text;
+  for (const [i, text] of hits) lines[i][field] = text;
 }
 
 /** 翻译与音译都挂成**行级**辅助文本（translatedLyric / romanLyric），显示哪一路交给档位。
