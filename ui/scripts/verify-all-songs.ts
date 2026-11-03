@@ -168,17 +168,17 @@ export * from ${JSON.stringify(join(UI, "src/lib/artist-key.ts"))};
 
   section("源码接线：菜单 · 路由 · 三视图 · 数据刷新");
 
-  const shell = read("src/shell.ts");
+  const navItems = read("src/lib/nav-items.ts");
   const view = read("src/views/all.ts");
   const css = read("src/views/all.css");
   const views = viewsSource();
 
-  check("侧栏有「所有歌曲」且使用 CD 图标", /\{ path: "#\/all", label: "所有歌曲", icon: "disc" \}/.test(shell));
+  check("侧栏有「所有歌曲」且使用 CD 图标", /id: "all",[\s\S]{0,80}label: "所有歌曲"/.test(navItems));
   check("所有歌曲排在歌单与本地音乐之间",
-    shell.indexOf('label: "所有歌曲"') > shell.indexOf('label: "歌单"')
-    && shell.indexOf('label: "所有歌曲"') < shell.indexOf('label: "本地音乐"'));
+    navItems.indexOf('label: "所有歌曲"') > navItems.indexOf('label: "歌单"')
+    && navItems.indexOf('label: "所有歌曲"') < navItems.indexOf('label: "本地音乐"'));
   check("CD 图标是碟面 + 轴孔（不是文件夹）",
-    /disc:\s*\n?\s*'<svg[^']*circle cx="12" cy="12" r="8\.4"[^']*circle cx="12" cy="12" r="1\.55"/.test(shell));
+    /iconSvg: '<svg[^']*circle cx="12" cy="12" r="8\.4"[^']*circle cx="12" cy="12" r="1\.55"/.test(navItems));
 
   check("/all 走懒加载注册表", /"\/all": \(\) => import\("\.\/all"\)/.test(views));
   check("页面标题/信息头为「所有歌曲」", view.includes('name: "所有歌曲"') && view.includes('"所有歌曲"'));

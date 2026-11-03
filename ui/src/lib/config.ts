@@ -40,6 +40,8 @@ const FALLBACK: ConfigSnapshot = {
   "Style.TintColor": "#19c2d8",
   "Style.ControlBar": "bottom",
   "Style.PlaylistMode": "menu",
+  "Style.NavOrder": "home,guess,daily,liked,playlists,all,local,cloud",
+  "Style.NavHidden": "",
   "Style.MenuBlur": "True",
   "Style.Spectrum": "False",
   "Style.SpectrumMode": "bars",

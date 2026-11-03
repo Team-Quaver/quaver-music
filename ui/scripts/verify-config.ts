@@ -129,7 +129,15 @@ eq("默认值表覆盖 Window.Decor", [defaults("darwin")["Window.Decor"], defau
 
 check("模板落盘也按平台给默认值", template("darwin").includes("Decor=ssd") && template("linux").includes("Decor=csd"));
 
-eq("schema 默认值表条数", Object.keys(defaults()).length, 79); // [DesktopLyrics] 21 键（Enabled/Locked/Opacity/Backdrop/Scale/Weight/Font/Border/Shadow/ShadowBlur/ShadowOpacity/ShadowX/ShadowY/Mode/SingleCenter/ColorMode/Color + X/Y/W/H 记忆坐标）；[Lyrics] 4 键（ChineseConvert 繁简档/OnlineTtml 在线逐字开关/TtmlDatabase 地址模板/TtmlLibrary 本地库目录）；LyricAux 为歌词辅助行（关闭/翻译/音译，两路同位置且各按档位回落）；LyricScale 为行级歌词缩放；LyricLayout 为正在播放页歌词列四档；Background/BackgroundImage/BackgroundFlow/BackgroundBlur/BackgroundRenderer/NpBackgroundRenderer 为默认主题背景（模式/自定义图/AMLL 流动速度/Quaver Design 首页模糊半径/首页与歌词页呈现风格）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；ControlBar 为控制条停靠形态；PlaylistMode 为歌单显示模式（菜单栏/歌单集合页）；MenuBlur 为浮层菜单毛玻璃开关；Spectrum/SpectrumMode 为正在播放页真实音频频谱开关与形态；Equalizer 为 Quark EQ 整段 JSON（默认空曲线、最多 10 段、bypass）；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；ReportListenTime 为听歌时长上报开关；MusicCacheLimitMB 为本地音乐缓存上限；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
+eq("侧栏菜单默认顺序（8 项）", defaults()["Style.NavOrder"], "home,guess,daily,liked,playlists,all,local,cloud");
+eq("侧栏菜单默认无隐藏项", defaults()["Style.NavHidden"], "");
+eq("侧栏顺序接受重排的合法 id", writeValues({ "Style.NavOrder": "local,home,cloud" }), ["Style.NavOrder"]);
+eq("侧栏顺序拒绝未知 id", writeValues({ "Style.NavOrder": "home,bogus" }), []);
+eq("侧栏隐藏项接受空串", writeValues({ "Style.NavHidden": "" }), ["Style.NavHidden"]);
+eq("侧栏隐藏项拒绝重复 id", writeValues({ "Style.NavHidden": "home,home" }), []);
+writeValues({ "Style.NavOrder": defaults()["Style.NavOrder"] });
+
+eq("schema 默认值表条数", Object.keys(defaults()).length, 81); // [DesktopLyrics] 21 键（Enabled/Locked/Opacity/Backdrop/Scale/Weight/Font/Border/Shadow/ShadowBlur/ShadowOpacity/ShadowX/ShadowY/Mode/SingleCenter/ColorMode/Color + X/Y/W/H 记忆坐标）；[Lyrics] 4 键（ChineseConvert 繁简档/OnlineTtml 在线逐字开关/TtmlDatabase 地址模板/TtmlLibrary 本地库目录）；LyricAux 为歌词辅助行（关闭/翻译/音译，两路同位置且各按档位回落）；LyricScale 为行级歌词缩放；LyricLayout 为正在播放页歌词列四档；Background/BackgroundImage/BackgroundFlow/BackgroundBlur/BackgroundRenderer/NpBackgroundRenderer 为默认主题背景（模式/自定义图/AMLL 流动速度/Quaver Design 首页模糊半径/首页与歌词页呈现风格）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；ControlBar 为控制条停靠形态；PlaylistMode 为歌单显示模式（菜单栏/歌单集合页）；NavOrder/NavHidden 为侧栏主菜单的顺序与隐藏项；MenuBlur 为浮层菜单毛玻璃开关；Spectrum/SpectrumMode 为正在播放页真实音频频谱开关与形态；Equalizer 为 Quark EQ 整段 JSON（默认空曲线、最多 10 段、bypass）；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；ReportListenTime 为听歌时长上报开关；MusicCacheLimitMB 为本地音乐缓存上限；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
 
 check("模板含热键两段", ["[Hotkeys.Global]", "[Hotkeys.Focus]"].every((s) => template().includes(s)));
 

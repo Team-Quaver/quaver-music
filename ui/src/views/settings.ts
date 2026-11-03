@@ -38,6 +38,9 @@ import {
   pickPreset,
 } from "../sparkle/theme-tint";
 import type { SparkleTintPreset } from "@quaver/sparkle";
+import { icons as sharedIcons } from "../lib/icons";
+import { navItemOf } from "../lib/nav-items";
+import { getNavHidden, getNavOrder, setNavLayout } from "../lib/nav-apply";
 import { errText, h, watchBackendChange } from "./_shared";
 
 // —— 设置页（对齐设计稿：外观设置 / 播放设置 / 调试 三区；不触碰侧栏与播放条） ——
@@ -185,16 +188,25 @@ export default async function settingsView(root: HTMLElement) {
         <p class="muted set-hint" id="control-bar-hint" hidden></p>
       </div>
 
-      <!-- 歌单显示模式：菜单栏（侧栏列歌单，默认）/ 歌单集合页（侧栏不列歌单、导航垂直居中，
-           歌单改到 #/playlists 以 grid 分区）。主题声明 theme.playlistMode 时整组禁用，
-           呈现形态与让位一律由 style.css 按 body[data-playlist-mode] 接管。 -->
+      <!-- 菜单栏：显示模式（原独立的「菜单栏模式」）+ 项目编辑（显隐 / 拖拽排序）。
+           模式：menu=侧栏列歌单（默认）/ collection=歌单集合页；主题声明 theme.playlistMode 时
+           模式整组禁用，呈现形态由 style.css 按 body[data-playlist-mode] 接管。
+           项目编辑落 [Style] NavOrder / NavHidden，侧栏底部的「更多」浮窗由 shell 按同一份配置渲染。 -->
       <div class="set-group">
-        <div class="set-label">菜单栏模式</div>
+        <div class="set-label">菜单栏</div>
         <div class="opt-cards" id="playlist-mode-cards">
           <button class="opt-card" data-opt="menu" type="button">高效模式</button>
           <button class="opt-card" data-opt="collection" type="button">简洁模式</button>
         </div>
         <p class="muted set-hint" id="playlist-mode-hint" hidden></p>
+
+        <div class="nav-edit">
+          <div class="nav-edit__head">
+            <span class="nav-edit__title">显示项目</span>
+            <span class="nav-edit__hint">拖拽调整顺序；关闭的项目收进侧栏「更多」</span>
+          </div>
+          <ul class="nav-edit-list" id="nav-edit-list"></ul>
+        </div>
       </div>
 
       <!-- 花火面具：卡片由下方 renderSparkleThemes 动态填充（无插件主题时整组隐藏） -->
@@ -1183,6 +1195,139 @@ export default async function settingsView(root: HTMLElement) {
   // 并显示实际生效值；宿主态由 setPlaylistMode + applyPlaylistModeKind 即时同步。
   const playlistModeCards = wrap.querySelector<HTMLElement>("#playlist-mode-cards")!;
   const playlistModeHint = wrap.querySelector<HTMLElement>("#playlist-mode-hint")!;
+  const navEditList = wrap.querySelector<HTMLUListElement>("#nav-edit-list")!;
+
+  /** 当前真正生效的歌单模式（主题接管时以主题为准）。 */
+  const effectivePlaylistMode = (): PlaylistMode => {
+    const policy = playlistModePolicyOf(activeSparkTheme());
+
+    return policy.mode === "host" ? getPlaylistMode() : policy.mode;
+  };
+
+  /** 拖拽结束后把 DOM 顺序落盘；模式/显隐不动。 */
+  const persistNavOrder = () => {
+    const order = [...navEditList.querySelectorAll<HTMLElement>(".nav-edit-row")]
+      .flatMap((r) => (r.dataset.id ? [r.dataset.id] : []));
+
+    setNavLayout(order, getNavHidden());
+  };
+
+  /** 重建「显示项目」列表：顺序 = NavOrder；开关 = NavHidden；歌单项在高效模式下随模式隐藏。 */
+  const paintNavEditor = () => {
+    const hidden = new Set(getNavHidden());
+    const mode = effectivePlaylistMode();
+    navEditList.replaceChildren();
+
+    for (const id of getNavOrder()) {
+      const item = navItemOf(id);
+
+      if (!item) continue;
+
+      // 歌单入口在高效模式下由 CSS 自动隐藏（歌单已在侧栏列出），这里把开关锁成「随模式」；
+      // 切到简洁模式后它才交还给用户。
+      const modeLocked = id === "playlists" && mode === "menu";
+      const row = document.createElement("li");
+      row.className = "nav-edit-row";
+      row.dataset.id = id;
+
+      if (hidden.has(id)) row.classList.add("is-hidden");
+
+      if (modeLocked) row.classList.add("is-locked");
+
+      const grip = document.createElement("span");
+      grip.className = "nav-edit-grip";
+      grip.draggable = true;
+      grip.title = "拖拽排序";
+      grip.setAttribute("aria-hidden", "true");
+      grip.innerHTML = sharedIcons.grip;
+
+      const ico = document.createElement("span");
+      ico.className = "nav-edit-ico";
+      ico.innerHTML = item.iconSvg;
+
+      const name = document.createElement("span");
+      name.className = "nav-edit-name";
+      name.textContent = item.label;
+
+      const sw = document.createElement("label");
+      sw.className = "nav-edit-switch";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = !hidden.has(id) && !modeLocked;
+      cb.disabled = modeLocked;
+      cb.setAttribute("aria-label", `${item.label}：在侧栏显示`);
+      const flag = document.createElement("span");
+      flag.className = "nav-edit-flag";
+      flag.textContent = modeLocked ? "随模式" : cb.checked ? "显示" : "隐藏";
+
+      if (modeLocked) sw.title = "高效模式下自动隐藏；切到简洁模式后可设置";
+
+      cb.addEventListener("change", () => {
+        const next = new Set(getNavHidden());
+
+        if (cb.checked) next.delete(id); else next.add(id);
+
+        setNavLayout(getNavOrder(), [...next]);
+        row.classList.toggle("is-hidden", !cb.checked);
+        flag.textContent = cb.checked ? "显示" : "隐藏";
+      });
+      sw.append(cb, flag);
+
+      row.append(grip, ico, name, sw);
+      navEditList.append(row);
+    }
+  };
+
+  // 拖拽排序只从把手起：整行可拖会把「点开关」误识别成拖拽。落点按行的中线判定，
+  // 拖过中线就把它插到那一侧 —— 与队列面板的 dropSlot 同一套直觉。
+  let navDragId: string | null = null;
+
+  navEditList.addEventListener("dragstart", (e) => {
+    const target = e.target;
+    const grip = target instanceof Element ? target.closest(".nav-edit-grip") : null;
+    const row = grip?.closest<HTMLElement>(".nav-edit-row");
+
+    if (!row) { e.preventDefault(); return; }
+
+    navDragId = row.dataset.id ?? null;
+    row.classList.add("dragging");
+
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", navDragId ?? "");
+      e.dataTransfer.setDragImage(row, 12, row.offsetHeight / 2);
+    }
+  });
+
+  navEditList.addEventListener("dragover", (e) => {
+    if (!navDragId) return;
+    e.preventDefault();
+
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+
+    const target = e.target;
+    const dragging = navEditList.querySelector<HTMLElement>(".nav-edit-row.dragging");
+    const over = target instanceof Element ? target.closest<HTMLElement>(".nav-edit-row") : null;
+
+    if (!dragging || !over || over === dragging) return;
+
+    const r = over.getBoundingClientRect();
+    navEditList.insertBefore(dragging, e.clientY > r.top + r.height / 2 ? over.nextSibling : over);
+  });
+
+  navEditList.addEventListener("drop", (e) => {
+    if (!navDragId) return;
+    e.preventDefault();
+    persistNavOrder();
+  });
+
+  navEditList.addEventListener("dragend", () => {
+    navEditList.querySelector(".dragging")?.classList.remove("dragging");
+
+    if (navDragId) persistNavOrder();
+
+    navDragId = null;
+  });
 
   const paintPlaylistModePolicy = () => {
     const policy = playlistModePolicyOf(activeSparkTheme());
@@ -1193,6 +1338,7 @@ export default async function settingsView(root: HTMLElement) {
     setHint(playlistModeHint, locked
       ? `由花火面具「${activeSparkTheme()?.name ?? ""}」接管菜单栏模式。`
       : "");
+    paintNavEditor(); // 歌单项的「随模式」锁随生效模式变化
   };
 
   playlistModeCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {

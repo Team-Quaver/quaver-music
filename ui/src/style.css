@@ -253,7 +253,7 @@ body.side-collapsed {
    先淡出、后收窄，中途不会看到被裁了一半的汉字。
    注意 .nav a / .pl 不在此列：它们各自已有声明（背景/按压缩放），transition 是整体覆盖属性，
    列在这里会被后面那条规则顶掉，得并进它们自己的声明里去。 */
-.sidebar, .user, .user-meta, .avatar, .nav a span, .pname, .side-foot {
+.sidebar, .user, .user-meta, .avatar, .nav a span, .nav-more span, .pname, .side-foot {
   transition:
     flex-basis .24s cubic-bezier(.22,.61,.36,1), padding .24s cubic-bezier(.22,.61,.36,1),
     gap .24s cubic-bezier(.22,.61,.36,1), max-width .24s cubic-bezier(.22,.61,.36,1),
@@ -297,6 +297,44 @@ body.side-collapsed {
 .nav a:active { transform: scale(.97); }
 .nav a.active { background: color-mix(in srgb, var(--cvg-glow, var(--nav-active)) 16%, var(--nav-active)); color: var(--ink); }
 .nav a.active::before { transform: scaleY(1); }
+/* 用户隐藏的导航项：.nav a 自带 display:flex，属性选择器的 [hidden] 压不过它，必须显式收口。 */
+.nav a[hidden] { display: none; }
+
+/* 「更多」：用户隐藏的导航项收在这里（竖三点 + 浮窗），与 .nav a 同一套排版与缩态；
+   它是 <button> 而不是 <a>（不导航），所以选中态/按压缩放要单独写一遍。 */
+.nav-more {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 0; border-radius: 9px;
+  background: transparent; color: var(--ink3); font: inherit; font-weight: 500; text-align: left; cursor: pointer;
+  transition: background .14s, transform .1s ease,
+    gap .24s cubic-bezier(.22,.61,.36,1), padding .24s cubic-bezier(.22,.61,.36,1);
+}
+.nav-more:hover { background: var(--hover); }
+.nav-more:active { transform: scale(.97); }
+.nav-more span { max-width: 140px; overflow: hidden; white-space: nowrap; }
+.nav-more.active, .nav-more.is-open {
+  background: color-mix(in srgb, var(--cvg-glow, var(--nav-active)) 16%, var(--nav-active));
+  color: var(--ink);
+}
+/* 「更多」浮窗：fixed 挂 body（侧栏 overflow:hidden 会裁掉它），位置由 shell.ts 按按钮
+   rect 量一次写入。玻璃底 / 描边 / 模糊走文件末尾那条共享规则。 */
+.nav-more-pop {
+  position: fixed; z-index: 80; min-width: 168px; max-width: 260px; padding: 6px;
+  max-height: calc(100vh - 16px); overflow-y: auto; border-radius: 12px;
+  display: flex; flex-direction: column; gap: 2px;
+  animation: ctx-in .14s cubic-bezier(.22,.61,.36,1) both;
+}
+.nav-more-pop[hidden] { display: none; }
+.nav-pop-item {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px;
+  color: var(--ink3); font-size: 13px;
+}
+.nav-pop-item:hover { background: var(--press); color: var(--ink); }
+.nav-pop-item.active {
+  background: color-mix(in srgb, var(--cvg-glow, var(--nav-active)) 16%, var(--nav-active));
+  color: var(--ink);
+}
+.nav-pop-ico { display: grid; place-items: center; width: 18px; height: 18px; flex: 0 0 auto; }
+.nav-pop-tx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .sep { border: 0; border-top: 1px dashed var(--sep); margin: 4px 6px; }
 
@@ -344,8 +382,10 @@ body.side-collapsed .user { justify-content: center; padding: 2px 0; gap: 0; }
 body.side-collapsed .avatar { width: 38px; height: 38px; }
 body.side-collapsed .user-meta,
 body.side-collapsed .nav a span,
+body.side-collapsed .nav-more span,
 body.side-collapsed .pname { max-width: 0; opacity: 0; }
 body.side-collapsed .nav a { justify-content: center; padding: 8px 0; gap: 0; }
+body.side-collapsed .nav-more { justify-content: center; padding: 8px 0; gap: 0; }
 body.side-collapsed .pl { justify-content: center; padding: 6px 0; gap: 0; }
 body.side-collapsed .sep { margin: 4px 12px; }
 /* 分组标题：文字收成 0 高度，只留一条居中的虚线区分「我创建的 / 收藏的」两团。
@@ -1599,6 +1639,7 @@ body[data-control-bar="floating"] .np.np-lyrics-full .np-inner {
   .np-menu.open > *, .np-qinfo.open > *, .queue-panel.float.open > *,
   .player.q-open .pb-qpop > *, .player.lp-open .pb-lpop > *,
   .player.vol-open .pb-volpop > * { animation: none; }
+  .nav-more-pop { animation: none; }
 }
 
 /* ===================== 队列面板（播放列表） =====================
@@ -2183,7 +2224,7 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
    `background + border + box-shadow + backdrop-filter`（改造前是七份，且不透明度各不同，
    所以才会出现「有的菜单看着糊、有的看着是实心」）。
    模糊只写无前缀的 backdrop-filter —— 别补 -webkit-，原因见文件顶部那段。 */
-.ctx-menu, .qtip, .pb-qpop, .pb-lpop, .pb-volpop, .tint-pop, .np-menu, .np-menu-sub-list, .np-qinfo, .queue-panel.float, .eq-dialog, .upd-dialog {
+.ctx-menu, .qtip, .nav-more-pop, .pb-qpop, .pb-lpop, .pb-volpop, .tint-pop, .np-menu, .np-menu-sub-list, .np-qinfo, .queue-panel.float, .eq-dialog, .upd-dialog {
   background: var(--menu-surface);
   border: 1px solid var(--menu-line);
   box-shadow: var(--menu-shadow), inset 0 1px 0 var(--menu-edge);

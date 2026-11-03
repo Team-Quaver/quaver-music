@@ -28,6 +28,19 @@ export const DEVICE_NAME = "device.json";
 /** Quark EQ 的默认值：共享纯逻辑生成，避免 schema 与渲染层默认曲线各写一份。 */
 const DEFAULT_EQUALIZER = JSON.stringify(defaultEqState());
 
+/** 侧栏内置导航项的合法 id（渲染层同一份清单在 src/lib/nav-items.ts，改一处要同步另一处）。 */
+const NAV_IDS = ["home", "guess", "daily", "liked", "playlists", "all", "local", "cloud"];
+const NAV_DEFAULT_ORDER = NAV_IDS.join(",");
+
+/** 逗号分隔的导航 id 列表：允许空（NavHidden）/ 非空（NavOrder），id 合法且不重复。 */
+function isNavIdList(v: string, allowEmpty: boolean): boolean {
+  const ids = v.split(",").map((s) => s.trim()).filter(Boolean);
+
+  if (!allowEmpty && ids.length === 0) return false;
+
+  return ids.every((id) => NAV_IDS.includes(id)) && new Set(ids).size === ids.length;
+}
+
 /** 配置文件里的 EQ 是整段 JSON：结构合法 + 规范化后段数不超上限。 */
 function isEqConfigValue(v: string): boolean {
   try {
@@ -470,6 +483,26 @@ export const SCHEMA: SectionSpec[] = [
           "Sparkle 主题可用 theme.playlistMode 接管这一形态；宿主据 body[data-playlist-mode] 切换布局",
         ],
         valid: (v: string) => ["menu", "collection"].includes(v),
+      },
+      {
+        key: "NavOrder",
+        def: NAV_DEFAULT_ORDER,
+        doc: [
+          "侧栏主菜单的显示顺序（逗号分隔的内置导航 id，见 src/lib/nav-items.ts）：",
+          "home=首页｜guess=猜你喜欢｜daily=每日 30 首｜liked=我喜欢｜playlists=歌单｜all=所有歌曲｜local=本地音乐｜cloud=微云网盘。",
+          "设置 → 外观 → 菜单栏支持拖拽排序；缺项/坏项由渲染层按默认顺序补到末尾，写盘时总是完整的 8 项。",
+        ],
+        valid: (v: string) => isNavIdList(v, false),
+      },
+      {
+        key: "NavHidden",
+        def: "",
+        doc: [
+          "侧栏主菜单中由用户**隐藏**的项目（逗号分隔的 id，取值同 NavOrder；空=全部显示）。",
+          "隐藏项不会删除，而是收进侧栏底部的竖三点「更多」浮窗；歌单项在高效模式下另有 CSS 自动隐藏，",
+          "与这里的用户显隐互不影响。",
+        ],
+        valid: (v: string) => isNavIdList(v, true),
       },
       {
         key: "MenuBlur",

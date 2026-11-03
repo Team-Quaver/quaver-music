@@ -18,6 +18,8 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
 const shell = read("src/shell.ts");
+const navItems = read("src/lib/nav-items.ts");
+const navApply = read("src/lib/nav-apply.ts");
 const prefs = read("src/lib/prefs.ts");
 const main = read("src/main.ts");
 const conf = read("electron/config.ts");
@@ -63,19 +65,21 @@ ok("缩回/展开按钮是 <button> 且带 id=side-collapse（不是 <a>，它�
 ok("按钮初始 title/aria 是「缩回侧栏」（默认展开态）",
   /id="side-collapse"[^>]*title="缩回侧栏"[^>]*aria-label="缩回侧栏"/.test(shell));
 
+// 默认布局由 shell 的模板串直接写出；自定义布局由 nav-apply 重画。两条路都得带 title。
 ok("导航项带 title（缩态只剩图标时靠它认字）",
-  /data-route="\$\{n\.path\.slice\(1\) \|\| "\/"\}" title="\$\{n\.label\}"/.test(shell));
+  /data-nav-id="\$\{n\.id\}" title="\$\{esc\(n\.label\)\}"/.test(shell)
+  && /a\.dataset\.route = navPathOf\(item\)[\s\S]{0,200}a\.title = item\.label/.test(navApply));
 
 ok("歌单项带 title（同上；收藏的歌单把创建者也缀上）",
   /const title = String\(x\.title \?\? "歌单"\);[\s\S]{0,120}a\.title = sub \? `\$\{title\} · \$\{sub\}` : title;/.test(shell));
 
 // ============ ②.b 歌单集合页入口：导航项 + 集合页态布局 ============
 ok("侧栏新增「歌单」导航项，且排在「本地音乐」之前",
-  /label: "歌单", icon: "list"/.test(shell)
-  && shell.indexOf('label: "歌单"') > 0
-  && shell.indexOf('label: "歌单"') < shell.indexOf('label: "本地音乐"'));
+  /id: "playlists",[\s\S]{0,80}label: "歌单"/.test(navItems)
+  && navItems.indexOf('label: "歌单"') > 0
+  && navItems.indexOf('label: "歌单"') < navItems.indexOf('label: "本地音乐"'));
 
-const listIco = shell.match(/^\s*list:\s*\n?\s*'([^']+)'/m)?.[1] ?? "";
+const listIco = navItems.match(/iconSvg: '(<svg[^']*M9 6h11[^']*)'/)?.[1] ?? "";
 
 ok("歌单图标存在且沿用同一套线性图标口径（24 网格 / currentColor / fill:none）",
   listIco.includes('viewBox="0 0 24 24"') && listIco.includes("currentColor") && listIco.includes('fill="none"'));
