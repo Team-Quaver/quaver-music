@@ -1,6 +1,6 @@
 // Quaver — 路由视图：all（所有歌曲；由 src/views/index.ts 按需动态 import）
 //
-// 数据 = 本地音乐 + 我喜欢。三个视图共用同一份合流结果：
+// 数据 = 本地音乐 + 我喜欢 + 微云网盘。三个视图共用同一份合流结果：
 //   • 列表：复用 ListTools（搜索 + 歌名/歌手排序）；
 //   • 歌手分类：繁简歌手名归一后分组，点卡片看该歌手全部歌曲；
 //   • 专辑分类：专辑 mid 优先、名称兜底分组，点卡片看整张专辑。
@@ -21,6 +21,12 @@ import {
   trackToSong,
   type LibrarySnapshot,
 } from "../lib/local";
+import {
+  cloudItemToSong,
+  invalidateCloudLibrary,
+  loadCloudLibrary,
+  type CloudLibrary,
+} from "../lib/cloud";
 import { renderSongRows } from "../lib/songs";
 import { player } from "../player";
 import type { Song } from "../player";
@@ -48,8 +54,9 @@ export default async function allSongsView(root: HTMLElement, q: URLSearchParams
 
   let localError = "";
   let likedError = "";
+  let cloudError = "";
 
-  const [localData, likedData] = await Promise.all([
+  const [localData, likedData, cloudData] = await Promise.all([
     loadLocalLibrary()
       .then((snapshot) => snapshot)
       .catch((e) => {
@@ -68,14 +75,28 @@ export default async function allSongsView(root: HTMLElement, q: URLSearchParams
 
         return player.likedCache ?? [];
       }),
+    loadCloudLibrary()
+      .then((library) => library)
+      .catch((e) => {
+        cloudError = errText(e);
+
+        return null;
+      }),
   ]);
 
   const songsFromSnapshot = (snapshot: LibrarySnapshot | null): Song[] =>
     snapshot ? snapshot.tracks.map((track) => trackToSong(track, snapshot.sources)) : [];
 
+  // 微云条目 → Song：不可播放的条目（缺 file_id）由 cloudItemToSong 返回 null，自然不进目录
+  const songsFromCloud = (library: CloudLibrary | null): Song[] =>
+    (library?.items ?? [])
+      .map((item) => cloudItemToSong(item))
+      .filter((song): song is Song => !!song);
+
   let localSongs = songsFromSnapshot(localData);
   let likedSongs = likedData.filter((song) => !!song?.mid);
-  let allSongs = mergeAllSongs(localSongs, likedSongs);
+  let cloudSongs = songsFromCloud(cloudData);
+  let allSongs = mergeAllSongs(localSongs, likedSongs, cloudSongs);
   const albumCover = (song: Song) => coverUrl(song, 300);
   let albumGroups = groupSongsByAlbum(allSongs, albumCover);
   let artistGroups: ArtistGroup[] | null = null;
@@ -92,7 +113,7 @@ export default async function allSongsView(root: HTMLElement, q: URLSearchParams
     artHtml: discCover,
     name: "所有歌曲",
     meta: "",
-    desc: "本地音乐与你喜欢的歌曲，合在一处。",
+    desc: "本地音乐、你喜欢的歌曲与微云网盘，合在一处。",
   });
 
   const metaEl = head.querySelector<HTMLElement>(".pl-meta");
@@ -141,7 +162,7 @@ export default async function allSongsView(root: HTMLElement, q: URLSearchParams
     const total = allSongs.length;
 
     const text = total
-      ? `共 ${total} 首 · 本地 ${localSongs.length} · 喜欢 ${likedSongs.length}`
+      ? `共 ${total} 首 · 本地 ${localSongs.length} · 喜欢 ${likedSongs.length} · 微云 ${cloudSongs.length}`
       : "还没有可显示的歌曲";
 
     if (metaEl) metaEl.textContent = text;
@@ -153,6 +174,8 @@ export default async function allSongsView(root: HTMLElement, q: URLSearchParams
     if (localError) notes.push(`本地音乐暂不可用：${localError}`);
 
     if (likedError) notes.push(likedError);
+
+    if (cloudError) notes.push(`微云网盘暂不可用：${cloudError}`);
     sourceNote.textContent = notes.join(" · ");
     sourceNote.hidden = !notes.length;
   };
@@ -173,7 +196,7 @@ export default async function allSongsView(root: HTMLElement, q: URLSearchParams
             ? "没有匹配的歌曲"
             : allSongs.length
               ? "没有可显示的歌曲"
-              : "本地曲库与「我喜欢」都还是空的"
+              : "本地曲库、「我喜欢」与微云网盘都还是空的"
         }</div>`;
 
         return;
@@ -510,7 +533,7 @@ export default async function allSongsView(root: HTMLElement, q: URLSearchParams
   });
 
   const applySources = () => {
-    allSongs = mergeAllSongs(localSongs, likedSongs);
+    allSongs = mergeAllSongs(localSongs, likedSongs, cloudSongs);
     albumGroups = groupSongsByAlbum(allSongs, albumCover);
     artistGroups = null;
     artistGen++;
@@ -546,6 +569,24 @@ export default async function allSongsView(root: HTMLElement, q: URLSearchParams
     applySources();
   });
 
+  // 微云页的刮削/元数据变更会广播 quaver:cloud-changed；先作废旧快照再取新的，
+  // 让「所有歌曲」里的云端条目（标题/歌手/封面）与微云页保持同一份口径。
+  const onCloudChanged = () => {
+    invalidateCloudLibrary();
+    void loadCloudLibrary().then((library) => {
+      if (!alive) return;
+      cloudSongs = songsFromCloud(library);
+      cloudError = "";
+      applySources();
+    }).catch((e) => {
+      if (!alive) return;
+      cloudError = errText(e);
+      setMeta();
+    });
+  };
+
+  window.addEventListener("quaver:cloud-changed", onCloudChanged);
+
   fabs = mountListFabs(root, () => {
     const panel = panels[activeView];
 
@@ -573,6 +614,7 @@ export default async function allSongsView(root: HTMLElement, q: URLSearchParams
     if (bodyResizeRaf) cancelAnimationFrame(bodyResizeRaf);
     offLocal();
     offLoved();
+    window.removeEventListener("quaver:cloud-changed", onCloudChanged);
     sticky.off();
     fabs.off();
   };

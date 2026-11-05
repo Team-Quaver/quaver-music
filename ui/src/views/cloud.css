@@ -1,6 +1,11 @@
-/* Quaver — 微云音乐网盘（随 /cloud 视图懒加载） */
-.cloud-page .page-title { margin-bottom: 2px; }
-.cloud-page .page-note { margin: 0 0 14px; }
+/* Quaver — 微云音乐网盘（随 /cloud 视图懒加载）
+   信息头的封面底色/渐变来自 style.css（.cloud-cover 与 .daily-cover/.liked-cover 同一组），
+   这里只给封面图标尺寸与列表内的标签胶囊。 */
+.cloud-cover__icon {
+  position: relative; z-index: 1; width: 52%; height: auto;
+  filter: drop-shadow(0 3px 7px rgb(0 0 0 / 20%));
+}
+.sticky-bar__art .cloud-cover__icon { width: 18px; height: 18px; }
 
 .cloud-actions {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
@@ -11,7 +16,7 @@
 .cloud-empty { padding: 18px 4px; }
 .cloud-scrape-status { margin: -6px 0 12px; font-size: 12px; }
 
-.cloud-music .rows { padding-bottom: 8px; }
+.cloud-rows { padding-bottom: 8px; }
 .cloud-row { cursor: default; }
 .cloud-row .rt { font-weight: 600; }
 .cloud-tags { display: flex; gap: 5px; flex: 0 0 auto; }

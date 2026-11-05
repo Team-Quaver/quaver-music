@@ -81,6 +81,21 @@ try {
   }
 
   {
+    // 第三个来源：微云网盘。优先级 本地 > 我喜欢 > 微云；未匹配原文件（weiyun:<fileId>）照常补进
+    const localMatch = song({ mid: "local:l1", localId: "l1", qqMid: "q1", artist: "A", album: "Local" });
+    const liked = song({ mid: "q2", artist: "B", album: "Online" });
+    const cloudSameAsLocal = song({ mid: "q1", artist: "A", album: "Cloud" });
+    const cloudSameAsLiked = song({ mid: "q2", artist: "B", album: "Cloud" });
+    const cloudOriginal = song({ mid: "weiyun:f3", artist: "C", album: "Cloud" });
+    const merged = mergeAllSongs([localMatch], [liked], [cloudSameAsLocal, cloudSameAsLiked, cloudOriginal]);
+
+    eq("微云与本地/收藏同 mid 的去重，只补云端独有 = 3 首",
+      merged.map((x) => x.mid), ["local:l1", "q2", "weiyun:f3"]);
+    check("同 mid 保留优先级更高的来源（本地 > 喜欢 > 微云）",
+      merged[0]?.local?.id === "l1" && merged[1]?.album?.name === "Online");
+  }
+
+  {
     const one = song({ mid: "q1", artist: "周杰倫", album: "十一月的蕭邦", albumMid: "alb-1" });
     const two = song({ mid: "q2", artist: "周杰伦", album: "十一月的萧邦", albumMid: "alb-1" });
     const three = song({ mid: "q3", artist: "周杰倫 / 五月天", album: "十一月的蕭邦", albumMid: "alb-1" });
@@ -212,10 +227,13 @@ export * from ${JSON.stringify(join(UI, "src/lib/artist-key.ts"))};
   check("合唱曲不把首位歌手 mid 复制给所有人",
     read("src/lib/local.ts").includes("const matchedSingerMid = artists.length === 1"));
   check("专辑分类走专辑分组函数", view.includes("groupSongsByAlbum("));
-  check("本地库与我喜欢都有实时订阅",
-    view.includes("onLocalLibraryChange(") && view.includes("player.onLovedListChange("));
-  check("本地音乐沿用虚拟歌单的吸顶结构（标题/源管理先滚，吸顶条固定）",
-    read("src/views/local.ts").includes("mountStickyBar(root, { name: \"本地音乐\" })")
+  check("本地库 / 我喜欢 / 微云网盘都有实时订阅",
+    view.includes("onLocalLibraryChange(") && view.includes("player.onLovedListChange(")
+    && view.includes("quaver:cloud-changed") && view.includes("loadCloudLibrary("));
+  check("本地音乐沿用虚拟歌单的信息头/吸顶结构（封面 + 标题，源管理进浮窗）",
+    /mountHead\(root, \{\s*\n\s*artHtml: LOCAL_COVER,[\s\S]{0,80}name: "本地音乐"/.test(read("src/views/local.ts"))
+    && /mountStickyBar\(root, \{ artHtml: LOCAL_COVER, name: "本地音乐" \}\)/.test(read("src/views/local.ts"))
+    && read("src/views/local.ts").includes("showLocalSourcesDialog()")
     && read("src/views/local.ts").includes("sticky.off()")
     && read("src/views/local.ts").includes('classList.add("local-page")'));
   check("分类刷新时释放旧归并任务槽位", view.includes("artistFlight = null;"));
