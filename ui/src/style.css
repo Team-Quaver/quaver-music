@@ -1058,22 +1058,11 @@ body[data-control-bar="floating"] .pb-time { white-space: nowrap; }
 body[data-control-bar="floating"] .route {
   padding-bottom: calc(var(--control-bar-height) + var(--control-bar-gap) + var(--control-bar-inset) + var(--control-bar-lift));
 }
-/* 例外：设置页 route 不滚动（overflow:hidden + flex），route 的 padding 只会把整个
-   .set-view 顶上去 = 整页让位，还会和 .set-view 自己的 padding 叠两遍 —— 这里归零，
-   让位完全交给内部滚动容器（见下方 .settings-page .set-view）。 */
-body[data-control-bar="floating"] .route:has(> .entering.settings-page) {
-  padding-bottom: 0;
-}
 body[data-control-bar="floating"] .queue-panel.float { bottom: calc(var(--control-bar-inset) * 2 + var(--control-bar-lift) + var(--control-bar-height) + var(--control-bar-gap)); }
 /* 停靠态播放列表的内容级避让：面板列保持满高不动（列布局/吸顶底收口都不受影响），
    让位交给列表自己的 padding —— 末尾几行能滚到悬浮条上方，不会再被压在条底下。
    高度口径与 route 的安全区一致（height + gap + inset + lift）。 */
 body[data-control-bar="floating"] .queue-panel.dock .qp-list {
-  padding-bottom: calc(var(--control-bar-height) + var(--control-bar-gap) + var(--control-bar-inset) + var(--control-bar-lift));
-}
-/* 设置页同理：route 在该页不整体滚动（安全区落不到 .route 上），让位交给内部滚动容器
-   .set-view 自己的 padding —— 最后一组选项能滚到悬浮条上方。 */
-body[data-control-bar="floating"] .settings-page .set-view {
   padding-bottom: calc(var(--control-bar-height) + var(--control-bar-gap) + var(--control-bar-inset) + var(--control-bar-lift));
 }
 @keyframes control-bar-float-in {
@@ -2039,41 +2028,77 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 .card:hover .card-play, .card:focus-within .card-play { opacity: 1; transform: none; }
 .card-play:hover { background: var(--cvg-accent, var(--acc)); }
 
-/* ===================== 设置页布局（分区标签 + 发丝线分组 + 标签/控件同一行） ===================== */
-/* 设置页标题与选项卡固定：route 不再整体滚动，只有下方内容（.set-view）滚动。
-   这里借 :has 识别当前路由，无需在切走设置页时回改 #route 的类名。 */
-.route:has(> .entering.settings-page) {
-  display: flex;
-  overflow-y: hidden;
+/* ===================== 设置页布局（吸顶标签条 + 卡片式分组） ===================== */
+/* 标题行为与「我喜欢 / 所有歌曲」一致：整页由 .route 滚动，大标题随内容滚出，
+   分类标签住进 .sticky-bar 的右侧槽，下翻后固定在内容区顶部（吸顶底由 trackStuck
+   写进 .content 的 --stuck-h）。不要再让 .set-view 自己滚 —— 两个滚动容器会打架，
+   吸顶也只会吸在内部容器上。 */
+.settings-page .set-view { width: 100%; min-width: 0; padding-bottom: 20px; }
+
+/* 页头 = 「封面」图标 + 大标题（设置没有歌单封面，齿轮占同一个视觉锚点）。 */
+.settings-page .set-head { display: flex; align-items: center; gap: 14px; margin: 6px 0 18px; }
+.settings-page .set-head .page-title { margin: 0; }
+.settings-page .set-head__art {
+  width: 56px; height: 56px; flex: 0 0 auto; display: grid; place-items: center;
+  border: 1px solid var(--menu-line); border-radius: 16px;
+  background: var(--menu-surface); color: var(--cvg-accent, var(--acc));
+  box-shadow: inset 0 1px 0 var(--menu-edge);
 }
-.route > .entering.settings-page {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
+.settings-page .set-head__art svg { width: 28px; height: 28px; }
+/* 吸顶条里的迷你「封面」：同款玻璃小方块，不跟随大封面用 --ph2（那是一块灰底）。 */
+.settings-page .sticky-bar__art {
+  display: grid; place-items: center;
+  border: 1px solid var(--menu-line); border-radius: 8px;
+  background: var(--menu-surface); color: var(--cvg-accent, var(--acc));
+  box-shadow: inset 0 1px 0 var(--menu-edge);
 }
-.settings-page .set-view {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
-/* 分区标签：只切显隐不重渲染；下边发丝线与内容区接续 */
+.settings-page .sticky-bar__art svg { width: 17px; height: 17px; }
+
+/* 分类标签基础形态：下划线页签（Sparkle 面板内的主题/插件/Marketplace 复用同一套）。 */
 .set-tabs { display: flex; align-items: center; gap: 4px; margin: 0 0 8px; border-bottom: 1px solid var(--line); }
 .set-tab {
-  position: relative; padding: 8px 14px; border: 0; background: transparent;
+  position: relative; margin-bottom: -1px; padding: 8px 14px; border: 0;
+  border-bottom: 2px solid transparent; background: transparent;
   color: var(--ink2); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
-  border-bottom: 2px solid transparent; margin-bottom: -1px;
 }
 .set-tab:hover { color: var(--ink); }
 .set-tab.is-active { color: var(--cvg-accent, var(--acc)); border-bottom-color: var(--cvg-accent, var(--acc)); }
 
+/* 设置页主分类标签（只在吸顶条里）：胶囊分段控件，换掉下划线形态。
+   表面走 --menu-*：开着「模糊效果」时是半透明玻璃 + backdrop，关掉时令牌自动换成
+   实底 --card / --line / none —— 与右键菜单、浮窗共用同一棵开关。 */
+.settings-page .sticky-bar .set-tabs {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 2px;
+  margin: 0; padding: 3px; border: 1px solid var(--menu-line); border-radius: 999px;
+  background: var(--menu-surface);
+  box-shadow: inset 0 1px 0 var(--menu-edge);
+  backdrop-filter: var(--menu-filter); /* 无前缀！见文件顶部「别补 -webkit-」那段 */
+}
+.settings-page .sticky-bar .set-tab {
+  margin: 0; padding: 5px 13px; border: 0; border-radius: 999px;
+  background: transparent; color: var(--ink2); font-size: 13px;
+  cursor: pointer; transition: color .14s ease, background .14s ease;
+}
+.settings-page .sticky-bar .set-tab:hover { color: var(--ink); background: var(--hover); }
+.settings-page .sticky-bar .set-tab.is-active { color: #fff; background: var(--cvg-accent, var(--acc)); }
+
 /* 分区面板：与 .tag-panel 同一套切换机制（.set-view.tab-anim > .set-panel 的入场动画
    定义在「标签页切换动画」段，见上文 .tag-tabs 附近） */
 .set-panel[hidden] { display: none; }
-.set-group { padding: 18px 0; }
-.set-group + .set-group { border-top: 1px solid var(--line); }
-/* 分组标题：13px 半粗 + 右侧可选的行内说明 */
-.set-label { margin-bottom: 10px; font-size: 13px; font-weight: 700; color: var(--ink); }
+/* 分组 = 一张玻璃卡片：组与组靠间距分开，不再画贯穿页面的发丝线。
+   表面同样吃「模糊效果」总开关：on = 半透明（透出已被 .content 模糊过的环境色），
+   off = 令牌换成实底 --card。页面里常驻几十张卡，**不给每张卡单开 backdrop 采样** ——
+   大面积多层 backdrop 会拖垮滚动与截图（实测截图管线直接超时）；卡片只要半透明表面，
+   背后的模糊本来就已经由 Content View 那一层 --shell-filter 做完了。
+   卡片里的 .opt-card / input 仍是纯 --card，实底压在玻璃上反而更有层次。 */
+.settings-page .set-group {
+  margin: 0 0 12px; padding: 16px 18px;
+  border: 1px solid var(--line); border-radius: 14px;
+  background: var(--menu-surface);
+  box-shadow: inset 0 1px 0 var(--menu-edge);
+}
+/* 分组标题：13.5px 半粗 + 右侧可选的行内说明 */
+.set-label { margin-bottom: 12px; font-size: 13.5px; font-weight: 700; color: var(--ink); }
 .set-note-inline { margin-left: 4px; font-weight: 400; font-size: 12px; color: var(--ink2); }
 
 /* 「标签 + 控件」行：label 定宽，控件占满余宽，窄窗自动换行 */

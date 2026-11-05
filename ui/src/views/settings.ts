@@ -41,7 +41,16 @@ import type { SparkleTintPreset } from "@quaver/sparkle";
 import { icons as sharedIcons } from "../lib/icons";
 import { navItemOf } from "../lib/nav-items";
 import { getNavHidden, getNavOrder, setNavLayout } from "../lib/nav-apply";
-import { errText, h, watchBackendChange } from "./_shared";
+import { errText, h, mountStickyBar, watchBackendChange } from "./_shared";
+
+// 设置页的「封面」位：虚拟歌单拿封面做视觉锚点，设置没有封面，用与侧栏同一套外形的齿轮
+// （shell.ts 的 icons.settings 是壳层私有常量，这里抄一份，避免把壳层图标表拖进视图）。
+const SETTINGS_GEAR = `
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+    stroke-width="1.6" stroke-linejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="3.1"/>
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+  </svg>`;
 
 // —— 设置页（对齐设计稿：外观设置 / 播放设置 / 调试 三区；不触碰侧栏与播放条） ——
 export default async function settingsView(root: HTMLElement) {
@@ -53,8 +62,17 @@ export default async function settingsView(root: HTMLElement) {
   const decodeRow = (name: string, label: string, disabled = false) =>
     `<label><input type="radio" name="decode" value="${name}"${disabled ? " disabled" : ""}/>${label}${disabled ? ` <span class="muted soon">敬请期待</span>` : ""}</label>`;
 
-  root.classList.add("settings-page"); // 让设置页内部自己滚动（见 style.css 的 .settings-page）
-  root.append(h("h1", "page-title", "设置"));
+  root.classList.add("settings-page"); // 整页滚动 + 吸顶标签条，见 style.css 的 .settings-page
+
+  // 页头：图标（当「封面」用）+ 大标题，随整页滚出。吸顶条里再放一份迷你图标。
+  root.append(h("div", "set-head", `
+    <div class="set-head__art" aria-hidden="true">${SETTINGS_GEAR}</div>
+    <h1 class="page-title">设置</h1>`));
+
+  // 与「我喜欢 / 所有歌曲」同一套标题行为：大标题随内容滚出，分类标签住进吸顶条，
+  // 下翻后固定在内容区顶部。条本身是常驻占位，未吸顶时左侧缩略信息隐藏（不掉版式）。
+  const sticky = mountStickyBar(root, { artHtml: SETTINGS_GEAR, name: "设置" });
+  const scroller = root.closest<HTMLElement>(".route") ?? root;
 
   // 分区标签：只切显隐，不重渲染（各面板绑定一次常驻有效）
   const tabs = h("div", "set-tabs", `
@@ -65,7 +83,7 @@ export default async function settingsView(root: HTMLElement) {
     <button class="set-tab" data-tab="general" type="button">通用</button>
     <button class="set-tab" data-tab="plugins" type="button">花火插件</button>`);
 
-  root.append(tabs);
+  sticky.right.append(tabs);
   const wrap = h("div", "set-view");
   wrap.innerHTML = `
     <section class="set-panel" data-panel="appearance">
@@ -590,7 +608,7 @@ export default async function settingsView(root: HTMLElement) {
       wrap.classList.add("tab-anim");
       tabs.querySelectorAll(".set-tab").forEach((x) => x.classList.toggle("is-active", x === t));
       wrap.querySelectorAll<HTMLElement>(".set-panel").forEach((p) => { p.hidden = p.dataset.panel !== t.dataset.tab; });
-      wrap.scrollTop = 0; // 每个分区都从顶部开始，别沿用上一分区在滚动容器里的位置
+      scroller.scrollTo({ top: 0 }); // 每个分区都从顶部开始（滚动容器是 .route，不再由 .set-view 内部滚）
     };
   });
 
@@ -1911,7 +1929,7 @@ export default async function settingsView(root: HTMLElement) {
     });
     const src = MPV_SOURCE_LABEL[st.source] ?? "";
     engNote.textContent = player.backend === "liino"
-      ? `- Liino 原生直出运行中（${st.version || "?"}）${src ? "，" + src : ""}；无 PCM 兼容模式，窗口级音频捕获请改回 MPV`
+      ? `- Liino 原生直出运行中${src ? "（" + src + "）" : ""}`
       : player.backend === "mpv"
         ? `- 原生直出运行中${src ? "（" + src + "）" : ""}`
         : player.backend === "mpv-compat"
@@ -2009,7 +2027,7 @@ export default async function settingsView(root: HTMLElement) {
   const hotkeysPanel = wrap.querySelector<HTMLElement>('[data-panel="hotkeys"]')!;
   const offHotkeys = mountHotkeysPanel(hotkeysPanel);
 
-  return () => { offSparkle(); offSparkleThemes(); offHotkeys(); };
+  return () => { sticky.off(); offSparkle(); offSparkleThemes(); offHotkeys(); };
 }
 
 // —— 调试：日志页面（壳层 electron-dev.log 尾部；由 relay.ts /api/log 提供） ——
