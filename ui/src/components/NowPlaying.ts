@@ -367,8 +367,9 @@ export function NowPlaying(): HTMLElement {
   }
 
 /** 「跳转歌手」次级菜单：主列表只留一行入口，歌手名单（可能很长）悬停/聚焦时向左展开。
- *  面板挂在 .np 直下（fixed 定位）：backdrop-filter 元素会成为 backdrop root，
- *  留在父菜单里面时只能采到父菜单自身，采不到页面背景 —— 提层级才能拿到真底图。 */
+ *  面板挂在 .np 直下（fixed 定位）：不留在父菜单里面 —— ① 父菜单有 overflow/圆角裁切；
+ *  ② 面板本身是页面级浮层（位置按视口夹取），提层级才不会跟着菜单一起缩回。
+ *  （它在本页同样不做 backdrop 采样，见 style.css 的 .np-menu-sub-list 覆盖规则。） */
 function singerSubmenu(singers: NonNullable<Song["singer"]>) {
   const row = document.createElement("div");
   row.className = "np-menu-sub";

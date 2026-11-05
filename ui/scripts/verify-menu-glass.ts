@@ -273,13 +273,43 @@ check("正在播放页菜单玻璃本体不做 transform/opacity 入场（否则
   && /\.np-menu\.open \{[^}]*transition: none;/.test(css)
   && /\.np-qinfo\.open \{[^}]*transition: none;/.test(css));
 
-check("菜单入场动画只落在内容子项上",
-  /\.np-menu\.open > \* \{[^}]*animation: menu-content-in/.test(css)
-  && /\.np-qinfo\.open > \* \{[^}]*animation: menu-content-in/.test(css));
+// 正在播放页的浮层不做内容入场：频谱开着时画布持续重绘，子项一旦被 opacity/transform
+// 动画提升成合成层，首帧可能只画出玻璃壳（打开瞬间闪黑）。壳是当帧出现的，内容也当帧画。
+check("正在播放页菜单/音质浮窗的内容不做入场动画（频谱开启时首帧会只剩空壳）",
+  /\.np-menu\.open > \* \{[^}]*animation: none;/.test(css)
+  && /\.np-qinfo\.open > \* \{[^}]*animation: none;/.test(css)
+  && !/\.np-menu\.open > \* \{[^}]*menu-content-in/.test(css)
+  && !/\.np-qinfo\.open > \* \{[^}]*menu-content-in/.test(css));
 
-check("AMLL 只在菜单打开时临时切 normal，平时保留 plus-lighter 发光/独立合成层",
-  /\.np:has\(\.np-menu\.open, \.np-qinfo\.open\) \.np-kara-host \.amll-lyric-player \{[^}]*mix-blend-mode: normal;/.test(css)
-  && !/\n\.np-kara-host \.amll-lyric-player \{[^}]*mix-blend-mode: normal;/.test(css));
+// 正在播放页背后是每帧重绘的 mesh 画布（AMLL BackgroundRender）和逐行 filter:blur()
+// 的歌词层；bf 在切歌 / 歌词进入过渡时采到空帧，整块菜单闪黑。那三个浮层改为不采样底图 +
+// 高不透明度底片 —— 也正因如此，AMLL 的 plus-lighter 不再需要「菜单打开时让回 normal」那层补丁。
+check("正在播放页浮层不做 backdrop 采样，换不透明底片（mesh 画布每帧重绘，采样会闪黑）",
+  /\.np-menu, \.np-menu-sub-list, \.np-qinfo \{[^}]*background: var\(--np-pop-surface\);[^}]*backdrop-filter: none;/.test(css));
+
+check("…正在播放页另给一份不透明底片（0.62 无模糊时背后的封面字会直接透出来）",
+  /\.np \{[^}]*--np-pop-surface: linear-gradient\(180deg,\s*color-mix\(in srgb, var\(--cvg-accent/.test(css)
+  && !/--np-pop-surface: rgba/.test(css));
+
+check("…关闭档也顶掉这份底片（.np 自己声明过同一个变量）",
+  /html\[data-menu-glass="off"\] \.np \{[^}]*--np-pop-surface: #14171f;/.test(css));
+
+const npSamplesBackdrop = (s: string) =>
+  MENU_SELECTORS.filter((sel) => sel.startsWith(".np-")).some((sel) => {
+    const body = ruleOf(s, sel);
+
+    return /backdrop-filter:(?!\s*none)/.test(body);
+  })
+  || /\.np-menu, \.np-menu-sub-list, \.np-qinfo \{[^}]*backdrop-filter:(?!\s*none)/.test(s);
+
+check("…反向：NP 浮层重新开 backdrop-filter 会被逮住",
+  npSamplesBackdrop("\n.np-menu {\n  backdrop-filter: blur(12px);\n}"));
+
+check("…当前源码确实没有", !npSamplesBackdrop(noComments(css)));
+
+check("AMLL 的 plus-lighter 不随菜单开合切换（浮层不采样底图，那层补丁已撤）",
+  !/\.np:has\(\.np-menu\.open/.test(css)
+  && !/\.np-kara-host \.amll-lyric-player \{[^}]*mix-blend-mode: normal/.test(css));
 
 check("浮窗队列打开时撤掉 AMLL 非当前行的逐行 blur 滤镜",
   /\.np\.queue-open \.np-kara-host \[class\*="lyricLineWrapper"\] \{[^}]*filter: none !important;/.test(css)

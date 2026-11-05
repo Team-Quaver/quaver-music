@@ -45,13 +45,19 @@ html[data-theme="dark"] {
    模态弹窗 .upd-dialog（更新 / 本地插件 / 插件设置）也吃同一组令牌，随这棵开关与主题接管一起走。
    侧栏与 Content View 复用 --shell-filter / 关闭档实底，不用菜单表面令牌（各自的 --glass / --panel 保留）。
 
+   **例外：正在播放页的三个浮层（.np-menu / .np-menu-sub-list / .np-qinfo）不做 backdrop
+   采样** —— 那一页背后是每帧重绘的 mesh 画布与逐行 blur 的歌词层，bf 在切歌/歌词过渡时
+   会采到空帧，整块菜单闪黑。它们只吃表面令牌（换成高不透明度的 --np-pop-surface），
+   bf 显式 none。见共享规则下方那条覆盖规则。
+
    这也解释了「菜单看起来完全没有模糊」的四个叠加成因（按重要性排）：
      ① **[已修，最致命] 压缩器把无前缀的 backdrop-filter 吃掉了** —— 见下面那段 ⚠️：
         改造前产物里整个应用一条可用的 backdrop-filter 都没有，所以调令牌、调底片全都没用；
      ② .pb-*pop 挂在 .player 里，而 .player 自己带 backdrop-filter —— 它成了那几颗浮窗的
         backdrop root，模糊只采样播放条内部，条外一片空白（→ 已改成 .player::before，见该处注释）；
      ③ 底片不透明度 0.78~0.85（--volpop / .np-menu 的 #10131cd9），透出来的不到四分之一，
-        模糊就算生效也被实色底片吃掉 → 现在压到 0.62~0.66，对齐侧栏/播放条那档；
+        模糊就算生效也被实色底片吃掉 → 现在压到 0.62~0.66，对齐侧栏/播放条那档
+        （正在播放页那三个浮层反过来走不透明底片：它们不采样底图，得靠底片压住封面字）；
      ④ .np-menu 底下的 .np-bg 原先 blur(60px)，已近乎没有纹理可供二次模糊；现在降低背景模糊，
         让菜单的 backdrop-filter 能形成可见的毛玻璃层次；
      ⑤ 默认配置下背景层是 off（纯色底）+ 内容卡是实白 —— 模糊纯色 = 纯色，结构上无从体现
@@ -97,9 +103,17 @@ html[data-theme="dark"] {
   --menu-shadow: 0 12px 36px rgba(0, 0, 0, .46);
   --menu-edge: rgba(255, 255, 255, .08);
 }
-/* 正在播放页恒为深色玻璃：本页的菜单表面另起一份（色锚同那一页的白字口径） */
+/* 正在播放页恒为深色玻璃：本页的菜单表面另起一份（色锚同那一页的白字口径）。
+   --np-pop-surface 是 ⋮ 菜单 / 音质浮窗专用的底片：这一页的浮层**不做 backdrop 采样**
+   （原因见共享规则下方），所以底片必须是**不透明**的 —— 0.62 那档没有模糊时会把
+   背后的封面字（专辑封面上印的歌名）直接透出来。底色掺一点封面染色（--cvg-accent），
+   既与选中项/开关的染色语言一致，也避免一整块死黑。
+   音质胶囊仍用 --menu-surface（小胶囊无模糊，观感不变）。 */
 .np {
   --menu-surface: rgba(16, 19, 28, .62);
+  --np-pop-surface: linear-gradient(180deg,
+    color-mix(in srgb, var(--cvg-accent, var(--cyan)) 10%, #1a1f2c),
+    color-mix(in srgb, var(--cvg-accent, var(--cyan)) 5%, #0b0e17));
   --menu-line: rgba(255, 255, 255, .16);
   --menu-shadow: 0 12px 36px #0006;
   --menu-edge: rgba(255, 255, 255, .1);
@@ -115,6 +129,7 @@ html[data-menu-glass="off"] {
 }
 html[data-menu-glass="off"] .np {
   --menu-surface: #14171f;
+  --np-pop-surface: #14171f;
   --menu-line: #ffffff1f;
   --menu-edge: transparent;
 }
@@ -1339,14 +1354,18 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
   min-width: 228px; padding: 10px 12px 11px; border-radius: 12px;
   /* 底片 / 描边 / 模糊 / 阴影由共享规则统一给（本页的深色表面见 .np 上那几个令牌） */
   text-align: left;
-  /* 玻璃本体始终 static：只淡出，不做 transform/scale。backdrop-filter 元素在
-     transform/opacity 过渡期间会临时形成 backdrop root，歌名会从菜单里原样透出来。 */
+  /* 玻璃本体始终 static：只淡出，不做 transform/scale —— 这一页的浮层必须当帧出现，
+     任何整块位移/缩放入场都会在频谱画布每帧重绘时晚一帧上屏。 */
   opacity: 0; transform: none;
   pointer-events: none;
   transition: opacity .13s ease;
 }
 .np-qinfo.open { opacity: 1; pointer-events: auto; transition: none; }
-.np-qinfo.open > * { animation: menu-content-in .16s cubic-bezier(.32,.72,.24,1) both; }
+/* 正在播放页的浮层不做内容入场动画：频谱开着时画布每帧重绘，菜单子项的
+   opacity/transform 动画会把它们提升为独立合成层，首帧合成器来不及上屏 ——
+   玻璃壳已画出、内容是空的，就是「打开菜单闪一下黑」。壳本来就是当帧出现，
+   内容也当帧画（参见 menu-content-in 上方那段）。 */
+.np-qinfo.open > * { animation: none; }
 .qi-title {
   display: flex; justify-content: space-between; align-items: baseline; gap: 14px;
   font-size: 11px; color: #fff8; letter-spacing: .4px;
@@ -1372,14 +1391,16 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
   min-width: 180px; padding: 6px; border-radius: 12px;
   /* 底片 / 描边 / 模糊 / 阴影由共享规则统一给（本页的深色表面见 .np 上那几个令牌） */
   display: flex; flex-direction: column; gap: 2px;
-  /* 开合动画拆成两层：玻璃本体立即出现/只做淡出，菜单项各自做轻微上移。
-     这样 backdrop-filter 从第一帧就能拿到完整底图，不会先透出歌名再变糊。 */
+  /* 玻璃本体立即出现 / 只做淡出：这一页的菜单不做位移/缩放入场，内容也不做
+     入场动画（见 .np-menu.open > *），整块当帧画出。 */
   opacity: 0; transform: none;
   pointer-events: none;
   transition: opacity .13s ease;
 }
 .np-menu.open { opacity: 1; pointer-events: auto; transition: none; }
-.np-menu.open > * { animation: menu-content-in .16s cubic-bezier(.32,.72,.24,1) both; }
+/* 同上：频谱可视化开启时（尤其全高 / 隐藏已播放行把菜单顶到亮封面上）内容入场动画
+   会晚一帧上屏，表现为菜单先闪一块黑。正在播放页菜单直接整块当帧出现。 */
+.np-menu.open > * { animation: none; }
 .np-menu-item, .np-menu-sub-btn {
   border: 0; background: transparent; color: #fffb; font: inherit; font-size: 13px; text-align: left;
   padding: 7px 10px; border-radius: 8px; cursor: pointer;
@@ -1564,12 +1585,11 @@ html[data-lyric-tint="off"] .np-kara-host { --amll-lp-color: white; }
    正在播放页直接忽略它插入的 <br>，让浏览器按容器真实宽度自然贪心换行：
    每行先排满，再把最后一个词落到下一行。 */
 .np-kara-host [class*="lyricMainLine"] > br { display: none; }
-/* AMLL 的 DOM 播放器默认用 mix-blend-mode: plus-lighter 做歌词发光。该混合模式会让
-   Chromium 在歌词挂载后走另一条合成路径，正在播放页菜单的 backdrop-filter 会持续
-   采不到底图（菜单里的歌名/封面色块原样透出）。只在玻璃菜单打开期间把它让回 normal，
-   菜单关掉立即恢复 AMLL 原本的发光效果。 */
-.np:has(.np-menu.open, .np-qinfo.open) .np-kara-host .amll-lyric-player { mix-blend-mode: normal; }
-.np:has(.np-menu-sub.open) .np-kara-host .amll-lyric-player { mix-blend-mode: normal; }
+/* AMLL 的 DOM 播放器默认用 mix-blend-mode: plus-lighter 做歌词发光。这个混合模式会让
+   歌词层走另一条合成路径，**带 backdrop-filter 的浮层**会持续采不到底图（歌名/封面色块
+   原样透出）。以前让菜单打开时临时切 normal 来绕；现在正在播放页的浮层本身不采样底图
+   （见共享规则下方 .np-menu/.np-menu-sub-list/.np-qinfo 那条），这层补丁不再需要，
+   打开菜单也不会再触发一次整层混合模式切换。 */
 /* 逐字模式下加深歌词列背光：Tint 文字与模糊封面**同源同相**（都是封面主色），
    亮暖封面（米黄/棕调）下掺白 Tint 的亮度会落进背景的同一区间 —— 文字色单方面怎么调
    都躲不开同源撞色（实测暖灰底 144 压橄榄字 120，约 1.1:1）。对比度只能从背景侧兜：
@@ -1620,16 +1640,20 @@ html[data-lyric-tint="off"] .np-kara-host { --amll-lp-color: white; }
   from { transform: translateX(10px); }
   to { transform: translateX(var(--mx, -70px)); }
 }
-/* 玻璃表面的内容入场：只动子项，不动带 backdrop-filter 的菜单本体。 */
+/* 玻璃表面的内容入场：只动子项，不动带 backdrop-filter 的菜单本体。
+   ⚠️ 正在播放页的 ⋮ / 音质浮窗**不用**这条（.np-menu/.np-qinfo 的 > * 显式 animation:none）：
+   频谱可视化开着时画布持续重绘，子项的 opacity/transform 动画让它们各自成为合成层，
+   首帧合成器来不及上屏 → 只剩玻璃壳，就是用户报的「菜单打开闪一下黑」（全高 / 隐藏
+   已播放行把菜单抬到亮封面上时最明显）。其余浮层不跑频谱，仍保留这条位移入场；
+   也**不能**从 opacity: 0 起步 —— 壳是当帧满不透明度出现的，子项从 0 淡入会复现同一个空壳帧。 */
 @keyframes menu-content-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: none; }
+  from { transform: translateY(4px); }
+  to { transform: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .np-menu, .np-qinfo, .pb-qpop, .pb-lpop, .pb-volpop, .queue-panel.float { transition: none; }
-  .np-menu.open > *, .np-qinfo.open > *, .queue-panel.float.open > *,
-  .player.q-open .pb-qpop > *, .player.lp-open .pb-lpop > *,
-  .player.vol-open .pb-volpop > * { animation: none; }
+  .queue-panel.float.open > *, .player.q-open .pb-qpop > *,
+  .player.lp-open .pb-lpop > *, .player.vol-open .pb-volpop > * { animation: none; }
   .nav-more-pop { animation: none; }
 }
 
@@ -2260,6 +2284,18 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 /* 浮窗队列面积比普通菜单大一个量级，和小块菜单同档会让拖拽/滚动时持续做更贵的采样；
    外壳档 12px 已足够形成玻璃层次。 */
 .queue-panel.float { backdrop-filter: var(--shell-filter); }
+/* 正在播放页的浮层**不做 backdrop 采样**：这一页背后是每帧重绘的 mesh 画布
+   （AMLL BackgroundRender，播放时不停）和逐行改 filter:blur() 的歌词层。bf 会在切歌 /
+   歌词进入、模糊过渡的瞬间采到半帧甚至空帧 —— 表现就是整块菜单「黑一下」；频谱开着时
+   合成压力更大，所以那几档布局最明显。（同一个病根先前的受害者是 .np-qpill，见该处注释。）
+   这里换成不透明、掺一点封面染色的「烟熏底」：少一次采样观感几乎不变（底片够厚，
+   背后的封面字不会透出来），却把「菜单每帧重采样一次整页合成结果」这条最贵的链路整条摘掉。
+   也正因如此，AMLL 的 plus-lighter 不用再在菜单打开时临时让回 normal（见歌词段那条注释）——
+   菜单不再读底图，混合模式与它无关。 */
+.np-menu, .np-menu-sub-list, .np-qinfo {
+  background: var(--np-pop-surface);
+  backdrop-filter: none;
+}
 /* 正在播放页是整窗不透明覆盖层，后面的侧栏 / Content View 已经看不见；播放条压在
    AMLL 上。此时继续做 backdrop 采样只会拖帧率，视觉上没有任何收益。
    浮窗队列例外：它需要玻璃层次，保留自己的 --shell-filter；性能由 queue-open 期间
