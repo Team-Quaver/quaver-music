@@ -272,6 +272,7 @@ koffi FFI **同进程**调用 —— 没有子进程、没有 IPC socket、没�
 
 ```sh
 cd vendor/Liino && bash scripts/build-capi.sh      # 先出库（开发态落到 build/<os>-<arch>/）
+# Windows（PowerShell，参数与 .sh 一致）：pwsh -File scripts/build-capi.ps1 [all|<goos> <goarch>]
 cd ui && pnpm run app                              # 真出声跑一圈（设置页选 Liino，或仍可用 QUAVER_AUDIO_BACKEND=liino）
 ```
 
@@ -335,12 +336,22 @@ cd ui && pnpm run app                              # 真出声跑一圈（设置
   按已听到的位置重开）；每代有 `seekRebuildBudget` 上限，永久损坏的源仍如实报错。
 - **网络源 seek 先走「按平均码率估算字节偏移」（byteSeek）**：`decode/native/native.go` 的
   `seekByByte` 用 `meta.BitRate/8` 把时间换算成绝对字节位置，`AVSEEK_FLAG_BYTE` 一次跳转，
-  再由 `discardTo` 按帧 PTS 前滚到目标（±1s 容差）。FFmpeg 的时间戳二分搜索每一探都是一次
-  Range 往返（~log2(文件大小) 次），限速回源上点一次歌词要好几秒——字节跳转只有一次往返。
-  任何没把握的落点（无 PTS、超前/落后超出容差、EOF）都回退到准确的时间戳搜索。
+  再由 `landAt` 按帧 PTS 前滚到目标（超前 ≤0.5s 才算命中）。FFmpeg 的时间戳二分搜索每一探
+  都是一次 Range 往返（~log2(文件大小) 次），限速回源上点一次歌词要好几秒——字节跳转只有一次往返。
+  **FLAC 是 VBR，按平均码率估的落点会在安静段落/前奏冲过头**，而音频不能向后解码；旧实现在
+  冲过头时回退到时间戳二分搜索（30MB 的曲子 24 次 Range），正是「拖进度/点歌词卡好几秒」。
+  现在用落点 PTS 的偏差修正字节位置**再跳**（`off -= (pos-target) * byteRate`，最多 3 次），
+  实测量产 FLAC 每次 seek 只需 1–2 次 Range，偏差 <0.5s（`TestDecodeByteSeekCorrectsVBROvershoot`
+  用「8s 静音 + 12s 响音」的夹具守住次数）。只有 PTS 不可信/偏差 >2min/三次仍不收敛才回退。
+  字节跳会落在帧中间，FFmpeg 打印 `invalid sync code`/`invalid frame header` 是**解析器重新
+  对齐的正常告警**（不是文件损坏，每次 seek 一组），不要据此判断失败。
   **只对 seek 后 PTS 仍绝对的 demuxer 开**（`demuxerKeepsAbsolutePTS`：FLAC 帧头带样本号、
   MP4 读 sample table）；**MP3 不能开**——它没有绝对时间戳，字节 seek 后 demuxer 从头计数，
   且在这个状态上回退时间戳搜索会直接落到曲尾（有回归测试守着）。
+- **每个 load 拥有上一个解码器**：`Player.Open` 换代时把旧 `p.stream` 摘下、异步 `Close()`
+  （`decWG` 记账，不能同步关——旧 Read 可能正卡在网络读上）。旧解码 goroutine 退休时不负责
+  关闭自己。漏了这一步就是每切一首泄漏一个 decoder 和它的 HTTP 连接（被跳过的源会一直挂着
+  中继下载）；`TestLoadClosesPreviousStream` 守着。
 - **FLAC 有 SEEKTABLE 仍保留 fastseek + 前滚对齐**：byteSeek 不可用（码率未知 / 非网络源）时
   的回退路径。`decode/native/native.go` 在 open 前嗅探前 8KiB（本地文件直读；HTTP 只对宿主
   `/stream/` 中继发一次小 Range 请求——第三方插件给的一次性直链不能被多取一次），看到
