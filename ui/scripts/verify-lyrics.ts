@@ -320,7 +320,7 @@ check("档位切换挂 resetCjkConverter + reloadLyric", /setChineseConvert\(v\)
 const cfgSrc = readFileSync(join(UI, "src/lib/config.ts"), "utf8");
 
 check("渲染层 FALLBACK 与 schema 同步（改一处要改两处）",
-  ["Lyrics.ChineseConvert", "Lyrics.OnlineTtml", "Lyrics.TtmlDatabase", "Lyrics.TtmlLibrary"].every((k) => cfgSrc.includes(`"${k}"`)));
+  ["Lyrics.LyricTint", "Lyrics.ChineseConvert", "Lyrics.OnlineTtml", "Lyrics.TtmlDatabase", "Lyrics.TtmlLibrary"].every((k) => cfgSrc.includes(`"${k}"`)));
 
 check("正在播放页歌词列四档齐备且无说明行",
   ["默认", "全高", "已播放行隐藏", "全高已播放行隐藏"].every((label) => views.includes(`>${label}</button>`))

@@ -1,6 +1,6 @@
 // Quaver — SPA 入口：应用持久化偏好（quaver.conf），boot 壳层；路由由 hash 驱动
 // 配置在 preload 阶段已同步取好（见 src/lib/config.ts 顶部说明），这里无需等待任何异步。
-import { applyTheme, applyFonts, applyDecor, applySidebar, syncCloseAction } from "./lib/prefs";
+import { applyTheme, applyFonts, applyDecor, applySidebar, applyLyricTint, syncCloseAction } from "./lib/prefs";
 import { bootControlBar } from "./lib/control-bar";
 import { bootPlaylistMode } from "./lib/playlist-mode";
 import { player } from "./player";
@@ -15,6 +15,8 @@ applyTheme();
 applyFonts();
 
 applyDecor();
+
+applyLyricTint();
 
 bootControlBar();
 

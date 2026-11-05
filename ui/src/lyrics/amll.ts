@@ -322,8 +322,8 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
   let hidePassed = ctx.hidePassedLines?.() ?? false;
   player.setHidePassedLines(hidePassed);
 
-  // 隐藏已播放行时，当前行顶边对齐封面顶边。锚位由宿主按实际几何算出（0..1）；
-  // 缺省 / null 时保持 AMLL 原本的居中锚定，桌面歌词窗等其它宿主不受影响。
+  // 隐藏已播放行时，宿主给出当前行顶边的锚位（0..1；普通高度对齐封面顶边，
+  // 全高模式钉在上 1/3）。缺省 / null 时保持 AMLL 原本的居中锚定，桌面歌词窗等其它宿主不受影响。
   let alignTop: number | null = null;
 
   const applyTopAnchor = () => {

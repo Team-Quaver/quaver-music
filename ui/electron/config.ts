@@ -671,6 +671,15 @@ export const SCHEMA: SectionSpec[] = [
     section: "Lyrics",
     keys: [
       {
+        key: "LyricTint",
+        def: "False",
+        doc: [
+          "歌词染色：True=当前句/逐字高亮跟随「高亮颜色」Tint｜False=用 AMLL 默认白色（**默认**）。",
+          "只影响播放页歌词的高亮色，不改变界面高亮色本身",
+        ],
+        valid: (v: string) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
+      },
+      {
         key: "ChineseConvert",
         def: "off",
         doc: [

@@ -296,9 +296,13 @@ export function NowPlaying(): HTMLElement {
 
   syncLyricLayout();
 
-  /** 隐藏已播放行时的当前行锚位 = 封面顶边相对歌词容器顶边的比例。 */
+  /** 隐藏已播放行时的当前行锚位 = 封面顶边相对歌词容器顶边的比例。
+   *  全高模式容器铺满窗口，封面顶边会被拉得过低，当前行按需求钉在容器上 1/3 处。 */
   const lyricTopAnchor = (): number | null => {
     if (!npLyricHidePlayed()) return null;
+
+    if (npLyricFullHeight()) return 1 / 3;
+
     const host = karaHost.getBoundingClientRect();
 
     if (host.height <= 0) return null;
@@ -946,9 +950,10 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
     const lr = lyrics.getBoundingClientRect();
     const lineRect = line.getBoundingClientRect();
 
-    // 隐藏已播放行时，当前行顶边与封面顶边同高；其余档位保持原来的居中跟随。
+    // 隐藏已播放行时，当前行顶边与封面顶边同高（全高模式钉在容器上 1/3）；
+    // 其余档位保持原来的居中跟随。
     const anchorTop = npLyricHidePlayed()
-      ? cover.getBoundingClientRect().top - lr.top
+      ? (npLyricFullHeight() ? lyrics.clientHeight / 3 : cover.getBoundingClientRect().top - lr.top)
       : (lyrics.clientHeight - lineRect.height) / 2;
 
     const top = lyrics.scrollTop + lineRect.top - lr.top - anchorTop;

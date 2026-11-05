@@ -666,6 +666,20 @@ export const npLyricHidePlayed = () => {
 // 全部走 quaver.conf；渲染层只读快照（启动一次性装载），写盘即时同步主进程。判据与
 // electron/config.ts 的 schema 值域同规（改一处要改两处）：TTML 地址模板的合法性由 ttml.ts
 // 的 isTtmlDatabaseUrl 把关（与写盘侧 isTtmlDatabaseUrlTemplate 对齐），本地库目录沿用「非控制字符 + 长度」口径。
+export function getLyricTint(): boolean {
+  return !/^(false|0|no)$/i.test(cfg("Lyrics.LyricTint", "False"));
+}
+
+/** 落到 <html data-lyric-tint>：style.css 据此决定播放页歌词用 Tint 还是 AMLL 默认色。 */
+export function applyLyricTint() {
+  document.documentElement.dataset.lyricTint = getLyricTint() ? "on" : "off";
+}
+
+export function setLyricTint(v: boolean) {
+  cfgSet({ "Lyrics.LyricTint": v ? "True" : "False" });
+  applyLyricTint();
+}
+
 export type ChineseConvert = "off" | "simplified" | "traditional";
 
 const CONF_CHINESE: Record<string, ChineseConvert> = { off: "off", simplified: "simplified", traditional: "traditional" };

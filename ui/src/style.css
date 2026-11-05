@@ -1567,6 +1567,8 @@ body[data-control-bar="floating"] .np.np-lyrics-full .np-inner {
   --amll-lp-font-size: calc(clamp(18px, 3vh, 28px) * var(--np-ly-scale, 1));
   --amll-lp-hover-bg-color: #ffffff1f;
 }
+/* 设置→歌词→歌词染色关闭：交还 AMLL 自己的默认色（white），不掺 Tint。 */
+html[data-lyric-tint="off"] .np-kara-host { --amll-lp-color: white; }
 .np.kara .np-lyrics { display: none; }
 .np.kara .np-kara-host { display: block; }
 /* AMLL 默认会把超宽行平衡成两段近似等长的文字，第一行常留下大块右侧空白。
