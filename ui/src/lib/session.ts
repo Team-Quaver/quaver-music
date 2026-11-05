@@ -18,6 +18,13 @@ const KEY = "quaver.session.v1";
 /** 队列存档上限：超长队列只留指针附近的一段，避免单条记录撑爆配额 */
 const MAX_QUEUE = 500;
 
+/** 来源页 hash 的最小校正：只认 `#/` 开头的路由串（旧存档没有这项 / 脏数据一律当没有）。 */
+function sourceHash(v: string | null | undefined): string | null {
+  const h = String(v ?? "").trim();
+
+  return h.startsWith("#/") ? h : null;
+}
+
 export interface SessionSnapshot {
   queue: Song[];
   index: number;
@@ -32,6 +39,8 @@ export interface SessionSnapshot {
   radio?: boolean;
   /** 当前电台轮次的末曲下标；旧存档或窗口重建期间的临时快照可能缺省。 */
   radioEnd?: number;
+  /** 队列来源页 hash（播放条封面右键「跳转至歌单」）；旧存档没有这一项。 */
+  source?: string | null;
   /** 播放条会话音质覆盖（Quality | "auto" | 未覆盖=null）。
    *  只在窗口重建接管时恢复 —— 冷启动仍回设置页默认（会话级语义不变） */
   quality?: string | null;
@@ -84,6 +93,7 @@ function slim(s: Song): Song | null {
 export function saveSession(snap: {
   queue: Song[]; index: number; position: number; mode: Mode; shuffle?: boolean;
   radio?: boolean; radioEnd?: number;
+  source?: string | null;
   quality?: string | null;
   lastStream?: { tier: string; label: string; degraded: boolean } | null;
 }): void {
@@ -117,6 +127,7 @@ export function saveSession(snap: {
       shuffle: !!snap.shuffle,
       radio,
       radioEnd,
+      source: sourceHash(snap.source),
       quality: snap.quality ?? null,
       lastStream: snap.lastStream ?? null,
       at: Date.now(),
@@ -159,6 +170,7 @@ export function loadSession(): SessionSnapshot | null {
       shuffle: d.shuffle === true,
       radio,
       radioEnd,
+      source: sourceHash(d.source),
       quality: typeof d.quality === "string" ? d.quality : null,
       lastStream: ls && typeof ls === "object" && typeof ls.tier === "string" ? ls : null,
       at: Number(d.at) || 0,

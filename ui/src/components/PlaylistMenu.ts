@@ -67,15 +67,17 @@ async function fetchSongsOrComplain(fetchSongs: () => Promise<Song[]>): Promise<
 }
 
 /** 立即播放：整队列替换、从第一首起播（侧栏双击与菜单「立即播放」共用一条路）。
- *  普通歌单与系统虚拟歌单（每日 30 首 / 我喜欢）都落到这里，差别只在取歌函数。 */
-export async function playSongsNow(title: string, fetchSongs: () => Promise<Song[]>) {
+ *  普通歌单与系统虚拟歌单（每日 30 首 / 我喜欢）都落到这里，差别只在取歌函数。
+ *  source = 队列来源页 hash：侧栏/虚拟歌单是在别的路由上起播的，必须显式给，
+ *  否则封面右键「跳转至歌单」会记成当时所在的那一页。 */
+export async function playSongsNow(title: string, fetchSongs: () => Promise<Song[]>, source?: string) {
   const songs = await fetchSongsOrComplain(fetchSongs);
 
   if (!songs) return; // 取歌失败已 toast
 
   if (!songs.length) { toast("歌单为空或不可见", "err"); return; }
 
-  player.playList(songs, 0);
+  player.playList(songs, 0, source);
   toast(`正在播放歌单「${title}」`);
 }
 
@@ -99,7 +101,9 @@ export async function playSongsNext(title: string, fetchSongs: () => Promise<Son
 
 /** 立即播放（普通歌单入口）：按 disstid 翻页拉全歌后走 playSongsNow */
 export async function playPlaylistNow(pl: PlaylistMenuTarget) {
-  return playSongsNow(pl.title, () => fetchPlaylistSongs(pl.id));
+  const source = `#/playlist?id=${encodeURIComponent(String(pl.id))}&name=${encodeURIComponent(pl.title || "歌单")}`;
+
+  return playSongsNow(pl.title, () => fetchPlaylistSongs(pl.id), source);
 }
 
 /** 插队播放（普通歌单入口）：同上走 playSongsNext */
@@ -118,8 +122,11 @@ export function openVirtualPlaylistMenu(
   anchor?: HTMLElement,
   id = "virtual",
 ) {
+  // 虚拟歌单的来源就是它自己的路由（daily / liked）；id 不是已知路由时不猜，交给 playList 按当时路由捕获
+  const source = id === "daily" || id === "liked" ? `#/${id}` : undefined;
+
   const items: MenuItem[] = [
-    { label: "立即播放", note: "替换当前队列", run: () => playSongsNow(title, fetchSongs) },
+    { label: "立即播放", note: "替换当前队列", run: () => playSongsNow(title, fetchSongs, source) },
     {
       label: "插队播放",
       note: player.radioActive ? "无限电台播放中" : "排到当前曲之后",

@@ -185,7 +185,7 @@ ok("插队: 歌单插队先拦电台再取歌", re(playlistMenuCode, /playSongsN
 
 
 // ============ 5. 电台退出与队列语义 ============
-ok("电台: 换整张队列/手动改队列会退出电台", re(playerCode, /playList\(songs: Song\[\], i = 0\) \{\s*this\.exitRadio\(\);/));
+ok("电台: 换整张队列/手动改队列会退出电台", re(playerCode, /playList\(songs: Song\[\], i = 0, source\?: string \| null\) \{\s*this\.exitRadio\(\);/));
 
 ok("电台: 只向前走（orderOf 在 radioOn 时走原序）",
   re(playerCode, /if \(this\.radioOn\) \{[\s\S]{0,180}return this\.identityOrder;/));

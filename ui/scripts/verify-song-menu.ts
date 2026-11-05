@@ -107,6 +107,28 @@ ok("菜单: 加入歌单/从歌单删除走 playlists 数据层",
 
 ok("菜单: 复制走 clipboard 封装", has(src.menu, "copyText("));
 
+// 播放条封面右键菜单：与正在播放页的 ⋮ 同类，但复用歌曲行同一套自绘面板（openMenuAt）。
+// 正在播放页的 `.np-menu` 是另一套 DOM，不在这里复用。
+for (const label of ["跳转歌手", "跳转专辑", "跳转至歌单", "复制", "复制歌名", "同名搜索"]) {
+  ok(`封面右键菜单项「${label}」存在`, has(src.menu, `label: "${label}"`));
+}
+
+ok("封面右键: 多歌手才展开子菜单（单歌手直接跳）",
+  re(src.menu, /singers\.length === 1[\s\S]{0,500}label: "跳转歌手"[\s\S]{0,800}singers\.length > 1[\s\S]{0,240}sub: \(\) => artistItems\(song\)/));
+
+ok("封面右键: 复用 openMenuAt（不自起面板）",
+  re(src.menu, /export function openPlayerCoverMenu[\s\S]*?openMenuAt\(x, y, items, anchor\)/));
+
+ok("封面右键: 跳转前收起正在播放页（铺满全窗的常驻层不收起会盖住目标页）",
+  re(src.menu, /const jump = \(hash: string\) => \{\s*if \(player\.expanded\)[\s\S]{0,120}location\.hash = hash;/));
+
+ok("播放条: 封面右键动态加载 SongMenu（不把菜单依赖钉进首屏闭包）",
+  re(src.bar, /"contextmenu"[\s\S]{0,240}preventDefault\(\)[\s\S]{0,420}import\("\.\/SongMenu"\)[\s\S]{0,160}openPlayerCoverMenu/));
+
+ok("正在播放页 ⋮: 含「跳转至歌单」（来源来自 player.queueSource）",
+  has(src.np, "player.queueSource")
+  && re(noComments(src.np), /menuRow\("跳转至歌单", !src, \(\) => \{\s*if \(src\) location\.hash = src;/));
+
 // 选择器 ↔ DOM：SongMenu 里出现的每个 ctx-/ct- 类名都要在 style.css 有定义
 const menuClasses = new Set([...src.menu.matchAll(/"(ctx-[a-z-]+|ct-[a-z-]+)"/g)].map((m) => m[1]));
 
@@ -156,11 +178,26 @@ ok("player: 立即插队队列空时退化成单曲起播",
 ok("player: 立即播放会退出无限电台（显式换台优先于电台锁）",
   /this\.exitRadio\(\);[\s\S]{0,120}this\.queue\.splice\(this\.index \+ 1, 0, song\);/.test(noComments(nowBody)));
 
-const playListBody = (src.player.match(/playList\(songs: Song\[\], i = 0\) \{([\s\S]*?)\n  \}/) ?? [])[1] ?? "";
+const playListBody = (src.player.match(/playList\(songs: Song\[\], i = 0, source\?: string \| null\) \{([\s\S]*?)\n  \}/) ?? [])[1] ?? "";
 
 ok("player: 无 mid 条目被跳过时，选中下标按原列表重映射（网盘条目不让后一首错位）",
   /for \(const \[at, song\] of songs\.entries\(\)\) \{\s*if \(!song\?\.mid\) continue;\s*if \(at === i\) selected = queue\.length;\s*queue\.push\(song\);\s*\}/.test(noComments(playListBody))
   && /this\.index = selected >= 0 \? selected : Math\.max\(0, Math\.min\(i, queue\.length - 1\)\)/.test(noComments(playListBody)));
+
+// 队列来源（封面右键「跳转至歌单」）：显式参数优先，未给时按调用时的路由捕获
+ok("player: 建队记录来源页（显式优先 / 未给按当时路由捕获）",
+  /this\.queueSource = source === undefined \? \(location\.hash \|\| "#\/"\) : source;/.test(noComments(playListBody)));
+
+ok("player: 无限电台的来源是猜你喜欢页",
+  re(src.player, /this\.queueSource = "#\/guess";/));
+
+ok("session: 队列来源随存档往返（重启后仍能回去）",
+  has(src.session, "source: sourceHash(snap.source)")
+  && has(src.session, "source: sourceHash(d.source)"));
+
+ok("来源展示名: 懒加载模块从 hash 推导（不把解析塞进首屏）",
+  has(read("src/lib/queue-source.ts"), "export function queueSourceLabel")
+  && has(src.menu, "queueSourceLabel("));
 
 ok("views: 搜索页双击走立即插队（不是 playList 整列灌队，也不是排到下一首）",
   /renderSongRows\(box, list, \{ showAlbum: true, onPlay: \(s\) => playNowWithToast\(s\) \}\)/.test(src.views));

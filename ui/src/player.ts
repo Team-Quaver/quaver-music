@@ -111,6 +111,11 @@ class Player {
   /** 队列内容版本号：任何队列变更 +1（QueuePanel 据此做 4Hz 去重，
    *  免得每次位置广播都把整条队列拼成大字符串比对） */
   queueVersion = 0;
+  /** 当前队列的来源页 hash（播放条封面右键「跳转至歌单」）。playList 建队时记录：
+   *  视图内点歌按当时路由捕获，侧栏/首页卡片这类跨页起播由调用方显式给。
+   *  只存路由、展示名在菜单打开时才解析（见 lib/queue-source.ts）。
+   *  随会话存档一起恢复 —— 重启后仍能回到原歌单/虚拟歌单。 */
+  queueSource: string | null = null;
   /** 猜你喜欢无限电台：开关与当前轮次随会话存档恢复。
    *  radioEnd = 当前这一轮最后一首在 queue 里的下标；播到它时补下一轮并裁掉当前曲之前的历史。 */
   private radioOn = false;
@@ -424,6 +429,12 @@ class Player {
     this.mode = snap.mode;
     this.shuffle = !!snap.shuffle;
     this.radioOn = !!snap.radio;
+    // 旧存档没有 source：电台态至少还能回到「猜你喜欢」页
+    const savedSource = String(snap.source ?? "");
+
+    this.queueSource = savedSource.startsWith("#/")
+      ? savedSource
+      : this.radioOn ? "#/guess" : null;
     // radioEnd 是轮末续批的边界。旧/过渡存档可能没有它（或存到了 -1），
     // 有队列时按当前队列尾部兜底；否则保留空电台，等首轮取回。
     this.radioEnd = this.radioOn && this.queue.length
@@ -495,6 +506,7 @@ class Player {
       queue: this.queue, index: this.index, position: this.posForSave(), mode: this.mode,
       shuffle: this.shuffle,
       radio: this.radioOn, radioEnd: this.radioEnd,
+      source: this.queueSource,
       quality: getSessionQuality(), lastStream: getLastStream(),
     });
   }
@@ -846,6 +858,7 @@ class Player {
 
       if (!songs.length) throw new Error("猜你喜欢暂无推荐，登录后可得");
       this.queue = songs;
+      this.queueSource = "#/guess";
       this.index = 0;
       this.radioEnd = this.queue.length - 1;
       this._radioLoading = false;
@@ -942,9 +955,12 @@ class Player {
     }
   }
 
-  /** 用新列表替换队列并从 i 播放（整队列替换：视图语义一致）。不 await：双击即刻打断切歌。 */
-  playList(songs: Song[], i = 0) {
+  /** 用新列表替换队列并从 i 播放（整队列替换：视图语义一致）。不 await：双击即刻打断切歌。
+   *  source = 队列来源页（封面右键「跳转至歌单」）；不传则按调用时的路由捕获，
+   *  跨页起播（侧栏歌单 / 首页卡片）由调用方显式给。 */
+  playList(songs: Song[], i = 0, source?: string | null) {
     this.exitRadio();
+    this.queueSource = source === undefined ? (location.hash || "#/") : source;
     void warmPlaybackFallbackSources();
     // 上游歌单可能夹着没有 mid 的网盘条目，队列会跳过它们；下标必须按原列表
     // 同步重映射，否则点网盘后面的歌会错位到再下一首。

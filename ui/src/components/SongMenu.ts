@@ -23,6 +23,7 @@ import {
   type MyPlaylist,
 } from "../lib/playlists";
 import { sparkleMenuItems } from "../sparkle/registry";
+import { queueSourceLabel } from "../lib/queue-source";
 import { toast } from "../lib/toast";
 
 export interface SongMenuContext {
@@ -311,6 +312,17 @@ export function playNowWithToast(song: any) {
   if (player.playNextNow(song)) toast(`正在播放：${label}`);
 }
 
+/** 歌手页 hash（行内菜单与封面右键共用同一串参数格式）。 */
+const singerHash = (a: any) =>
+  `#/singer?mid=${encodeURIComponent(a.mid)}&name=${encodeURIComponent(stripEm(a.name) || "歌手")}`;
+
+/** 专辑页 hash：封面取 pmid 去 `_` 后缀那份，跳转参数沿用 albumItems 的历史口径。 */
+const albumHash = (alb: any) => {
+  const base = String(alb?.pmid || alb?.mid || "").split("_")[0];
+
+  return `#/album?mid=${encodeURIComponent(alb?.mid ?? base)}&name=${encodeURIComponent(stripEm(alb?.name) || "专辑")}`;
+};
+
 function artistItems(song: any): MenuItem[] {
   const singers: any[] = song?.singer ?? [];
 
@@ -323,7 +335,7 @@ function artistItems(song: any): MenuItem[] {
     disabled: !a?.mid,
     run: () => {
       if (!a?.mid) return;
-      location.hash = `#/singer?mid=${encodeURIComponent(a.mid)}&name=${encodeURIComponent(stripEm(a.name) || "歌手")}`;
+      location.hash = singerHash(a);
     },
   }));
 }
@@ -338,7 +350,7 @@ function albumItems(song: any): MenuItem[] {
     label: stripEm(alb.name) || "专辑",
     thumb: `https://y.gtimg.cn/music/photo_new/T002R300x300M000${base}.jpg`,
     run: () => {
-      location.hash = `#/album?mid=${encodeURIComponent(alb.mid ?? base)}&name=${encodeURIComponent(stripEm(alb.name) || "专辑")}`;
+      location.hash = albumHash(alb);
     },
   }];
 }
@@ -621,6 +633,116 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
   items.push(...sparkleMenuItems({ song, list: ctx.list, index: ctx.index }));
 
   return items;
+}
+
+/** 播放条封面右键菜单：当前曲的快捷跳转 / 复制 / 同名搜索。
+ *
+ *  面板复用 openMenuAt（与歌曲行右键同一套自绘层：body 常驻、视口钳制、关闭时机齐全），
+ *  只放「以当前曲为中心」的动作，不含队列写入（插队 / 加入歌单）与歌单删除。
+ *  「跳转至歌单」的来源是 player.queueSource（真实歌单 / 虚拟歌单都在 playList 建队时记录）；
+ *  正在播放页展开时先收起它再跳 —— 它是铺满全窗的常驻层，只在底下换路由仍会盖在最上面。 */
+export function openPlayerCoverMenu(x: number, y: number, song: any, anchor?: HTMLElement) {
+  if (!song?.mid) return;
+
+  const name = songTitle(song) || "这首歌";
+  const sub = songSubtitle(song);
+  const singers: any[] = song.singer ?? [];
+  const alb = song.album;
+  const local = isLocalSong(song) ? song.local : null;
+  const direct = !!song.directUrl;
+  const source = player.queueSource
+    ?? (player.radioActive ? "#/guess" : null);
+
+  /** 跳转类动作：收起正在播放页（其余路径由 NowPlaying 的 expanded 迁移统一退全屏并清画廊），再换路由。 */
+  const jump = (hash: string) => {
+    if (player.expanded) { player.expanded = false; player.notifyPublic(); }
+    location.hash = hash;
+  };
+
+  const items: MenuItem[] = [];
+
+  // 歌手：单人直接跳，多人展开子菜单（与正在播放页 ⋮ 的「跳转歌手」同一入口）
+  if (singers.length === 1) {
+    const a = singers[0];
+
+    items.push({
+      label: "跳转歌手",
+      note: stripEm(a?.name) || "",
+      disabled: !a?.mid,
+      run: () => { if (a?.mid) jump(singerHash(a)); },
+    });
+  } else if (singers.length > 1) {
+    items.push({ label: "跳转歌手", note: `${singers.length} 位`, sub: () => artistItems(song) });
+  } else {
+    items.push({ label: "跳转歌手", note: "无歌手信息", disabled: true });
+  }
+
+  items.push({
+    label: "跳转专辑",
+    note: stripEm(alb?.name) || "",
+    disabled: !alb?.mid && !alb?.pmid,
+    run: () => { if (alb?.mid || alb?.pmid) jump(albumHash(alb)); },
+  });
+
+  items.push({
+    label: "跳转至歌单",
+    note: source ? queueSourceLabel(source) : "来源未知",
+    disabled: !source,
+    run: () => { if (source) jump(source); },
+  });
+
+  items.push({
+    label: "复制",
+    sub: () => {
+      const copy: MenuItem[] = [{
+        label: "复制歌名",
+        note: sub ? `${name} ${sub}` : name,
+        run: async () => {
+          const ok = await copyText(sub ? `${name} ${sub}` : name);
+          toast(ok ? `已复制：${name}` : "复制失败（剪贴板不可用）", ok ? "ok" : "err");
+        },
+      }];
+
+      // 本地/微云曲没有 QQ 分享页：给能找到的稳定标识，别造一条死链
+      if (local) {
+        copy.push({
+          label: "复制文件路径",
+          note: local.path,
+          run: async () => {
+            const ok = await copyText(local.path);
+            toast(ok ? "已复制文件路径" : "复制失败（剪贴板不可用）", ok ? "ok" : "err");
+          },
+        });
+      } else if (direct) {
+        copy.push({
+          label: "复制微云文件 ID",
+          note: song.mid,
+          run: async () => {
+            const ok = await copyText(String(song.mid).replace(/^weiyun:/, ""));
+            toast(ok ? "已复制微云文件 ID" : "复制失败（剪贴板不可用）", ok ? "ok" : "err");
+          },
+        });
+      } else {
+        copy.push({
+          label: "复制歌曲链接",
+          run: async () => {
+            const ok = await copyText(songShareUrl(song.mid));
+            toast(ok ? "已复制歌曲链接" : "复制失败（剪贴板不可用）", ok ? "ok" : "err");
+          },
+        });
+      }
+
+      return copy;
+    },
+  });
+
+  items.push({
+    label: "同名搜索",
+    note: name,
+    run: () => { jump(`#/search?keyword=${encodeURIComponent(stripEm(song.name) || name)}`); },
+  });
+
+  openMenuAt(x, y, items, anchor);
 }
 
 /** 在 (x, y) 打开菜单（坐标一般是鼠标位置）。anchor = 右键的那一行，滚动判据要用它 */

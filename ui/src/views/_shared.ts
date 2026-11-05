@@ -460,7 +460,8 @@ async function cardPlay(kind: "playlist" | "album" | "singer" | "toplist", id: s
     }
 
     if (!songs.length) throw new Error("empty");
-    player.playList(songs, 0);
+    // 首页/歌单集页的卡片是在「当前路由」起播别的集合：来源必须是卡片自己指向的那一页
+    player.playList(songs, 0, fallbackHash);
   } catch {
     location.hash = fallbackHash;
   }

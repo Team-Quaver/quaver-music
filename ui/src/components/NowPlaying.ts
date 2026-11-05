@@ -509,6 +509,14 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
         const base = String(alb!.pmid || alb!.mid).split("_")[0];
         location.hash = `#/album?mid=${encodeURIComponent(alb!.mid ?? base)}&name=${encodeURIComponent(stripEm(alb!.name) || "专辑")}`;
       }));
+
+      // 跳转至歌单：回到当前队列的来源页（真实歌单 / 虚拟歌单）。
+      // 来源是 player.playList 建队时记录的页面 hash；旧存档没有记录时置灰。
+      const src = player.queueSource ?? (player.radioActive ? "#/guess" : null);
+
+      moreMenu.append(menuRow("跳转至歌单", !src, () => {
+        if (src) location.hash = src;
+      }));
     } else {
       const empty = document.createElement("div");
       empty.className = "np-menu-empty";

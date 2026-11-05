@@ -373,7 +373,12 @@ export function bootShell() {
 
     if (!v) continue;
     // 双击 = 立即播放（单击仍导航进页面；两击的第一次导航先落地，双击随即开播）
-    a.addEventListener("dblclick", () => { void playlistMenu().then((m) => m.playSongsNow(v.title, v.fetch)); });
+    a.addEventListener("dblclick", () => {
+      // 显式给来源：双击是从侧栏起播的，别让「跳转至歌单」记成当时所在的路由
+      const route = a.dataset.route ?? "";
+
+      void playlistMenu().then((m) => m.playSongsNow(v.title, v.fetch, route ? `#/${route}` : undefined));
+    });
     a.addEventListener("contextmenu", (e) => {
       e.preventDefault(); // 不弹系统菜单
       e.stopPropagation();
