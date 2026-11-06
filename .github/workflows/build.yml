@@ -312,7 +312,10 @@ jobs:
             runs_on: ubuntu-24.04
             # Ubuntu noble 只有版本化包，且二进制同样带 -14 后缀（没有无版本软链）
             cc: loongarch64-linux-gnu-gcc-14
-            apt: gcc-14-loongarch64-linux-gnu
+            # gcc 包对目标 libc 头只有 Recommends（libc6-dev-loong64-cross），
+            # 而下面 apt-get 用了 --no-install-recommends：显式补上，否则 cgo
+            # 退到宿主 /usr/include，报 bits/libc-header-start.h / bits/wordsize.h 不存在。
+            apt: gcc-14-loongarch64-linux-gnu libc6-dev-loong64-cross
     steps:
       - uses: actions/checkout@v7
         with:
@@ -487,6 +490,12 @@ jobs:
         env:
           CC: clang
           MACOSX_DEPLOYMENT_TARGET: "12.0"
+          # audio-go 的 darwin 层用 //go:cgo_import_dynamic 直接引用
+          # AudioToolbox/CoreAudio；-buildmode=c-shared 固定走外部链接，
+          # 这些动态导入由 clang 解析。runtime/cgo 只默认带
+          # CoreFoundation/Security，不补 framework 就是 _AudioQueue*/
+          # _AudioObject* undefined。
+          CGO_LDFLAGS: "-framework CoreFoundation -framework AudioToolbox -framework CoreAudio"
         run: bash scripts/build-capi.sh darwin arm64
 
       - name: Verify target machine
