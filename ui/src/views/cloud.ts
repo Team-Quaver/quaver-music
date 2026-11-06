@@ -150,7 +150,7 @@ export default async function cloudView(root: HTMLElement) {
         </span>`;
 
       if (song) {
-        el.title = "双击播放（后端定位微云文件并解密）";
+        el.title = "双击播放";
         el.ondblclick = () => player.playList([song], 0);
         bindSongMenu(el, () => {
           const all = visibleSongs();
