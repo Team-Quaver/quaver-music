@@ -55,36 +55,52 @@ export function parseTimedAux(src: string): LyricLine[] {
   return parseTimedBlock(src ?? "", true);
 }
 
-/** 辅助行（翻译 / 音译同一套路）一对一挂到主歌词行。
- *  每条辅助源最多匹配一行，每行最多接收一条；显式空占位也参与匹配，
- *  所以上一行的翻译不会被借给没有翻译的下一行。 */
+/** 辅助行（翻译 / 音译同一套路）一对一挂到主歌词行：按时间就近分配，
+ *  **已被占用的主行不再接收下一条辅助行**。显式空占位也参与匹配并占住自己那一行，
+ *  所以上一行的翻译不会被借给没有翻译的下一行。
+ *
+ *  必须是真正的一对一：上游粗粒度时间戳会把名单行与首句挤在同一秒（例：翻译源的
+ *  `[00:00.30]//` 与 `[00:00.30]逃吧 躲吧` 对应主歌词的「音乐监制」300ms 与首句 303ms）。
+ *  若每条辅助行都独立找最近的主行，两条都会撞上 300ms 的名单行；占位先到就把首句译文顶掉，
+ *  表现为「第一句有翻译却不显示」。顺序分配才能让占位占据名单行、译文落到下一行。
+ *
+ *  返回「主行下标 → 文本」，空占位只占位、不进结果（调用方据下标判断已被占用）。 */
+export function matchAuxLines(
+  baseTimes: readonly number[],
+  aux: ReadonlyArray<{ t: number; text: string }>,
+  tolerance = 1.5,
+): Map<number, string> {
+  const used = new Set<number>();
+  const hits = new Map<number, string>();
+
+  for (const line of aux) {
+    let best = -1;
+    let bd = tolerance;
+
+    for (let i = 0; i < baseTimes.length; i++) {
+      if (used.has(i)) continue;
+      const d = Math.abs(baseTimes[i] - line.t);
+
+      if (d < bd) { bd = d; best = i; }
+    }
+
+    if (best < 0) continue;
+    used.add(best);
+
+    if (line.text) hits.set(best, line.text);
+  }
+
+  return hits;
+}
+
 function attachAux(base: LyricLine[], src: string | undefined, field: "trans" | "roma") {
   if (!base.length) return;
   const aux = parseTimedAux(src ?? "");
 
   if (!aux.length) return;
-  const matched = new Map<LyricLine, { d: number; text: string }>();
+  const hits = matchAuxLines(base.map((b) => b.t), aux);
 
-  for (const line of aux) {
-    let best: LyricLine | undefined;
-    let bd = 1.5; // 秒差容忍
-
-    for (const b of base) {
-      const d = Math.abs(b.t - line.t);
-
-      if (d < bd) { bd = d; best = b; }
-    }
-
-    if (!best) continue;
-    const prev = matched.get(best);
-
-    // 同一主行有多条候选时取时间最近的一条；等距时占位（空串）优先阻断。
-    if (!prev || bd < prev.d || (bd === prev.d && !line.text && prev.text)) {
-      matched.set(best, { d: bd, text: line.text });
-    }
-  }
-
-  for (const [b, hit] of matched) if (hit.text) b[field] = hit.text;
+  for (const [i, text] of hits) base[i][field] = text;
 }
 
 export function parseLrc(lrc: string, trans?: string, roman?: string): LyricLine[] {
