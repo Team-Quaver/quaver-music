@@ -121,13 +121,11 @@ check("模板注释来自 schema", template().includes("可选 dark,light,follow
 
 eq("默认值与模板占位一致", (() => { const v = readValues().values; return v["Style.Style"] === "dark" && v["Playing.Backend"] === "MPV" && v["Quality.DefaultQuality"] === "Auto" && v["Quality.FallbackToQMAtmos"] === "False"; })(), true);
 
-eq("窗口装饰默认随平台：darwin=ssd", defaultDecor("darwin"), "ssd");
+eq("窗口装饰默认三平台统一 csd（macOS 走 hiddenInset 红绿灯）", [defaultDecor("darwin"), defaultDecor("linux"), defaultDecor("win32")], ["csd", "csd", "csd"]);
 
-eq("窗口装饰默认随平台：linux / win32=csd", [defaultDecor("linux"), defaultDecor("win32")], ["csd", "csd"]);
+eq("默认值表覆盖 Window.Decor", [defaults("darwin")["Window.Decor"], defaults("linux")["Window.Decor"]], ["csd", "csd"]);
 
-eq("默认值表覆盖 Window.Decor", [defaults("darwin")["Window.Decor"], defaults("linux")["Window.Decor"]], ["ssd", "csd"]);
-
-check("模板落盘也按平台给默认值", template("darwin").includes("Decor=ssd") && template("linux").includes("Decor=csd"));
+check("模板落盘也按平台给默认值", template("darwin").includes("Decor=csd") && template("linux").includes("Decor=csd"));
 
 eq("侧栏菜单默认顺序（8 项）", defaults()["Style.NavOrder"], "home,guess,daily,liked,playlists,all,local,cloud");
 eq("侧栏菜单默认无隐藏项", defaults()["Style.NavHidden"], "");

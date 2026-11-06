@@ -39,6 +39,7 @@ body:
         # >>> auto-generated-options (refresh-issue-versions 维护，勿手改) >>>
         - v1.8.0-beta.2
         - v1.8.0-beta.1
+        - v1.8.0
         - v1.7.2
         - v1.7.1
         - v1.7.0-beta.3

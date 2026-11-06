@@ -299,8 +299,10 @@ const hotkeys = createGlobalHotkeys({
 
 // 菜单栏治理：CSD（frameless）下 Electron 会把默认菜单画成窗口顶部菜单条，直接摘掉；
 // SSD 还原默认菜单。不用 setMenuBarVisibility(false)——它不缩 Linux 的内容区（留一条空白）。
+// macOS 例外：应用菜单挂在**系统菜单栏**（不是窗口顶部），CSD 下也必须保留，
+// 否则会连带丢 Cmd+Q / Cmd+H / 服务等系统菜单项。macOS CSD 的窗口内本来也不画菜单条。
 function applyMenu() {
-  Menu.setApplicationMenu(decorMode === "ssd" ? defaultMenu : null);
+  Menu.setApplicationMenu(process.platform === "darwin" || decorMode === "ssd" ? defaultMenu : null);
 }
 
 function showWindow() {
@@ -701,12 +703,23 @@ async function createWindow() {
   // 交接发生在同一个窗口里，不是居中悬浮的独立小窗。闪屏只给冷启动路径：重建窗口（cachedUrl）
   // 与集成测试（QUAVER_URL）没有慢空窗，不放。
   const warmBoot = !!cachedUrl || !!process.env.QUAVER_URL;
+  // macOS 的 CSD 走 hiddenInset：没有标题栏，但保留系统红绿灯（macOS HIG），
+  // frame 必须为 true —— frame:false 会把红绿灯一起摘掉；内容仍铺满整窗。
+  // 渲染层据此挂 body.mac-csd：隐藏自绘三钮，并把侧栏顶部让出一条红绿灯带（style.css）。
+  // 其余平台 CSD 仍是 frame:false + 自绘按钮簇。
+  const macHIG = process.platform === "darwin" && decorMode === "csd";
+
+  const macWindowOpts = macHIG
+    ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 16, y: 16 } }
+    : {};
+
   win = new BrowserWindow({
     width: 1280,
     height: 840,
     minWidth: 760,   // 布局已适配窄窗（搜索框独立顶带 + 播放条流内收缩），半屏吸附不再挤压重叠
     minHeight: 520,   // 播放条为 .frame 流内固定行：任何高度下都占位可见
-    frame: decorMode === "ssd", // CSD=无原生标题栏（右上角按钮簇）；SSD=系统标题栏
+    frame: macHIG ? true : decorMode === "ssd", // CSD=无原生标题栏（右上角按钮簇）；SSD=系统标题栏
+    ...macWindowOpts,
     backgroundColor: bootDark ? "#131417" : "#f7f7f8", // 同 style.css 的 --bg 明暗两值
     title: "Quaver Music",
     icon: buildRes("icon.png"), // X11 窗口图标（_NET_WM_ICON）；Wayland 的图标走 app_id → 桌面文件 → hicolor（见 linux-desktop 自装）

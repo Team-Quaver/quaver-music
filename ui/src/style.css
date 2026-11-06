@@ -254,6 +254,7 @@ body.side-collapsed {
 /* 侧栏宽度：默认 216px，可由 shell.ts 的分隔条拖拽写入的 --side-w 覆盖
    （缩态 64px 由 body.side-collapsed 的高优先级规则接管，见文件下方） */
 .sidebar {
+  position: relative; /* mac-csd 的 .side-dragtop 以它为定位上下文 */
   flex: 0 0 var(--side-w, 216px); border-radius: 14px; padding: 14px 10px;
   display: flex; flex-direction: column; gap: 10px; overflow: hidden; min-height: 0;
   background: var(--sidebar-surface, var(--glass)); border: 1px solid var(--glass-line);
@@ -272,10 +273,14 @@ body.side-collapsed {
   transition:
     flex-basis .24s cubic-bezier(.22,.61,.36,1), padding .24s cubic-bezier(.22,.61,.36,1),
     gap .24s cubic-bezier(.22,.61,.36,1), max-width .24s cubic-bezier(.22,.61,.36,1),
+    max-height .24s cubic-bezier(.22,.61,.36,1),
     width .24s cubic-bezier(.22,.61,.36,1), height .24s cubic-bezier(.22,.61,.36,1),
     opacity .12s cubic-bezier(.22,.61,.36,1);
 }
-.user { display: flex; gap: 10px; align-items: center; padding: 2px 6px; border-radius: 10px; }
+/* min-height 钉住头像行：登录后多出的昵称/徽章、缩态里被隐藏的 .user-meta 都不许把
+   这一行撑高 —— 否则头像会跟着行高一起上下漂（登录前后位置差、缩态悬浮卡变高都是这个）。
+   48 = 头像 44 + 上下 padding 2×2；缩态头像缩到 38 时，行高不变 → 中轴不变。 */
+.user { display: flex; gap: 10px; align-items: center; padding: 2px 6px; border-radius: 10px; min-height: 48px; }
 .user:hover { background: var(--hover); }
 .avatar {
   width: 44px; height: 44px; flex: 0 0 auto; border-radius: 50%; overflow: hidden;
@@ -283,8 +288,10 @@ body.side-collapsed {
   box-shadow: 0 2px 6px #00000022;
 }
 .avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
-/* max-width 是缩态收字用的抓手：必须有初值（none→0 不参与插值），且比内容宽才不截展开态 */
-.user-meta { min-width: 0; max-width: 160px; overflow: hidden; display: flex; flex-direction: column; gap: 3px; }
+/* max-width 是缩态收字用的抓手：必须有初值（none→0 不参与插值），且比内容宽才不截展开态。
+   max-height 是同一套抓手的纵向版：昵称 + 一行徽章 ≈ 41px，封顶 44（= 头像高）就不会反过来
+   撑高 .user（缩态把 max-width/max-height 一起收到 0，文字与徽章彻底不占版面）。 */
+.user-meta { min-width: 0; max-width: 160px; max-height: 44px; overflow: hidden; display: flex; flex-direction: column; gap: 3px; }
 .nick { font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .badges { display: flex; gap: 4px; flex-wrap: wrap; }
 .badge { font-style: normal; font-size: 10px; line-height: 16px; padding: 0 5px; border-radius: 4px; color: #fff; }
@@ -395,6 +402,10 @@ body.side-collapsed {
 body.side-collapsed .sidebar { flex-basis: 64px; padding: 14px 8px; }
 body.side-collapsed .user { justify-content: center; padding: 2px 0; gap: 0; }
 body.side-collapsed .avatar { width: 38px; height: 38px; }
+/* 头像旁的文字块连高度一起收掉：只收宽度的话，被隐藏的昵称/徽章仍在纵向占位，
+   登录后会把这个卡片撑高、把头像推到中间（缩态实测就是这个症状）。
+   导航文字/歌单名是单行，只收宽度即可，纵向高度本来就由行盒固定。 */
+body.side-collapsed .user-meta { max-height: 0; }
 body.side-collapsed .user-meta,
 body.side-collapsed .nav a span,
 body.side-collapsed .nav-more span,
@@ -420,6 +431,27 @@ body.side-collapsed .playlists::-webkit-scrollbar { width: 6px; }
 body.side-collapsed .playlists::-webkit-scrollbar-thumb { border-width: 2px; }
 body.side-collapsed .side-foot { flex-direction: column; justify-content: center; gap: 2px; }
 body.side-collapsed .side-btn svg { transform: rotate(180deg); }
+
+/* —— macOS 原生 CSD（body.mac-csd）：hiddenInset + 系统红绿灯 ——
+   macOS 的 CSD 不自绘三钮（red/yellow/green 由系统画），所以 .winbtns 收起；
+   左上角那条红绿灯带必须留空，否则会压在侧栏头像上。红绿灯底缘 ≈ 窗口顶 10px 边距 +
+   trafficLightPosition y=16 + 钮径 12 = 28px；侧栏自身 padding-top 14 + .user 的 24px
+   margin 让内容从窗口顶约 48px 才开始（头像顶 ≈ 51px）；满幅主题（.body padding 归零）
+   下也还剩 40px / 头像 43px，不会压到红绿灯。
+   红绿灯横跨约 52px（x=16 起），落在 64px 的缩态侧栏内，不会顶到右侧内容区。
+   状态由 prefs.applyDecor 挂到 body（仅 Electron + Darwin，浏览器 dev 保留自绘占位钮）。 */
+.side-dragtop { display: none; }
+body.mac-csd .winbtns { display: none; }
+/* 让位量写在 .user 的 margin 上，而不是 .sidebar 的 padding-top：Sparkle 主题（如 M3）
+   会以更高特异性重写 .sidebar 的 padding（`& body:not(.side-collapsed) .sidebar`），
+   写在容器上会被主题顶掉；主题不动 .user 的纵向 margin，这条才在三套皮肤下都成立。 */
+body.mac-csd .user { margin-top: 24px; }
+body.mac-csd .side-dragtop {
+  display: block; position: absolute; top: 0; left: 0; right: 0; height: 32px;
+  -webkit-app-region: drag; cursor: grab;
+}
+/* 右上角没有自绘按钮簇了 → 顶带拖拽把手恢复整条（原先为按钮簇止步在右缩 94px 处） */
+body.mac-csd .content-top .top-drag { right: 0; }
 
 /* —— 歌单显示模式：歌单集合页（body[data-playlist-mode="collection"]）——
    「菜单栏」态（默认）侧栏照常列歌单；「歌单集合页」态侧栏歌单区整块撤走，导航按钮在

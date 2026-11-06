@@ -418,14 +418,22 @@ export function getDecor(): DecorMode {
   return cfg("Window.Decor") === "ssd" ? "ssd" : "csd";
 }
 
+/** 是否 macOS 上的 Electron 壳层。浏览器 dev 没有原生红绿灯，仍保留自绘按钮簇做布局占位。 */
+function isMacShell(): boolean {
+  return /Macintosh|Mac OS X/.test(navigator.userAgent) && !!window.quaverCSD;
+}
+
 export function applyDecor() {
   document.body.classList.toggle("ssd", getDecor() === "ssd");
+  // macOS CSD = hiddenInset + 系统红绿灯（见 electron/main.ts）：隐藏自绘三钮，
+  // 侧栏顶部让出一条红绿灯带（style.css 的 body.mac-csd 段）。
+  document.body.classList.toggle("mac-csd", getDecor() === "csd" && isMacShell());
 }
 
 export function setDecor(m: DecorMode) {
   cfgSet({ "Window.Decor": m });
   applyDecor();
-  const bridge = (window as any).quaverCSD;
+  const bridge = window.quaverCSD;
 
   if (bridge?.setDecor) bridge.setDecor(m); // Electron：主进程改 frame 并重建窗口
 }

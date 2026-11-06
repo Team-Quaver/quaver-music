@@ -838,7 +838,7 @@ section("高频项（音量）合并落盘");
   delete globalThis.window.quaverConfig;
 }
 
-// ——— macOS 浏览器兜底：没有主进程快照时按 UA 认 Darwin ———
+// ——— macOS 浏览器兜底：三平台统一 CSD（真正红绿灯走主进程 hiddenInset） ———
 section("macOS 浏览器兜底");
 
 {
@@ -853,7 +853,8 @@ section("macOS 浏览器兜底");
   try {
     const M = await import(`${OUT}.2.mjs?mac=1`);
     await M.loadConfig();
-    eq("浏览器 dev 在 macOS 默认 ssd", M.getDecor(), "ssd");
+    eq("浏览器 dev 在 macOS 也默认 csd", M.getDecor(), "csd");
+    check("浏览器 dev 没有壳层桥 → 不挂 mac-csd（保留自绘占位钮）", !bodyClasses.has("mac-csd"));
   } finally {
     if (realNavigator) Object.defineProperty(globalThis, "navigator", realNavigator);
   }

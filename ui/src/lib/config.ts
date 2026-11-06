@@ -13,11 +13,10 @@ export type ConfigSnapshot = Record<string, string>;
 
 const LS_KEY = "quaver.conf.v1";
 
-/** 浏览器 dev 没有主进程快照，只能从 UA 判断 Darwin；桌面端真正的默认值来自 electron/config.ts。 */
+/** 浏览器 dev 没有主进程快照，只能从 UA 判断 Darwin；桌面端真正的默认值来自 electron/config.ts。
+ *  三平台统一 CSD（macOS 的 CSD 用系统红绿灯，见 electron/main.ts），这里不再按 UA 分叉。 */
 function defaultDecor(): string {
-  const ua = navigator.userAgent;
-
-  return /Macintosh|Mac OS X/.test(ua) ? "ssd" : "csd";
+  return "csd";
 }
 
 // 与 electron/config.ts 的 SCHEMA 默认值保持一致（浏览器 dev 兜底 / 文件缺键时用；

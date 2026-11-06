@@ -190,6 +190,9 @@ export function bootShell() {
     </div>
     <div class="body">
       <aside class="sidebar">
+        <!-- macOS CSD 的拖拽把手带：红绿灯占着侧栏左上角，那条让位带本身用来拖动窗口
+             （其余平台 display:none，拖拽仍由 .win-dragtop / .top-drag 承担） -->
+        <div class="side-dragtop" aria-hidden="true"></div>
         <a class="user" id="user-header" href="#/login" title="点击登录">
           <span class="avatar" id="avatar">${icons.userPh}</span>
           <span class="user-meta">

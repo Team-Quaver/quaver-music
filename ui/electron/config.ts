@@ -322,9 +322,11 @@ export function parsePluginIdList(raw: unknown): string[] {
 export const isPluginIdList = (v: string): boolean =>
   !/[\r\n\u0000]/.test(v) && parsePluginIdList(v).every((id) => SPARKLE_ID_RE.test(id));
 
-/** 窗口装饰的出厂默认：macOS（darwin）用系统标题栏，Linux / Windows 保持无边窗口。 */
-export function defaultDecor(platform: string = process.platform): "csd" | "ssd" {
-  return platform === "darwin" ? "ssd" : "csd";
+/** 窗口装饰的出厂默认：三平台统一 CSD（自绘标题栏）。
+ *  macOS 的 CSD 不是 Linux/Windows 那套自绘三钮，而是 hiddenInset + 系统红绿灯（HIG，
+ *  见 electron/main.ts:createWindow）；所以 macOS 不再默认落到系统标题栏（SSD）。 */
+export function defaultDecor(_platform: string = process.platform): "csd" | "ssd" {
+  return "csd";
 }
 
 /** schema 里一个键的完整描述：默认值、文件内注释、值域校验器。 */
@@ -540,7 +542,7 @@ export const SCHEMA: SectionSpec[] = [
       {
         key: "Decor",
         def: defaultDecor(),
-        doc: ["窗口装饰：csd=自绘标题栏｜ssd=系统标题栏（macOS 默认 ssd，Linux / Windows 默认 csd）。切换后自动重建窗口"],
+        doc: ["窗口装饰：csd=自绘标题栏（macOS 为 hiddenInset + 系统红绿灯）｜ssd=系统标题栏。三平台默认 csd；切换后自动重建窗口"],
         valid: (v: string) => ["csd", "ssd"].includes(v),
       },
       {
