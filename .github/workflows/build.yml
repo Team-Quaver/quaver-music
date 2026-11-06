@@ -16,8 +16,8 @@
 # Liino 构建（liino-linux / liino-windows / liino-macos）：
 #   每个目标只出两件东西：c-shared 库 + 头文件。Linux amd64/arm64 在原生 runner 上构建，
 #   loong64 用 gcc-loongarch64-linux-gnu 交叉；Windows 的 amd64/arm64 在 Linux 上用
-#   llvm-mingw 交叉（capi 的导出层是唯一需要 C 链接器的地方）；macOS 的 arm64/amd64 都在
-#   macos-15 上用 Xcode SDK 交叉（Go 自己会补 -arch）。产物按 <goos>-<goarch> 命名上传，
+#   llvm-mingw 交叉（capi 的导出层是唯一需要 C 链接器的地方）；macOS 只出 arm64，在
+#   macos-15 上用 Xcode SDK 原生构建。产物按 <goos>-<goarch> 命名上传，
 #   前端 job 下载后落到 ui/build-res/liino/<goos>-<goarch>/，再由 extraResources 随包。
 #   Node 绑定是纯 TS（运行时由 koffi dlopen 库），一次 tsc 构建后作为 liino-node-dist 分发。
 #
@@ -310,8 +310,9 @@ jobs:
             apt: ""
           - goarch: loong64
             runs_on: ubuntu-24.04
-            cc: loongarch64-linux-gnu-gcc
-            apt: gcc-loongarch64-linux-gnu
+            # Ubuntu noble 只有版本化包，且二进制同样带 -14 后缀（没有无版本软链）
+            cc: loongarch64-linux-gnu-gcc-14
+            apt: gcc-14-loongarch64-linux-gnu
     steps:
       - uses: actions/checkout@v7
         with:
@@ -445,17 +446,11 @@ jobs:
           path: vendor/Liino/build/windows-${{ matrix.goarch }}
           if-no-files-found: error
 
-  # macOS：两个架构都跑在 arm64 runner 上。darwin/amd64 交叉由 Go 负责补
-  # `-arch x86_64`（cmd/go gccArchArgs），clang 用同一份 Xcode SDK 出 x86_64 切片。
-  # deployment target 钉 12.0：c-shared 的 minos 会写进 Mach-O，别让 runner 的
-  # macOS 15 把库抬到只有新系统能加载。
+  # macOS：只出 arm64（x64 客户端构建已裁撤）。deployment target 钉 12.0：c-shared 的
+  # minos 会写进 Mach-O，别让 runner 的 macOS 15 把库抬到只有新系统能加载。
   liino-macos:
-    name: liino lib (darwin-${{ matrix.goarch }})
+    name: liino lib (darwin-arm64)
     runs-on: macos-15
-    strategy:
-      fail-fast: false
-      matrix:
-        goarch: [arm64, amd64]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -469,28 +464,41 @@ jobs:
           go-version: "1.27.3"
           cache-dependency-path: vendor/Liino/go.sum
 
+      # darwin 上两个 purego fork 都会展开 dlfcn_stubs.s，各自定义未加包前缀的
+      # TEXT dlopen/dlsym/dlerror/dlclose → 同一个 dylib 里两份同名 STEXT，
+      # Go linker 直接 "duplicated definition of symbol dlopen"。
+      # ffgo 用到的 purego API（Dlopen/RegisterLibFunc/NewCallback/CDecl）与 ebitengine
+      # 同源，macOS 构建时把 ffgo 统一到 ebitengine；purego-pipewire 是 linux-only，
+      # 不参与 darwin 链接，所以不会引入第三份。
+      - name: Unify purego fork for darwin
+        working-directory: vendor/Liino
+        run: |
+          set -euo pipefail
+          # runner 是 BSD sed：原地改必须写成 -i ''
+          files=$(grep -rl '"github.com/bnema/purego"' --include='*.go' third_party/ffgo || true)
+          [ -n "$files" ] || { echo "::error::ffgo 里没找到 bnema/purego 引用"; exit 1; }
+          printf '%s\n' "$files" | while IFS= read -r f; do
+            sed -i '' 's|"github.com/bnema/purego"|"github.com/ebitengine/purego"|g' "$f"
+          done
+          sed -i '' 's|github.com/bnema/purego v0.11.0-bnema.3|github.com/ebitengine/purego v0.11.1|' third_party/ffgo/go.mod
+
       - name: Build libliino.dylib
         working-directory: vendor/Liino
         env:
           CC: clang
           MACOSX_DEPLOYMENT_TARGET: "12.0"
-        run: bash scripts/build-capi.sh darwin ${{ matrix.goarch }}
+        run: bash scripts/build-capi.sh darwin arm64
 
       - name: Verify target machine
         run: |
           set -euo pipefail
-          f="vendor/Liino/build/darwin-${{ matrix.goarch }}/libliino.dylib"
+          f="vendor/Liino/build/darwin-arm64/libliino.dylib"
           [ -s "$f" ] || { echo "::error::产物为空"; exit 1; }
-          case "${{ matrix.goarch }}" in
-            arm64) file "$f" | grep -q "arm64" ;;
-            amd64) file "$f" | grep -q "x86_64" ;;
-            *) echo "::error::未知目标"; exit 1 ;;
-          esac
-          echo "machine check OK: darwin/${{ matrix.goarch }}"
+          file "$f" | grep -q "arm64"
+          echo "machine check OK: darwin/arm64"
 
-      # arm64 是原生档：真 dlopen 一次。amd64 在 arm runner 上跑不了，只做机器码检查。
+      # 原生档：真 dlopen + 调一次导出函数（file 只能证明机器码，证明不了能加载）
       - name: Smoke test (native dlopen)
-        if: matrix.goarch == 'arm64'
         run: |
           set -euo pipefail
           python3 - "$PWD/vendor/Liino/build/darwin-arm64/libliino.dylib" <<'PY'
@@ -504,8 +512,8 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: liino-darwin-${{ matrix.goarch }}
-          path: vendor/Liino/build/darwin-${{ matrix.goarch }}
+          name: liino-darwin-arm64
+          path: vendor/Liino/build/darwin-arm64
           if-no-files-found: error
 
 # ────────────────────────────── 前端（客户端包） ──────────────────────────────

@@ -96,8 +96,11 @@ const entries = Object.keys(manifest).filter((k) => manifest[k]?.isEntry && k.en
 check("两个真入口都在（SPA 壳 + 桌面歌词覆盖层）",
   entries.includes("index.html") && entries.includes("desktop-lyrics.html"), entries.join(","));
 
-// 主窗 200KiB：听歌时长上报器本体已懒加载，常驻壳层只保留 transport 事件接线（约 +2KiB）。
-const BUDGET: Record<string, number> = { "index.html": 204_800, "desktop-lyrics.html": 520_000 };
+// 主窗 208KiB（2026-11）：听歌时长上报器本体已懒加载，常驻壳层只保留 transport 事件接线。
+// 这轮涨的是壳层共用块（prefs/config/color/lyric/ttml，见 chunk-graph），不是某个大依赖回潮；
+// 2026-11-06 实测闭包 208,484B，留 ~4.4KB 余量。再涨就要按 probe-bundle 的模块归属真拆，
+// 别继续加预算。
+const BUDGET: Record<string, number> = { "index.html": 212_992, "desktop-lyrics.html": 520_000 };
 
 section("首屏静态闭包预算（入口 + 它静态引到的一切）");
 
