@@ -388,8 +388,6 @@ export default async function settingsView(root: HTMLElement) {
           <button class="opt-card" data-opt="lrc" type="button">LRC（带时间戳）</button>
           <button class="opt-card" data-opt="plain" type="button">纯文本</button>
         </div>
-        <p class="muted set-hint">写入 MPRIS 的 <code>xesam:asText</code>，供 Dank Material Shell / Noctalia 等媒体控件显示。
-          LRC 适合会解析时间戳的控件；按纯文本逐行显示的控件（如 Dank Material Shell）选 LRC 会看到 <code>[mm:ss.xx]</code> 字样。</p>
       </div>
 
       <div class="set-group">
