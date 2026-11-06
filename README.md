@@ -20,6 +20,8 @@ Quaver Music，最早是为了解决 Linux 上 QQ 音乐官方客户端不好用
 而现在，它已然成为一个完善，现代，流畅，百变，以极致体验而生的第三方 QQ 音乐客户端。
 
 > [!CAUTION]
+> **免责声明**：
+>
 > 真爱音乐，尊重正版，音乐平台不易，该应用**不提供盗版 QQ 音乐曲目服务！**
 > 
 > 本软件系 **Vibe Coding** 的产物，虽然我会尽力尝试个人维护，但**不提供可用性保证**
@@ -34,7 +36,7 @@ Quaver Music，最早是为了解决 Linux 上 QQ 音乐官方客户端不好用
 > [!CAUTION]
 > **本程序不建议移植成 GTK 程序**：
 > 
-> 本项目官方版本不支持，亦不接受将整个代码库迁移至 GTK 4 或 Libadwaita 的重构方案。维护者有权拒绝不符合项目技术方向的 Pull Request。
+> 本项目官方版本不支持，亦不接受，不孤立将整个代码库迁移至 GTK 4 / Libadwaita 的重构方案。维护者有权拒绝不符合项目技术方向的 Pull Request。
 > 
 > 欢迎社区基于 Flutter、MyGO 等其他技术进行移植研究。用户对本项目代码的修改、移植及分发仍受项目现行开源许可证约束，本声明不额外限制许可证授予的权利。
 
@@ -53,7 +55,7 @@ Quaver Music，最早是为了解决 Linux 上 QQ 音乐官方客户端不好用
 
 # 截图
 
-#### 深浅模式/主页
+#### 主页
 
 <p align="center">
   <img src="img/1-5.webp" width="480">
@@ -84,7 +86,7 @@ Quaver Music，最早是为了解决 Linux 上 QQ 音乐官方客户端不好用
   <img src="img/inf-radio.webp" width="480">
 </p>
  
-### 桌面歌词
+#### 桌面歌词
 
 <p align="center">
   <img src="img/desktop-lrc.webp" width="720">
