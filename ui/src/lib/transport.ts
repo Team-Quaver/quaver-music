@@ -201,6 +201,23 @@ declare global {
 /** 外推单帧上限：引擎事件断供时进度最多再走 0.35s 就冻结（防时钟跳变甩飞进度条） */
 const EXTRAP_CAP_SEC = 0.35;
 
+/** 页面级客户端标识：同一页面的所有 transport 共用一个（后端热切会重建 transport），
+ *  页面 reload / 窗口重建时换新值。主进程引擎据此区分「同一页面的迟到旧命令」与
+ *  「新页面」：后者从 1 重新计数世代，不能按「更小 = 更旧」丢掉。 */
+const PAGE_CLIENT = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+/** 页面级单调世代，跨 transport 共享。新建 transport 的 pcmEpoch 从 0 起算；
+ *  若各自 `++`，同页面内会撞回已用过的值 —— 迟到的旧 load 反而「更新」，
+ *  或者引擎把新 transport 的第一条 load 当成旧命令丢掉（切回 mpv 后一直转圈）。
+ *  floor 是 transport 自己已知的世代（pcm 模式会从引擎对齐），保证不回退。 */
+let pageEpoch = 0;
+
+function nextEpoch(floor: number): number {
+  pageEpoch = Math.max(pageEpoch, floor) + 1;
+
+  return pageEpoch;
+}
+
 export class EngineTransport implements Transport {
   readonly kind = "engine" as const;
   readonly mode: EngineMode;
@@ -233,7 +250,10 @@ export class EngineTransport implements Transport {
       // 必须接上同一个 epoch，否则第一块 PCM 就被当成旧会话丢掉。
       const epoch = Number(r?.epoch);
 
-      if (this.mode === "pcm" && Number.isFinite(epoch) && epoch >= 0) this.pcmEpoch = epoch;
+      if (this.mode === "pcm" && Number.isFinite(epoch) && epoch >= 0) {
+        this.pcmEpoch = epoch;
+        pageEpoch = Math.max(pageEpoch, epoch);
+      }
 
       return r;
     }).catch(() => null);
@@ -426,7 +446,7 @@ export class EngineTransport implements Transport {
     await this.modeReady;
 
     const startAt = Math.max(0, Number(opts?.startAt) || 0);
-    const epoch = ++this.pcmEpoch;
+    const epoch = this.pcmEpoch = nextEpoch(this.pcmEpoch);
     const token = this.pendingToken;
 
     // 引擎接受 load 之前的旧流位置一律作废：播放头就是这次要起播的位置。
@@ -445,7 +465,11 @@ export class EngineTransport implements Transport {
     this.loadedUrl = url;
 
     try {
-      const r = await this.invoke({ cmd: "load", url, paused: !!opts?.paused, startAt, epoch });
+      const r = await this.invoke({ cmd: "load", url, paused: !!opts?.paused, startAt, epoch, client: PAGE_CLIENT });
+
+      // 引擎按世代丢弃了这条 load（同页面已有更新的那一轮接手）。不能当成功继续等
+      // loaded/playing —— 那条事件永远不会为这一轮到来，UI 会一直转圈。
+      if (r?.stale) throw new Error("音频引擎已接受更新的加载请求");
 
       if (!r?.ok) throw new Error(r?.error ?? "音频引擎加载失败");
     } finally {
@@ -510,7 +534,7 @@ export class EngineTransport implements Transport {
   seekSettled() {}
 
   private queueSeek(at: number, immediate: boolean): number {
-    const epoch = ++this.pcmEpoch;
+    const epoch = this.pcmEpoch = nextEpoch(this.pcmEpoch);
 
     if (!this.pcmHook || !this.seekInFlight) {
       this.sendSeek(at, epoch, immediate);
@@ -529,7 +553,7 @@ export class EngineTransport implements Transport {
 
       this.pendingSeek = null;
       at = latest.at;
-      epoch = ++this.pcmEpoch;
+      epoch = this.pcmEpoch = nextEpoch(this.pcmEpoch);
       immediate ||= latest.immediate;
     }
 
@@ -541,7 +565,7 @@ export class EngineTransport implements Transport {
         const next = this.pendingSeek;
         this.pendingSeek = null;
 
-        if (next) this.sendSeek(next.at, ++this.pcmEpoch, next.immediate);
+        if (next) this.sendSeek(next.at, this.pcmEpoch = nextEpoch(this.pcmEpoch), next.immediate);
       });
   }
 

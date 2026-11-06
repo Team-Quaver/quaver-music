@@ -114,7 +114,7 @@ app.whenReady().then(async () => {
     JSON.stringify(devices.devices).slice(0, 200));
 
   // —— 挂流 → 出声 ——
-  const load = await liinoEngine.call({ cmd: "load", url: stream.url, paused: false, startAt: 0, epoch: 9 });
+  const load = await liinoEngine.call({ cmd: "load", url: stream.url, paused: false, startAt: 0, epoch: 9, client: "probe-page" });
 
   ok("load 接受并回世代", load.ok === true && load.gen === 9, JSON.stringify(load));
 
@@ -167,9 +167,15 @@ app.whenReady().then(async () => {
 
   ok("EQ 落地并如实报丢弃数", eq.ok === true && eq.bands === 2 && eq.dropped === 1, JSON.stringify({ bands: eq.bands, dropped: eq.dropped, note: eq.note }));
 
-  // —— 世代：更小的 epoch 只可能来自「换了一页的渲染层」（窗口重建 / reload 从 1 重新计数）。
+  // —— 世代：同一页面内更小的 epoch 是迟到的旧 load（前一轮 startCurrent 的 fetch 晚归）。
+  //    必须丢弃：它会顶掉新歌的 open，而新歌的 loaded 又因世代不匹配被渲染层过滤。 ——
+  const late = await liinoEngine.call({ cmd: "load", url: stream.url, paused: true, startAt: 0, epoch: 8, client: "probe-page" });
+
+  ok("同页面的迟到旧 load 被丢弃", late.ok === true && late.stale === true && liinoEngine.epoch === 9, JSON.stringify(late));
+
+  // —— 换了一页（窗口重建 / reload）时世代从 1 重新计数：client 变了，不能按更小判旧。
   //    必须接受并以它为当前世代；丢掉的话新页面点了播放会永远停在加载，旧声还在响。 ——
-  const reload = await liinoEngine.call({ cmd: "load", url: stream.url, paused: true, startAt: 0, epoch: 4 });
+  const reload = await liinoEngine.call({ cmd: "load", url: stream.url, paused: true, startAt: 0, epoch: 4, client: "probe-page-2" });
 
   ok("新页面的小世代 load 被接受（不当作迟到旧命令）",
     reload.ok === true && !reload.stale && liinoEngine.epoch === 4, JSON.stringify(reload));

@@ -129,6 +129,7 @@ export class AudioEngine {
   pcmLastDataAt: number;             // 最后一块 PCM 到达时刻（EOF 静默判定）
   pcmReloading: boolean;             // seek 重拉期间保留旧时长，等新文件 file-loaded
   pcmEpoch: number;                  // 当前 PCM 会话代际：切歌/seek 后丢弃上一代事件
+  loadClient: string;                // 渲染层页面标识：变了 = 新页面（世代从 1 重数）
   pcmSwitchTail: Promise<void>;       // pcm 输出切换串行化（load/seek 可能连续来）
   fade: { inMs: number; outMs: number };
   /** Quark EQ 的当前状态（仅 mpv）：渲染层经 eq 命令下发；mpv 重拉后由 ensureStarted 重新套用。 */
@@ -179,6 +180,7 @@ export class AudioEngine {
     this.pcmLastDataAt = 0;
     this.pcmReloading = false;
     this.pcmEpoch = 0;
+    this.loadClient = "";
     this.pcmSwitchTail = Promise.resolve();
     // —— 淡入淡出：用 mpv `volume` 属性做振幅包络（afade 要掐流时间位置，切歌/暂停场景不好用）——
     // fadeLevel 是乘在用户音量上的瞬时包络；fadeTarget 记住方向（0=正在/将要淡出），
@@ -1282,7 +1284,15 @@ export class AudioEngine {
 
         if (!url) return { ok: false, error: "missing url" };
 
+        const client = String(cmd.client ?? "");
         const epoch = Number(cmd.epoch) || this.pcmEpoch + 1;
+
+        // 换页（窗口 CSD/SSD 重建、页面 reload）：渲染层世代从 1 重新计数，主进程却停在
+        // 旧的较大值。不重置的话新页面的第一条 load 会被当成迟到旧命令丢掉 —— 转圈、没声。
+        // 同页面内的后端热切 client 不变，仍然按世代判旧（跨 transport 的迟到 load 会被丢弃）。
+        if (client && this.loadClient && client !== this.loadClient) this.pcmEpoch = 0;
+
+        if (client) this.loadClient = client;
 
         if (epoch < this.pcmEpoch) return { ok: true, stale: true };
         this.pcmEpoch = epoch;

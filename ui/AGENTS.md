@@ -319,9 +319,12 @@ cd ui && pnpm run app                              # 真出声跑一圈（设置
 - stop = 卸载当前流（清 `lastUrl`）；Liino 的真停会话不能裸 `play()`（native 不重排环形缓冲
   世代，永远停在 ready），引擎按 mpv 的「idle 重挂 lastUrl」语义先重开流；没有可重挂的流就
   老实回 `ok:false`，渲染层重新取链起播。
-- **世代不按「只能变大」判旧**：渲染层换一页（窗口 CSD/SSD 重建、reload）后 epoch 从 1 重新
-  计数，而主进程引擎还停在旧的大值。把它当迟到旧命令丢掉，新页面会永远停在加载、旧声还在响。
-  IPC 同一页面内保序，更小的 epoch 只可能来自新页面 → 直接以它为准（probe-liino 有这条断言）。
+- **世代按「页面 + 单调递增」判旧**：transport 的 epoch 是**页面级**共享计数（后端热切重建
+  transport 也不回退），load 同时带 `client`（`transport.ts` 的 PAGE_CLIENT，一页一个）。
+  同 client 且 epoch 不更大 = 同页面里的迟到旧 load，**必须丢弃**：否则它会顶掉新歌的 open，
+  新歌的 loaded 又因世代不匹配被渲染层过滤 —— 歌不响、一直转圈。
+  client 变了 = 换了一页（窗口 CSD/SSD 重建、reload，epoch 从 1 重数），接受并以它为准；
+  不这样做新页面会永远停在加载、旧声还在响（probe-liino 两个方向都有断言；mpv/Liino 引擎同一口径）。
 - **FFI 不许把主线程卡住**（vendor/Liino 侧的实现纪律，重建库才生效）：decodeLoop 的网络
   `stream.Seek` 移到 `p.mu` 之外；`ensureOutput` 的 `output.Open` 用独立 `openMu` 串行、
   不持 `p.mu`；capi 的 `liino_destroy` / `liino_stop` / `liino_set_device` 异步执行
@@ -332,6 +335,11 @@ cd ui && pnpm run app                              # 真出声跑一圈（设置
   输出设备 ID 的 `FindDevice` 同时接受带/不带驱动前缀的写法（`pipewire/default`）。
 - 「播放中 seek 到贴尾」是 native 上游的独立问题（重排缓冲后 underrun 不恢复），归
   vendor/Liino；引擎只用 `load(startAt)` 语义换镜头位置。
+- **断点续播要「声音和时钟一起到」**：WMF 以前把「时长未知」当成不可 seek（HTTP 源刚 open 时
+  `MF_PD_DURATION` 常常还拿不到），decodeLoop 于是跳过初始 seek；但 `Open` 已把 `clock.base`
+  放到断点，结果 Windows 上从 0 出声、进度条却停在断点。现在非 live 源一律尝试 seek，时钟以
+  解码器**实际到达**的位置为基；确实不可 seek 时把时钟拉回 0（宁可从头上放，也不假装续播）；
+  初始 seek 的重试预算用尽也回落从头开始，而不是把一首能放的歌判死。
 - **seek 是单一队列，不是一次一条 goroutine**：`Player.Seek` 只把目标塞进容量 1 的 `seekReq`
   （新目标覆盖旧目标），由 **decode goroutine** 的 `applyPendingSeek` 执行。旧实现每条 UI seek
   都起一个 goroutine 抢 `stream.mu`，拖一下进度会排队几十个网络 seek，解码器在整个队列排空前

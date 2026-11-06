@@ -155,6 +155,11 @@ export class LiinoEngine {
   mode: "native";                    // Liino 只有原生直出这一种拓扑
   /** 渲染层世代（load/seek 带上来）：比它旧的一律丢弃，切歌竞态不靠时序碰运气。 */
   epoch: number;
+  /** 渲染层页面标识（transport.ts 的 PAGE_CLIENT）：区分「新页面」与「旧页面的迟到命令」。
+   *  新页面从 1 重新计数世代，只有它能带着更小的 epoch 被接受；同一页面内的迟到旧命令
+   *  必须丢弃，否则会把新歌的 open 顶掉，新歌的 loaded 又因世代不匹配被渲染层过滤 ——
+   *  表现就是「歌不响、一直转圈」。 */
+  client: string;
   /** 已发过曲末的世代：同一首只发一次 ended（同 engine.ts 的 endedEntryId 语义）。 */
   endedEpoch: number;
   eq: EqState;
@@ -168,7 +173,13 @@ export class LiinoEngine {
   wired: boolean;
   runtime: LiinoRuntime;             // libliino 解析结果（path/source/note）
   liino: Liino | null;               // FFI 库句柄（null = 未加载）
+  libBoot: Promise<Liino | null> | null; // dlopen 进行中（并发 probe/load 只加载一次）
   player: LiinoPlayer | null;        // native 播放会话（null = 未创建/已销毁）
+  /** ensurePlayer 的并发合并：两条 load 同时撞上「还没会话」时只能 create 一次。
+   *  否则第二个 create 覆盖 this.player，第一条 load 的 open 落在没人轮询的孤儿会话上。 */
+  playerBoot: Promise<LiinoPlayer | null> | null;
+  /** 会话代际：create 期间被 shutdown/hardFail 拆掉时，晚到的 create 结果必须自行关闭。 */
+  playerGen: number;
   pollTimer: NodeJS.Timeout | null;
   dead: boolean;                     // native 会话硬错：下一条命令重建
   note: string;                      // 最近一次失败的人话原因（进 status.reason）
@@ -183,6 +194,7 @@ export class LiinoEngine {
     this.lastUrl = "";
     this.mode = "native";
     this.epoch = 0;
+    this.client = "";
     this.endedEpoch = -1;
     this.eq = normalizeEqState(null);
     this.eqPlan = liinoEqPlan(this.eq);
@@ -195,7 +207,10 @@ export class LiinoEngine {
     this.wired = false;
     this.runtime = resolveLiinoLibrary({});
     this.liino = null;
+    this.libBoot = null;
     this.player = null;
+    this.playerBoot = null;
+    this.playerGen = 0;
     this.pollTimer = null;
     this.dead = false;
     this.note = "";
@@ -243,7 +258,8 @@ export class LiinoEngine {
 
   // —— 会话生命周期 ——————————————————————————————————————————
 
-  /** 加载 libliino（惰性、一次）。失败把原因写进 note，status 如实上报给渲染层。 */
+  /** 加载 libliino（惰性、一次）。失败把原因写进 note，status 如实上报给渲染层。
+   *  并发合并：probe 与首条 load 可能同时触发 dlopen，重复加载会泄漏前一个句柄。 */
   async ensureLib(): Promise<Liino | null> {
     if (this.liino) return this.liino;
 
@@ -253,41 +269,79 @@ export class LiinoEngine {
       return null;
     }
 
+    if (this.libBoot) return this.libBoot;
+
+    const boot = (async () => {
+      try {
+        const { Liino } = await import("@team-quaver/liino-node");
+
+        this.liino = new Liino(this.runtime.path);
+        this.log("[liino] loaded", this.liino.version, this.runtime.path, `source=${this.runtime.source}`);
+
+        return this.liino;
+      } catch (e) {
+        // SAFETY: catch 边界进来的都是 unknown；只取 message 拼日志/回包，字段缺失兜 "unknown"
+        this.note = `加载 libliino 失败：${String(caught(e))}`;
+        this.log("[liino]", this.note);
+
+        return null;
+      }
+    })();
+
+    this.libBoot = boot;
+
     try {
-      const { Liino } = await import("@team-quaver/liino-node");
-      this.liino = new Liino(this.runtime.path);
-      this.log("[liino] loaded", this.liino.version, this.runtime.path, `source=${this.runtime.source}`);
-
-      return this.liino;
-    } catch (e) {
-      // SAFETY: catch 边界进来的都是 unknown；只取 message 拼日志/回包，字段缺失兜 "unknown"
-      this.note = `加载 libliino 失败：${String(caught(e))}`;
-      this.log("[liino]", this.note);
-
-      return null;
+      return await boot;
+    } finally {
+      if (this.libBoot === boot) this.libBoot = null;
     }
   }
 
-  /** 开一条原生播放会话（同进程，不 spawn）。设备/音量/EQ 都随配置在这一步落地。 */
+  /** 开一条原生播放会话（同进程，不 spawn）。设备/音量/EQ 都随配置在这一步落地。
+   *  并发合并：两条 load 同时撞上「还没会话」时只 create 一次，否则后一个覆盖
+   *  this.player，前一条 load 的 open 落在没人轮询的孤儿会话上（没事件、没声音）。 */
   async ensurePlayer(): Promise<LiinoPlayer | null> {
     if (this.player && !this.dead) return this.player;
 
-    const lib = await this.ensureLib();
+    if (this.playerBoot) return this.playerBoot;
 
-    if (!lib) return null;
+    const gen = this.playerGen;
+
+    const boot = (async () => {
+      const lib = await this.ensureLib();
+
+      if (!lib) return null;
+
+      try {
+        const player = lib.create(sessionConfig(this.device, this.eqPlan));
+
+        // create 期间会话被 shutdown/hardFail 拆掉：这个结果已经过时，自己关掉。
+        if (gen !== this.playerGen) {
+          try { player.close(); } catch { /* 已经没人要了 */ }
+
+          return null;
+        }
+
+        this.player = player;
+        this.dead = false;
+        this.startPolling();
+
+        return player;
+      } catch (e) {
+        // SAFETY: catch 边界进来的都是 unknown；只取 message 拼日志/回包，字段缺失兜 "unknown"
+        this.note = `创建 Liino 会话失败：${String(caught(e))}`;
+        this.log("[liino]", this.note);
+
+        return null;
+      }
+    })();
+
+    this.playerBoot = boot;
 
     try {
-      this.player = lib.create(sessionConfig(this.device, this.eqPlan));
-      this.dead = false;
-      this.startPolling();
-
-      return this.player;
-    } catch (e) {
-      // SAFETY: catch 边界进来的都是 unknown；只取 message 拼日志/回包，字段缺失兜 "unknown"
-      this.note = `创建 Liino 会话失败：${String(caught(e))}`;
-      this.log("[liino]", this.note);
-
-      return null;
+      return await boot;
+    } finally {
+      if (this.playerBoot === boot) this.playerBoot = null;
     }
   }
 
@@ -523,6 +577,9 @@ export class LiinoEngine {
   destroyPlayer(): void {
     const player = this.player;
     this.player = null;
+    // 作废进行中的 create：晚到的结果会看到代际变了，自行关闭而不是复活会话。
+    this.playerGen++;
+    this.playerBoot = null;
 
     if (!player) return;
 
@@ -612,19 +669,37 @@ export class LiinoEngine {
 
         if (!url) return { ok: false, error: "missing url" };
 
-        // 世代**不按「只能变大」判旧**：渲染层换了一页（窗口 CSD/SSD 重建、页面 reload）
-        // 后从 1 重新计数，而主进程里的引擎还停在旧的较大值。把它当成迟到的旧命令丢掉，
-        // 新页面就永远等不到 loaded/playing —— 用户看到的是「点了播放没声音、一直在加载」。
-        // 同一页面的命令经 IPC 保序，所以更小的世代只可能来自新页面，直接以它为准。
+        const client = String(cmd.client ?? "");
+        // 世代判旧的规则与 mpv 引擎同一口径，但多一个页面标识：
+        //   同页面 + 更小世代 = 迟到的旧 load（前一轮 startCurrent 的 fetch 晚归），必须丢弃 ——
+        //   它会顶掉新歌的 open，而新歌的 loaded 又因世代不匹配被渲染层过滤，表现为
+        //   「歌不响、一直转圈」。
+        //   换了一页（窗口 CSD/SSD 重建、页面 reload）时世代从 1 重新计数，此时 client 变了，
+        //   不能按更小判旧，否则新页面永远等不到 loaded/playing。
+        // client 为空的是旧渲染层/探针：没有页面信息，只能按原来的「直接接受」处理。
         const epoch = Number(cmd.epoch) || this.epoch + 1;
 
+        if (client && client === this.client && epoch <= this.epoch) {
+          this.log("[liino] ignored stale load:", epoch, "current:", this.epoch);
+
+          return { ok: true, stale: true };
+        }
+
+        if (client) this.client = client;
         this.epoch = epoch;
 
         const paused = !!cmd.paused;
         const startAt = Math.max(0, Number(cmd.startAt) || 0);
         const player = await this.ensurePlayer();
 
+        // ensurePlayer 可能等了 dlopen/create：期间更新的 load 已经接手，这条不能再 open。
+        if (epoch !== this.epoch) return { ok: true, stale: true };
+
         if (!player) return { ok: false, error: this.note || "libliino 不可用" };
+
+        // 等待期间会话被换掉（切后端 / hardFail）：旧 handle 已 close，再 open 会抛错，
+        // 而 hardFail 会顺手拆掉刚接手的新会话。这条命令属于上一轮，安静作废。
+        if (this.dead || this.player !== player) return { ok: true, stale: true };
 
         // 包络压到 0：新流出声即从静音起步（loaded 后随 play 淡入）。
         // null = 作废「淡出后 stop」—— 切歌时那个 stop 会把新歌掐掉。
@@ -650,6 +725,9 @@ export class LiinoEngine {
         const player = await this.ensurePlayer();
 
         if (!player) return { ok: false, error: this.note || "libliino 不可用" };
+
+        // 等 create 期间切了后端：旧 handle 不属于这轮会话，别在上面 play。
+        if (this.dead || this.player !== player) return { ok: true, stale: true };
 
         // 真停（Stop）后的 native 会话不能直接 Play()：那条路不重新排环形缓冲的世代，
         // 解码线程写进去的帧会被当作旧世代丢弃，播放器永远停在 ready（native 侧自已在
