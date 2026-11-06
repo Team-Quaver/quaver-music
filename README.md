@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="img/quaver-icon.svg" width="96">
+  <img src="img/quaver-icon-dark.svg" width="96">
 </p>
 
 # Quaver Music
@@ -22,21 +22,21 @@ Quaver Music，最早是为了解决 Linux 上 QQ 音乐官方客户端不好用
 > [!CAUTION]
 > 真爱音乐，尊重正版，音乐平台不易，该应用**不提供盗版 QQ 音乐曲目服务！**
 > 
-> 本软件系 Vibe Coding 的产物，虽然我会尽力尝试个人维护，但不提供可用性保证
+> 本软件系 **Vibe Coding** 的产物，虽然我会尽力尝试个人维护，但**不提供可用性保证**
 
 > [!CAUTION]
-> 关于鸿蒙移植：
+> **关于鸿蒙移植**：
 > 
 > 若您有针对鸿蒙移植的意愿，请你在 Issue 提出，并移植后使用 AGPLv3 协议同等开源
 >
 > 若未使用同等开源协议，则视为 AGPLv3 违规，遇到的问题后果自负
 
 > [!CAUTION]
-> 本程序不建议移植成 GTK 程序：
+> **本程序不建议移植成 GTK 程序**：
 > 
 > 本项目官方版本不支持，亦不接受将整个代码库迁移至 GTK 4 或 Libadwaita 的重构方案。维护者有权拒绝不符合项目技术方向的 Pull Request。
 > 
-> 也建议社区 Fork 不使用 GTK Refactor，欢迎社区基于 Flutter、MyGO 等其他技术进行移植研究。用户对本项目代码的修改、移植及分发仍受项目现行开源许可证约束，本声明不额外限制许可证授予的权利。
+> 欢迎社区基于 Flutter、MyGO 等其他技术进行移植研究。用户对本项目代码的修改、移植及分发仍受项目现行开源许可证约束，本声明不额外限制许可证授予的权利。
 
 与此同时，非 WebView 版本的 Quaver Music Astra 也正在路上 -> [传送门](https://github.com/team-quaver/quaver-astra)，复用 Typhoeus-Go 后端，基于 Golang + MyGO 框架设计。
 
@@ -71,31 +71,40 @@ Quaver Music，最早是为了解决 Linux 上 QQ 音乐官方客户端不好用
   <img src="img/playlist.webp" width="480">
 </p>
 
-#### 简洁模式
+#### 简洁模式/歌单页
 
 <p align="center">
   <img src="img/playlist-page.webp" width="480">
 </p>
 
+#### 无限电台
+
+<p align="center">
+  <img src="img/inf-radio.webp" width="480">
+</p>
+
 # 目标
 
-跟之前的项目 Cipher Tools 一样，这个项目依旧会给每个版本加个代号，目前还是 Prototype，代号为 "Neon"，取自无畏契约角色霓虹，版本号为语义化版本号结构 v+ “x.y.z" 开发代号均出自《无畏契约》的特工 + 《绝区零》的角色，而副分支开发代号取自《鸣潮》和《崩坏：星穹铁道》角色，且副分支开发代号，在未进入正式版开发/收尾阶段，永远都是 Prototype。
+跟之前的项目 Cipher Tools 一样，这个项目依旧会给每个版本加个代号，开发代号取自《鸣潮》和《崩坏：星穹铁道》角色，且副分支开发代号，在未进入正式版开发/收尾阶段，永远都是 Prototype。
 
 x：每一个大版本均为 10 个小版本（典型情况），如遇到更改技术栈/本体出现大改情况除外
 y：功能更新版本
 z：修补版本号
 
-| 版本号    | 主分支开发代号 | 副分支开发代号 | 隶属开发阶段   |
-| ------ | ------- | -------------- | ---------------- |
-| v0.x.x | Neon    | Prototype      | Prototype        |
-| v1.0.0 | Ellen   | Chisa          | Stable           |
-| v1.0.x | Ellen   | Chisa          | Stable           |
-| v1.1.0 | Ellen   | Cyrene         | Stable           |
-| v1.2.0 | Ellen   | Phoebe         | Stable           |
-| v1.2.0 | Ellen   | Evanescia      | Stable           |
-| v1.4.0 | Ellen   | Aemeath        | Stable           |
-| v1.5.0 | Ellen   | Herta          | Stable           |
-| v1.6.0 | Ellen   | Denia          | Stable           |
+| 版本号 | 主版本开发代号 | 副开发代号 | 隶属开发阶段 |
+| --- | --- | --- | --- |
+| v0.x.x | Neon |  | Prototype |
+| v1.0.0 | Ellen | Chisa | Stable |
+| v1.0.x | Ellen | Chisa | Stable |
+| v1.1.0 | Ellen | Cyrene | Stable |
+| v1.2.0 | Ellen | Phoebe | Stable |
+| v1.2.0 |  Evanescia|   **自该版本开始，不存在副开发代号**| Stable |
+| v1.4.0 |  Aemeath|  | Stable |
+| v1.5.0 |  Herta|  | Stable |
+| v1.6.0 |  Denia|  | Stable |
+| v1.7.0 |  FireFly|  |  Stable|
+| v1.8.0 |  Jinhsi|  |  Stable|
+|  v2.0.0|  Acheron|  |  Next|
 
 
 > PatchX：修复包版本 
@@ -107,10 +116,10 @@ z：修补版本号
 
 | 触发 | 版本号 | 发布 |
 | --- | --- | --- |
-| 打 `v*` tag | tag 去掉 `v` | Release **草稿**（人工核对后手动 Publish） |
-| 打含 `beta` 的 `v*` tag（如 `v1.5.0-beta.1`） | tag 去掉 `v` | Release **prerelease**（直接上线，供客户端 Beta 渠道识别） |
-| 每夜定时（每天 18:00 UTC）/ 手动勾 `nightly` | `<package.json 版本>-<短 commit id>-nightly` | 滚动 Release `nightly`（覆盖上一次） |
-| push main / PR | `package.json` 里的值 | 不发布，只出 artifact |
+| 打 `v*` tag |  `x.y.z` | Release |
+| 打含 `beta` 的 `v*` tag | `x.y.z-beta.n` | Prerelease |
+| 每夜定时（每天 18:00 UTC）/ 手动勾 `nightly` | `<package.json 版本>-<短 commit id>-nightly` |  每日滚动的 `nightly`     |
+| push main / PR | `package.json` 里的值 | 不发布，可从 CI 获取 |
 
 
 # 协议
