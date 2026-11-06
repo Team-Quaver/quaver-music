@@ -80,6 +80,7 @@ const FALLBACK: ConfigSnapshot = {
   "Lyrics.OnlineTtml": "True",
   "Lyrics.TtmlDatabase": "https://amlldb.bikonoo.com/%p/%s.ttml",
   "Lyrics.TtmlLibrary": "",
+  "Lyrics.MprisLrc": "True",
   // [DesktopLyrics] 桌面歌词覆盖层（判据与 electron/config.ts 的 [DesktopLyrics] 段同规）。
   // X/Y/W/H 由主进程回写，渲染层只读不写；列在这里是为了与 SCHEMA 一一对应，
   // 别让浏览器 dev 与桌面端的取值表分叉。

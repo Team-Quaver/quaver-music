@@ -726,6 +726,15 @@ export function setTtmlLibrary(v: string) {
   cfgSet({ "Lyrics.TtmlLibrary": /[\r\n\u0000]/.test(t) || t.length > 1024 ? "" : t });
 }
 
+/** 系统媒体控件（MPRIS `xesam:asText`）的歌词格式：true = 带时间戳的 LRC（默认）｜false = 纯文本。 */
+export function getMprisLrc(): boolean {
+  return !/^(false|0|no)$/i.test(cfg("Lyrics.MprisLrc", "True"));
+}
+
+export function setMprisLrc(v: boolean) {
+  cfgSet({ "Lyrics.MprisLrc": v ? "True" : "False" });
+}
+
 
 // —— 桌面歌词（[DesktopLyrics] 段）：总开关 / 独立字体 / 字号 / 描边 / 不透明度 ——
 // 覆盖层窗口本体在主进程（electron/desktop-lyrics.ts）；这里只做「开关 + 观感」的偏好门面。

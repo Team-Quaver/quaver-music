@@ -16,7 +16,7 @@ import {
   TTML_DB_DEFAULT_URL, TTML_PLATFORM_DIRS, expandTtmlUrl, isTtmlDatabaseUrl, looksLikeTtml,
   ttmlMissCached, ttmlMissRemember, fetchTtml,
 } from "../src/lib/ttml.ts";
-import { extractQrcPayload, parseLrc, pickAux } from "../src/lyric.ts";
+import { extractQrcPayload, lyricLinesToLrc, lyricLinesToText, parseLrc, pickAux } from "../src/lyric.ts";
 import { viewsSource } from "./views-source.ts";
 
 let pass = 0, fail = 0;
@@ -95,6 +95,27 @@ eq("完全没有辅助源的行不借上一行翻译", pickAux(auxLines[2], "tra
 eq("辅助文本等于原文时不上屏", pickAux({ text: "Same", trans: "Same", roma: "" }, "translation"), "");
 
 eq("所选一路缺失但另一路存在时仍按行回落", pickAux({ text: "B", trans: "", roma: "Bee" }, "translation"), "Bee");
+
+// ——— MPRIS asText 序列化（纯文本 / LRC 两档） ———
+section("asText 序列化");
+
+const AS_TEXT_LINES = [
+  { t: 1.234, text: " 第一句 ", trans: "译文", roma: "" },
+  { t: 0, text: "" },
+  { t: 61.5, text: "第二句" },
+  { t: 125.999, text: "第三句" },
+];
+
+eq("纯文本一行一句、去空白、不含辅助行", lyricLinesToText(AS_TEXT_LINES), "第一句\n第二句\n第三句");
+
+eq("LRC 带 [mm:ss.xx] 时间戳且跳过空行",
+  lyricLinesToLrc(AS_TEXT_LINES),
+  "[00:01.23]第一句\n[01:01.50]第二句\n[02:06.00]第三句");
+
+eq("LRC 能被自家解析器读回", parseLrc(lyricLinesToLrc(AS_TEXT_LINES)).map((l) => [l.t, l.text]),
+  [[1.23, "第一句"], [61.5, "第二句"], [126, "第三句"]]);
+
+eq("负时间钳到 0", lyricLinesToLrc([{ t: -3, text: "开头" }]), "[00:00.00]开头");
 
 // ——— 嗅探与在线查询（本地 http 桩） ———
 section("在线库查询与负缓存");

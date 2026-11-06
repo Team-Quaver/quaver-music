@@ -26,6 +26,8 @@ export interface MprisTrack {
   album: string;
   artUrl: string;
   durationSec: number;
+  /** 当前歌词的纯文本行（MPRIS 扩展元数据 `xesam:asText`）；无歌词时缺省。 */
+  asText?: string;
 }
 
 export interface MprisState {
@@ -160,6 +162,10 @@ function trackMetadata(track: MprisTrack, durationUs?: number): MprisMetadata {
 
   if (track.artUrl) metadata["mpris:artUrl"] = track.artUrl;
 
+  // 扩展元数据：Dank Material Shell / Noctalia 的媒体控件会读这份纯文本歌词。
+  // 只有当前曲目会带（队列项没有歌词），空串不上总线。
+  if (track.asText) metadata["xesam:asText"] = track.asText;
+
   return metadata;
 }
 
@@ -211,6 +217,7 @@ export function createMprisBridge({
   let lastVolume = -1;
   let lastCanSig = "";
   let lastTrackKey = "";
+  let lastLyricText = "";
   let lastQueueSig = "";
 
   let baseUs = 0;
@@ -330,9 +337,13 @@ export function createMprisBridge({
     }
 
     const trackKey = state.track ? trackPath(state.track) : "";
+    // 歌词是异步到的，曲目不变时也要更新 Metadata —— 不能只按 trackid 去重，
+    // 否则 asText 永远停在上一次换曲时的空值（心跳快照也救不回来）。
+    const lyricText = state.track?.asText ?? "";
 
-    if (trackKey !== lastTrackKey) {
+    if (trackKey !== lastTrackKey || lyricText !== lastLyricText) {
       lastTrackKey = trackKey;
+      lastLyricText = lyricText;
       player.metadata = state.track
         ? trackMetadata(state.track, durationUs)
         : { "mpris:trackid": NO_TRACK_PATH };

@@ -401,6 +401,14 @@ P.setTtmlLibrary("");
 
 eq("本地库清空 = 关", P.getTtmlLibrary(), "");
 
+P.setMprisLrc(false);
+
+eq("asText 纯文本档 → MprisLrc=False", [P.getMprisLrc(), conf()["Lyrics.MprisLrc"]], [false, "False"]);
+
+P.setMprisLrc(true);
+
+eq("asText LRC 档 → MprisLrc=True", [P.getMprisLrc(), conf()["Lyrics.MprisLrc"]], [true, "True"]);
+
 // 浏览器兜底模式存的是整份内存快照（键名应与 conf 的 Section.Key 完全一致，不能混进旧的 localStorage 键）
 const keys = Object.keys(conf());
 

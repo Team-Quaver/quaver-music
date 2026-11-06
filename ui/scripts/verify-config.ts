@@ -137,7 +137,7 @@ eq("侧栏隐藏项接受空串", writeValues({ "Style.NavHidden": "" }), ["Styl
 eq("侧栏隐藏项拒绝重复 id", writeValues({ "Style.NavHidden": "home,home" }), []);
 writeValues({ "Style.NavOrder": defaults()["Style.NavOrder"] });
 
-eq("schema 默认值表条数", Object.keys(defaults()).length, 82); // [DesktopLyrics] 21 键（Enabled/Locked/Opacity/Backdrop/Scale/Weight/Font/Border/Shadow/ShadowBlur/ShadowOpacity/ShadowX/ShadowY/Mode/SingleCenter/ColorMode/Color + X/Y/W/H 记忆坐标）；[Lyrics] 5 键（LyricTint 歌词染色开关/ChineseConvert 繁简档/OnlineTtml 在线逐字开关/TtmlDatabase 地址模板/TtmlLibrary 本地库目录）；LyricAux 为歌词辅助行（关闭/翻译/音译，两路同位置且各按档位回落）；LyricScale 为行级歌词缩放；LyricLayout 为正在播放页歌词列四档；Background/BackgroundImage/BackgroundFlow/BackgroundBlur/BackgroundRenderer/NpBackgroundRenderer 为默认主题背景（模式/自定义图/AMLL 流动速度/Quaver Design 首页模糊半径/首页与歌词页呈现风格）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；ControlBar 为控制条停靠形态；PlaylistMode 为歌单显示模式（菜单栏/歌单集合页）；NavOrder/NavHidden 为侧栏主菜单的顺序与隐藏项；MenuBlur 为浮层菜单毛玻璃开关；Spectrum/SpectrumMode 为正在播放页真实音频频谱开关与形态；Equalizer 为 Quark EQ 整段 JSON（默认空曲线、最多 10 段、bypass）；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；ReportListenTime 为听歌时长上报开关；MusicCacheLimitMB 为本地音乐缓存上限；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
+eq("schema 默认值表条数", Object.keys(defaults()).length, 83); // [DesktopLyrics] 21 键（Enabled/Locked/Opacity/Backdrop/Scale/Weight/Font/Border/Shadow/ShadowBlur/ShadowOpacity/ShadowX/ShadowY/Mode/SingleCenter/ColorMode/Color + X/Y/W/H 记忆坐标）；[Lyrics] 6 键（LyricTint 歌词染色开关/ChineseConvert 繁简档/OnlineTtml 在线逐字开关/TtmlDatabase 地址模板/TtmlLibrary 本地库目录/MprisLrc 系统媒体控件歌词格式）；LyricAux 为歌词辅助行（关闭/翻译/音译，两路同位置且各按档位回落）；LyricScale 为行级歌词缩放；LyricLayout 为正在播放页歌词列四档；Background/BackgroundImage/BackgroundFlow/BackgroundBlur/BackgroundRenderer/NpBackgroundRenderer 为默认主题背景（模式/自定义图/AMLL 流动速度/Quaver Design 首页模糊半径/首页与歌词页呈现风格）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；ControlBar 为控制条停靠形态；PlaylistMode 为歌单显示模式（菜单栏/歌单集合页）；NavOrder/NavHidden 为侧栏主菜单的顺序与隐藏项；MenuBlur 为浮层菜单毛玻璃开关；Spectrum/SpectrumMode 为正在播放页真实音频频谱开关与形态；Equalizer 为 Quark EQ 整段 JSON（默认空曲线、最多 10 段、bypass）；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；ReportListenTime 为听歌时长上报开关；MusicCacheLimitMB 为本地音乐缓存上限；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
 
 check("模板含热键两段", ["[Hotkeys.Global]", "[Hotkeys.Focus]"].every((s) => template().includes(s)));
 
@@ -194,6 +194,10 @@ eq("在线 TTML 默认开", defaults()["Lyrics.OnlineTtml"], "True");
 eq("TTML 数据库默认模板（全平台 %p）", defaults()["Lyrics.TtmlDatabase"], "https://amlldb.bikonoo.com/%p/%s.ttml");
 
 eq("本地 TTML 库默认未设置", defaults()["Lyrics.TtmlLibrary"], "");
+
+eq("系统媒体控件歌词默认 LRC", defaults()["Lyrics.MprisLrc"], "True");
+
+eq("系统媒体控件歌词布尔档拒绝瞎写", writeValues({ "Lyrics.MprisLrc": "maybe" }), []);
 
 eq("桌面歌词默认关", defaults()["DesktopLyrics.Enabled"], "False");
 

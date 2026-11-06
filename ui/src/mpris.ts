@@ -62,6 +62,9 @@ function snapshot(seeked = false) {
           album: (c.album as { name?: string } | undefined)?.name ?? "",
           artUrl: absArt(coverUrl(c, 300)),
           durationSec: c.interval ?? player.duration ?? 0,
+          // 扩展元数据（Dank Material Shell / Noctalia 的媒体控件）：由当前歌词派生的纯文本，
+          // LRC 与 QRC/TTML 都有值。主进程把它投影成 MPRIS `xesam:asText`。
+          asText: player.lyricAsText,
         }
       : null,
     queue: player.queue.slice(0, 200).map((s) => ({
@@ -99,6 +102,7 @@ function fingerprint(): string {
     player.queue.length,
     player.queue.length ? String(player.queue[0]?._key ?? player.queue[0]?.mid) : "",
     c ? Math.floor((c.interval ?? player.duration) / 5) : "0", // 时长粗归一：Stopped→Paused 首次拿到 duration 时补推
+    player.lyricAsText, // 歌词异步到达：曲目指纹不变也要推一次，主进程才会更新 xesam:asText
   ].join("|");
 }
 

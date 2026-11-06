@@ -112,7 +112,7 @@ const state: MprisState = {
   volume: 0.65,
   loop: "Playlist",
   shuffle: true,
-  track,
+  track: { ...track, asText: "第一句\n第二句" },
   queue: [track, { ...track, mid: "MID002", key: "KEY002", name: "第二首" }],
   can: { next: true, prev: true, play: true, pause: true, seek: true, control: true },
 };
@@ -134,8 +134,23 @@ ok("当前曲目 Metadata 投影", fake?.metadata["xesam:title"] === "测试曲�
   && fake.metadata["mpris:length"] === 180_000_000
   && fake.metadata["xesam:artist"] instanceof Array);
 
+ok("xesam:asText 扩展元数据投影", fake?.metadata["xesam:asText"] === "第一句\n第二句");
+
 ok("TrackList 整表投影", fake?.tracks?.length === 2
   && fake.tracks[1]["mpris:trackid"] === "/org/quaver/track/KEY002");
+
+ok("TrackList 项不带歌词", !("xesam:asText" in fake.tracks[0]) && !("xesam:asText" in fake.tracks[1]));
+
+// 歌词异步到达：trackid 不变、asText 变了，Metadata 必须跟着更新（不能被 trackKey 去重吞掉）
+bridge?.applyState({ ...state, track: { ...track, asText: "改过的第一句" } });
+
+ok("asText 异步更新（曲目不变）", fake?.metadata["xesam:asText"] === "改过的第一句");
+
+bridge?.applyState({ ...state, track: { ...track, asText: "" } });
+
+ok("asText 清空后从 Metadata 移除", !("xesam:asText" in fake.metadata));
+
+bridge?.applyState({ ...state, track: { ...track, asText: "第一句\n第二句" } }); // 还原，供后续断言
 
 clockMs = 22_500;
 
@@ -188,6 +203,7 @@ const builder = readRepo("packages/electron-builder-base.yml");
 const gitmodules = readRepo(".gitmodules");
 const workflows = readRepo(".github/workflows/build.yml");
 const renderer = read(join(root, "src", "mpris.ts"));
+const playerSrc = read(join(root, "src", "player.ts"));
 
 ok("主进程使用进程内 createMprisBridge", main.includes("createMprisBridge") && main.includes("mpris?.applyState(state)"));
 
@@ -205,6 +221,18 @@ ok("loong64 手工 asar 会装生产依赖", workflows.includes("npm install --p
 ok("Typhoeus 子模块已退役", !gitmodules.includes("path = vendor/Typhoeus\n") && !gitmodules.includes("quaver-typhoeus"));
 
 ok("渲染层仍与主进程同一 trackPath 规则", renderer.includes('replace(/[^A-Za-z0-9_]/g, "_")'));
+
+ok("渲染层快照携带 asText", renderer.includes("asText: player.lyricAsText"));
+
+ok("歌词到达会触发新快照（指纹含 asText）", renderer.includes("player.lyricAsText, // 歌词异步到达"));
+
+ok("asText 从任意来源的解析行产出（含 QRC/TTML）",
+  (playerSrc.match(/mprisLyricText\(this\.lyrics\)/g) ?? []).length >= 2
+  && !playerSrc.includes("isLrcText"));
+
+ok("asText 格式受设置开关控制", playerSrc.includes("getMprisLrc() ? lyricLinesToLrc(lines) : lyricLinesToText(lines)"));
+
+ok("设置页有 asText 格式开关", read(join(root, "src", "views", "settings.ts")).includes('id="mpris-lrc-cards"'));
 
 console.log(`\n${checks - fails}/${checks} passed${fails ? ` — ${fails} FAILED` : ""}`);
 

@@ -122,7 +122,7 @@ sidecar 健康检查（最长 15s）与服务端就绪在后台进行；闪屏�
 
 ### 歌词设置（[Lyrics] 段）· 繁简转换 · TTML 逐字库（本地目录 + 在线数据库）
 
-设置页「歌词」tab 四件套（schema 键见 electron/config.ts，值域注释即口径）：
+设置页「歌词」tab 五件套（schema 键见 electron/config.ts，值域注释即口径）：
 
 - `ChineseConvert`（off/simplified/traditional）→ `src/lib/cjk-convert.ts`：opencc-js 词典按方向
   动态 import（t2cn ~107KB、cn2t ~1.1MB 各一个懒 chunk —— **简→繁必须带短语级歧义**，
@@ -141,6 +141,10 @@ sidecar 健康检查（最长 15s）与服务端就绪在后台进行；闪屏�
   （同 /api/bg 红线，请求参数只产候选文件名，消毒 + 库内包含校验）；候选序 = 仓库布局
   `qq-lyrics/<songmid>.ttml` → id 平铺 → 「歌名-歌手/歌手-歌名/歌名.ttml」。优先级链：
   手动导入 > 本地 TTML 库 > 在线逐字（QRC/TTML）> 侧车 LRC/内嵌 —— 逐字优先是既有口径。
+- `MprisLrc`（默认开）→ 系统媒体控件 `xesam:asText` 的序列化格式：开 = LRC（`[mm:ss.xx]`），
+  关 = 纯文本。两档都由内存里的解析行派生（`src/lyric.ts:lyricLinesToLrc` / `lyricLinesToText`），
+  切换只 `player.refreshMprisLyrics()` 重排并补推快照，不碰歌词拉取管线。展开见「托盘」一节的
+  `xesam:asText` 条目。
 - 判据两侧同步：`isTtmlDatabaseUrl`（渲染层 src/lib/ttml.ts，输入框即时反馈）与
   `isTtmlDatabaseUrlTemplate`（electron/config.ts，写盘拦截）**同规**，改一处要改两处
   （先例：isHexColor/parseHex）。FALLBACK 表同样双写（verify-lyrics 有源码断言钉住）。
@@ -793,6 +797,16 @@ Exec 写死「当前 electron + 仓库 ui/」，落进 `applications/` 就是启
 - **MPRIS 在 Electron 主进程内**（`electron/mpris.ts` + `mpris-service` 生产依赖）：渲染层只推
   状态快照，D-Bus 命令原样回推；没有 daemon、没有 `mpris:build`、没有额外子进程。别再把它搬回
   Typhoeus submodule 或 sidecar —— 前者制造漏构建静默失效，后者把系统媒体控件绑死后端生命周期。
+- **`xesam:asText`（扩展元数据）由当前歌词派生**：player 在歌词落定时算 `lyricAsText`
+  （`mprisLyricText` → `src/lyric.ts:lyricLinesToLrc` 或 `lyricLinesToText`，不含翻译/音译），
+  快照随 `track.asText` 推送，主进程投影成 D-Bus Metadata。Dank Material Shell / Noctalia 的
+  媒体控件读它做歌词展示。**格式由 `[Lyrics] MprisLrc` 决定**（设置 → 歌词 → 系统媒体控件歌词）：
+  默认 `True` 发带 `[mm:ss.xx]` 的 LRC，供会解析时间戳的控件跟随进度；`False` 发一行一句的纯文本
+  （DMS 把 asText 按行原样显示，LRC 的时间戳会被当正文画出来）。切换只重排内存里的 `lyrics`
+  并 `refreshMprisLyrics()` 补推一帧，不重拉歌词。
+  **来源不限 LRC**：QRC/TTML 经 AMLL 解析后本就是一行一句（`karaokeToLines`），直接派生即可 ——
+  不需要为另一种格式再向服务端拉一份。歌词是异步到的：渲染层指纹含 `lyricAsText`，
+  主进程 Metadata 去重也必须带上它（只看 `mpris:trackid` 会让 asText 永远停在换曲时的空值）。
 
 ## 打包与首屏（Rolldown · 动态加载 · 内存）
 

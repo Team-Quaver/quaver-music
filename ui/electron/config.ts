@@ -720,6 +720,16 @@ export const SCHEMA: SectionSpec[] = [
         ],
         valid: isLocalPathValue,
       },
+      {
+        key: "MprisLrc",
+        def: "True",
+        doc: [
+          "系统媒体控件歌词格式（MPRIS 扩展元数据 xesam:asText）：True=LRC（带 [mm:ss.xx] 时间戳，**默认**）｜False=纯文本。",
+          "两种格式都由当前已解析的歌词派生（QRC/TTML/LRC 都有）；LRC 供会解析时间戳的控件跟随进度，",
+          "纯文本适合把 asText 按行原样显示的控件（例：Dank Material Shell 会把时间戳当正文显示）",
+        ],
+        valid: (v: string) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
+      },
     ],
   },
   {

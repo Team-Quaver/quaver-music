@@ -11,7 +11,7 @@ import {
   getMuted as getMutedConf, setMuted as setMutedConf,
   getShowTrans, setShowTrans, getLyricAux, setLyricAux, type LyricAuxMode,
   getPrevBehavior,
-  getOnlineTtml, getTtmlDatabase, getTtmlLibrary,
+  getOnlineTtml, getTtmlDatabase, getTtmlLibrary, getMprisLrc,
   getReportListenTime,
   type DecodeBackend, type FadePreset,
 } from "./lib/prefs";
@@ -21,7 +21,7 @@ import { WebTransport, createEngineTransport, EngineTransport, type Transport, t
 import { normalizeEqState, type EqState } from "../electron/audio/eq-config.ts";
 import { clearSession, loadSession, saveSession } from "./lib/session";
 import { dayKey, daySeed, shuffleOrder, step, walk } from "./lib/shuffle";
-import { coerceLyricToLrc, parseLrc, type LyricLine } from "./lyric";
+import { coerceLyricToLrc, lyricLinesToLrc, lyricLinesToText, parseLrc, type LyricLine } from "./lyric";
 import type {SparkleKaraokeLine, SparkleKaraokeProvider} from "@quaver/sparkle";
 import { onSparkleChange, sparkleKaraokeProvider, sparkleStreamSources } from "./sparkle/registry";
 import { isLocalSong, localSongStreamUrl, loadLocalLibrary, onLocalLibraryChange, trackById, type LocalSongFingerprint } from "./lib/local.ts";
@@ -166,6 +166,11 @@ class Player {
   lyricRevision = 0;
   /** 逐字歌词（Sparkle 逐字提供器解析的词级时间轴行，毫秒）；无逐字数据时为空 */
   karaoke: SparkleKaraokeLine[] = [];
+  /** MPRIS 扩展元数据 `xesam:asText` 的载荷（纯文本、一行一句）。
+   *
+   *  来源不限：LRC 与经 AMLL 解析的 QRC/TTML 都归一到行文本（`karaokeToLines`），直接派生。
+   *  asText 是 plain text 字段，DMS / Noctalia 按原文逐行展示，所以时间戳与翻译/音译都不进。 */
+  lyricAsText = "";
   loading = false; // 正在取链/缓冲（UI 画加载指示）
   expanded = false; // 正在播放页是否展开
   /** 画廊模式（运行时态，不持久化）：正在播放页全屏化展示。开 = 展开本页并进全屏，
@@ -808,6 +813,13 @@ class Player {
     if (this.current) void this.fetchLyric(this.current);
   }
 
+  /** 设置页切换 asText 格式（LRC ⇄ 纯文本）后重算并广播。
+   *  只是把已在内存里的 `lyrics` 重新序列化，不重拉歌词；notify 让 MPRIS 桥补推一帧快照。 */
+  refreshMprisLyrics(): void {
+    this.lyricAsText = mprisLyricText(this.lyrics);
+    this.notifyPublic();
+  }
+
   private clearRadioRetry() {
     if (this.radioRetryTimer !== null) {
       window.clearTimeout(this.radioRetryTimer);
@@ -1236,6 +1248,7 @@ class Player {
     this.lastAutoplay = autoplay;
     this.lyrics = [];
     this.karaoke = [];
+    this.lyricAsText = "";
     this.lyricState = "idle";
     this.lyricRevision++;
     // 换曲即作废在途歌词请求：fetchLyric 的序号守卫只防「更新的 fetch」，不防换曲 ——
@@ -1691,6 +1704,7 @@ class Player {
     if (s.directUrl && !s.cloud) {
       this.lyrics = [];
       this.karaoke = [];
+      this.lyricAsText = "";
       this.lyricState = "none";
       this.notify();
 
@@ -1727,6 +1741,7 @@ class Player {
           if (!has) {
             this.karaoke = [];
             this.lyrics = [];
+            this.lyricAsText = "";
             this.lyricState = "none";
             this.lyricRevision++;
           }
@@ -1739,6 +1754,7 @@ class Player {
 
       this.lyrics = [];
       this.karaoke = [];
+      this.lyricAsText = "";
       this.lyricState = "none";
       this.notify();
 
@@ -1786,7 +1802,11 @@ class Player {
       if (seq !== this.lyricSeq || this.current !== s) return; // 转换是惰性 async，别拿旧曲文本写新曲状态
       this.applyLyricText(lyricC, transC, String(d?.roma ?? ""), String(d?.format ?? "lrc"));
     } catch {
-      if (seq === this.lyricSeq && this.lyricState === "loading") { this.karaoke = []; this.lyricState = "none"; }
+      if (seq === this.lyricSeq && this.lyricState === "loading") {
+        this.karaoke = [];
+        this.lyricAsText = "";
+        this.lyricState = "none";
+      }
     }
 
     this.notify();
@@ -1831,9 +1851,12 @@ class Player {
         kara = provider ? provider.parse(raw, trans, roma) : null;
       }
 
+      // asText 直接用解析后的行文本：QRC 逐字经 karaokeToLines 后本来就是一行一句，
+      // 与 LRC 来源同形；不需要为了 plain text 再向服务端拉一份 LRC。
       if (kara?.length) {
         this.karaoke = kara;
         this.lyrics = karaokeToLines(kara);
+        this.lyricAsText = mprisLyricText(this.lyrics);
         this.lyricState = "ok";
         this.lyricRevision++;
 
@@ -1842,12 +1865,18 @@ class Player {
 
       this.karaoke = [];
       this.lyrics = parseLrc(raw, trans, roma);
+      this.lyricAsText = mprisLyricText(this.lyrics);
       this.lyricState = this.lyrics.length ? "ok" : "none";
       this.lyricRevision++;
 
       return this.lyrics.length > 0;
     } catch {
-      if (seq === this.lyricSeq) { this.karaoke = []; this.lyricState = "none"; this.lyricRevision++; }
+      if (seq === this.lyricSeq) {
+        this.karaoke = [];
+        this.lyricAsText = "";
+        this.lyricState = "none";
+        this.lyricRevision++;
+      }
 
       return false;
     }
@@ -1928,6 +1957,9 @@ class Player {
       }
     }
 
+    // QRC/TTML 与 LRC 一律落到同一份行文本；coerce 出来的行级也算（asText 是纯文本，
+    // 不承诺时间戳保真）。
+    this.lyricAsText = mprisLyricText(this.lyrics);
     this.lyricState = this.lyrics.length ? "ok" : "none";
     this.lyricRevision++;
   }
@@ -2609,6 +2641,12 @@ function karaokeToLines(lines: SparkleKaraokeLine[]): LyricLine[] {
   }
 
   return out;
+}
+
+/** MPRIS `xesam:asText` 的载荷：[Lyrics] MprisLrc 决定格式。
+ *  LRC = 带行级时间戳（客户端可跟随进度）；纯文本 = 一行一句（DMS 这类按原文展示的控件用）。 */
+function mprisLyricText(lines: LyricLine[]): string {
+  return getMprisLrc() ? lyricLinesToLrc(lines) : lyricLinesToText(lines);
 }
 
 // 开发/自动化测试钩子：shell 挂载时暴露单例（生产构建里 vite define 会剔除）
