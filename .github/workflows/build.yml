@@ -14,12 +14,19 @@
 #             不支持 loong64，deb 手工组装、RPM 用独立 spec）
 #
 # Liino 构建（liino-linux / liino-windows / liino-macos）：
-#   每个目标只出两件东西：c-shared 库 + 头文件。Linux amd64/arm64 在原生 runner 上构建，
-#   loong64 用 gcc-loongarch64-linux-gnu 交叉；Windows 的 amd64/arm64 在 Linux 上用
+#   每个目标只出两件东西：c-shared 库 + 头文件。Linux amd64/arm64 在原生 runner 上构建；
+#   loong64 交给 OpenListTeam/cgo-actions 的 linux-loong64 目标（ABI2.0 / new-world，
+#   与 darkyzhou/electron-loong64 的客户端 ABI 对齐）；Windows 的 amd64/arm64 在 Linux 上用
 #   llvm-mingw 交叉（capi 的导出层是唯一需要 C 链接器的地方）；macOS 只出 arm64，在
 #   macos-15 上用 Xcode SDK 原生构建。产物按 <goos>-<goarch> 命名上传，
 #   前端 job 下载后落到 ui/build-res/liino/<goos>-<goarch>/，再由 extraResources 随包。
 #   Node 绑定是纯 TS（运行时由 koffi dlopen 库），一次 tsc 构建后作为 liino-node-dist 分发。
+#
+#   为什么只有 loong64 走 cgo-actions：动作里 xgo 引擎（linux / windows-amd64 / darwin）
+#   把产物名按可执行文件后缀硬编码（windows 只认 .exe），而 c-shared 会出 .so/.dll/.dylib，
+#   它随后的 mv 会直接失败；loong64 与 windows-arm64 引擎是直接 go build 到临时名，才吃得了
+#   -buildmode=c-shared。Linux amd64/arm64 与 macOS 本来就有原生 C 工具链（不值得绕 Docker），
+#   Windows amd64 则只剩 xgo 这条路，所以这两个 job 继续用原方案。
 #
 # 打包配置：
 #   electron-builder 的目标/依赖等配置拆在 packages/，按「发行版 + 架构组」命名；
@@ -291,8 +298,10 @@ jobs:
           path: vendor/Liino/node/team-quaver-liino-node-*.tgz
           if-no-files-found: error
 
-  # Linux：amd64/arm64 在对应原生 runner 上直接构建；loong64 用 Ubuntu 的交叉
-  # gcc-loongarch64-linux-gnu（c-shared 需要 C 链接器，纯 Go 部分仍是 CGO_ENABLED=0）。
+  # Linux：amd64/arm64 在对应原生 runner 上直接构建（宿主 cc，无交叉工具链）。
+  # loong64 交给 OpenListTeam/cgo-actions 的 linux-loong64 目标 —— 它下载 ABI2.0
+  # （new-world）的 GCC/Go 交叉工具链，与 darkyzhou/electron-loong64 的客户端 ABI 一致。
+  # 别写成 linux-loong64-abi1.0：那是 old-world ABI1.0，产物进不了我们的包。
   liino-linux:
     name: liino lib (linux-${{ matrix.goarch }})
     runs-on: ${{ matrix.runs_on }}
@@ -302,20 +311,13 @@ jobs:
         include:
           - goarch: amd64
             runs_on: ubuntu-24.04
-            cc: cc
-            apt: ""
+            builder: native
           - goarch: arm64
             runs_on: ubuntu-24.04-arm
-            cc: cc
-            apt: ""
+            builder: native
           - goarch: loong64
             runs_on: ubuntu-24.04
-            # Ubuntu noble 只有版本化包，且二进制同样带 -14 后缀（没有无版本软链）
-            cc: loongarch64-linux-gnu-gcc-14
-            # gcc 包对目标 libc 头只有 Recommends（libc6-dev-loong64-cross），
-            # 而下面 apt-get 用了 --no-install-recommends：显式补上，否则 cgo
-            # 退到宿主 /usr/include，报 bits/libc-header-start.h / bits/wordsize.h 不存在。
-            apt: gcc-14-loongarch64-linux-gnu libc6-dev-loong64-cross
+            builder: cgo-actions
     steps:
       - uses: actions/checkout@v7
         with:
@@ -329,17 +331,37 @@ jobs:
           go-version: "1.27.3"
           cache-dependency-path: vendor/Liino/go.sum
 
-      - name: Install cross compiler (loong64)
-        if: matrix.apt != ''
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ${{ matrix.apt }}
-
-      - name: Build libliino.so
+      - name: Build libliino.so (native)
+        if: matrix.builder == 'native'
         working-directory: vendor/Liino
         env:
-          CC: ${{ matrix.cc }}
+          CC: cc
         run: bash scripts/build-capi.sh linux ${{ matrix.goarch }}
+
+      # 动作的 flags 输入会把整串当成单个 argv（execa 模板表达式不拆空格），所以
+      # buildmode / trimpath 放进 GOFLAGS（go 只取当前命令认识的项，`go version` 会忽略），
+      # ldflags 留在 flags 里 —— 它的值本身含空格，正好作为一个 argv 交给 -ldflags。
+      - name: Build libliino.so (cgo-actions, linux-loong64)
+        if: matrix.builder == 'cgo-actions'
+        uses: OpenListTeam/cgo-actions@v1.3.0
+        env:
+          GOFLAGS: "-buildmode=c-shared -trimpath"
+        with:
+          dir: vendor/Liino
+          packages: ./capi
+          targets: linux-loong64
+          tags: liino_capi
+          flags: "-ldflags=-s -w"
+          out-dir: vendor/Liino/build/linux-loong64
+          output: libliino.so
+          github-token: ${{ github.token }}
+
+      # c-shared 的头文件跟着临时产物名走（go-cross-bin.h），改成发布名
+      - name: Stage cgo-actions header (loong64)
+        if: matrix.builder == 'cgo-actions'
+        run: |
+          set -euo pipefail
+          mv vendor/Liino/go-cross-bin.h vendor/Liino/build/linux-loong64/liino.h
 
       # 跨架构产物不报错、只会跑不起来 → 核对机器码；三个目标都覆盖
       - name: Verify target machine
@@ -379,6 +401,9 @@ jobs:
   # Windows：两个架构都在 Ubuntu 上用 llvm-mingw 交叉。不用 windows runner 的 MSYS2，
   # 是因为这里只需要 C 链接器，而 llvm-mingw 同时提供 aarch64-w64-windows-gnu 目标。
   # 交叉产物用 file 核对 PE 机器码（Windows runner 上没有 file(1)）。
+  # 这里不能换成 cgo-actions：windows-amd64 走它的 xgo 引擎，该引擎把产物名写死成
+  # <name>-windows-amd64.exe，而 c-shared 出的是 .dll，构建后的 mv 会失败；
+  # windows-arm64 直连 zig 引擎虽可行，但没必要为半个矩阵换一套工具链（zig 还是 beta）。
   liino-windows:
     name: liino lib (windows-${{ matrix.goarch }})
     runs-on: ubuntu-24.04
@@ -451,6 +476,8 @@ jobs:
 
   # macOS：只出 arm64（x64 客户端构建已裁撤）。deployment target 钉 12.0：c-shared 的
   # minos 会写进 Mach-O，别让 runner 的 macOS 15 把库抬到只有新系统能加载。
+  # cgo-actions 的 darwin 目标走 xgo（Linux 上的 Docker + osxcross），既跑不了 macos runner，
+  # 也拿不到这里需要的 CGO_LDFLAGS（AudioToolbox/CoreAudio 框架），所以保持原生构建。
   liino-macos:
     name: liino lib (darwin-arm64)
     runs-on: macos-15
