@@ -1,14 +1,15 @@
 // Quaver — 路由视图：home（由 src/views/index.ts 按需动态 import，不在首屏解析）
 import "./home.css";
-import { api, coverUrl, songTitle, upPic } from "../lib/api";
+import { api, coverUrl, escHtml, songTitle, upPic } from "../lib/api";
 import { icons } from "../lib/icons";
 import { renderSongRows } from "../lib/songs";
 import { periodCaption } from "../lib/toplist-periods";
+import { featuredToplistRank, toplistArtHtml } from "../lib/toplist-art";
 import { player } from "../player";
 import type { Song } from "../player";
 import { toast } from "../lib/toast";
 import type {
-  RecommendSonglistResp, SonglistCard, ToplistCard, ToplistCategoryResp, ToplistGroup,
+  RecommendSonglistResp, SonglistCard, ToplistCard, ToplistCategoryResp, ToplistDetailResp, ToplistGroup,
 } from "./_shared";
 import { cardPlay, compactCount, errText, h, homeStatus, navCard, routeScroller, trackStuck } from "./_shared";
 
@@ -201,8 +202,11 @@ export default async function homeView(root: HTMLElement) {
   </div>`;
   const topGroups = h("div", "tag-tabs home-toplist__groups");
   topHead.append(topGroups);
+  // 四个主榜（飙升/热歌/新歌/流行指数）用 Top5 特写卡；其余榜单仍是网格卡片。
+  const topFeatures = h("div", "home-toplist__features");
+  topFeatures.hidden = true;
   const topGrid = h("div", "grid playlist-grid home-cards home-toplist__grid", `<div class="muted">加载中…</div>`);
-  toplist.append(topHead, topGrid);
+  toplist.append(topHead, topFeatures, topGrid);
 
   root.append(lead, recommendations, ai, toplist);
 
@@ -354,63 +358,235 @@ export default async function homeView(root: HTMLElement) {
     }
   };
 
+  const toplistHref = (x: ToplistCard, title: string) => {
+    const id = String(x.id ?? "");
+    const canBacktrack = x.history_supported !== false;
+
+    return `#/toplist?id=${encodeURIComponent(id)}&name=${encodeURIComponent(title)}${canBacktrack ? "" : "&history=0"}`;
+  };
+
   const toplistCard = (x: ToplistCard): HTMLElement | null => {
     const id = String(x.id ?? "");
 
     if (!id) return null;
-    const title = String(x.title ?? "排行榜");
+    const title = String(x.title ?? "排行榜").trim() || "排行榜";
     const canBacktrack = x.history_supported !== false;
-    const href = `#/toplist?id=${encodeURIComponent(id)}&name=${encodeURIComponent(title)}${canBacktrack ? "" : "&history=0"}`;
+    const href = toplistHref(x, title);
     const listens = compactCount(x.listennum);
     const cadence = x.update_tips || (Number(x.update_type) === 0 ? "每周更新" : "每日更新");
 
     const sub = [cadence, canBacktrack ? periodCaption(x.period) : "仅当前期", listens ? `${listens}次播放` : ""]
       .filter(Boolean).join(" · ");
 
-    const card = navCard(href, upPic(x.picurl), title, sub,
-      () => cardPlay("toplist", id, href));
+    // 封面换成宿主自绘的虚位图（图标 + 榜单色），上游 picurl 只保留给详情页。
+    return navCard(href, "", title, sub, () => cardPlay("toplist", id, href), toplistArtHtml(title));
+  };
 
-    card.querySelector(".art")?.insertAdjacentHTML("beforeend", `<span class="ai-card__badge">榜</span>`);
+  // 四个主榜的 Top5 只拉一次，切分类来回不重复请求。
+  const top5Cache = new Map<string, Song[]>();
+
+  const paintTopSongs = (box: HTMLElement, songs: Song[]) => {
+    renderSongRows(box, songs, {
+      showAlbum: false,
+      showCover: false,
+      onPlay: (_song, index, all) => player.playList(all, index),
+    });
+  };
+
+  const topFeatureCard = (x: ToplistCard): HTMLElement | null => {
+    const id = String(x.id ?? "");
+
+    if (!id) return null;
+    const title = String(x.title ?? "排行榜").trim() || "排行榜";
+    const href = toplistHref(x, title);
+    const card = h("article", "top-feature");
+    card.innerHTML = `<a class="top-feature__art" href="${href}" aria-label="打开${escHtml(title)}">${toplistArtHtml(title)}</a>
+      <div class="top-feature__body">
+        <div class="top-feature__head">
+          <h3 class="top-feature__title"><a href="${href}">${escHtml(title)}</a></h3>
+          <a class="top-feature__more" href="${href}">查看榜单${icons.right}</a>
+        </div>
+        <div class="rows top-feature__rows"></div>
+      </div>`;
+    const rows = card.querySelector<HTMLElement>(".top-feature__rows")!;
+
+    const load = async () => {
+      const cached = top5Cache.get(id);
+
+      if (cached) {
+        paintTopSongs(rows, cached);
+
+        return;
+      }
+
+      rows.innerHTML = `<div class="muted top-feature__note">加载中…</div>`;
+
+      try {
+        const d = await api<ToplistDetailResp>(`/top/${encodeURIComponent(id)}/detail?page=1&num=5`);
+        const songs = (d?.songs ?? []).slice(0, 5);
+
+        if (!rows.isConnected) return;
+
+        if (!songs.length) {
+          rows.innerHTML = `<div class="muted top-feature__note">这一期暂时没有歌曲</div>`;
+
+          return;
+        }
+
+        top5Cache.set(id, songs);
+        paintTopSongs(rows, songs);
+      } catch (e) {
+        if (!rows.isConnected) return;
+        rows.innerHTML = `<div class="top-feature__note"><span class="muted">${escHtml(errText(e) || "榜单暂时不可用")}</span><button type="button" class="ghost-btn top-feature__retry">重试</button></div>`;
+        rows.querySelector<HTMLButtonElement>(".top-feature__retry")!.onclick = () => void load();
+      }
+    };
+
+    void load();
 
     return card;
   };
 
   let topData: ToplistGroup[] = [];
   let selectedTopGroup = 0;
+  let groupButtons: HTMLButtonElement[] = [];
+  let groupInk: HTMLElement | null = null;
+
+  // 选中底色单独做成一层「墨块」：切分类时它从旧胶囊滑到新胶囊，而不是两枚按钮瞬间换色。
+  // 按钮自己保持透明，文字与描边照旧；墨块的尺寸/位置直接取自目标按钮的布局盒。
+  const placeGroupInk = (animate: boolean) => {
+    const ink = groupInk;
+    const btn = groupButtons[selectedTopGroup];
+
+    if (!ink || !btn) return;
+
+    const apply = () => {
+      // 用两个 boundingRect 求相对位移（而不是 offsetLeft/Top）：flex 换行后
+      // 按钮可能落在小数坐标上，offset 取整会让墨块偏出 1px。
+      const host = topGroups.getBoundingClientRect();
+      const box = btn.getBoundingClientRect();
+
+      ink.style.transform = `translate(${box.left - host.left}px, ${box.top - host.top}px)`;
+      ink.style.width = `${box.width}px`;
+      ink.style.height = `${box.height}px`;
+    };
+
+    if (!animate) {
+      ink.classList.add("no-anim");
+      apply();
+      void ink.offsetWidth; // 先落位再恢复过渡：首帧与换行重排不播放滑入
+      ink.classList.remove("no-anim");
+
+      return;
+    }
+
+    ink.classList.remove("no-anim");
+    apply();
+  };
+
+  const syncGroupSelection = (animate: boolean) => {
+    groupButtons.forEach((btn, index) => btn.classList.toggle("sel", index === selectedTopGroup));
+    placeGroupInk(animate);
+  };
 
   const paintTopGroups = () => {
     topGroups.innerHTML = "";
+    groupButtons = [];
+    groupInk = null;
 
     if (topData.length <= 1) return;
+    groupInk = h("span", "home-toplist__ink");
+    groupInk.setAttribute("aria-hidden", "true");
+    topGroups.append(groupInk);
     topData.forEach((group, index) => {
-      const btn = h("button", `tag${index === selectedTopGroup ? " sel" : ""}`, "") as HTMLButtonElement;
+      // SAFETY: h() 按标签名建元素，这里的 "button" 必然是 HTMLButtonElement。
+      const btn = h("button", "tag", "") as HTMLButtonElement;
       btn.type = "button";
       btn.textContent = group.name || `分类 ${index + 1}`;
       btn.onclick = () => {
+        if (index === selectedTopGroup) return;
         selectedTopGroup = index;
-        paintTopGroups();
-        paintTopGroup();
+        syncGroupSelection(true);
+        paintTopGroup(true);
       };
 
+      groupButtons.push(btn);
       topGroups.append(btn);
+    });
+    syncGroupSelection(false);
+  };
+
+  // 页签宽度变化（窗口缩放后换行）时只重新落位，不播放滑动动画。
+  let groupRaf = 0;
+
+  const onGroupResize = () => {
+    if (groupRaf) return;
+    groupRaf = requestAnimationFrame(() => {
+      groupRaf = 0;
+      placeGroupInk(false);
     });
   };
 
-  const paintTopGroup = () => {
+  window.addEventListener("resize", onGroupResize);
+
+  // 切分类时内容整体重画，给两个内容容器各补一次入场动画；
+  // 先摘类 + 强制回流，保证同一帧内重挂的节点也能重新播放。
+  const replayTopSwap = () => {
+    for (const el of [topFeatures, topGrid]) {
+      if (!el.childElementCount) continue;
+      el.classList.remove("home-toplist__swap");
+      void el.offsetWidth;
+      el.classList.add("home-toplist__swap");
+    }
+  };
+
+  const paintTopGroup = (animate = false) => {
     topGrid.innerHTML = "";
+    topFeatures.innerHTML = "";
     const list = topData[selectedTopGroup]?.toplists ?? [];
+    const featured: ToplistCard[] = [];
+    const others: ToplistCard[] = [];
 
     for (const x of list) {
+      if (featuredToplistRank(String(x.title ?? "")) >= 0) featured.push(x);
+      else others.push(x);
+    }
+
+    // 固定按 飙升 → 热歌 → 新歌 → 流行指数 排列，不跟上游返回顺序漂。
+    featured.sort((a, b) => {
+      const ra = featuredToplistRank(String(a.title ?? ""));
+      const rb = featuredToplistRank(String(b.title ?? ""));
+
+      return ra - rb;
+    });
+
+    for (const x of featured) {
+      const card = topFeatureCard(x);
+
+      if (card) topFeatures.append(card);
+    }
+
+    topFeatures.hidden = !topFeatures.childElementCount;
+
+    for (const x of others) {
       const card = toplistCard(x);
 
       if (card) topGrid.append(card);
     }
 
-    if (!topGrid.childElementCount) homeStatus(topGrid, "这个分类暂时没有榜单", "稍后回来看看", loadToplists);
+    if (!topFeatures.childElementCount && !topGrid.childElementCount) {
+      homeStatus(topGrid, "这个分类暂时没有榜单", "稍后回来看看", loadToplists);
+    }
+
+    if (animate) replayTopSwap();
   };
 
   const loadToplists = async () => {
     topGroups.innerHTML = "";
+    groupButtons = [];
+    groupInk = null;
+    topFeatures.innerHTML = "";
+    topFeatures.hidden = true;
     topGrid.innerHTML = `<div class="muted">加载中…</div>`;
 
     try {
@@ -516,8 +692,11 @@ export default async function homeView(root: HTMLElement) {
     scroller.removeEventListener("scroll", onRailScroll);
     scroller.removeEventListener("scrollend", endRailJump);
     window.removeEventListener("resize", onRailScroll);
+    window.removeEventListener("resize", onGroupResize);
 
     if (railRaf) cancelAnimationFrame(railRaf);
+
+    if (groupRaf) cancelAnimationFrame(groupRaf);
 
     rail.remove();
   };
