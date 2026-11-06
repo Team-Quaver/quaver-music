@@ -169,9 +169,9 @@ ok("存档: 节流落盘也带上电台态", re(playerCode, /radio: this\.radioO
 
 ok("插队: 单曲插队在电台里 no-op 且不退出电台", re(playerCode, /enqueueNext\(song: Song\): boolean \{\s*if \(!song\?\.mid \|\| this\.radioOn\) return false;/));
 
-ok("插队: 整批插队在电台里 no-op", re(playerCode, /enqueueNextMany\(songs: Song\[\]\): boolean \{\s*if \(this\.radioOn\) return false;/));
+ok("插队: 整批插队在电台里 no-op", re(playerCode, /enqueueNextMany\(songs: Song\[\], source\?: string \| null\): boolean \{\s*if \(this\.radioOn\) return false;/));
 
-ok("立即播放: 搜索双击先退出电台再切歌", re(playerCode, /playNextNow\(song: Song\): boolean \{[\s\S]{0,260}?this\.exitRadio\(\);[\s\S]{0,160}?this\.startCurrent\(\);/));
+ok("立即播放: 搜索双击先退出电台再切歌", re(playerCode, /playNextNow\(song: Song\): boolean \{[\s\S]{0,260}?this\.exitRadio\(\);[\s\S]{0,280}?this\.startCurrent\(\);/));
 
 ok("立即播放: 搜索双击入口不把电台态当成插队锁", !re(songMenuCode, /playNowWithToast\(song: any\) \{[\s\S]{0,140}?player\.radioActive/));
 

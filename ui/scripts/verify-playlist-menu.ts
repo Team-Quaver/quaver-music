@@ -90,8 +90,9 @@ const playNowBody = (src.plMenu.match(/playSongsNow\(title: string, fetchSongs: 
 ok("plMenu: 立即播放在电台里不被拦截（playList 内部先退出电台）",
   !/radioActive/.test(noComments(playNowBody)) && /player\.playList\(songs, 0, source\)/.test(noComments(playNowBody)));
 
-ok("plMenu: 插队播放走 enqueueNextMany（整批排到当前曲之后）",
-  has(src.plMenu, "player.enqueueNextMany(songs)") && has(src.plMenu, "export async function playPlaylistNext"));
+ok("plMenu: 插队播放走 enqueueNextMany（整批排到当前曲之后，来源显式给这个歌单）",
+  has(src.plMenu, "player.enqueueNextMany(songs, source)") && has(src.plMenu, "export async function playPlaylistNext")
+  && has(src.plMenu, "playSongsNext(pl.title, () => fetchPlaylistSongs(pl.id), playlistHash(pl))"));
 
 ok("plMenu: 拉歌单按页拉全（页尽即止，大歌单不截断在 100 首）",
   re(src.plMenu, /for \(let page = 1; ; page\+\+\) \{[\s\S]{0,200}\/songlist\/\$\{id\}\/detail\?page=\$\{page\}&num=100[\s\S]{0,120}hasmore/));
@@ -103,16 +104,19 @@ ok("plMenu: 空歌单不静默（toast 提示，不把空列表灌进队列）",
 ok("plMenu: 双击与菜单共用 playPlaylistNow",
   re(src.shell, /m\.playPlaylistNow\(x as PlaylistMenuTarget\)/) && re(src.plMenu, /run: \(\) => playPlaylistNow\(pl\)/));
 
-const enqBody = (src.player.match(/enqueueNextMany\(songs: Song\[\]\)(?:: boolean)? \{([\s\S]*?)\n  \}/) ?? [])[1] ?? "";
+const enqBody = (src.player.match(/enqueueNextMany\(songs: Song\[\], source\?: string \| null\)(?:: boolean)? \{([\s\S]*?)\n  \}/) ?? [])[1] ?? "";
 
 ok("player: 整批插队排到当前曲之后（保序插入）",
   /this\.queue\.splice\(this\.index \+ 1, 0, \.\.\.list\);/.test(noComments(enqBody)));
+
+ok("player: 整批插队同时写入逐首来源（插队曲不被当成队列来源歌单的歌）",
+  /this\.queueOrigins\.splice\(this\.index \+ 1, 0, \.\.\.list\.map\(\(\) => src\)\);/.test(noComments(enqBody)));
 
 ok("player: 整批插队不打断当前曲（不动指针、不起播）",
   !/this\.index \+=/.test(noComments(enqBody)) && !/startCurrent/.test(noComments(enqBody)));
 
 ok("player: 队列空时整批插队退化成整列起播（与单曲插队同一分叉）",
-  /if \(this\.index < 0 \|\| !this\.queue\.length\) \{ this\.playList\(list, 0\); return true; \}/.test(noComments(enqBody)));
+  /if \(this\.index < 0 \|\| !this\.queue\.length\) \{ this\.playList\(list, 0, source\); return true; \}/.test(noComments(enqBody)));
 
 ok("player: 整批插队 bump queueVersion（QueuePanel 靠它去重重画）",
   /this\.queueVersion\+\+/.test(noComments(enqBody)));

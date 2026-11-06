@@ -82,8 +82,10 @@ export async function playSongsNow(title: string, fetchSongs: () => Promise<Song
 }
 
 /** 插队播放：整组按原序排到当前曲之后，不打断当前曲；队列空着没有「下一首」
- *  可言，enqueueNextMany 会退化成整列起播，文案跟着变。无限电台期间先拦下，连取歌都不发。 */
-export async function playSongsNext(title: string, fetchSongs: () => Promise<Song[]>) {
+ *  可言，enqueueNextMany 会退化成整列起播，文案跟着变。无限电台期间先拦下，连取歌都不发。
+ *  source = 这批歌的来源页：侧栏右键是在别的路由上插某个歌单，必须显式给，
+ *  否则这些歌会被记成「当前页来的」，跳转至歌单就走错地方。 */
+export async function playSongsNext(title: string, fetchSongs: () => Promise<Song[]>, source?: string | null) {
   if (player.radioActive) { toast("无限电台播放中，不能插队播放歌单", "err"); return; }
 
   const songs = await fetchSongsOrComplain(fetchSongs);
@@ -94,21 +96,24 @@ export async function playSongsNext(title: string, fetchSongs: () => Promise<Son
 
   const wasEmpty = player.index < 0 || !player.queue.length;
 
-  if (player.enqueueNextMany(songs)) {
+  if (player.enqueueNextMany(songs, source)) {
     toast(wasEmpty ? `开始播放歌单「${title}」` : `已插队：「${title}」（${songs.length} 首排在当前曲之后）`);
   }
 }
 
-/** 立即播放（普通歌单入口）：按 disstid 翻页拉全歌后走 playSongsNow */
-export async function playPlaylistNow(pl: PlaylistMenuTarget) {
-  const source = `#/playlist?id=${encodeURIComponent(String(pl.id))}&name=${encodeURIComponent(pl.title || "歌单")}`;
-
-  return playSongsNow(pl.title, () => fetchPlaylistSongs(pl.id), source);
+/** 歌单页 hash（立即播放与插队播放共用同一串参数格式）。 */
+function playlistHash(pl: PlaylistMenuTarget): string {
+  return `#/playlist?id=${encodeURIComponent(String(pl.id))}&name=${encodeURIComponent(pl.title || "歌单")}`;
 }
 
-/** 插队播放（普通歌单入口）：同上走 playSongsNext */
+/** 立即播放（普通歌单入口）：按 disstid 翻页拉全歌后走 playSongsNow */
+export async function playPlaylistNow(pl: PlaylistMenuTarget) {
+  return playSongsNow(pl.title, () => fetchPlaylistSongs(pl.id), playlistHash(pl));
+}
+
+/** 插队播放（普通歌单入口）：同上走 playSongsNext —— 来源同样显式给这个歌单 */
 export async function playPlaylistNext(pl: PlaylistMenuTarget) {
-  return playSongsNext(pl.title, () => fetchPlaylistSongs(pl.id));
+  return playSongsNext(pl.title, () => fetchPlaylistSongs(pl.id), playlistHash(pl));
 }
 
 /** 系统虚拟歌单（每日 30 首 / 我喜欢）的右键菜单：没有删除/取消收藏的尾巴，只有播放两兄弟。
@@ -131,7 +136,7 @@ export function openVirtualPlaylistMenu(
       label: "插队播放",
       note: player.radioActive ? "无限电台播放中" : "排到当前曲之后",
       disabled: player.radioActive,
-      run: () => playSongsNext(title, fetchSongs),
+      run: () => playSongsNext(title, fetchSongs, source),
     },
   ];
 

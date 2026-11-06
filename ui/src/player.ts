@@ -111,11 +111,26 @@ class Player {
   /** 队列内容版本号：任何队列变更 +1（QueuePanel 据此做 4Hz 去重，
    *  免得每次位置广播都把整条队列拼成大字符串比对） */
   queueVersion = 0;
-  /** 当前队列的来源页 hash（播放条封面右键「跳转至歌单」）。playList 建队时记录：
+  /** 队列**建队时**的来源页 hash（播放条封面右键「跳转至歌单」的兜底）。playList 建队时记录：
    *  视图内点歌按当时路由捕获，侧栏/首页卡片这类跨页起播由调用方显式给。
    *  只存路由、展示名在菜单打开时才解析（见 lib/queue-source.ts）。
-   *  随会话存档一起恢复 —— 重启后仍能回到原歌单/虚拟歌单。 */
+   *  随会话存档一起恢复 —— 重启后仍能回到原歌单/虚拟歌单。
+   *
+   *  注意它描述的是**队列表**（整个队列从哪来），不是当前这首：【插队播放】把外部的歌
+   *  （搜索 / 每日 30 首 / 别的歌单 / 本地 / 微云）塞进队列后，这些歌的来源各异。
+   *  「跳转至歌单」要用 currentSource（逐首来源），别直接读这个字段。 */
   queueSource: string | null = null;
+  /** 每一首的来源页 hash，与 queue 同下标。批量建队时整列同源；插队进来的单曲记插入时
+   *  所在页（或调用方显式给的那一页）。null = 没有逐首记录（旧存档 / 电台轮次），
+   *  此时退回 queueSource。 */
+  private queueOrigins: (string | null)[] = [];
+  /** 当前曲的来源页：优先用这一首自己的来源（插队进来的歌因此能跳回它真正来自的那一页），
+   *  没记过才退回队列来源 / 电台页面。封面右键与正在播放页「跳转至歌单」都读这里。 */
+  get currentSource(): string | null {
+    const own = this.queueOrigins[this.index];
+
+    return own ?? this.queueSource ?? (this.radioOn ? "#/guess" : null);
+  }
   /** 猜你喜欢无限电台：开关与当前轮次随会话存档恢复。
    *  radioEnd = 当前这一轮最后一首在 queue 里的下标；播到它时补下一轮并裁掉当前曲之前的历史。 */
   private radioOn = false;
@@ -430,6 +445,8 @@ class Player {
     if (!snap || this.queue.length || this.index >= 0) { this.sessionReady = true; return; }
 
     this.queue = snap.queue;
+    // 逐首来源与队列等长；旧存档没有这一项 → 全 null，currentSource 退回 queueSource。
+    this.queueOrigins = this.queue.map((_, i) => snap.sources?.[i] ?? null);
     this.index = snap.index;
     this.mode = snap.mode;
     this.shuffle = !!snap.shuffle;
@@ -512,6 +529,7 @@ class Player {
       shuffle: this.shuffle,
       radio: this.radioOn, radioEnd: this.radioEnd,
       source: this.queueSource,
+      sources: this.queueOrigins,
       quality: getSessionQuality(), lastStream: getLastStream(),
     });
   }
@@ -871,6 +889,7 @@ class Player {
       if (!songs.length) throw new Error("猜你喜欢暂无推荐，登录后可得");
       this.queue = songs;
       this.queueSource = "#/guess";
+      this.queueOrigins = songs.map(() => "#/guess");
       this.index = 0;
       this.radioEnd = this.queue.length - 1;
       this._radioLoading = false;
@@ -938,11 +957,13 @@ class Player {
 
       if (!songs.length) throw new Error("猜你喜欢暂无更多推荐");
       this.queue.push(...songs);
+      this.queueOrigins.push(...songs.map(() => "#/guess"));
       const anchor = this.current;
       const at = anchor ? this.queue.indexOf(anchor) : this.index;
       const drop = Math.max(0, at);
 
-      if (drop) this.queue.splice(0, drop);
+      if (drop) { this.queue.splice(0, drop); this.queueOrigins.splice(0, drop); }
+
       this.index = Math.max(0, this.index - drop);
       this.queueVersion++;
       this.radioEnd = this.queue.length - 1;
@@ -987,6 +1008,8 @@ class Player {
     }
 
     this.queue = queue;
+    // 整列表建队 = 整列同源；之后插队进来的歌各自记自己的来源（见 enqueueNext*）。
+    this.queueOrigins = queue.map(() => this.queueSource);
     this.index = selected >= 0 ? selected : Math.max(0, Math.min(i, queue.length - 1));
     this.queueVersion++;
     // 新队列是新的播放身份：旧曲的兜底源不能带过来。
@@ -1006,23 +1029,29 @@ class Player {
 
     this.queueVersion++;
     this.queue.splice(this.index + 1, 0, song);
+    // 插队曲记插入时所在页：它不属于队列原来的歌单，「跳转至歌单」要回它自己的来源。
+    this.queueOrigins.splice(this.index + 1, 0, location.hash || "#/");
     this.notify();
 
     return true;
   }
 
   /** 整批插队：把一批歌（歌单「插队播放」）按原序排到当前曲之后等着播 —— 不切歌、不打断。
-   *  与 enqueueNext 同一分叉：队列还空着时没有「下一首」可言，退化成整列起播；电台期间一律拒绝。 */
-  enqueueNextMany(songs: Song[]): boolean {
+   *  与 enqueueNext 同一分叉：队列还空着时没有「下一首」可言，退化成整列起播；电台期间一律拒绝。
+   *  source = 这批歌的来源页：侧栏右键是在**别的路由**上起播某个歌单，必须显式给；
+   *  不传则按调用时的路由捕获。 */
+  enqueueNextMany(songs: Song[], source?: string | null): boolean {
     if (this.radioOn) return false;
     const list = songs.filter((s) => s?.mid);
 
     if (!list.length) return false;
 
-    if (this.index < 0 || !this.queue.length) { this.playList(list, 0); return true; }
+    if (this.index < 0 || !this.queue.length) { this.playList(list, 0, source); return true; }
 
+    const src = source === undefined ? (location.hash || "#/") : source;
     this.queueVersion++;
     this.queue.splice(this.index + 1, 0, ...list);
+    this.queueOrigins.splice(this.index + 1, 0, ...list.map(() => src));
     this.notify();
 
     return true;
@@ -1039,9 +1068,11 @@ class Player {
     if (this.index < 0 || !this.queue.length) { this.playList([song], 0); return true; }
 
     this.exitRadio();
+    const src = location.hash || "#/";
     this.queue.splice(this.index + 1, 0, song);
     this.index++;
     this.queueVersion++;
+    this.queueOrigins.splice(this.index, 0, src);
     void this.startCurrent();
 
     return true;
@@ -1054,6 +1085,7 @@ class Player {
     this.exitRadio();
     const cur = this.index;
     this.queue.splice(i, 1);
+    this.queueOrigins.splice(i, 1);
     this.queueVersion++;
 
     if (!this.queue.length) { this.index = -1; this.interrupt(); this.notify(); return; }
@@ -1074,7 +1106,9 @@ class Player {
     if (from === to || from < 0 || to < 0 || from >= n || to >= n) return;
     this.exitRadio();
     const [s] = this.queue.splice(from, 1);
+    const [o] = this.queueOrigins.splice(from, 1);
     this.queue.splice(to, 0, s);
+    this.queueOrigins.splice(to, 0, o);
     this.queueVersion++;
 
     if (this.index === from) this.index = to;
@@ -1089,6 +1123,7 @@ class Player {
 
     this.exitRadio();
     this.queue = [];
+    this.queueOrigins = [];
     this.index = -1;
     this.queueVersion++;
     this.interrupt();

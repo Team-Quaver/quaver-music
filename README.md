@@ -79,11 +79,21 @@ Quaver Music，最早是为了解决 Linux 上 QQ 音乐官方客户端不好用
 
 #### 无限电台
 
-<p align="center">
+ 
+ <p align="center">
   <img src="img/inf-radio.webp" width="480">
 </p>
+ 
+### 桌面歌词
 
-# 目标
+<p align="center">
+  <img src="img/desktop-lrc.webp" width="720">
+</p>
+
+
+
+
+ ## 目标
 
 跟之前的项目 Cipher Tools 一样，这个项目依旧会给每个版本加个代号，开发代号取自《鸣潮》和《崩坏：星穹铁道》角色，且副分支开发代号，在未进入正式版开发/收尾阶段，永远都是 Prototype。
 

@@ -639,7 +639,8 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
  *
  *  面板复用 openMenuAt（与歌曲行右键同一套自绘层：body 常驻、视口钳制、关闭时机齐全），
  *  只放「以当前曲为中心」的动作，不含队列写入（插队 / 加入歌单）与歌单删除。
- *  「跳转至歌单」的来源是 player.queueSource（真实歌单 / 虚拟歌单都在 playList 建队时记录）；
+ *  「跳转至歌单」的来源是 player.currentSource（逐首记录：队列来源 + 插队曲自己的插入页；
+ *  真实的歌单 / 虚拟歌单 / 搜索 / 本地 / 网盘都在入队时记下）；
  *  正在播放页展开时先收起它再跳 —— 它是铺满全窗的常驻层，只在底下换路由仍会盖在最上面。 */
 export function openPlayerCoverMenu(x: number, y: number, song: any, anchor?: HTMLElement) {
   if (!song?.mid) return;
@@ -650,8 +651,7 @@ export function openPlayerCoverMenu(x: number, y: number, song: any, anchor?: HT
   const alb = song.album;
   const local = isLocalSong(song) ? song.local : null;
   const direct = !!song.directUrl;
-  const source = player.queueSource
-    ?? (player.radioActive ? "#/guess" : null);
+  const source = player.currentSource;
 
   /** 跳转类动作：收起正在播放页（其余路径由 NowPlaying 的 expanded 迁移统一退全屏并清画廊），再换路由。 */
   const jump = (hash: string) => {

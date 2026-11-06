@@ -511,9 +511,10 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
         location.hash = `#/album?mid=${encodeURIComponent(alb!.mid ?? base)}&name=${encodeURIComponent(stripEm(alb!.name) || "专辑")}`;
       }));
 
-      // 跳转至歌单：回到当前队列的来源页（真实歌单 / 虚拟歌单）。
-      // 来源是 player.playList 建队时记录的页面 hash；旧存档没有记录时置灰。
-      const src = player.queueSource ?? (player.radioActive ? "#/guess" : null);
+      // 跳转至歌单：回到**这一首**的来源页（真实歌单 / 虚拟歌单 / 搜索 / 本地 / 网盘）。
+      // 逐首来源在入队时记录，所以插队进来的外部歌曲不会被送回队列原来的歌单；
+      // 旧存档没有逐首记录时退回队列来源，再没有才置灰。
+      const src = player.currentSource;
 
       moreMenu.append(menuRow("跳转至歌单", !src, () => {
         if (src) location.hash = src;

@@ -41,6 +41,8 @@ export interface SessionSnapshot {
   radioEnd?: number;
   /** 队列来源页 hash（播放条封面右键「跳转至歌单」）；旧存档没有这一项。 */
   source?: string | null;
+  /** 每一首自己的来源页，与 queue 同下标（插队进来的歌来源各不相同）；旧存档没有这一项。 */
+  sources?: (string | null)[];
   /** 播放条会话音质覆盖（Quality | "auto" | 未覆盖=null）。
    *  只在窗口重建接管时恢复 —— 冷启动仍回设置页默认（会话级语义不变） */
   quality?: string | null;
@@ -94,20 +96,27 @@ export function saveSession(snap: {
   queue: Song[]; index: number; position: number; mode: Mode; shuffle?: boolean;
   radio?: boolean; radioEnd?: number;
   source?: string | null;
+  sources?: (string | null)[];
   quality?: string | null;
   lastStream?: { tier: string; label: string; degraded: boolean } | null;
 }): void {
   try {
-    const queue = snap.queue.map(slim).filter((s): s is Song => !!s);
-    // 队列过长：保住指针所在的窗口，其余丢弃（指针同步平移）
+    // 来源与队列按同下标配对后再丢无效条目，否则 slim 过滤掉一首就让后面的来源整体错位。
+    const entries = snap.queue.map((s, i) => ({ song: slim(s), origin: sourceHash(snap.sources?.[i]) }));
+    const valid = entries.filter((e): e is { song: Song; origin: string | null } => !!e.song);
+    const queue = valid.map((e) => e.song);
+    const origins = valid.map((e) => e.origin);
+    // 队列过长：保住指针所在的窗口，其余丢弃（指针与来源同步平移）
     let index = snap.index;
     let kept = queue;
+    let keptOrigins = origins;
     let from = 0;
 
     if (queue.length > MAX_QUEUE) {
       const half = Math.floor(MAX_QUEUE / 2);
       from = Math.max(0, Math.min(index - half, queue.length - MAX_QUEUE));
       kept = queue.slice(from, from + MAX_QUEUE);
+      keptOrigins = origins.slice(from, from + MAX_QUEUE);
       index -= from;
     }
 
@@ -128,6 +137,7 @@ export function saveSession(snap: {
       radio,
       radioEnd,
       source: sourceHash(snap.source),
+      sources: keptOrigins,
       quality: snap.quality ?? null,
       lastStream: snap.lastStream ?? null,
       at: Date.now(),
@@ -146,7 +156,19 @@ export function loadSession(): SessionSnapshot | null {
 
     if (!Array.isArray(d?.queue)) return null;
     const radio = d.radio === true;
-    const queue = d.queue.filter((s) => s && typeof s.mid === "string" && s.mid);
+    const rawSources = Array.isArray(d.sources) ? d.sources : [];
+    // 过滤器会丢条目，来源按同一判据保留，否则下标整体错位。
+    const kept: number[] = [];
+
+    const queue = d.queue.filter((s, i) => {
+      const ok = !!s && typeof s.mid === "string" && !!s.mid;
+
+      if (ok) kept.push(i);
+
+      return ok;
+    });
+
+    const sources = kept.map((i) => sourceHash(rawSources[i]));
 
     // 普通空队列没有可恢复内容；电台态例外：首轮还在路上就退出时，至少把电台会话保留下来。
     if (!queue.length && !radio) return null;
@@ -171,6 +193,7 @@ export function loadSession(): SessionSnapshot | null {
       radio,
       radioEnd,
       source: sourceHash(d.source),
+      sources,
       quality: typeof d.quality === "string" ? d.quality : null,
       lastStream: ls && typeof ls === "object" && typeof ls.tier === "string" ? ls : null,
       at: Number(d.at) || 0,
