@@ -18,25 +18,9 @@
 
 .home-toplist { margin-top: 30px; padding-top: 22px; border-top: 1px solid var(--line); }
 .home-toplist__head { align-items: flex-start; flex-wrap: wrap; }
-.home-toplist__groups { position: relative; flex: 1 1 auto; flex-wrap: wrap; justify-content: flex-end; margin: 0; }
-.home-toplist__groups .tag {
-  position: relative; z-index: 1; padding: 4px 12px; font-size: 12px;
-  transition: color .18s ease, border-color .18s ease, background-color .18s ease;
-}
-/* 选中态不再由按钮自己涂色：底色是下面那块会滑动的 .home-toplist__ink。 */
-.home-toplist__groups .tag.sel { background: transparent; border-color: transparent; }
-.home-toplist__ink {
-  position: absolute; left: 0; top: 0; z-index: 0;
-  border-radius: 999px; background: var(--cvg-accent, var(--acc));
-  pointer-events: none;
-  transition: transform .26s cubic-bezier(.22,.61,.36,1),
-    width .26s cubic-bezier(.22,.61,.36,1),
-    height .26s cubic-bezier(.22,.61,.36,1);
-  will-change: transform;
-}
-.home-toplist__ink.no-anim { transition: none; }
-/* 切分类时内容区淡入上移（与歌手页/设置页的 .tab-panel 同一支动画）。 */
-.home-toplist__swap { animation: tab-panel-in .24s cubic-bezier(.22,.61,.36,1) both; }
+.home-toplist__groups { flex: 1 1 auto; flex-wrap: wrap; justify-content: flex-end; margin: 0; }
+/* 分类页签与搜索页/歌手页共用 .tag/.tag.sel：选中就是实心胶囊，不做滑动墨块。 */
+.home-toplist__groups .tag { padding: 4px 12px; font-size: 12px; }
 /* .home-cards 在文件后段把 margin-top 归零，同权重会盖掉这条 —— 加一级作用域，
    保证「分类页签 / 主榜特写 → 其他榜单网格」之间始终有 12px 呼吸位。 */
 .home-toplist .home-toplist__grid { margin-top: 12px; }
@@ -139,8 +123,6 @@
 .top-feature__art:hover .toplist-art__icon { transform: scale(1.06); }
 @media (prefers-reduced-motion: reduce) {
   .top-feature, .top-feature__art, .toplist-art__icon { transition: none; }
-  .home-toplist__groups .tag, .home-toplist__ink { transition: none; }
-  .home-toplist__swap { animation: none; }
 }
 
 /* 首页布局与领区：只随 home 视图加载，不占主窗首屏 CSS。 */

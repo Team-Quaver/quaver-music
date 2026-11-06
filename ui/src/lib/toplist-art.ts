@@ -16,8 +16,9 @@ const ART = {
   rocket: svg('<path d="M12 2.8c2.7 1.4 4.3 4 4.3 7.1 0 2-.7 3.8-2 5.1H9.7c-1.3-1.3-2-3.1-2-5.1 0-3.1 1.6-5.7 4.3-7.1Z"/><circle cx="12" cy="9.4" r="1.4"/><path d="M8.2 12.7 5.4 15l.7-3.2M15.8 12.7 18.6 15l-.7-3.2M10.2 18.5c.4 1.3 1 2.2 1.8 2.7.8-.5 1.4-1.4 1.8-2.7"/>'),
   // 火焰：热歌/热度/人气
   flame: svg('<path d="M12 3.2c.7 2.7-.3 4.1-1.5 5.4C9.2 10 8.1 11.5 8.1 13.3a3.9 3.9 0 0 0 7.8.2c0-1.2-.4-2.3-1.2-3.2-.3 1-.8 1.7-1.5 2.2.3-2.6-.3-5.1-1.2-6.6Z"/>'),
-  // 星芒：新歌
-  sparkle: svg('<path d="M12 3.5l1.8 4.4 4.4 1.8-4.4 1.8L12 15.9l-1.8-4.4L5.8 9.7l4.4-1.8z"/><path d="M18.6 15.4l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/>'),
+  // 实心音符 + 加号：新歌（不用星芒，避免与 AI 星火、动漫榜的五角星撞脸；
+  // 音符做成填色剪影，旗子与符干连成一块，避免细长竖线在封面上显得突兀）
+  newSong: svg('<ellipse cx="8.6" cy="17.2" rx="3.3" ry="2.4" transform="rotate(-22 8.6 17.2)" fill="currentColor" stroke="none"/><path d="M10.6 16.6V5.4h1.5v1.4c2.6.2 4.4 1.5 5.3 3.7.2.5.2 1 0 1.5-.9-1.7-2.6-2.6-5.3-2.8v7.4h-1.5z" fill="currentColor" stroke="none"/><path d="M20.2 2.8v3.6M18.4 4.6h3.6"/>'),
   // 柱状图：指数榜
   bars: svg('<path d="M4 20V11M9.3 20V4M14.7 20v-6.5M20 20V7.5"/>'),
   // 心电图：音乐指数（与柱状图区分）
@@ -30,8 +31,8 @@ const ART = {
   mic: svg('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.2a6.5 6.5 0 0 0 13 0M12 17.7V21M8.5 21h7"/>'),
   // 话筒 + 音符：K歌
   micNote: svg('<rect x="7.2" y="2.8" width="6" height="10.4" rx="3"/><path d="M4.2 10.8a6 6 0 0 0 12 0M10.2 16.8V20M6.8 20h6.8"/><path d="M18.2 5.4v6.1"/><circle cx="16.8" cy="13" r="1.4"/>'),
-  // 放大镜 + 音符：听歌识曲
-  searchNote: svg('<circle cx="10.5" cy="10.5" r="6.3"/><path d="M15.2 15.2 21 21M9.3 13.2V8.2l4.2-.9v4.9"/><circle cx="7.7" cy="13.4" r="1.6"/><circle cx="11.9" cy="12.5" r="1.6"/>'),
+  // 放大镜：听歌识曲（镜片里不再放音符，封面尺寸下只会糊成一团）
+  search: svg('<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.3 15.3 21 21"/>'),
   // 对话气泡：评论
   chat: svg('<path d="M4 5.5h16v10.5H12l-4.5 3.5V16H4z"/>'),
   // 奖杯：腾讯音乐榜
@@ -44,8 +45,8 @@ const ART = {
   robot: svg('<rect x="4.3" y="7.2" width="15.4" height="11.2" rx="3"/><path d="M12 3.2v4M2.8 11.5h1.5M19.7 11.5h1.5"/><circle cx="9.2" cy="12.3" r="1.2"/><circle cx="14.8" cy="12.3" r="1.2"/><path d="M9.6 15.6h4.8"/>'),
   // 琴弦：国乐
   strings: svg('<path d="M3.5 6.5h17M3.5 12h17M3.5 17.5h11"/><circle cx="18.5" cy="17.5" r="2"/>'),
-  // 折扇：国风
-  fan: svg('<path d="M12 21 4.5 9.2a14 14 0 0 1 15 0Z"/><path d="M12 21 7 7.5M12 21 9.5 5.6M12 21V4.9M12 21 14.5 5.6M12 21 17 7.5"/>'),
+  // 折扇：国风（扇骨收成 5 根并留出扇钉，旧版 6 根挤满扇面像一把锯子）
+  fan: svg('<path d="M12 20.5 4.2 9.5a13.5 13.5 0 0 1 15.6 0Z"/><path d="M12 20.5 7.1 7.9M12 20.5V7M12 20.5l4.9-12.6"/><circle cx="12" cy="20.5" r="1.1" fill="currentColor" stroke="none"/>'),
   // 唱片：电音
   disc: svg('<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.2"/>'),
   // 耳机：DJ
@@ -112,12 +113,12 @@ const EXACT = new Map(Object.entries({
   巅峰潮流榜: { color: "#ff4d8d", icon: ART.trend },
   飙升榜: { color: "#ff5a3c", icon: ART.rocket },
   热歌榜: { color: "#ff8a1e", icon: ART.flame },
-  新歌榜: { color: "#2f80ed", icon: ART.sparkle },
+  新歌榜: { color: "#2f80ed", icon: ART.newSong },
   流行指数榜: { color: "#8b5cf6", icon: ART.bars },
   分享热度榜: { color: "#16a34a", icon: ART.share },
   音乐指数榜: { color: "#0ea5e9", icon: ART.pulse },
   铃声榜: { color: "#a16207", icon: ART.bell },
-  听歌识曲榜: { color: "#06b6d4", icon: ART.searchNote },
+  听歌识曲榜: { color: "#06b6d4", icon: ART.search },
   收藏人气榜: { color: "#ef4444", icon: ART.heart },
   评论人气榜: { color: "#6366f1", icon: ART.chat },
   腾讯音乐榜: { color: "#e6a020", icon: ART.trophy },
@@ -170,7 +171,7 @@ const RULES: ArtRule[] = [
   { match: /K歌|翻唱/i, color: "#e11d48", icon: ART.micNote },
   { match: /电音/i, color: "#6f7bff", icon: ART.disc },
   { match: /DJ|舞曲/i, color: "#7c3aed", icon: ART.headphones },
-  { match: /识曲/, color: "#06b6d4", icon: ART.searchNote },
+  { match: /识曲/, color: "#06b6d4", icon: ART.search },
   { match: /收藏/, color: "#ef4444", icon: ART.heart },
   { match: /评论/, color: "#6366f1", icon: ART.chat },
   { match: /游戏/, color: "#2563eb", icon: ART.gamepad },
@@ -179,7 +180,7 @@ const RULES: ArtRule[] = [
   { match: /综艺/, color: "#ff9c42", icon: ART.tv },
   { match: /AI|未音/i, color: "#a855f7", icon: ART.robot },
   { match: /原创|新势力/, color: "#0f766e", icon: ART.quill },
-  { match: /新歌/, color: "#2f80ed", icon: ART.sparkle },
+  { match: /新歌/, color: "#2f80ed", icon: ART.newSong },
   { match: /热歌|热度|人气/, color: "#ff8a1e", icon: ART.flame },
   { match: /腾讯音乐|由你|浪潮/, color: "#e6a020", icon: ART.trophy },
   { match: /香港/, color: "#e26a9a", icon: ART.flower },

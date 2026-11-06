@@ -450,54 +450,18 @@ export default async function homeView(root: HTMLElement) {
   let topData: ToplistGroup[] = [];
   let selectedTopGroup = 0;
   let groupButtons: HTMLButtonElement[] = [];
-  let groupInk: HTMLElement | null = null;
 
-  // 选中底色单独做成一层「墨块」：切分类时它从旧胶囊滑到新胶囊，而不是两枚按钮瞬间换色。
-  // 按钮自己保持透明，文字与描边照旧；墨块的尺寸/位置直接取自目标按钮的布局盒。
-  const placeGroupInk = (animate: boolean) => {
-    const ink = groupInk;
-    const btn = groupButtons[selectedTopGroup];
-
-    if (!ink || !btn) return;
-
-    const apply = () => {
-      // 用两个 boundingRect 求相对位移（而不是 offsetLeft/Top）：flex 换行后
-      // 按钮可能落在小数坐标上，offset 取整会让墨块偏出 1px。
-      const host = topGroups.getBoundingClientRect();
-      const box = btn.getBoundingClientRect();
-
-      ink.style.transform = `translate(${box.left - host.left}px, ${box.top - host.top}px)`;
-      ink.style.width = `${box.width}px`;
-      ink.style.height = `${box.height}px`;
-    };
-
-    if (!animate) {
-      ink.classList.add("no-anim");
-      apply();
-      void ink.offsetWidth; // 先落位再恢复过渡：首帧与换行重排不播放滑入
-      ink.classList.remove("no-anim");
-
-      return;
-    }
-
-    ink.classList.remove("no-anim");
-    apply();
-  };
-
-  const syncGroupSelection = (animate: boolean) => {
+  // 分类页签就是普通 .tag：选中态由 .tag.sel 自己涂色（与搜索页/歌手页同一套），
+  // 不做滑动墨块 —— 那层浮块在换行/缩放时会飘，也和其余标签的视觉语言对不上。
+  const syncGroupSelection = () => {
     groupButtons.forEach((btn, index) => btn.classList.toggle("sel", index === selectedTopGroup));
-    placeGroupInk(animate);
   };
 
   const paintTopGroups = () => {
     topGroups.innerHTML = "";
     groupButtons = [];
-    groupInk = null;
 
     if (topData.length <= 1) return;
-    groupInk = h("span", "home-toplist__ink");
-    groupInk.setAttribute("aria-hidden", "true");
-    topGroups.append(groupInk);
     topData.forEach((group, index) => {
       // SAFETY: h() 按标签名建元素，这里的 "button" 必然是 HTMLButtonElement。
       const btn = h("button", "tag", "") as HTMLButtonElement;
@@ -506,41 +470,17 @@ export default async function homeView(root: HTMLElement) {
       btn.onclick = () => {
         if (index === selectedTopGroup) return;
         selectedTopGroup = index;
-        syncGroupSelection(true);
-        paintTopGroup(true);
+        syncGroupSelection();
+        paintTopGroup();
       };
 
       groupButtons.push(btn);
       topGroups.append(btn);
     });
-    syncGroupSelection(false);
+    syncGroupSelection();
   };
 
-  // 页签宽度变化（窗口缩放后换行）时只重新落位，不播放滑动动画。
-  let groupRaf = 0;
-
-  const onGroupResize = () => {
-    if (groupRaf) return;
-    groupRaf = requestAnimationFrame(() => {
-      groupRaf = 0;
-      placeGroupInk(false);
-    });
-  };
-
-  window.addEventListener("resize", onGroupResize);
-
-  // 切分类时内容整体重画，给两个内容容器各补一次入场动画；
-  // 先摘类 + 强制回流，保证同一帧内重挂的节点也能重新播放。
-  const replayTopSwap = () => {
-    for (const el of [topFeatures, topGrid]) {
-      if (!el.childElementCount) continue;
-      el.classList.remove("home-toplist__swap");
-      void el.offsetWidth;
-      el.classList.add("home-toplist__swap");
-    }
-  };
-
-  const paintTopGroup = (animate = false) => {
+  const paintTopGroup = () => {
     topGrid.innerHTML = "";
     topFeatures.innerHTML = "";
     const list = topData[selectedTopGroup]?.toplists ?? [];
@@ -577,14 +517,11 @@ export default async function homeView(root: HTMLElement) {
     if (!topFeatures.childElementCount && !topGrid.childElementCount) {
       homeStatus(topGrid, "这个分类暂时没有榜单", "稍后回来看看", loadToplists);
     }
-
-    if (animate) replayTopSwap();
   };
 
   const loadToplists = async () => {
     topGroups.innerHTML = "";
     groupButtons = [];
-    groupInk = null;
     topFeatures.innerHTML = "";
     topFeatures.hidden = true;
     topGrid.innerHTML = `<div class="muted">加载中…</div>`;
@@ -692,11 +629,8 @@ export default async function homeView(root: HTMLElement) {
     scroller.removeEventListener("scroll", onRailScroll);
     scroller.removeEventListener("scrollend", endRailJump);
     window.removeEventListener("resize", onRailScroll);
-    window.removeEventListener("resize", onGroupResize);
 
     if (railRaf) cancelAnimationFrame(railRaf);
-
-    if (groupRaf) cancelAnimationFrame(groupRaf);
 
     rail.remove();
   };
