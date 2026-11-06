@@ -613,10 +613,41 @@ export default async function settingsView(root: HTMLElement) {
   tabs.querySelectorAll<HTMLButtonElement>(".set-tab").forEach((t) => {
     t.onclick = () => {
       if (t.classList.contains("is-active")) return;
+      const wasStuck = sticky.bar.classList.contains("stuck");
       wrap.classList.add("tab-anim");
       tabs.querySelectorAll(".set-tab").forEach((x) => x.classList.toggle("is-active", x === t));
       wrap.querySelectorAll<HTMLElement>(".set-panel").forEach((p) => { p.hidden = p.dataset.panel !== t.dataset.tab; });
-      scroller.scrollTo({ top: 0 }); // 每个分区都从顶部开始（滚动容器是 .route，不再由 .set-view 内部滚）
+
+      // 每个分区都从内容区顶部开始（滚动容器是 .route，不再由 .set-view 内部滚）。
+      // 但吸顶中不回页面顶端：滚到 0 会让条脱顶、大标题重新展开，正好和 tab 切换动画
+      // （条内迷你信息淡入 + 面板入场）撞在同一段里，看上去就是闪一下。
+      // 改为滚到「新面板刚好贴在吸顶条下缘」——分区仍然从头看起，条保持吸住。
+      const panel = wrap.querySelector<HTMLElement>(`.set-panel[data-panel="${t.dataset.tab}"]`);
+
+      if (wasStuck && panel) {
+        // 量未受入场动画影响的位置：面板入场时挂着 translateY(6px)，动画期间它自己还会
+        // 成为 offsetParent —— 直接读 rect 或 offsetTop 与 .set-view 相减都会把 transform 算进去。
+        // offsetTop 是布局值、不含 transform：沿 offsetParent 链累加到文档，与 .set-view 的
+        // 同一份结果相减，就是面板在正常流里的布局顶（不受入场动画那一帧影响）。
+        const layoutTop = (el: HTMLElement) => {
+          let top = 0;
+
+          // SAFETY: offsetParent 的静态类型是 Element | null；这条链只在页面内的 HTMLElement
+          // 之间走（.set-panel / .set-view / .content-body），不会经过 SVG 等无 offsetTop 的元素。
+          for (let cur: HTMLElement | null = el; cur; cur = cur.offsetParent as HTMLElement | null) top += cur.offsetTop;
+
+          return top;
+        };
+
+        const panelContentTop = wrap.getBoundingClientRect().top + layoutTop(panel) - layoutTop(wrap);
+
+        const target = scroller.scrollTop + panelContentTop
+          - scroller.getBoundingClientRect().top - sticky.bar.getBoundingClientRect().height;
+
+        scroller.scrollTo({ top: target });
+      } else {
+        scroller.scrollTo({ top: 0 });
+      }
     };
   });
 
