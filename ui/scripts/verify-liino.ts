@@ -89,9 +89,9 @@ ok("假音频镜像对 Liino 同样生效", /player\.engineBacked && !!player\.c
 const settings = src("src/views/settings.ts");
 
 ok("设置页有 Liino 引擎行", /Liino 原生直出运行中/.test(settings));
-ok("设置页有 Liino 实验性原生模式选项", /decodeRow\("Liino", "Liino（实验性原生模式）"\)/.test(settings));
+ok("设置页有 Liino 引擎选项（首个，标注默认）", /decodeRow\("Liino", "Liino（原生直出，默认）"\)/.test(settings));
 
-ok("设置页说清 Liino 的边界（无 PCM 兼容拓扑）", /没有 MPV 的 PCM 兼容拓扑/.test(settings));
+ok("播放器说清 Liino 的边界（无 PCM 兼容拓扑）", /没有 MPV 的 PCM 兼容拓扑/.test(player));
 
 // —— 打包 ——
 

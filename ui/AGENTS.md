@@ -272,9 +272,9 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
   全都回不到滑杆上 —— 条与读数冻在聚焦那一刻的值，声音明明在变。松手立刻回写播放器真值，
   别留「拖中滚过轮」的那一截差（94 vs 98 那种假读数）。
 - 验证：`pnpm run verify:volume-bar`（源码接线 + 反向自证 + 活体：两种形态 × 六档尺寸的锚点与
-## Liino 后端（实验 · 纯 Go 音频管线，设置 → Liino（实验性原生模式））
+## Liino 后端（默认 · 纯 Go 音频管线，设置 → Liino（原生直出，默认））
 
-主进程音频后端有两个：「mpv」（默认，生产形态）与「liino」（实验，显式打开）。Liino 源在
+主进程音频后端有两个：「liino」（默认，纯 Go 管线）与「mpv」（回落）。Liino 源在
 `vendor/Liino`（AGPL，子模块）：纯 Go 解码（ffgo 动态加载系统 FFmpeg）+ 纯 Go DSP + 平台输出
 （Linux PipeWire / Windows WASAPI）打成一份 c-shared 库（`libliino.so` ≈3.5MB），主进程经
 koffi FFI **同进程**调用 —— 没有子进程、没有 IPC socket、没有看门狗。想试：
@@ -282,7 +282,7 @@ koffi FFI **同进程**调用 —— 没有子进程、没有 IPC socket、没�
 ```sh
 cd vendor/Liino && bash scripts/build-capi.sh      # 先出库（开发态落到 build/<os>-<arch>/）
 # Windows（PowerShell，参数与 .sh 一致）：pwsh -File scripts/build-capi.ps1 [all|<goos> <goarch>]
-cd ui && pnpm run app                              # 真出声跑一圈（设置页选 Liino，或仍可用 QUAVER_AUDIO_BACKEND=liino）
+cd ui && pnpm run app                              # 真出声跑一圈（默认即 Liino，可用 QUAVER_AUDIO_BACKEND=mpv 对照）
 ```
 
 - 门面在 `electron/audio/backend.ts`：`bootAudioEngine()` 按启动快照的 `[Playing] Backend`

@@ -49,7 +49,7 @@ const FALLBACK: ConfigSnapshot = {
   "Window.SidebarCollapsed": "False",
   "Window.SidebarWidth": "",
   "Window.QueueWidth": "",
-  "Playing.Backend": "MPV",
+  "Playing.Backend": "Liino",
   "Playing.AudioDevice": "auto",
   "Playing.Fade": "normal",
   "Playing.Volume": "0.8",

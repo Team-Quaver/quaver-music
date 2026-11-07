@@ -576,8 +576,8 @@ export const SCHEMA: SectionSpec[] = [
     keys: [
       {
         key: "Backend",
-        def: "MPV",
-        doc: ["默认 MPV；MPVCompat=原生兼容（MPV 解码 + renderer 出声）；Liino=实验性原生模式；Chromium=浏览器"],
+        def: "Liino",
+        doc: ["默认 Liino（原生直出）；MPV=原生直出（MPV）；MPVCompat=原生兼容（MPV 解码 + renderer 出声）；Chromium=浏览器"],
         valid: (v: string) => ["MPV", "MPVCompat", "Liino", "Chromium", "Blink"].includes(v), // Blink 是旧值
       },
       {

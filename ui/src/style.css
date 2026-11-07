@@ -1970,6 +1970,8 @@ html[data-theme="dark"] .vip-card .is-expired { color: #e66; }
 .set-view { width: 100%; min-width: 0; padding-bottom: 12px;
   transition: padding-bottom .34s cubic-bezier(.32,.72,.24,1); }
 .set-hint { margin: 6px 0 0; font-size: 11.5px; line-height: 1.5; }
+/* 无文案时不占位（录制失败的闪现提示写入后自动恢复） */
+.set-hint:empty { margin: 0; }
 
 /* 选项卡按钮组（外观模式 / 窗口装饰 / 默认音质共用） */
 .opt-cards { display: flex; flex-wrap: wrap; gap: 10px; }

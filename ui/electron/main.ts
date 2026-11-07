@@ -10,7 +10,7 @@ import { appendFileSync, existsSync, readFileSync, renameSync, statSync, unlinkS
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { basename, extname, join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-// 音频引擎：默认 mpv 后端，播放偏好或 QUAVER_AUDIO_BACKEND 选 Liino 且库可 dlopen 时换 Liino（见 audio/backend.ts）。
+// 音频引擎：默认 Liino 后端，库不可 dlopen 时回落 mpv；QUAVER_AUDIO_BACKEND 仍可顶掉启动选择（见 audio/backend.ts）。
 // 窗口 URL 确定后 init（两边都需要 baseUrl 绝对化 /api/stream 中继地址）。
 import { audioExternalPids, bootAudioEngine, getAudioEngine, shutdownAudioEngine } from "./audio/backend.ts";
 // 配置文件（quaver.conf）与跨平台目录规则：路径单一真相，渲染层与 sidecar 都对齐这一份
@@ -186,9 +186,9 @@ try {
 
 const bootTheme = bootConf["Style.Style"] ?? "dark";
 
-// 播放后端（MPV / MPVCompat / Liino / Chromium）落在 quaver.conf；Liino 作为显式偏好随应用启动时生效。
+// 播放后端（Liino / MPV / MPVCompat / Chromium）落在 quaver.conf；Liino 是默认偏好，随应用启动时生效。
 // 这里只保留一个启动快照：bootAudioEngine 在 whenReady 里按它二选一 init（进程一个 IPC handle 只能有一个主人）。
-const bootAudioBackend = bootConf["Playing.Backend"] ?? "MPV";
+const bootAudioBackend = bootConf["Playing.Backend"] ?? "Liino";
 
 // 窗口底色：按 quaver.conf 的主题预判，避免加载首帧白闪（dark、或跟随系统且系统为深色 → 深底）。
 // 跟随系统的判据走我们自己的探测：nativeTheme 在 whenReady 之前不可靠，且 Linux 上它只认 GTK

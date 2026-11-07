@@ -119,7 +119,7 @@ check("模板含全部段", ["[Style]", "[Window]", "[Playing]", "[Quality]", "[
 
 check("模板注释来自 schema", template().includes("可选 dark,light,follow-system"));
 
-eq("默认值与模板占位一致", (() => { const v = readValues().values; return v["Style.Style"] === "dark" && v["Playing.Backend"] === "MPV" && v["Quality.DefaultQuality"] === "Auto" && v["Quality.FallbackToQMAtmos"] === "False"; })(), true);
+eq("默认值与模板占位一致", (() => { const v = readValues().values; return v["Style.Style"] === "dark" && v["Playing.Backend"] === "Liino" && v["Quality.DefaultQuality"] === "Auto" && v["Quality.FallbackToQMAtmos"] === "False"; })(), true);
 
 eq("窗口装饰默认三平台统一 csd（macOS 走 hiddenInset 红绿灯）", [defaultDecor("darwin"), defaultDecor("linux"), defaultDecor("win32")], ["csd", "csd", "csd"]);
 

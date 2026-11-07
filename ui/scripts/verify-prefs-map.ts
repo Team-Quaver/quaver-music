@@ -102,7 +102,7 @@ eq("装饰默认 csd", P.getDecor(), "csd");
 
 eq("关闭行为默认 tray", P.getCloseAction(), "tray");
 
-eq("后端默认 MPV", P.getDecode(), "MPV");
+eq("后端默认 Liino", P.getDecode(), "Liino");
 
 eq("音质 fallback 默认 no-atmos", P.getFallbackSort(), "no-atmos");
 
@@ -595,7 +595,7 @@ eq("Liino → 实验性原生模式", P.getDecode(), "Liino");
 
 await reload({ "Playing.Backend": "mpv" });
 
-eq("大小写不符的取值回落 MPV", P.getDecode(), "MPV");
+eq("大小写不符的取值回落 Liino", P.getDecode(), "Liino");
 
 await reload({ "Quality.FallbackToQMAtmos": "True" });
 
@@ -753,7 +753,7 @@ section("重置");
 
 await P.resetConfig();
 
-eq("重置回到默认", [P.getTheme(), P.getDecode(), P.getFade()], ["dark", "MPV", "normal"]);
+eq("重置回到默认", [P.getTheme(), P.getDecode(), P.getFade()], ["dark", "Liino", "normal"]);
 
 eq("背景一并回到默认（FALLBACK 里也得有这些键）",
   [P.getBackgroundMode(), P.getBackgroundImage(), P.getBackgroundFlow(), P.getBackgroundBlur(), P.getBackgroundRenderer(), P.getNpBackgroundRenderer()], ["off", "", 1, 70, "quaver", "quaver"]);

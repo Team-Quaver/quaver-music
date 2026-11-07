@@ -1,6 +1,6 @@
 // Quaver — 全局播放器状态机（常驻于 SPA 壳层，跨视图不销毁，音频不中断）
 // 订阅式：任何状态变化 notify 所有 UI（播放条 / 正在播放页 / 队列面板）。
-// 音频走 Transport 抽象（src/lib/transport.ts）：默认 mpv 原生引擎（Electron 壳层），
+// 音频走 Transport 抽象（src/lib/transport.ts）：默认 Liino 原生引擎（Electron 壳层），
 // 可选浏览器 <audio> 兜底；曲目/队列/循环/歌词归本层，位置/时长/播放态真相在传输层。
 import { api, postJson, coverUrl, resolveStreamUrl, effectiveQuality, getSessionQuality, setSessionQuality, getLastStream, setLastStream, writeSongType, type StreamResult } from "./lib/api";
 import {
@@ -262,7 +262,7 @@ class Player {
     this._vol = getVolumeConf();
     this._muted = getMutedConf();
     this.applyVolume();
-    // 默认 MPV：启动即探测可用性并热切换传输（浏览器 dev / mpv 缺失时留在 <audio>）
+    // 默认 Liino：启动即探测可用性并热切换传输（浏览器 dev / 引擎缺失时留在 <audio>）
     this.backendInit = this.initBackend();
     // 后端定稳后再还原上一次的队列/进度（挂流不自动播，见 restoreSession）
     void this.backendInit.then(() => this.restoreSession());
