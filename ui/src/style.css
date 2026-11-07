@@ -45,13 +45,19 @@ html[data-theme="dark"] {
    模态弹窗 .upd-dialog（更新 / 本地插件 / 插件设置）也吃同一组令牌，随这棵开关与主题接管一起走。
    侧栏与 Content View 复用 --shell-filter / 关闭档实底，不用菜单表面令牌（各自的 --glass / --panel 保留）。
 
+   **例外：正在播放页的三个浮层（.np-menu / .np-menu-sub-list / .np-qinfo）不做 backdrop
+   采样** —— 那一页背后是每帧重绘的 mesh 画布与逐行 blur 的歌词层，bf 在切歌/歌词过渡时
+   会采到空帧，整块菜单闪黑。它们只吃表面令牌（换成高不透明度的 --np-pop-surface），
+   bf 显式 none。见共享规则下方那条覆盖规则。
+
    这也解释了「菜单看起来完全没有模糊」的四个叠加成因（按重要性排）：
      ① **[已修，最致命] 压缩器把无前缀的 backdrop-filter 吃掉了** —— 见下面那段 ⚠️：
         改造前产物里整个应用一条可用的 backdrop-filter 都没有，所以调令牌、调底片全都没用；
      ② .pb-*pop 挂在 .player 里，而 .player 自己带 backdrop-filter —— 它成了那几颗浮窗的
         backdrop root，模糊只采样播放条内部，条外一片空白（→ 已改成 .player::before，见该处注释）；
      ③ 底片不透明度 0.78~0.85（--volpop / .np-menu 的 #10131cd9），透出来的不到四分之一，
-        模糊就算生效也被实色底片吃掉 → 现在压到 0.62~0.66，对齐侧栏/播放条那档；
+        模糊就算生效也被实色底片吃掉 → 现在压到 0.62~0.66，对齐侧栏/播放条那档
+        （正在播放页那三个浮层反过来走不透明底片：它们不采样底图，得靠底片压住封面字）；
      ④ .np-menu 底下的 .np-bg 原先 blur(60px)，已近乎没有纹理可供二次模糊；现在降低背景模糊，
         让菜单的 backdrop-filter 能形成可见的毛玻璃层次；
      ⑤ 默认配置下背景层是 off（纯色底）+ 内容卡是实白 —— 模糊纯色 = 纯色，结构上无从体现
@@ -97,9 +103,17 @@ html[data-theme="dark"] {
   --menu-shadow: 0 12px 36px rgba(0, 0, 0, .46);
   --menu-edge: rgba(255, 255, 255, .08);
 }
-/* 正在播放页恒为深色玻璃：本页的菜单表面另起一份（色锚同那一页的白字口径） */
+/* 正在播放页恒为深色玻璃：本页的菜单表面另起一份（色锚同那一页的白字口径）。
+   --np-pop-surface 是 ⋮ 菜单 / 音质浮窗专用的底片：这一页的浮层**不做 backdrop 采样**
+   （原因见共享规则下方），所以底片必须是**不透明**的 —— 0.62 那档没有模糊时会把
+   背后的封面字（专辑封面上印的歌名）直接透出来。底色掺一点封面染色（--cvg-accent），
+   既与选中项/开关的染色语言一致，也避免一整块死黑。
+   音质胶囊仍用 --menu-surface（小胶囊无模糊，观感不变）。 */
 .np {
   --menu-surface: rgba(16, 19, 28, .62);
+  --np-pop-surface: linear-gradient(180deg,
+    color-mix(in srgb, var(--cvg-accent, var(--cyan)) 10%, #1a1f2c),
+    color-mix(in srgb, var(--cvg-accent, var(--cyan)) 5%, #0b0e17));
   --menu-line: rgba(255, 255, 255, .16);
   --menu-shadow: 0 12px 36px #0006;
   --menu-edge: rgba(255, 255, 255, .1);
@@ -115,6 +129,7 @@ html[data-menu-glass="off"] {
 }
 html[data-menu-glass="off"] .np {
   --menu-surface: #14171f;
+  --np-pop-surface: #14171f;
   --menu-line: #ffffff1f;
   --menu-edge: transparent;
 }
@@ -239,6 +254,7 @@ body.side-collapsed {
 /* 侧栏宽度：默认 216px，可由 shell.ts 的分隔条拖拽写入的 --side-w 覆盖
    （缩态 64px 由 body.side-collapsed 的高优先级规则接管，见文件下方） */
 .sidebar {
+  position: relative; /* mac-csd 的 .side-dragtop 以它为定位上下文 */
   flex: 0 0 var(--side-w, 216px); border-radius: 14px; padding: 14px 10px;
   display: flex; flex-direction: column; gap: 10px; overflow: hidden; min-height: 0;
   background: var(--sidebar-surface, var(--glass)); border: 1px solid var(--glass-line);
@@ -253,14 +269,18 @@ body.side-collapsed {
    先淡出、后收窄，中途不会看到被裁了一半的汉字。
    注意 .nav a / .pl 不在此列：它们各自已有声明（背景/按压缩放），transition 是整体覆盖属性，
    列在这里会被后面那条规则顶掉，得并进它们自己的声明里去。 */
-.sidebar, .user, .user-meta, .avatar, .nav a span, .pname, .side-foot {
+.sidebar, .user, .user-meta, .avatar, .nav a span, .nav-more span, .pname, .side-foot {
   transition:
     flex-basis .24s cubic-bezier(.22,.61,.36,1), padding .24s cubic-bezier(.22,.61,.36,1),
     gap .24s cubic-bezier(.22,.61,.36,1), max-width .24s cubic-bezier(.22,.61,.36,1),
+    max-height .24s cubic-bezier(.22,.61,.36,1),
     width .24s cubic-bezier(.22,.61,.36,1), height .24s cubic-bezier(.22,.61,.36,1),
     opacity .12s cubic-bezier(.22,.61,.36,1);
 }
-.user { display: flex; gap: 10px; align-items: center; padding: 2px 6px; border-radius: 10px; }
+/* min-height 钉住头像行：登录后多出的昵称/徽章、缩态里被隐藏的 .user-meta 都不许把
+   这一行撑高 —— 否则头像会跟着行高一起上下漂（登录前后位置差、缩态悬浮卡变高都是这个）。
+   48 = 头像 44 + 上下 padding 2×2；缩态头像缩到 38 时，行高不变 → 中轴不变。 */
+.user { display: flex; gap: 10px; align-items: center; padding: 2px 6px; border-radius: 10px; min-height: 48px; }
 .user:hover { background: var(--hover); }
 .avatar {
   width: 44px; height: 44px; flex: 0 0 auto; border-radius: 50%; overflow: hidden;
@@ -268,8 +288,10 @@ body.side-collapsed {
   box-shadow: 0 2px 6px #00000022;
 }
 .avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
-/* max-width 是缩态收字用的抓手：必须有初值（none→0 不参与插值），且比内容宽才不截展开态 */
-.user-meta { min-width: 0; max-width: 160px; overflow: hidden; display: flex; flex-direction: column; gap: 3px; }
+/* max-width 是缩态收字用的抓手：必须有初值（none→0 不参与插值），且比内容宽才不截展开态。
+   max-height 是同一套抓手的纵向版：昵称 + 一行徽章 ≈ 41px，封顶 44（= 头像高）就不会反过来
+   撑高 .user（缩态把 max-width/max-height 一起收到 0，文字与徽章彻底不占版面）。 */
+.user-meta { min-width: 0; max-width: 160px; max-height: 44px; overflow: hidden; display: flex; flex-direction: column; gap: 3px; }
 .nick { font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .badges { display: flex; gap: 4px; flex-wrap: wrap; }
 .badge { font-style: normal; font-size: 10px; line-height: 16px; padding: 0 5px; border-radius: 4px; color: #fff; }
@@ -297,6 +319,44 @@ body.side-collapsed {
 .nav a:active { transform: scale(.97); }
 .nav a.active { background: color-mix(in srgb, var(--cvg-glow, var(--nav-active)) 16%, var(--nav-active)); color: var(--ink); }
 .nav a.active::before { transform: scaleY(1); }
+/* 用户隐藏的导航项：.nav a 自带 display:flex，属性选择器的 [hidden] 压不过它，必须显式收口。 */
+.nav a[hidden] { display: none; }
+
+/* 「更多」：用户隐藏的导航项收在这里（竖三点 + 浮窗），与 .nav a 同一套排版与缩态；
+   它是 <button> 而不是 <a>（不导航），所以选中态/按压缩放要单独写一遍。 */
+.nav-more {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 0; border-radius: 9px;
+  background: transparent; color: var(--ink3); font: inherit; font-weight: 500; text-align: left; cursor: pointer;
+  transition: background .14s, transform .1s ease,
+    gap .24s cubic-bezier(.22,.61,.36,1), padding .24s cubic-bezier(.22,.61,.36,1);
+}
+.nav-more:hover { background: var(--hover); }
+.nav-more:active { transform: scale(.97); }
+.nav-more span { max-width: 140px; overflow: hidden; white-space: nowrap; }
+.nav-more.active, .nav-more.is-open {
+  background: color-mix(in srgb, var(--cvg-glow, var(--nav-active)) 16%, var(--nav-active));
+  color: var(--ink);
+}
+/* 「更多」浮窗：fixed 挂 body（侧栏 overflow:hidden 会裁掉它），位置由 shell.ts 按按钮
+   rect 量一次写入。玻璃底 / 描边 / 模糊走文件末尾那条共享规则。 */
+.nav-more-pop {
+  position: fixed; z-index: 80; min-width: 168px; max-width: 260px; padding: 6px;
+  max-height: calc(100vh - 16px); overflow-y: auto; border-radius: 12px;
+  display: flex; flex-direction: column; gap: 2px;
+  animation: ctx-in .14s cubic-bezier(.22,.61,.36,1) both;
+}
+.nav-more-pop[hidden] { display: none; }
+.nav-pop-item {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px;
+  color: var(--ink3); font-size: 13px;
+}
+.nav-pop-item:hover { background: var(--press); color: var(--ink); }
+.nav-pop-item.active {
+  background: color-mix(in srgb, var(--cvg-glow, var(--nav-active)) 16%, var(--nav-active));
+  color: var(--ink);
+}
+.nav-pop-ico { display: grid; place-items: center; width: 18px; height: 18px; flex: 0 0 auto; }
+.nav-pop-tx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .sep { border: 0; border-top: 1px dashed var(--sep); margin: 4px 6px; }
 
@@ -342,10 +402,16 @@ body.side-collapsed {
 body.side-collapsed .sidebar { flex-basis: 64px; padding: 14px 8px; }
 body.side-collapsed .user { justify-content: center; padding: 2px 0; gap: 0; }
 body.side-collapsed .avatar { width: 38px; height: 38px; }
+/* 头像旁的文字块连高度一起收掉：只收宽度的话，被隐藏的昵称/徽章仍在纵向占位，
+   登录后会把这个卡片撑高、把头像推到中间（缩态实测就是这个症状）。
+   导航文字/歌单名是单行，只收宽度即可，纵向高度本来就由行盒固定。 */
+body.side-collapsed .user-meta { max-height: 0; }
 body.side-collapsed .user-meta,
 body.side-collapsed .nav a span,
+body.side-collapsed .nav-more span,
 body.side-collapsed .pname { max-width: 0; opacity: 0; }
 body.side-collapsed .nav a { justify-content: center; padding: 8px 0; gap: 0; }
+body.side-collapsed .nav-more { justify-content: center; padding: 8px 0; gap: 0; }
 body.side-collapsed .pl { justify-content: center; padding: 6px 0; gap: 0; }
 body.side-collapsed .sep { margin: 4px 12px; }
 /* 分组标题：文字收成 0 高度，只留一条居中的虚线区分「我创建的 / 收藏的」两团。
@@ -365,6 +431,27 @@ body.side-collapsed .playlists::-webkit-scrollbar { width: 6px; }
 body.side-collapsed .playlists::-webkit-scrollbar-thumb { border-width: 2px; }
 body.side-collapsed .side-foot { flex-direction: column; justify-content: center; gap: 2px; }
 body.side-collapsed .side-btn svg { transform: rotate(180deg); }
+
+/* —— macOS 原生 CSD（body.mac-csd）：hiddenInset + 系统红绿灯 ——
+   macOS 的 CSD 不自绘三钮（red/yellow/green 由系统画），所以 .winbtns 收起；
+   左上角那条红绿灯带必须留空，否则会压在侧栏头像上。红绿灯底缘 ≈ 窗口顶 10px 边距 +
+   trafficLightPosition y=16 + 钮径 12 = 28px；侧栏自身 padding-top 14 + .user 的 24px
+   margin 让内容从窗口顶约 48px 才开始（头像顶 ≈ 51px）；满幅主题（.body padding 归零）
+   下也还剩 40px / 头像 43px，不会压到红绿灯。
+   红绿灯横跨约 52px（x=16 起），落在 64px 的缩态侧栏内，不会顶到右侧内容区。
+   状态由 prefs.applyDecor 挂到 body（仅 Electron + Darwin，浏览器 dev 保留自绘占位钮）。 */
+.side-dragtop { display: none; }
+body.mac-csd .winbtns { display: none; }
+/* 让位量写在 .user 的 margin 上，而不是 .sidebar 的 padding-top：Sparkle 主题（如 M3）
+   会以更高特异性重写 .sidebar 的 padding（`& body:not(.side-collapsed) .sidebar`），
+   写在容器上会被主题顶掉；主题不动 .user 的纵向 margin，这条才在三套皮肤下都成立。 */
+body.mac-csd .user { margin-top: 24px; }
+body.mac-csd .side-dragtop {
+  display: block; position: absolute; top: 0; left: 0; right: 0; height: 32px;
+  -webkit-app-region: drag; cursor: grab;
+}
+/* 右上角没有自绘按钮簇了 → 顶带拖拽把手恢复整条（原先为按钮簇止步在右缩 94px 处） */
+body.mac-csd .content-top .top-drag { right: 0; }
 
 /* —— 歌单显示模式：歌单集合页（body[data-playlist-mode="collection"]）——
    「菜单栏」态（默认）侧栏照常列歌单；「歌单集合页」态侧栏歌单区整块撤走，导航按钮在
@@ -686,7 +773,7 @@ body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-b
 /* 歌手页：头像圆形（与搜索页歌手卡 .art.round 同一语言） */
 .pl-art.round { border-radius: 50%; }
 /* 系统歌单封面：Accent 渐变底。每日使用日历，我喜欢使用纯白实心红心。 */
-.daily-cover, .liked-cover {
+.daily-cover, .liked-cover, .local-cover, .cloud-cover {
   position: relative; width: 100%; height: 100%; display: grid; place-items: center;
   overflow: hidden; color: #fff; background-color: var(--cvg-accent, var(--acc));
   background:
@@ -695,7 +782,7 @@ body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-b
       color-mix(in srgb, var(--cvg-accent, var(--acc)) 76%, #34445c),
       color-mix(in srgb, var(--cvg-accent, var(--acc)) 52%, #070a11));
 }
-.daily-cover::after, .liked-cover::after {
+.daily-cover::after, .liked-cover::after, .local-cover::after, .cloud-cover::after {
   content: ""; position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(180deg, rgb(255 255 255 / 10%), transparent 36%, rgb(0 0 0 / 10%));
 }
@@ -1018,22 +1105,11 @@ body[data-control-bar="floating"] .pb-time { white-space: nowrap; }
 body[data-control-bar="floating"] .route {
   padding-bottom: calc(var(--control-bar-height) + var(--control-bar-gap) + var(--control-bar-inset) + var(--control-bar-lift));
 }
-/* 例外：设置页 route 不滚动（overflow:hidden + flex），route 的 padding 只会把整个
-   .set-view 顶上去 = 整页让位，还会和 .set-view 自己的 padding 叠两遍 —— 这里归零，
-   让位完全交给内部滚动容器（见下方 .settings-page .set-view）。 */
-body[data-control-bar="floating"] .route:has(> .entering.settings-page) {
-  padding-bottom: 0;
-}
 body[data-control-bar="floating"] .queue-panel.float { bottom: calc(var(--control-bar-inset) * 2 + var(--control-bar-lift) + var(--control-bar-height) + var(--control-bar-gap)); }
 /* 停靠态播放列表的内容级避让：面板列保持满高不动（列布局/吸顶底收口都不受影响），
    让位交给列表自己的 padding —— 末尾几行能滚到悬浮条上方，不会再被压在条底下。
    高度口径与 route 的安全区一致（height + gap + inset + lift）。 */
 body[data-control-bar="floating"] .queue-panel.dock .qp-list {
-  padding-bottom: calc(var(--control-bar-height) + var(--control-bar-gap) + var(--control-bar-inset) + var(--control-bar-lift));
-}
-/* 设置页同理：route 在该页不整体滚动（安全区落不到 .route 上），让位交给内部滚动容器
-   .set-view 自己的 padding —— 最后一组选项能滚到悬浮条上方。 */
-body[data-control-bar="floating"] .settings-page .set-view {
   padding-bottom: calc(var(--control-bar-height) + var(--control-bar-gap) + var(--control-bar-inset) + var(--control-bar-lift));
 }
 @keyframes control-bar-float-in {
@@ -1310,14 +1386,18 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
   min-width: 228px; padding: 10px 12px 11px; border-radius: 12px;
   /* 底片 / 描边 / 模糊 / 阴影由共享规则统一给（本页的深色表面见 .np 上那几个令牌） */
   text-align: left;
-  /* 玻璃本体始终 static：只淡出，不做 transform/scale。backdrop-filter 元素在
-     transform/opacity 过渡期间会临时形成 backdrop root，歌名会从菜单里原样透出来。 */
+  /* 玻璃本体始终 static：只淡出，不做 transform/scale —— 这一页的浮层必须当帧出现，
+     任何整块位移/缩放入场都会在频谱画布每帧重绘时晚一帧上屏。 */
   opacity: 0; transform: none;
   pointer-events: none;
   transition: opacity .13s ease;
 }
 .np-qinfo.open { opacity: 1; pointer-events: auto; transition: none; }
-.np-qinfo.open > * { animation: menu-content-in .16s cubic-bezier(.32,.72,.24,1) both; }
+/* 正在播放页的浮层不做内容入场动画：频谱开着时画布每帧重绘，菜单子项的
+   opacity/transform 动画会把它们提升为独立合成层，首帧合成器来不及上屏 ——
+   玻璃壳已画出、内容是空的，就是「打开菜单闪一下黑」。壳本来就是当帧出现，
+   内容也当帧画（参见 menu-content-in 上方那段）。 */
+.np-qinfo.open > * { animation: none; }
 .qi-title {
   display: flex; justify-content: space-between; align-items: baseline; gap: 14px;
   font-size: 11px; color: #fff8; letter-spacing: .4px;
@@ -1343,14 +1423,16 @@ html[data-menu-glass="off"] .np-qpill { background: #14171f; border-color: #ffff
   min-width: 180px; padding: 6px; border-radius: 12px;
   /* 底片 / 描边 / 模糊 / 阴影由共享规则统一给（本页的深色表面见 .np 上那几个令牌） */
   display: flex; flex-direction: column; gap: 2px;
-  /* 开合动画拆成两层：玻璃本体立即出现/只做淡出，菜单项各自做轻微上移。
-     这样 backdrop-filter 从第一帧就能拿到完整底图，不会先透出歌名再变糊。 */
+  /* 玻璃本体立即出现 / 只做淡出：这一页的菜单不做位移/缩放入场，内容也不做
+     入场动画（见 .np-menu.open > *），整块当帧画出。 */
   opacity: 0; transform: none;
   pointer-events: none;
   transition: opacity .13s ease;
 }
 .np-menu.open { opacity: 1; pointer-events: auto; transition: none; }
-.np-menu.open > * { animation: menu-content-in .16s cubic-bezier(.32,.72,.24,1) both; }
+/* 同上：频谱可视化开启时（尤其全高 / 隐藏已播放行把菜单顶到亮封面上）内容入场动画
+   会晚一帧上屏，表现为菜单先闪一块黑。正在播放页菜单直接整块当帧出现。 */
+.np-menu.open > * { animation: none; }
 .np-menu-item, .np-menu-sub-btn {
   border: 0; background: transparent; color: #fffb; font: inherit; font-size: 13px; text-align: left;
   padding: 7px 10px; border-radius: 8px; cursor: pointer;
@@ -1527,18 +1609,19 @@ body[data-control-bar="floating"] .np.np-lyrics-full .np-inner {
   --amll-lp-font-size: calc(clamp(18px, 3vh, 28px) * var(--np-ly-scale, 1));
   --amll-lp-hover-bg-color: #ffffff1f;
 }
+/* 设置→歌词→歌词染色关闭：交还 AMLL 自己的默认色（white），不掺 Tint。 */
+html[data-lyric-tint="off"] .np-kara-host { --amll-lp-color: white; }
 .np.kara .np-lyrics { display: none; }
 .np.kara .np-kara-host { display: block; }
 /* AMLL 默认会把超宽行平衡成两段近似等长的文字，第一行常留下大块右侧空白。
    正在播放页直接忽略它插入的 <br>，让浏览器按容器真实宽度自然贪心换行：
    每行先排满，再把最后一个词落到下一行。 */
 .np-kara-host [class*="lyricMainLine"] > br { display: none; }
-/* AMLL 的 DOM 播放器默认用 mix-blend-mode: plus-lighter 做歌词发光。该混合模式会让
-   Chromium 在歌词挂载后走另一条合成路径，正在播放页菜单的 backdrop-filter 会持续
-   采不到底图（菜单里的歌名/封面色块原样透出）。只在玻璃菜单打开期间把它让回 normal，
-   菜单关掉立即恢复 AMLL 原本的发光效果。 */
-.np:has(.np-menu.open, .np-qinfo.open) .np-kara-host .amll-lyric-player { mix-blend-mode: normal; }
-.np:has(.np-menu-sub.open) .np-kara-host .amll-lyric-player { mix-blend-mode: normal; }
+/* AMLL 的 DOM 播放器默认用 mix-blend-mode: plus-lighter 做歌词发光。这个混合模式会让
+   歌词层走另一条合成路径，**带 backdrop-filter 的浮层**会持续采不到底图（歌名/封面色块
+   原样透出）。以前让菜单打开时临时切 normal 来绕；现在正在播放页的浮层本身不采样底图
+   （见共享规则下方 .np-menu/.np-menu-sub-list/.np-qinfo 那条），这层补丁不再需要，
+   打开菜单也不会再触发一次整层混合模式切换。 */
 /* 逐字模式下加深歌词列背光：Tint 文字与模糊封面**同源同相**（都是封面主色），
    亮暖封面（米黄/棕调）下掺白 Tint 的亮度会落进背景的同一区间 —— 文字色单方面怎么调
    都躲不开同源撞色（实测暖灰底 144 压橄榄字 120，约 1.1:1）。对比度只能从背景侧兜：
@@ -1589,16 +1672,21 @@ body[data-control-bar="floating"] .np.np-lyrics-full .np-inner {
   from { transform: translateX(10px); }
   to { transform: translateX(var(--mx, -70px)); }
 }
-/* 玻璃表面的内容入场：只动子项，不动带 backdrop-filter 的菜单本体。 */
+/* 玻璃表面的内容入场：只动子项，不动带 backdrop-filter 的菜单本体。
+   ⚠️ 正在播放页的 ⋮ / 音质浮窗**不用**这条（.np-menu/.np-qinfo 的 > * 显式 animation:none）：
+   频谱可视化开着时画布持续重绘，子项的 opacity/transform 动画让它们各自成为合成层，
+   首帧合成器来不及上屏 → 只剩玻璃壳，就是用户报的「菜单打开闪一下黑」（全高 / 隐藏
+   已播放行把菜单抬到亮封面上时最明显）。其余浮层不跑频谱，仍保留这条位移入场；
+   也**不能**从 opacity: 0 起步 —— 壳是当帧满不透明度出现的，子项从 0 淡入会复现同一个空壳帧。 */
 @keyframes menu-content-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: none; }
+  from { transform: translateY(4px); }
+  to { transform: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .np-menu, .np-qinfo, .pb-qpop, .pb-lpop, .pb-volpop, .queue-panel.float { transition: none; }
-  .np-menu.open > *, .np-qinfo.open > *, .queue-panel.float.open > *,
-  .player.q-open .pb-qpop > *, .player.lp-open .pb-lpop > *,
-  .player.vol-open .pb-volpop > * { animation: none; }
+  .queue-panel.float.open > *, .player.q-open .pb-qpop > *,
+  .player.lp-open .pb-lpop > *, .player.vol-open .pb-volpop > * { animation: none; }
+  .nav-more-pop { animation: none; }
 }
 
 /* ===================== 队列面板（播放列表） =====================
@@ -1882,6 +1970,8 @@ html[data-theme="dark"] .vip-card .is-expired { color: #e66; }
 .set-view { width: 100%; min-width: 0; padding-bottom: 12px;
   transition: padding-bottom .34s cubic-bezier(.32,.72,.24,1); }
 .set-hint { margin: 6px 0 0; font-size: 11.5px; line-height: 1.5; }
+/* 无文案时不占位（录制失败的闪现提示写入后自动恢复） */
+.set-hint:empty { margin: 0; }
 
 /* 选项卡按钮组（外观模式 / 窗口装饰 / 默认音质共用） */
 .opt-cards { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -1996,41 +2086,77 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 .card:hover .card-play, .card:focus-within .card-play { opacity: 1; transform: none; }
 .card-play:hover { background: var(--cvg-accent, var(--acc)); }
 
-/* ===================== 设置页布局（分区标签 + 发丝线分组 + 标签/控件同一行） ===================== */
-/* 设置页标题与选项卡固定：route 不再整体滚动，只有下方内容（.set-view）滚动。
-   这里借 :has 识别当前路由，无需在切走设置页时回改 #route 的类名。 */
-.route:has(> .entering.settings-page) {
-  display: flex;
-  overflow-y: hidden;
+/* ===================== 设置页布局（吸顶标签条 + 卡片式分组） ===================== */
+/* 标题行为与「我喜欢 / 所有歌曲」一致：整页由 .route 滚动，大标题随内容滚出，
+   分类标签住进 .sticky-bar 的右侧槽，下翻后固定在内容区顶部（吸顶底由 trackStuck
+   写进 .content 的 --stuck-h）。不要再让 .set-view 自己滚 —— 两个滚动容器会打架，
+   吸顶也只会吸在内部容器上。 */
+.settings-page .set-view { width: 100%; min-width: 0; padding-bottom: 20px; }
+
+/* 页头 = 「封面」图标 + 大标题（设置没有歌单封面，齿轮占同一个视觉锚点）。 */
+.settings-page .set-head { display: flex; align-items: center; gap: 14px; margin: 6px 0 18px; }
+.settings-page .set-head .page-title { margin: 0; }
+.settings-page .set-head__art {
+  width: 56px; height: 56px; flex: 0 0 auto; display: grid; place-items: center;
+  border: 1px solid var(--menu-line); border-radius: 16px;
+  background: var(--menu-surface); color: var(--cvg-accent, var(--acc));
+  box-shadow: inset 0 1px 0 var(--menu-edge);
 }
-.route > .entering.settings-page {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
+.settings-page .set-head__art svg { width: 28px; height: 28px; }
+/* 吸顶条里的迷你「封面」：同款玻璃小方块，不跟随大封面用 --ph2（那是一块灰底）。 */
+.settings-page .sticky-bar__art {
+  display: grid; place-items: center;
+  border: 1px solid var(--menu-line); border-radius: 8px;
+  background: var(--menu-surface); color: var(--cvg-accent, var(--acc));
+  box-shadow: inset 0 1px 0 var(--menu-edge);
 }
-.settings-page .set-view {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
-/* 分区标签：只切显隐不重渲染；下边发丝线与内容区接续 */
+.settings-page .sticky-bar__art svg { width: 17px; height: 17px; }
+
+/* 分类标签基础形态：下划线页签（Sparkle 面板内的主题/插件/Marketplace 复用同一套）。 */
 .set-tabs { display: flex; align-items: center; gap: 4px; margin: 0 0 8px; border-bottom: 1px solid var(--line); }
 .set-tab {
-  position: relative; padding: 8px 14px; border: 0; background: transparent;
+  position: relative; margin-bottom: -1px; padding: 8px 14px; border: 0;
+  border-bottom: 2px solid transparent; background: transparent;
   color: var(--ink2); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
-  border-bottom: 2px solid transparent; margin-bottom: -1px;
 }
 .set-tab:hover { color: var(--ink); }
 .set-tab.is-active { color: var(--cvg-accent, var(--acc)); border-bottom-color: var(--cvg-accent, var(--acc)); }
 
+/* 设置页主分类标签（只在吸顶条里）：胶囊分段控件，换掉下划线形态。
+   表面走 --menu-*：开着「模糊效果」时是半透明玻璃 + backdrop，关掉时令牌自动换成
+   实底 --card / --line / none —— 与右键菜单、浮窗共用同一棵开关。 */
+.settings-page .sticky-bar .set-tabs {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 2px;
+  margin: 0; padding: 3px; border: 1px solid var(--menu-line); border-radius: 999px;
+  background: var(--menu-surface);
+  box-shadow: inset 0 1px 0 var(--menu-edge);
+  backdrop-filter: var(--menu-filter); /* 无前缀！见文件顶部「别补 -webkit-」那段 */
+}
+.settings-page .sticky-bar .set-tab {
+  margin: 0; padding: 5px 13px; border: 0; border-radius: 999px;
+  background: transparent; color: var(--ink2); font-size: 13px;
+  cursor: pointer; transition: color .14s ease, background .14s ease;
+}
+.settings-page .sticky-bar .set-tab:hover { color: var(--ink); background: var(--hover); }
+.settings-page .sticky-bar .set-tab.is-active { color: #fff; background: var(--cvg-accent, var(--acc)); }
+
 /* 分区面板：与 .tag-panel 同一套切换机制（.set-view.tab-anim > .set-panel 的入场动画
    定义在「标签页切换动画」段，见上文 .tag-tabs 附近） */
 .set-panel[hidden] { display: none; }
-.set-group { padding: 18px 0; }
-.set-group + .set-group { border-top: 1px solid var(--line); }
-/* 分组标题：13px 半粗 + 右侧可选的行内说明 */
-.set-label { margin-bottom: 10px; font-size: 13px; font-weight: 700; color: var(--ink); }
+/* 分组 = 一张玻璃卡片：组与组靠间距分开，不再画贯穿页面的发丝线。
+   表面同样吃「模糊效果」总开关：on = 半透明（透出已被 .content 模糊过的环境色），
+   off = 令牌换成实底 --card。页面里常驻几十张卡，**不给每张卡单开 backdrop 采样** ——
+   大面积多层 backdrop 会拖垮滚动与截图（实测截图管线直接超时）；卡片只要半透明表面，
+   背后的模糊本来就已经由 Content View 那一层 --shell-filter 做完了。
+   卡片里的 .opt-card / input 仍是纯 --card，实底压在玻璃上反而更有层次。 */
+.settings-page .set-group {
+  margin: 0 0 12px; padding: 16px 18px;
+  border: 1px solid var(--line); border-radius: 14px;
+  background: var(--menu-surface);
+  box-shadow: inset 0 1px 0 var(--menu-edge);
+}
+/* 分组标题：13.5px 半粗 + 右侧可选的行内说明 */
+.set-label { margin-bottom: 12px; font-size: 13.5px; font-weight: 700; color: var(--ink); }
 .set-note-inline { margin-left: 4px; font-weight: 400; font-size: 12px; color: var(--ink2); }
 
 /* 「标签 + 控件」行：label 定宽，控件占满余宽，窄窗自动换行 */
@@ -2183,7 +2309,7 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
    `background + border + box-shadow + backdrop-filter`（改造前是七份，且不透明度各不同，
    所以才会出现「有的菜单看着糊、有的看着是实心」）。
    模糊只写无前缀的 backdrop-filter —— 别补 -webkit-，原因见文件顶部那段。 */
-.ctx-menu, .qtip, .pb-qpop, .pb-lpop, .pb-volpop, .tint-pop, .np-menu, .np-menu-sub-list, .np-qinfo, .queue-panel.float, .eq-dialog, .upd-dialog {
+.ctx-menu, .qtip, .nav-more-pop, .pb-qpop, .pb-lpop, .pb-volpop, .tint-pop, .np-menu, .np-menu-sub-list, .np-qinfo, .queue-panel.float, .eq-dialog, .upd-dialog {
   background: var(--menu-surface);
   border: 1px solid var(--menu-line);
   box-shadow: var(--menu-shadow), inset 0 1px 0 var(--menu-edge);
@@ -2192,6 +2318,18 @@ body.ssd .winbtns, body.ssd .win-dragtop { display: none; }
 /* 浮窗队列面积比普通菜单大一个量级，和小块菜单同档会让拖拽/滚动时持续做更贵的采样；
    外壳档 12px 已足够形成玻璃层次。 */
 .queue-panel.float { backdrop-filter: var(--shell-filter); }
+/* 正在播放页的浮层**不做 backdrop 采样**：这一页背后是每帧重绘的 mesh 画布
+   （AMLL BackgroundRender，播放时不停）和逐行改 filter:blur() 的歌词层。bf 会在切歌 /
+   歌词进入、模糊过渡的瞬间采到半帧甚至空帧 —— 表现就是整块菜单「黑一下」；频谱开着时
+   合成压力更大，所以那几档布局最明显。（同一个病根先前的受害者是 .np-qpill，见该处注释。）
+   这里换成不透明、掺一点封面染色的「烟熏底」：少一次采样观感几乎不变（底片够厚，
+   背后的封面字不会透出来），却把「菜单每帧重采样一次整页合成结果」这条最贵的链路整条摘掉。
+   也正因如此，AMLL 的 plus-lighter 不用再在菜单打开时临时让回 normal（见歌词段那条注释）——
+   菜单不再读底图，混合模式与它无关。 */
+.np-menu, .np-menu-sub-list, .np-qinfo {
+  background: var(--np-pop-surface);
+  backdrop-filter: none;
+}
 /* 正在播放页是整窗不透明覆盖层，后面的侧栏 / Content View 已经看不见；播放条压在
    AMLL 上。此时继续做 backdrop 采样只会拖帧率，视觉上没有任何收益。
    浮窗队列例外：它需要玻璃层次，保留自己的 --shell-filter；性能由 queue-open 期间

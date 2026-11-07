@@ -296,9 +296,13 @@ export function NowPlaying(): HTMLElement {
 
   syncLyricLayout();
 
-  /** 隐藏已播放行时的当前行锚位 = 封面顶边相对歌词容器顶边的比例。 */
+  /** 隐藏已播放行时的当前行锚位 = 封面顶边相对歌词容器顶边的比例。
+   *  全高模式容器铺满窗口，封面顶边会被拉得过低，当前行按需求钉在容器上 1/3 处。 */
   const lyricTopAnchor = (): number | null => {
     if (!npLyricHidePlayed()) return null;
+
+    if (npLyricFullHeight()) return 1 / 3;
+
     const host = karaHost.getBoundingClientRect();
 
     if (host.height <= 0) return null;
@@ -363,8 +367,9 @@ export function NowPlaying(): HTMLElement {
   }
 
 /** 「跳转歌手」次级菜单：主列表只留一行入口，歌手名单（可能很长）悬停/聚焦时向左展开。
- *  面板挂在 .np 直下（fixed 定位）：backdrop-filter 元素会成为 backdrop root，
- *  留在父菜单里面时只能采到父菜单自身，采不到页面背景 —— 提层级才能拿到真底图。 */
+ *  面板挂在 .np 直下（fixed 定位）：不留在父菜单里面 —— ① 父菜单有 overflow/圆角裁切；
+ *  ② 面板本身是页面级浮层（位置按视口夹取），提层级才不会跟着菜单一起缩回。
+ *  （它在本页同样不做 backdrop 采样，见 style.css 的 .np-menu-sub-list 覆盖规则。） */
 function singerSubmenu(singers: NonNullable<Song["singer"]>) {
   const row = document.createElement("div");
   row.className = "np-menu-sub";
@@ -504,6 +509,15 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
       moreMenu.append(menuRow("跳转专辑", !hasAlb, () => {
         const base = String(alb!.pmid || alb!.mid).split("_")[0];
         location.hash = `#/album?mid=${encodeURIComponent(alb!.mid ?? base)}&name=${encodeURIComponent(stripEm(alb!.name) || "专辑")}`;
+      }));
+
+      // 跳转至歌单：回到**这一首**的来源页（真实歌单 / 虚拟歌单 / 搜索 / 本地 / 网盘）。
+      // 逐首来源在入队时记录，所以插队进来的外部歌曲不会被送回队列原来的歌单；
+      // 旧存档没有逐首记录时退回队列来源，再没有才置灰。
+      const src = player.currentSource;
+
+      moreMenu.append(menuRow("跳转至歌单", !src, () => {
+        if (src) location.hash = src;
       }));
     } else {
       const empty = document.createElement("div");
@@ -813,7 +827,10 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
     karaProvider = provider;
     karaCleanup = provider.render(karaHost, player.karaoke, {
       time: () => (player.time + player.lyricComp) * 1000, // 补偿按后端区分，见 player.lyricComp
-      paused: () => player.paused,
+      // 缓冲中（起播预缓冲/网络卡顿/seek 到未缓存区）也算「暂停」：AMLL 的逐词
+      // 遮罩是 Web Animations 实时动画，enable 之后按墙钟自己走 —— 只把 time() 冻住
+      // 挡不住它，当前句会一路扫到行尾停住。必须同时 pause，声音回来再 resume。
+      paused: () => player.paused || player.buffering,
       expanded: () => player.expanded,
       showTrans: () => player.showTrans,
       lyricAux: () => player.lyricAux,
@@ -943,9 +960,10 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
     const lr = lyrics.getBoundingClientRect();
     const lineRect = line.getBoundingClientRect();
 
-    // 隐藏已播放行时，当前行顶边与封面顶边同高；其余档位保持原来的居中跟随。
+    // 隐藏已播放行时，当前行顶边与封面顶边同高（全高模式钉在容器上 1/3）；
+    // 其余档位保持原来的居中跟随。
     const anchorTop = npLyricHidePlayed()
-      ? cover.getBoundingClientRect().top - lr.top
+      ? (npLyricFullHeight() ? lyrics.clientHeight / 3 : cover.getBoundingClientRect().top - lr.top)
       : (lyrics.clientHeight - lineRect.height) / 2;
 
     const top = lyrics.scrollTop + lineRect.top - lr.top - anchorTop;

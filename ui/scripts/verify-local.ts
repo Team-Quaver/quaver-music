@@ -477,8 +477,8 @@ section("源码接线：player/渲染层绕开 QQ 通路");
 section("源码接线：路由/导航/桥");
 
 {
-  const shell = src("src/shell.ts"), views = viewsSource();
-  check("侧栏导航含本地音乐", /\{ path: "#\/local", label: "本地音乐", icon: "folder" \}/.test(shell));
+  const navItems = src("src/lib/nav-items.ts"), views = viewsSource();
+  check("侧栏导航含本地音乐", /id: "local",[\s\S]{0,80}label: "本地音乐"/.test(navItems));
   const LOCAL_REG = /"\/local": \(\) => import\("\.\/local"\)/;
   check("视图注册 /local（懒加载表里是一条 import 缝，不是函数直引）", LOCAL_REG.test(views));
   check("反向：注册缺失即红", !LOCAL_REG.test(views.replace(LOCAL_REG, "")));

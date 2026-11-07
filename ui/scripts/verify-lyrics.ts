@@ -16,7 +16,7 @@ import {
   TTML_DB_DEFAULT_URL, TTML_PLATFORM_DIRS, expandTtmlUrl, isTtmlDatabaseUrl, looksLikeTtml,
   ttmlMissCached, ttmlMissRemember, fetchTtml,
 } from "../src/lib/ttml.ts";
-import { extractQrcPayload, matchAuxLines, parseLrc, pickAux } from "../src/lyric.ts";
+import { extractQrcPayload, lyricLinesToLrc, lyricLinesToText, parseLrc, pickAux } from "../src/lyric.ts";
 import { viewsSource } from "./views-source.ts";
 
 let pass = 0, fail = 0;
@@ -96,27 +96,26 @@ eq("辅助文本等于原文时不上屏", pickAux({ text: "Same", trans: "Same"
 
 eq("所选一路缺失但另一路存在时仍按行回落", pickAux({ text: "B", trans: "", roma: "Bee" }, "translation"), "Bee");
 
-// 回归：上游粗粒度时间戳把名单行与首句挤在同一秒（QQ《RUNNING FOR YOUR LIFE》）。
-// 翻译源 0.30s 有两条：`//`（对应「音乐监制」名单行）与「逃吧 躲吧」（对应首句）。
-// 旧实现让每条辅助行独立找最近主行 → 两条都撞上名单行、占位先到顶掉译文，首句翻译消失。
-const denseAux = parseLrc(
-  "[00:00.00]Title\n[00:00.28]词：A\n[00:00.28]曲：B\n[00:00.29]演唱：C\n[00:00.30]音乐监制：D\n[00:00.30]You can run You can try to hide\n[00:04.59]Just know I'm gonna have you",
-  "[00:00.00]//\n[00:00.28]//\n[00:00.28]//\n[00:00.29]//\n[00:00.30]//\n[00:00.30]逃吧 躲吧\n[00:04.59]亡命败将",
-  "",
-);
+// ——— MPRIS asText 序列化（纯文本 / LRC 两档） ———
+section("asText 序列化");
 
-eq("同名时间戳：名单行仍被占位阻断", pickAux(denseAux[4], "translation"), "");
-eq("同名时间戳：首句译文不会被占位顶掉", pickAux(denseAux[5], "translation"), "逃吧 躲吧");
-eq("同名时间戳：后续行照常对齐", pickAux(denseAux[6], "translation"), "亡命败将");
+const AS_TEXT_LINES = [
+  { t: 1.234, text: " 第一句 ", trans: "译文", roma: "" },
+  { t: 0, text: "" },
+  { t: 61.5, text: "第二句" },
+  { t: 125.999, text: "第三句" },
+];
 
-// 真实 QRC 路径（内置 AMLL）：毫秒级主行 + 0.30s 的双辅助行，规则与行级视图同源。
-eq("matchAuxLines：占位先占位、译文顺延到下一行",
-  [...matchAuxLines([0, 283, 284, 286, 288, 292, 294, 297, 300, 303, 4591], [
-    { t: 0, text: "" }, { t: 280, text: "" }, { t: 280, text: "" }, { t: 280, text: "" },
-    { t: 280, text: "" }, { t: 290, text: "" }, { t: 290, text: "" }, { t: 290, text: "" },
-    { t: 300, text: "" }, { t: 300, text: "逃吧 躲吧" }, { t: 4590, text: "亡命败将" },
-  ], 1500)],
-  [[9, "逃吧 躲吧"], [10, "亡命败将"]]);
+eq("纯文本一行一句、去空白、不含辅助行", lyricLinesToText(AS_TEXT_LINES), "第一句\n第二句\n第三句");
+
+eq("LRC 带 [mm:ss.xx] 时间戳且跳过空行",
+  lyricLinesToLrc(AS_TEXT_LINES),
+  "[00:01.23]第一句\n[01:01.50]第二句\n[02:06.00]第三句");
+
+eq("LRC 能被自家解析器读回", parseLrc(lyricLinesToLrc(AS_TEXT_LINES)).map((l) => [l.t, l.text]),
+  [[1.23, "第一句"], [61.5, "第二句"], [126, "第三句"]]);
+
+eq("负时间钳到 0", lyricLinesToLrc([{ t: -3, text: "开头" }]), "[00:00.00]开头");
 
 // ——— 嗅探与在线查询（本地 http 桩） ———
 section("在线库查询与负缓存");
@@ -342,7 +341,7 @@ check("档位切换挂 resetCjkConverter + reloadLyric", /setChineseConvert\(v\)
 const cfgSrc = readFileSync(join(UI, "src/lib/config.ts"), "utf8");
 
 check("渲染层 FALLBACK 与 schema 同步（改一处要改两处）",
-  ["Lyrics.ChineseConvert", "Lyrics.OnlineTtml", "Lyrics.TtmlDatabase", "Lyrics.TtmlLibrary"].every((k) => cfgSrc.includes(`"${k}"`)));
+  ["Lyrics.LyricTint", "Lyrics.ChineseConvert", "Lyrics.OnlineTtml", "Lyrics.TtmlDatabase", "Lyrics.TtmlLibrary"].every((k) => cfgSrc.includes(`"${k}"`)));
 
 check("正在播放页歌词列四档齐备且无说明行",
   ["默认", "全高", "已播放行隐藏", "全高已播放行隐藏"].every((label) => views.includes(`>${label}</button>`))

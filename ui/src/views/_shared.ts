@@ -460,7 +460,8 @@ async function cardPlay(kind: "playlist" | "album" | "singer" | "toplist", id: s
     }
 
     if (!songs.length) throw new Error("empty");
-    player.playList(songs, 0);
+    // 首页/歌单集页的卡片是在「当前路由」起播别的集合：来源必须是卡片自己指向的那一页
+    player.playList(songs, 0, fallbackHash);
   } catch {
     location.hash = fallbackHash;
   }
@@ -471,12 +472,15 @@ async function cardPlay(kind: "playlist" | "album" | "singer" | "toplist", id: s
 
 export // 卡片：div[role=button] 导航；悬停播放键取歌开播（歌手卡无播放键——人不是可播集合）。
 // 沿用本地既有卡面类名（.card/.art/.name/.sub），只改外层容器为可网格拉伸的自适应卡。
-function navCard(href: string, cover: string, title: string, sub: string, play?: () => void): HTMLElement {
+function navCard(
+  href: string, cover: string, title: string, sub: string, play?: () => void, artHtml = "",
+): HTMLElement {
   const el = document.createElement("div");
   el.className = "card";
   el.tabIndex = 0;
   el.setAttribute("role", "button");
-  el.innerHTML = `<div class="art">${cover ? `<img src="${cover}" alt="" loading="lazy"/>` : ""}
+  // artHtml 优先：排行榜用宿主自绘的虚位封面（图标 + 榜单色），不再加载上游图。
+  el.innerHTML = `<div class="art">${artHtml || (cover ? `<img src="${cover}" alt="" loading="lazy"/>` : "")}
       ${play ? `<button type="button" class="card-play" aria-label="播放" data-tooltip="播放">${PLAY_SVG}</button>` : ""}</div>
     <div class="name">${escHtml(title)}</div><div class="sub">${escHtml(sub)}</div>`;
   el.addEventListener("click", (e) => {

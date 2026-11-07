@@ -10,6 +10,8 @@ import { favSonglists, loadFavSonglists, onFavSonglistsChange, type FavPlaylist 
 import { startAccountSync } from "./lib/account-sync";
 import { syncMusicCacheSeed } from "./lib/music-cache";
 import { getSidebarCollapsed, setSidebarCollapsed, getSidebarWidth, setSidebarWidth } from "./lib/prefs";
+import { cfg } from "./lib/config";
+import { NAV_ITEMS, NAV_DEFAULT_ORDER } from "./lib/nav-items";
 import { bindHResizer } from "./lib/resizer";
 import { sparkleSonglistGroups } from "./sparkle/registry";
 import type { SparkleNavItem } from "@quaver/sparkle";
@@ -28,39 +30,13 @@ import { bootMenuGlass } from "./lib/menu-glass";
 /** 侧栏歌单动作只在首次触发时解析：菜单/双击是低频交互，别把整份菜单实现钉进首屏闭包。 */
 const playlistMenu = () => import("./components/PlaylistMenu");
 
-export const nav = [
-  { path: "#/", label: "首页", icon: "home" },
-  { path: "#/guess", label: "猜你喜欢", icon: "infinity" },
-  { path: "#/daily", label: "每日 30 首", icon: "calendar" },
-  { path: "#/liked", label: "我喜欢", icon: "heart" },
-  // 歌单集合页入口：无条件常驻（菜单栏态下侧栏仍列歌单，这里只是「全部歌单」的落地页）
-  { path: "#/playlists", label: "歌单", icon: "list" },
-  { path: "#/all", label: "所有歌曲", icon: "disc" },
-  { path: "#/local", label: "本地音乐", icon: "folder" },
-  { path: "#/cloud", label: "微云网盘", icon: "cloud" },
-];
+// 内置导航项的清单与图标住在 lib/nav-items.ts（设置页的「菜单栏编辑」共用同一份）。
+// 顺序/显隐是用户偏好（NavOrder / NavHidden），每次 renderNav 现读，不把顺序钉死在常量里。
+export const nav = NAV_ITEMS;
 
 const icons: Record<string, string> = {
-  home: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/></svg>',
   sparkle:
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4l1.7 4.3L18 10l-4.3 1.7L12 16l-1.7-4.3L6 10l4.3-1.7z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/></svg>',
-  // 猜你喜欢 = 无限电台：复用共享图标里的 ∞ 标记（首页电台卡同一符号）。
-  infinity: sharedIcons.infinity,
-  // 每日 30 首：复用共享图标里的日历（首页快捷入口同一枚）。
-  calendar: sharedIcons.calendar,
-  heart:
-    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20s-7-4.6-9-9c-1.3-3 .8-6.5 4-6.5 2 0 3.5 1.2 5 3 1.5-1.8 3-3 5-3 3.2 0 5.3 3.5 4 6.5-2 4.4-9 9-9 9z"/></svg>',
-  // 本地音乐：文件夹（带 NAS 语境的通用容器形）。同一套 24 网格 / currentColor 描边。
-  folder:
-    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 7a1.5 1.5 0 0 1 1.5-1.5h4L12 7h6.5A1.5 1.5 0 0 1 20 8.5V17a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17z"/><circle cx="12" cy="12.6" r="2.2" fill="currentColor" stroke="none"/></svg>',
-  cloud:
-    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18.5h10.2a4.3 4.3 0 0 0 .7-8.5 6 6 0 0 0-11.5 1.2A3.7 3.7 0 0 0 7 18.5z"/><path d="M9.5 13.2h5M12 10.8v6.4" opacity=".55"/></svg>',
-  // 歌单：堆叠的曲目行（三条带前置圆点的水平线），与「本地音乐」的容器形区分开。
-  list:
-    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="4.5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="4.5" cy="18" r="1.4" fill="currentColor" stroke="none"/></svg>',
-  // 所有歌曲：CD 碟面（外圈 + 反光弧 + 中心轴孔），与「本地音乐」的文件夹容器形区分开。
-  disc:
-    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="8.4"/><circle cx="12" cy="12" r="5.2" opacity=".48"/><circle cx="12" cy="12" r="1.55" fill="currentColor" stroke="none"/><path d="M7.5 7.1a6.4 6.4 0 0 1 3.1-1.35" opacity=".72"/></svg>',
   // 设置：齿轮（外圈齿形 + 中心孔）。与其它线性图标同一套 24 网格 / currentColor 描边。
   settings:
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
@@ -117,6 +93,28 @@ function syncRouteStack() {
   else { routeStack.splice(stackPos + 1); routeStack.push(cur); stackPos = routeStack.length - 1; }
 
   if (backBtn) backBtn.hidden = stackPos <= 0;
+}
+
+// —— 侧栏主菜单：默认布局直接写出；只有用户改过顺序/显隐时才按需加载 nav-apply ——
+// 默认态不进任何额外代码：静态闭包只付这一小段 map 的字节。自定义布局与「更多」浮窗
+// 整套在 lib/nav-apply.ts（低频功能，不进 200KiB 首屏预算）。
+const navRoot = () => document.querySelector<HTMLElement>(".nav");
+
+function renderDefaultNav() {
+  const root = navRoot();
+  if (!root) return;
+
+  root.innerHTML = NAV_ITEMS.map((n) =>
+    `<a href="${n.path}" data-route="${n.path.slice(1) || "/"}" data-nav-id="${n.id}" title="${esc(n.label)}">${n.iconSvg}<span>${esc(n.label)}</span></a>`,
+  ).join("");
+}
+
+function bootNavLayout() {
+  renderDefaultNav();
+
+  const custom = cfg("Style.NavHidden", "").trim() !== ""
+    || cfg("Style.NavOrder", NAV_DEFAULT_ORDER).trim() !== NAV_DEFAULT_ORDER;
+  if (custom) void import("./lib/nav-apply").then((m) => m.applyNavLayout());
 }
 
 export async function renderRoute() {
@@ -192,6 +190,9 @@ export function bootShell() {
     </div>
     <div class="body">
       <aside class="sidebar">
+        <!-- macOS CSD 的拖拽把手带：红绿灯占着侧栏左上角，那条让位带本身用来拖动窗口
+             （其余平台 display:none，拖拽仍由 .win-dragtop / .top-drag 承担） -->
+        <div class="side-dragtop" aria-hidden="true"></div>
         <a class="user" id="user-header" href="#/login" title="点击登录">
           <span class="avatar" id="avatar">${icons.userPh}</span>
           <span class="user-meta">
@@ -199,9 +200,7 @@ export function bootShell() {
             <span class="badges" id="badges"></span>
           </span>
         </a>
-        <nav class="nav">
-          ${nav.map((n) => `<a href="${n.path}" data-route="${n.path.slice(1) || "/"}" title="${n.label}">${icons[n.icon]}<span>${n.label}</span></a>`).join("")}
-        </nav>
+        <nav class="nav"></nav>
         <hr class="sep" />
         <div class="playlists" id="playlists"><div class="pl-empty">登录后可见歌单</div></div>
         <!-- 侧栏底部：设置（齿轮）+ 缩回/展开。缩态下竖排居中，是缩态保留的两颗按钮之一。 -->
@@ -223,6 +222,7 @@ export function bootShell() {
   document.body.prepend(frame);
   state.content = frame.querySelector<HTMLElement>(".content")!;
   state.route = frame.querySelector<HTMLElement>("#route")!;
+  bootNavLayout(); // 侧栏主菜单按用户布局（顺序 / 显隐）注入，必须在首轮 renderRoute 之前
 
   // —— 侧栏宽度：可拖拽（侧栏与内容区接缝处的分隔条），持久化在 Window.SidebarWidth。
   //    宽度走 <body> 上的 --side-w 变量驱动 .sidebar 的 flex-basis（缩态 64px 由
@@ -376,7 +376,12 @@ export function bootShell() {
 
     if (!v) continue;
     // 双击 = 立即播放（单击仍导航进页面；两击的第一次导航先落地，双击随即开播）
-    a.addEventListener("dblclick", () => { void playlistMenu().then((m) => m.playSongsNow(v.title, v.fetch)); });
+    a.addEventListener("dblclick", () => {
+      // 显式给来源：双击是从侧栏起播的，别让「跳转至歌单」记成当时所在的路由
+      const route = a.dataset.route ?? "";
+
+      void playlistMenu().then((m) => m.playSongsNow(v.title, v.fetch, route ? `#/${route}` : undefined));
+    });
     a.addEventListener("contextmenu", (e) => {
       e.preventDefault(); // 不弹系统菜单
       e.stopPropagation();
@@ -415,7 +420,9 @@ export function addNavItem(item: SparkleNavItem): HTMLElement {
   a.dataset.route = item.path.replace(/^#\//, "");
   a.title = item.label;
   a.innerHTML = `${item.iconSvg ?? icons.sparkle}<span>${esc(item.label)}</span>`;
-  document.querySelector(".nav")!.append(a);
+  // 插在「更多」之前：内置项与插件项都排在它上面，更多恒为最后一颗。
+  const root = document.querySelector(".nav")!;
+  root.insertBefore(a, root.querySelector(".nav-more"));
 
   return a;
 }

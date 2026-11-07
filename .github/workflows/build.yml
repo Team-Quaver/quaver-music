@@ -1,7 +1,8 @@
 # Quaver — 全平台打包 CI
 #
 # 后端：vendor/Typhoeus-go（Go sidecar）→ 交叉编译，一个 Linux runner 出全平台二进制
-# 前端：ui (Electron + Vite) → 平台安装包（随包对应架构的 sidecar 与音频运行时 mpv）
+# 音频：vendor/Liino（Go 音频管线）→ c-shared 动态库 + @team-quaver/liino-node 绑定
+# 前端：ui (Electron + Vite) → 平台安装包（随包对应架构的 sidecar、mpv 与 libliino）
 #
 # 目标平台：
 #   linux    x86_64 + aarch64 → AppImage / Flatpak（自包含），另出 deb / rpm / pacman：
@@ -11,6 +12,21 @@
 #   linux    loong64 → sidecar 二进制 + 客户端 deb/rpm（Electron 用 darkyzhou/electron-loong64
 #             社区构建，new-world ABI 2.0；音频引擎 mpv 不随包，交给发行版解析；electron-builder
 #             不支持 loong64，deb 手工组装、RPM 用独立 spec）
+#
+# Liino 构建（liino-linux / liino-windows / liino-macos）：
+#   每个目标只出两件东西：c-shared 库 + 头文件。Linux amd64/arm64 在原生 runner 上构建；
+#   loong64 交给 OpenListTeam/cgo-actions 的 linux-loong64 目标（ABI2.0 / new-world，
+#   与 darkyzhou/electron-loong64 的客户端 ABI 对齐）；Windows 的 amd64/arm64 在 Linux 上用
+#   llvm-mingw 交叉（capi 的导出层是唯一需要 C 链接器的地方）；macOS 只出 arm64，在
+#   macos-15 上用 Xcode SDK 原生构建。产物按 <goos>-<goarch> 命名上传，
+#   前端 job 下载后落到 ui/build-res/liino/<goos>-<goarch>/，再由 extraResources 随包。
+#   Node 绑定是纯 TS（运行时由 koffi dlopen 库），一次 tsc 构建后作为 liino-node-dist 分发。
+#
+#   为什么只有 loong64 走 cgo-actions：动作里 xgo 引擎（linux / windows-amd64 / darwin）
+#   把产物名按可执行文件后缀硬编码（windows 只认 .exe），而 c-shared 会出 .so/.dll/.dylib，
+#   它随后的 mv 会直接失败；loong64 与 windows-arm64 引擎是直接 go build 到临时名，才吃得了
+#   -buildmode=c-shared。Linux amd64/arm64 与 macOS 本来就有原生 C 工具链（不值得绕 Docker），
+#   Windows amd64 则只剩 xgo 这条路，所以这两个 job 继续用原方案。
 #
 # 打包配置：
 #   electron-builder 的目标/依赖等配置拆在 packages/，按「发行版 + 架构组」命名；
@@ -66,6 +82,7 @@ jobs:
   # 的交叉编译矩阵（判据与来由见 ui/scripts/verify-bundle.ts 头注）。
   verify:
     name: verify (typecheck + guards + bundle shape)
+    needs: liino-node
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -82,10 +99,20 @@ jobs:
             ui/pnpm-lock.yaml
 
       # Sparkle：插件 SDK（@quaver/sparkle 的 paths 指到 ../vendor/Sparkle/sdk）；
-      # Typhoeus-go：sidecar 的 Go 源码，verify-song-menu 等护栏要读它的 server/*.go
+      # Typhoeus-go：sidecar 的 Go 源码，verify-song-menu 等护栏要读它的 server/*.go；
+      # Liino：ui/package.json 的 @team-quaver/liino-node 是 file: 依赖，目录不在
+      #        pnpm install 直接 ENOENT scandir vendor/Liino/node
       - name: Init submodules
         run: |
-          git submodule update --init --depth 1 vendor/Sparkle vendor/Typhoeus-go
+          git submodule update --init --depth 1 vendor/Sparkle vendor/Typhoeus-go vendor/Liino
+
+      # 绑定是 file: 依赖，package.json 的 types/main 都指向 dist/；dist 不入库，
+      # 必须先把 liino-node 的 tsc 产物铺回来，否则 typecheck 找不到声明文件
+      - name: Fetch Liino Node bindings
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-node-dist
+          path: vendor/Liino/node/dist
 
       - name: pnpm install
         working-directory: ui
@@ -230,19 +257,316 @@ jobs:
           path: dist-bin/${{ matrix.bin }}
           if-no-files-found: error
 
+  # ────────────────────────────── Liino（动态库 + Node 绑定） ──────────────────────────────
+  # 绑定层是纯 TS（libliino.ts 通过 koffi 在运行时 dlopen 库），平台无关，构建一次即可。
+  # 注意 dist/ 不在子模块仓库里（.gitignore），所以所有消费方（verify / 前端打包）都必须
+  # 依赖这个 job 并下载 liino-node-dist，否则 file: 依赖指向的 dist/index.d.ts 不存在。
+  liino-node:
+    name: liino node bindings
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Init submodule vendor/Liino
+        run: git submodule update --init --depth 1 vendor/Liino
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24.22.1"
+          cache: npm
+          cache-dependency-path: vendor/Liino/node/package-lock.json
+
+      - name: Build bindings (tsc) + pack
+        working-directory: vendor/Liino/node
+        # koffi 是 peerDependency，只在运行时用；--ignore-scripts 跳过它的预编译下载
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+          npm pack
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: liino-node-dist
+          path: vendor/Liino/node/dist
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: liino-node-package
+          path: vendor/Liino/node/team-quaver-liino-node-*.tgz
+          if-no-files-found: error
+
+  # Linux：amd64/arm64 在对应原生 runner 上直接构建（宿主 cc，无交叉工具链）。
+  # loong64 交给 OpenListTeam/cgo-actions 的 linux-loong64 目标 —— 它下载 ABI2.0
+  # （new-world）的 GCC/Go 交叉工具链，与 darkyzhou/electron-loong64 的客户端 ABI 一致。
+  # 别写成 linux-loong64-abi1.0：那是 old-world ABI1.0，产物进不了我们的包。
+  liino-linux:
+    name: liino lib (linux-${{ matrix.goarch }})
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            runs_on: ubuntu-24.04
+            builder: native
+          - goarch: arm64
+            runs_on: ubuntu-24.04-arm
+            builder: native
+          - goarch: loong64
+            runs_on: ubuntu-24.04
+            builder: cgo-actions
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Init submodule vendor/Liino
+        run: git submodule update --init --depth 1 vendor/Liino
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: vendor/Liino/go.sum
+
+      - name: Build libliino.so (native)
+        if: matrix.builder == 'native'
+        working-directory: vendor/Liino
+        env:
+          CC: cc
+        run: bash scripts/build-capi.sh linux ${{ matrix.goarch }}
+
+      # 动作的 flags 输入会把整串当成单个 argv（execa 模板表达式不拆空格），所以
+      # buildmode / trimpath 放进 GOFLAGS（go 只取当前命令认识的项，`go version` 会忽略），
+      # ldflags 留在 flags 里 —— 它的值本身含空格，正好作为一个 argv 交给 -ldflags。
+      - name: Build libliino.so (cgo-actions, linux-loong64)
+        if: matrix.builder == 'cgo-actions'
+        uses: OpenListTeam/cgo-actions@v1.3.0
+        env:
+          GOFLAGS: "-buildmode=c-shared -trimpath"
+        with:
+          dir: vendor/Liino
+          packages: ./capi
+          targets: linux-loong64
+          tags: liino_capi
+          flags: "-ldflags=-s -w"
+          out-dir: vendor/Liino/build/linux-loong64
+          output: libliino.so
+          github-token: ${{ github.token }}
+
+      # c-shared 的头文件跟着临时产物名走（go-cross-bin.h），改成发布名
+      - name: Stage cgo-actions header (loong64)
+        if: matrix.builder == 'cgo-actions'
+        run: |
+          set -euo pipefail
+          mv vendor/Liino/go-cross-bin.h vendor/Liino/build/linux-loong64/liino.h
+
+      # 跨架构产物不报错、只会跑不起来 → 核对机器码；三个目标都覆盖
+      - name: Verify target machine
+        run: |
+          set -euo pipefail
+          f="vendor/Liino/build/linux-${{ matrix.goarch }}/libliino.so"
+          [ -s "$f" ] || { echo "::error::产物为空"; exit 1; }
+          case "${{ matrix.goarch }}" in
+            amd64)   file "$f" | grep -q "x86-64" ;;
+            arm64)   file "$f" | grep -q "ARM aarch64" ;;
+            loong64) file "$f" | grep -qi "LoongArch" ;;
+            *) echo "::error::未知目标"; exit 1 ;;
+          esac
+          echo "machine check OK: linux/${{ matrix.goarch }}"
+
+      # amd64/arm64 是原生 runner：真 dlopen + 调一次导出函数（file 只能证明机器码，
+      # 证明不了 c-shared 的依赖/ABI 能加载）。loong64 是交叉档，只能留在机器码检查。
+      - name: Smoke test (native dlopen)
+        if: matrix.goarch != 'loong64'
+        run: |
+          set -euo pipefail
+          python3 - "$PWD/vendor/Liino/build/linux-${{ matrix.goarch }}/libliino.so" <<'PY'
+          import ctypes, sys
+          lib = ctypes.CDLL(sys.argv[1])
+          lib.liino_version.restype = ctypes.c_char_p
+          version = lib.liino_version().decode()
+          assert version, "liino_version returned empty"
+          print(f"liino dlopen OK: {version}")
+          PY
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: liino-linux-${{ matrix.goarch }}
+          path: vendor/Liino/build/linux-${{ matrix.goarch }}
+          if-no-files-found: error
+
+  # Windows：两个架构都在 Ubuntu 上用 llvm-mingw 交叉。不用 windows runner 的 MSYS2，
+  # 是因为这里只需要 C 链接器，而 llvm-mingw 同时提供 aarch64-w64-windows-gnu 目标。
+  # 交叉产物用 file 核对 PE 机器码（Windows runner 上没有 file(1)）。
+  # 这里不能换成 cgo-actions：windows-amd64 走它的 xgo 引擎，该引擎把产物名写死成
+  # <name>-windows-amd64.exe，而 c-shared 出的是 .dll，构建后的 mv 会失败；
+  # windows-arm64 直连 zig 引擎虽可行，但没必要为半个矩阵换一套工具链（zig 还是 beta）。
+  liino-windows:
+    name: liino lib (windows-${{ matrix.goarch }})
+    runs-on: ubuntu-24.04
+    env:
+      LLVM_MINGW_VERSION: "20261104"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            cc: x86_64-w64-mingw32-clang
+          - goarch: arm64
+            cc: aarch64-w64-mingw32-clang
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Init submodule vendor/Liino
+        run: git submodule update --init --depth 1 vendor/Liino
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: vendor/Liino/go.sum
+
+      - name: Install llvm-mingw
+        run: |
+          set -euo pipefail
+          url="https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-x86_64.tar.xz"
+          curl -fsSL --retry 3 "$url" -o "$RUNNER_TEMP/llvm-mingw.tar.xz"
+          mkdir -p "$RUNNER_TEMP/llvm-mingw"
+          tar -xf "$RUNNER_TEMP/llvm-mingw.tar.xz" -C "$RUNNER_TEMP/llvm-mingw" --strip-components=1
+          echo "$RUNNER_TEMP/llvm-mingw/bin" >> "$GITHUB_PATH"
+
+      # 上游 capi.go 的 cgo preamble 只有 stdlib/string.h；mingw 的 stdlib.h 不会
+      # 间接带出 stdint.h，于是 C.int64_t 解析失败。补一行 preamble 再构建。
+      # （glibc/macOS SDK 会间接带出 stdint.h，所以只有 Windows 交叉档需要这一步。）
+      - name: Patch cgo preamble for mingw
+        working-directory: vendor/Liino
+        run: |
+          set -euo pipefail
+          if ! grep -q '#include <stdint.h>' capi/capi.go; then
+            sed -i 's|#include <string.h>|#include <string.h>\n#include <stdint.h>|' capi/capi.go
+          fi
+
+      - name: Build liino.dll
+        working-directory: vendor/Liino
+        env:
+          CC: ${{ matrix.cc }}
+        run: bash scripts/build-capi.sh windows ${{ matrix.goarch }}
+
+      - name: Verify target machine
+        run: |
+          set -euo pipefail
+          f="vendor/Liino/build/windows-${{ matrix.goarch }}/liino.dll"
+          [ -s "$f" ] || { echo "::error::产物为空"; exit 1; }
+          case "${{ matrix.goarch }}" in
+            amd64) file "$f" | grep -q "x86-64" ;;
+            arm64) file "$f" | grep -qiE "ARM64|aarch64" ;;
+            *) echo "::error::未知目标"; exit 1 ;;
+          esac
+          echo "machine check OK: windows/${{ matrix.goarch }}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: liino-windows-${{ matrix.goarch }}
+          path: vendor/Liino/build/windows-${{ matrix.goarch }}
+          if-no-files-found: error
+
+  # macOS：只出 arm64（x64 客户端构建已裁撤）。deployment target 钉 12.0：c-shared 的
+  # minos 会写进 Mach-O，别让 runner 的 macOS 15 把库抬到只有新系统能加载。
+  # cgo-actions 的 darwin 目标走 xgo（Linux 上的 Docker + osxcross），既跑不了 macos runner，
+  # 也拿不到这里需要的 CGO_LDFLAGS（AudioToolbox/CoreAudio 框架），所以保持原生构建。
+  liino-macos:
+    name: liino lib (darwin-arm64)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Init submodule vendor/Liino
+        run: git submodule update --init --depth 1 vendor/Liino
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: vendor/Liino/go.sum
+
+      # darwin 上两个 purego fork 都会展开 dlfcn_stubs.s，各自定义未加包前缀的
+      # TEXT dlopen/dlsym/dlerror/dlclose → 同一个 dylib 里两份同名 STEXT，
+      # Go linker 直接 "duplicated definition of symbol dlopen"。
+      # ffgo 用到的 purego API（Dlopen/RegisterLibFunc/NewCallback/CDecl）与 ebitengine
+      # 同源，macOS 构建时把 ffgo 统一到 ebitengine；purego-pipewire 是 linux-only，
+      # 不参与 darwin 链接，所以不会引入第三份。
+      - name: Unify purego fork for darwin
+        working-directory: vendor/Liino
+        run: |
+          set -euo pipefail
+          # runner 是 BSD sed：原地改必须写成 -i ''
+          files=$(grep -rl '"github.com/bnema/purego"' --include='*.go' third_party/ffgo || true)
+          [ -n "$files" ] || { echo "::error::ffgo 里没找到 bnema/purego 引用"; exit 1; }
+          printf '%s\n' "$files" | while IFS= read -r f; do
+            sed -i '' 's|"github.com/bnema/purego"|"github.com/ebitengine/purego"|g' "$f"
+          done
+          sed -i '' 's|github.com/bnema/purego v0.11.0-bnema.3|github.com/ebitengine/purego v0.11.1|' third_party/ffgo/go.mod
+
+      - name: Build libliino.dylib
+        working-directory: vendor/Liino
+        env:
+          CC: clang
+          MACOSX_DEPLOYMENT_TARGET: "12.0"
+          # audio-go 的 darwin 层用 //go:cgo_import_dynamic 直接引用
+          # AudioToolbox/CoreAudio；-buildmode=c-shared 固定走外部链接，
+          # 这些动态导入由 clang 解析。runtime/cgo 只默认带
+          # CoreFoundation/Security，不补 framework 就是 _AudioQueue*/
+          # _AudioObject* undefined。
+          CGO_LDFLAGS: "-framework CoreFoundation -framework AudioToolbox -framework CoreAudio"
+        run: bash scripts/build-capi.sh darwin arm64
+
+      - name: Verify target machine
+        run: |
+          set -euo pipefail
+          f="vendor/Liino/build/darwin-arm64/libliino.dylib"
+          [ -s "$f" ] || { echo "::error::产物为空"; exit 1; }
+          file "$f" | grep -q "arm64"
+          echo "machine check OK: darwin/arm64"
+
+      # 原生档：真 dlopen + 调一次导出函数（file 只能证明机器码，证明不了能加载）
+      - name: Smoke test (native dlopen)
+        run: |
+          set -euo pipefail
+          python3 - "$PWD/vendor/Liino/build/darwin-arm64/libliino.dylib" <<'PY'
+          import ctypes, sys
+          lib = ctypes.CDLL(sys.argv[1])
+          lib.liino_version.restype = ctypes.c_char_p
+          version = lib.liino_version().decode()
+          assert version, "liino_version returned empty"
+          print(f"liino dlopen OK: {version}")
+          PY
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: liino-darwin-arm64
+          path: vendor/Liino/build/darwin-arm64
+          if-no-files-found: error
+
 # ────────────────────────────── 前端（客户端包） ──────────────────────────────
   frontend-linux:
     name: AppImage (${{ matrix.arch_label }})
-    needs: [verify, sidecar]
+    needs: [verify, sidecar, liino-node, liino-linux]
     runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch_label: x86_64
+            goarch: amd64
             electron_arch: x64
             runs_on: ubuntu-24.04
           - arch_label: aarch64
+            goarch: arm64
             electron_arch: arm64
             runs_on: ubuntu-24.04-arm
     steps:
@@ -267,7 +591,29 @@ jobs:
       #          TS7006/TS2339，构建直接挂
       - name: Init submodules
         run: |
-          git submodule update --init --depth 1 vendor/Sparkle
+          git submodule update --init --depth 1 vendor/Sparkle vendor/Liino
+
+      # 绑定的 dist/ 不入库；pnpm 的 file: 依赖指向它，先铺回来再 install
+      - name: Fetch Liino Node bindings
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-node-dist
+          path: vendor/Liino/node/dist
+
+      - name: Fetch Liino runtime
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-linux-${{ matrix.goarch }}
+          path: dist-liino
+
+      # 打包路径与 liino-runtime.ts 的解析口径一致：resources/liino/<platform>-<goarch>
+      - name: Stage bundled Liino runtime
+        run: |
+          set -euo pipefail
+          dest="ui/build-res/liino/linux-${{ matrix.goarch }}"
+          mkdir -p "$dest"
+          cp -f dist-liino/libliino.so dist-liino/liino.h "$dest/"
+          test -s "$dest/libliino.so"
 
       # sidecar 产物落仓库根 dist-bin/（.gitignore 已覆盖），不再碰 submodule 路径
       - name: Fetch sidecar for this arch
@@ -343,6 +689,8 @@ jobs:
           root=squashfs-root
           [ -d "$root/resources/audio/mpv" ] || root=AppDir   # 解包目录名随 runtime 而异
           node electron/audio/bins.ts --check "$root/resources/audio"
+          # Liino 是可选后端，但「带上了却架构不对」比没带更糟 —— 产物里必须有本机那份
+          test -s "$root/resources/liino/linux-${{ matrix.goarch }}/libliino.so"
 
       # ── 发行版原生包：deb / rpm / pacman ──
       # 与上面 AppImage 的「自包含」口径相反：这三个包不随包 mpv 运行时，改走发行版依赖
@@ -451,16 +799,18 @@ jobs:
   # 起宿主 PATH 的 mpv，所以这里沿用 AppImage 的自包含口径（pkgforge mpv 解包目录）。
   frontend-linux-flatpak:
     name: Flatpak (${{ matrix.flatpak_arch }})
-    needs: [verify, sidecar]
+    needs: [verify, sidecar, liino-node, liino-linux]
     runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - flatpak_arch: x86_64
+            goarch: amd64
             electron_arch: x64
             runs_on: ubuntu-24.04
           - flatpak_arch: aarch64
+            goarch: arm64
             electron_arch: arm64
             runs_on: ubuntu-24.04-arm
     steps:
@@ -479,7 +829,27 @@ jobs:
 
       - name: Init submodules
         run: |
-          git submodule update --init --depth 1 vendor/Sparkle
+          git submodule update --init --depth 1 vendor/Sparkle vendor/Liino
+
+      - name: Fetch Liino Node bindings
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-node-dist
+          path: vendor/Liino/node/dist
+
+      - name: Fetch Liino runtime
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-linux-${{ matrix.goarch }}
+          path: dist-liino
+
+      - name: Stage bundled Liino runtime
+        run: |
+          set -euo pipefail
+          dest="ui/build-res/liino/linux-${{ matrix.goarch }}"
+          mkdir -p "$dest"
+          cp -f dist-liino/libliino.so dist-liino/liino.h "$dest/"
+          test -s "$dest/libliino.so"
 
       - name: Fetch sidecar for this arch
         uses: actions/download-artifact@v8
@@ -566,7 +936,7 @@ jobs:
   #   运行环境需 ABI 2.0（new world：Debian sid / loongnix / openKylin 等）。
   frontend-linux-loong64:
     name: loong64 deb + rpm
-    needs: [verify, sidecar]
+    needs: [verify, sidecar, liino-node, liino-linux]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -584,7 +954,27 @@ jobs:
 
       - name: Init submodules
         run: |
-          git submodule update --init --depth 1 vendor/Sparkle
+          git submodule update --init --depth 1 vendor/Sparkle vendor/Liino
+
+      - name: Fetch Liino Node bindings
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-node-dist
+          path: vendor/Liino/node/dist
+
+      - name: Fetch Liino runtime (loong64)
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-linux-loong64
+          path: dist-liino
+
+      - name: Stage bundled Liino runtime
+        run: |
+          set -euo pipefail
+          dest="ui/build-res/liino/linux-loong64"
+          mkdir -p "$dest"
+          cp -f dist-liino/libliino.so dist-liino/liino.h "$dest/"
+          test -s "$dest/libliino.so"
 
       - name: Fetch sidecar (loong64)
         uses: actions/download-artifact@v8
@@ -648,19 +1038,34 @@ jobs:
           mkdir -p "$APP"
           cp -r electron "$APP/electron"
           cp -r dist "$APP/dist"
+          # dependencies 里的 file:../vendor/Liino/node 是相对 $APP 解析的；临时目录里没有
+          # vendor/，会把 npm 带到 /tmp/.../vendor（不存在）。按同一相对位置放一份绑定产物
+          # （只要 package.json + dist；node_modules 不复制，避免把 typescript 塞进 asar）。
+          mkdir -p "$STAGE/vendor/Liino/node"
+          cp -r ../vendor/Liino/node/package.json ../vendor/Liino/node/dist \
+            "$STAGE/vendor/Liino/node/"
           # MPRIS 随主进程运行，生产依赖也必须进 asar。先只放 dependencies 的临时 manifest，
           # 绕开 npm 对 dev peer graph 的解析；装完再换回完整 package.json。
           node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version='${QUAVER_VERSION}'; const prod={name:p.name,version:p.version,type:p.type,main:p.main,dependencies:p.dependencies}; fs.writeFileSync('$APP/package.full.json', JSON.stringify(p,null,2)); fs.writeFileSync('$APP/package.json', JSON.stringify(prod,null,2))"
           npm install --prefix "$APP" --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund
+          # npm 把 file: 依赖装成指向 $STAGE/vendor 的符号链接，@electron/asar 会以
+          # 「links out of the package」直接拒绝；换成实体目录再打包。
+          rm -rf "$APP/node_modules/@team-quaver/liino-node"
+          cp -r "$STAGE/vendor/Liino/node" "$APP/node_modules/@team-quaver/liino-node"
           mv "$APP/package.full.json" "$APP/package.json"
           rm -f "$APP/package-lock.json"
           test -f "$APP/node_modules/mpris-service/dist/index.js"
+          test -f "$APP/node_modules/@team-quaver/liino-node/dist/index.js"
           pnpm dlx @electron/asar pack "$APP" "$STAGE/app.asar"
           PAYLOAD="$STAGE/payload/resources"
-          mkdir -p "$PAYLOAD/bin" "$PAYLOAD/build-res"
+          mkdir -p "$PAYLOAD/bin" "$PAYLOAD/build-res" "$PAYLOAD/liino"
           mv "$STAGE/app.asar" "$PAYLOAD/app.asar"
           cp ../dist-bin/quaver-server "$PAYLOAD/bin/"
           file "$PAYLOAD/bin/quaver-server" | grep -qi LoongArch
+          # Liino 与 sidecar 同一口径：electron-builder 不参与 loong64 打包，手动放到
+          # resources/liino/<platform>-<goarch>（liino-runtime.ts 的解析路径）
+          cp -r build-res/liino/linux-loong64 "$PAYLOAD/liino/"
+          file "$PAYLOAD/liino/linux-loong64/libliino.so" | grep -qi LoongArch
           cp build-res/icon.png "$PAYLOAD/build-res/"
           cp -r build-res/icons "$PAYLOAD/build-res/"
           cp -r build-res/tray "$PAYLOAD/build-res/"
@@ -738,14 +1143,16 @@ jobs:
   # arm64 的 mpv 在 x64 机器上跑不了 → 随包校验靠暂存脚本里的 PE 机器码核对。
   frontend-windows:
     name: NSIS (${{ matrix.arch_label }})
-    needs: [verify, sidecar]
+    needs: [verify, sidecar, liino-node, liino-windows]
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch_label: x64
+            goarch: amd64
           - arch_label: arm64
+            goarch: arm64
     steps:
       - uses: actions/checkout@v7
 
@@ -766,7 +1173,29 @@ jobs:
       - name: Init submodules
         shell: bash
         run: |
-          git submodule update --init --depth 1 vendor/Sparkle
+          git submodule update --init --depth 1 vendor/Sparkle vendor/Liino
+
+      - name: Fetch Liino Node bindings
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-node-dist
+          path: vendor/Liino/node/dist
+
+      - name: Fetch Liino runtime
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-windows-${{ matrix.goarch }}
+          path: dist-liino
+
+      # 运行期按 process.platform=win32 解析，不是构建脚本里的 uname —— 目录名必须是 win32-<goarch>
+      - name: Stage bundled Liino runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          dest="ui/build-res/liino/win32-${{ matrix.goarch }}"
+          mkdir -p "$dest"
+          cp -f dist-liino/liino.dll dist-liino/liino.h "$dest/"
+          test -s "$dest/liino.dll"
 
       - name: Fetch sidecar
         uses: actions/download-artifact@v8
@@ -825,7 +1254,7 @@ jobs:
   # macOS arm64：Electron / sidecar / 随包 mpv 全单架构，无 universal 合并。
   frontend-macos:
     name: dmg (arm64)
-    needs: [verify, sidecar]
+    needs: [verify, sidecar, liino-node, liino-macos]
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
@@ -846,7 +1275,27 @@ jobs:
 
       - name: Init submodules
         run: |
-          git submodule update --init --depth 1 vendor/Sparkle
+          git submodule update --init --depth 1 vendor/Sparkle vendor/Liino
+
+      - name: Fetch Liino Node bindings
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-node-dist
+          path: vendor/Liino/node/dist
+
+      - name: Fetch Liino runtime
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-darwin-arm64
+          path: dist-liino
+
+      - name: Stage bundled Liino runtime
+        run: |
+          set -euo pipefail
+          dest="ui/build-res/liino/darwin-arm64"
+          mkdir -p "$dest"
+          cp -f dist-liino/libliino.dylib dist-liino/liino.h "$dest/"
+          test -s "$dest/libliino.dylib"
 
       - name: Fetch sidecar
         uses: actions/download-artifact@v8
@@ -911,6 +1360,7 @@ jobs:
           app=$(ls -d "$mount"/*.app | head -1)
           node electron/audio/bins.ts --check "$app/Contents/Resources/audio"
           [ -x "$app/Contents/Resources/bin/quaver-server" ]
+          test -s "$app/Contents/Resources/liino/darwin-arm64/libliino.dylib"
 
       - uses: actions/upload-artifact@v7
         with:

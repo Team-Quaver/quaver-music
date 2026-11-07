@@ -41,6 +41,11 @@ export interface Transport {
   readonly duration: number;
   /** 无媒体或暂停时为 true */
   readonly paused: boolean;
+  /** 播放中但还没真出声（起播预缓冲 / 网络卡顿）。歌词时钟据此停走，别自己往下跑。 */
+  readonly buffering: boolean;
+  /** 换曲预置：取流/解析可能卡好几秒，先把播放头钉到即将起播的位置并挡住旧流迟到的
+   *  状态 —— 否则新曲歌词会拿上一首的位置当进度，直接滚到末尾。load() 落地后解除。 */
+  prepare?(sec: number): void;
   /** pcm 兼容模式的分析节点；web/native 没有。 */
   readonly pcmAnalyser?: () => AnalyserNode | null;
   /** 结束一轮 seek（进度条拖拽抬手）。 */
@@ -70,12 +75,15 @@ export class WebTransport implements Transport {
   readonly kind = "web" as const;
   readonly audio = new Audio();
   private listeners = new Set<(e: TransportEvent) => void>();
+  /** 换曲预置位置（见 Transport.prepare）；媒体真的给出时间后再交还 currentTime。 */
+  private pendingStart: number | null = null;
 
   constructor() {
     this.audio.preload = "auto";
     const a = this.audio;
     const emit = (e: TransportEvent) => this.emit(e);
-    a.addEventListener("timeupdate", () => emit({ type: "time" }));
+    // 媒体时钟真的报数 = 新流已在走，预置位置退场，之后一律听 <audio> 的
+    a.addEventListener("timeupdate", () => { this.pendingStart = null; emit({ type: "time" }); });
     a.addEventListener("durationchange", () => emit({ type: "duration" }));
     a.addEventListener("loadedmetadata", () => emit({ type: "duration" }));
     a.addEventListener("play", () => emit({ type: "play" }));
@@ -101,9 +109,12 @@ export class WebTransport implements Transport {
   }
 
   get src() { return this.audio.src; }
-  get position() { return this.audio.currentTime || 0; }
+  get position() { return this.pendingStart ?? (this.audio.currentTime || 0); }
   get duration() { return isFinite(this.audio.duration) ? this.audio.duration : 0; }
   get paused() { return this.audio.paused; }
+  get buffering() { return !this.audio.paused && this.audio.readyState < 3; } // < HAVE_FUTURE_DATA
+
+  prepare(sec: number) { this.pendingStart = Math.max(0, sec); }
 
   async load(url: string, _opts?: { paused?: boolean; startAt?: number }) {
     // src 赋值本身就会触发媒体 load 算法，绝不能再补 load()——
@@ -122,6 +133,8 @@ export class WebTransport implements Transport {
 
   stop() {
     // 断开旧流下载（token 中继无 Range 请求即停）；load() 让旧 play() promise 以 AbortError 结束
+    this.pendingStart = null;
+
     try { this.audio.pause(); } catch { /* noop */ }
 
     this.audio.removeAttribute("src");
@@ -130,7 +143,12 @@ export class WebTransport implements Transport {
   }
 
   seek(sec: number) {
-    try { this.audio.currentTime = Math.max(0, sec); } catch { /* 无媒体时抛 InvalidStateError，忽略 */ }
+    const at = Math.max(0, sec);
+
+    // 取流中拖动进度：预置位置跟着走（否则歌词/进度条还停在加载起点）
+    if (this.pendingStart !== null) this.pendingStart = at;
+
+    try { this.audio.currentTime = at; } catch { /* 无媒体时抛 InvalidStateError，忽略 */ }
   }
 
   setVolume(vol: number, muted: boolean) {
@@ -183,6 +201,26 @@ declare global {
 /** 外推单帧上限：引擎事件断供时进度最多再走 0.35s 就冻结（防时钟跳变甩飞进度条） */
 const EXTRAP_CAP_SEC = 0.35;
 
+/** 短 seek 抖动不该闪 loading：持续缓冲超过这个时长才报 waiting/停歌词。 */
+const WAIT_DEBOUNCE_MS = 180;
+
+/** 页面级客户端标识：同一页面的所有 transport 共用一个（后端热切会重建 transport），
+ *  页面 reload / 窗口重建时换新值。主进程引擎据此区分「同一页面的迟到旧命令」与
+ *  「新页面」：后者从 1 重新计数世代，不能按「更小 = 更旧」丢掉。 */
+const PAGE_CLIENT = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+/** 页面级单调世代，跨 transport 共享。新建 transport 的 pcmEpoch 从 0 起算；
+ *  若各自 `++`，同页面内会撞回已用过的值 —— 迟到的旧 load 反而「更新」，
+ *  或者引擎把新 transport 的第一条 load 当成旧命令丢掉（切回 mpv 后一直转圈）。
+ *  floor 是 transport 自己已知的世代（pcm 模式会从引擎对齐），保证不回退。 */
+let pageEpoch = 0;
+
+function nextEpoch(floor: number): number {
+  pageEpoch = Math.max(pageEpoch, floor) + 1;
+
+  return pageEpoch;
+}
+
 export class EngineTransport implements Transport {
   readonly kind = "engine" as const;
   readonly mode: EngineMode;
@@ -191,12 +229,17 @@ export class EngineTransport implements Transport {
   protected st = { pos: 0, dur: 0, paused: true, buffering: false, idle: true };
   private posAt = 0; // 最近一次位置采样时刻（performance.now）
   private frozen = 0; // 播放中位置连续不动的采样数（≥2 → 冻结外推）
+  /** 换曲预置位置（见 Transport.prepare）：非 null 期间旧流的 state 一律不采信。 */
+  private pendingStart: number | null = null;
+  private pendingToken = 0; // 连续换曲时只有最后那轮 prepare 能被它的 load 解除
   protected loadedUrl = "";
   protected offEngine: () => void;
   protected modeReady: Promise<any>;
   protected pcmEpoch = 0;
   private seekInFlight = false;
   private pendingSeek: { at: number; immediate: boolean } | null = null;
+  private waitTimer: ReturnType<typeof setTimeout> | null = null;
+  private stalled = false; // 去抖后的缓冲态：真正的卡顿才停歌词/亮转圈
   /** pcm 兼容模式的渲染钩子（由动态加载的 PcmEngineTransport 挂上；native 恒为 null）。
    *  子类构造是同步完成的，IPC 事件不可能在 hook 挂上前送达 —— 不需要缓冲。 */
   protected pcmHook: PcmHooks | null = null;
@@ -212,7 +255,10 @@ export class EngineTransport implements Transport {
       // 必须接上同一个 epoch，否则第一块 PCM 就被当成旧会话丢掉。
       const epoch = Number(r?.epoch);
 
-      if (this.mode === "pcm" && Number.isFinite(epoch) && epoch >= 0) this.pcmEpoch = epoch;
+      if (this.mode === "pcm" && Number.isFinite(epoch) && epoch >= 0) {
+        this.pcmEpoch = epoch;
+        pageEpoch = Math.max(pageEpoch, epoch);
+      }
 
       return r;
     }).catch(() => null);
@@ -243,6 +289,10 @@ export class EngineTransport implements Transport {
 
     switch (ev.t) {
       case "state": {
+        // 新曲还在取流/等待安装：引擎此刻报的是上一首（stop 的暂停快照、淡出尾巴）。
+        // 采信它就会把旧位置当新曲进度 —— 歌词直接滚到末尾，音量/进度条也跟着回跳。
+        if (this.pendingStart !== null) return;
+
         const prev = { ...this.st };
         this.st = {
           pos: this.pcmHook ? this.pcmHook.position() : Number(ev.pos) || 0,
@@ -264,11 +314,21 @@ export class EngineTransport implements Transport {
 
         if (this.st.paused !== prev.paused) this.emit(this.st.paused ? { type: "pause" } : { type: "play" });
 
-        if (this.st.buffering && !prev.buffering) this.emit({ type: "waiting" });
+        let recovered = false;
+
+        if (this.st.buffering && !prev.buffering) {
+          this.armWait();
+        } else if (!this.st.buffering) {
+          this.clearWaitTimer();
+
+          recovered = this.stalled;
+          this.stalled = false;
+        }
+
         // 缓冲恢复，或从 idle/暂停进入出声状态 → playing（起播后 loading 指示靠它熄灭）
         const started = !this.st.paused && !this.st.idle && !this.st.buffering && (prev.idle || prev.paused || prev.buffering);
 
-        if ((!this.st.buffering && prev.buffering) || started) this.emit({ type: "playing" });
+        if (recovered || started) this.emit({ type: "playing" });
 
         if (this.st.pos !== prev.pos) this.emit({ type: "time" });
 
@@ -300,6 +360,8 @@ export class EngineTransport implements Transport {
         return;
       case "dead":
         // mpv 退出：冻结时间轴并报错；下一次 load 会自动重拉 mpv（重试语义交给播放器）
+        this.clearWaitTimer();
+        this.stalled = false;
         this.pcmHook?.kill();
         this.st = { pos: this.st.pos, dur: this.st.dur, paused: true, buffering: false, idle: true };
         this.emit({ type: "error", message: String(ev.message ?? "mpv 进程退出") });
@@ -308,10 +370,50 @@ export class EngineTransport implements Transport {
     }
   }
 
+  private clearWaitTimer(): void {
+    if (this.waitTimer === null) return;
+    clearTimeout(this.waitTimer);
+    this.waitTimer = null;
+  }
+
+  /** 起播/seek 的短暂 rebuffer 不报 waiting；持续超过去抖窗口才算真卡顿。 */
+  private armWait(): void {
+    if (this.waitTimer !== null || this.stalled) return;
+    this.waitTimer = setTimeout(() => {
+      this.waitTimer = null;
+
+      if (!this.st.buffering || this.st.paused || this.st.idle) return;
+      this.stalled = true;
+      this.emit({ type: "waiting" });
+    }, WAIT_DEBOUNCE_MS);
+  }
+
   get src() { return this.loadedUrl; }
   get paused() { return this.st.paused || this.st.idle; }
   get duration() { return this.st.dur; }
+  get buffering() { return this.stalled; }
+
+  /** 换曲预置：立刻把播放头钉到目标位置，并冻结旧流的外推时钟。
+   *  取流（QQ resolve / token）与 loadfile 安装都可能卡数秒，这段时间界面已经切到新曲，
+   *  播放头必须同样站到新曲起点 —— 而不是继续报上一首唱到哪。 */
+  prepare(sec: number) {
+    this.clearWaitTimer();
+    this.stalled = false;
+    this.pendingStart = Math.max(0, sec);
+    this.pendingToken++;
+    const wasPaused = this.paused;
+
+    this.st = { pos: this.pendingStart, dur: 0, paused: true, buffering: true, idle: false };
+    this.posAt = performance.now();
+    this.frozen = 0;
+
+    if (!wasPaused) this.emit({ type: "pause" });
+    this.emit({ type: "time" });
+  }
+
   get position() {
+    if (this.pendingStart !== null) return this.pendingStart;
+
     if (this.pcmHook) {
       const p = this.pcmHook.position();
 
@@ -350,7 +452,12 @@ export class EngineTransport implements Transport {
    *  此后引擎的 4Hz state 广播照常驱动进度/歌词。 */
   adopt(url: string, s: { pos: number; dur: number; paused: boolean; buffering: boolean; idle: boolean }) {
     this.loadedUrl = url;
+    this.pendingStart = null; // 接管的是引擎里真在放的流：预置位置退场
     this.st = { pos: s.pos, dur: s.dur, paused: s.paused, buffering: s.buffering, idle: s.idle };
+    this.clearWaitTimer();
+    this.stalled = false;
+
+    if (this.st.buffering && !this.st.paused && !this.st.idle) this.armWait();
     this.pcmHook?.reset(s.pos);
     this.posAt = performance.now();
     this.frozen = 0;
@@ -372,6 +479,7 @@ export class EngineTransport implements Transport {
       if (!hook || !r?.ok) return;
 
       if (Number.isFinite(Number(r.gain))) hook.setGain(Math.max(0, Math.min(1, Number(r.gain))));
+
       if (r.eq) hook.setEq(r.eq);
     }).catch(() => {});
   }
@@ -380,7 +488,15 @@ export class EngineTransport implements Transport {
     await this.modeReady;
 
     const startAt = Math.max(0, Number(opts?.startAt) || 0);
-    const epoch = ++this.pcmEpoch;
+    const epoch = this.pcmEpoch = nextEpoch(this.pcmEpoch);
+    const token = this.pendingToken;
+
+    this.clearWaitTimer();
+    this.stalled = false;
+    // 引擎接受 load 之前的旧流位置一律作废：播放头就是这次要起播的位置。
+    this.st = { pos: startAt, dur: 0, paused: !!opts?.paused, buffering: true, idle: false };
+    this.posAt = performance.now();
+    this.frozen = 0;
 
     if (this.pcmHook) {
       this.pcmHook.load(epoch, startAt, !!opts?.paused);
@@ -392,11 +508,18 @@ export class EngineTransport implements Transport {
     // 先记下 src，播放器的 error 分支才不会把它当成「没有挂流的杂散错误」丢掉。
     this.loadedUrl = url;
 
-    const r = await this.invoke({ cmd: "load", url, paused: !!opts?.paused, startAt, epoch });
+    try {
+      const r = await this.invoke({ cmd: "load", url, paused: !!opts?.paused, startAt, epoch, client: PAGE_CLIENT });
 
-    if (!r?.ok) throw new Error(r?.error ?? "音频引擎加载失败");
+      // 引擎按世代丢弃了这条 load（同页面已有更新的那一轮接手）。不能当成功继续等
+      // loaded/playing —— 那条事件永远不会为这一轮到来，UI 会一直转圈。
+      if (r?.stale) throw new Error("音频引擎已接受更新的加载请求");
 
-    this.frozen = 0;
+      if (!r?.ok) throw new Error(r?.error ?? "音频引擎加载失败");
+    } finally {
+      // 只解除本轮 prepare（连续换曲时最后一次 load 说了算）；解除后引擎 state 恢复采信。
+      if (this.pendingToken === token) this.pendingStart = null;
+    }
 
     this.syncPcmReady();
   }
@@ -428,7 +551,11 @@ export class EngineTransport implements Transport {
   }
 
   stop() {
+    this.clearWaitTimer();
+    this.stalled = false;
     this.loadedUrl = "";
+    this.pendingStart = null;
+    this.pendingToken++;
     void this.invoke({ cmd: "stop" }).catch(() => {});
     this.pcmHook?.stop();
   }
@@ -438,6 +565,9 @@ export class EngineTransport implements Transport {
     const at = Math.max(0, sec);
 
     this.queueSeek(at, !!opts?.immediate);
+
+    // 取流中拖动进度：预置位置跟着走（否则歌词/进度条还停在加载起点）
+    if (this.pendingStart !== null) this.pendingStart = at;
 
     if (opts?.immediate) this.pcmHook?.resetNow(at);
     else this.pcmHook?.reset(at);
@@ -450,7 +580,7 @@ export class EngineTransport implements Transport {
   seekSettled() {}
 
   private queueSeek(at: number, immediate: boolean): number {
-    const epoch = ++this.pcmEpoch;
+    const epoch = this.pcmEpoch = nextEpoch(this.pcmEpoch);
 
     if (!this.pcmHook || !this.seekInFlight) {
       this.sendSeek(at, epoch, immediate);
@@ -469,7 +599,7 @@ export class EngineTransport implements Transport {
 
       this.pendingSeek = null;
       at = latest.at;
-      epoch = ++this.pcmEpoch;
+      epoch = this.pcmEpoch = nextEpoch(this.pcmEpoch);
       immediate ||= latest.immediate;
     }
 
@@ -481,13 +611,14 @@ export class EngineTransport implements Transport {
         const next = this.pendingSeek;
         this.pendingSeek = null;
 
-        if (next) this.sendSeek(next.at, ++this.pcmEpoch, next.immediate);
+        if (next) this.sendSeek(next.at, this.pcmEpoch = nextEpoch(this.pcmEpoch), next.immediate);
       });
   }
 
   dispose() {
     try { this.offEngine(); } catch {}
 
+    this.clearWaitTimer();
     this.pendingSeek = null;
     this.pcmHook?.destroy();
     this.pcmHook = null;

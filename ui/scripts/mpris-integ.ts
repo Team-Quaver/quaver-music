@@ -51,6 +51,19 @@ r = await sh("gdbus", "call", "--session", "--dest", "org.mpris.MediaPlayer2.qua
 
 check("A3 Metadata trackid 路径正确", r.out.includes("/org/quaver/track/INTEG01"), "");
 
+// 扩展元数据：行级 LRC → xesam:asText（DMS / Noctalia 媒体控件读它）
+await page.evaluate(() => {
+  const p = window.__quaverPlayer;
+  p.lyricAsText = "第一行歌词\n第二行歌词";
+  p.notifyPublic();
+});
+
+await sleep(800);
+
+r = await sh("playerctl", "-p", "quaver", "metadata", "xesam:asText");
+
+check("A3b asText 上总线", r.out === "第一行歌词\n第二行歌词", r.out);
+
 check("A4 Volume 上报（0.8 默认）", /'Volume': <0\.8/.test(r.out), r.out.match(/'Volume': <[^>]*>/)?.[0] || "");
 
 // 队列 → TrackList

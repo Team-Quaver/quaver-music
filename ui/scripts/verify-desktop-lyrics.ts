@@ -402,7 +402,7 @@ const proto = src("src/lib/desktop-lyrics-protocol.ts");
 
 check("时钟补偿按后端下发（native/web 200ms，兼容模式 0）",
   proto.includes("CLOCK_COMP_MS = 200")
-  && /get lyricComp\(\) \{ return this\.backend === "mpv-compat" \? 0 : 0\.2; \}/.test(src("src/player.ts"))
+  && /get lyricComp\(\) \{ return this\.backend === "mpv-compat" \|\| this\.backend === "liino" \? 0 : 0\.2; \}/.test(src("src/player.ts"))
   && /\(player\.time \+ player\.lyricComp\) \* 1000/.test(src("src/components/NowPlaying.ts")));
 
 check("posMs 是裸播放头（不含补偿不含延迟）", /posMs: Math\.max\(0, \(player\.time \|\| 0\) \* 1000\)/.test(bridge));
@@ -446,6 +446,20 @@ check("不调 API（无 fetch / /api：歌词与封面 URL 都随桥镜像来）
 check("恒展开（覆盖层没有收起一档）", /expanded: \(\) => true/.test(page));
 
 check("时钟 = 快照外推 + 后端补偿（延迟扣减在 amll.ts 内做）", /time: \(\) => rawPosMs\(\) \+ \(sync\?\.clockCompMs \?\? CLOCK_COMP_MS\)/.test(page));
+
+check("外推只在后端真出声时进行（暂停/缓冲停在快照，且有窗口上限）",
+  /if \(!sync\.playing \|\| sync\.buffering\) return sync\.posMs/.test(page)
+  && /Math\.min\(performance\.now\(\) - syncAt, EXTRAP_CAP_MS\)/.test(page)
+  && /buffering: player\.buffering/.test(bridge));
+
+check("换曲预置：取流期间播放头钉在目标位置（歌词不吃上一首的进度）",
+  /transport\.prepare\?\.\(startAt\)/.test(src("src/player.ts"))
+  && /prepare\(sec: number\) \{\s*this\.pendingStart = Math\.max\(0, sec\)/.test(src("src/lib/transport.ts"))
+  && /if \(this\.pendingStart !== null\) return this\.pendingStart/.test(src("src/lib/transport.ts")));
+
+check("缓冲中按暂停喂给逐字渲染器（AMLL 逐词遮罩是实时动画，只冻 time() 挡不住）",
+  /paused: \(\) => !\(sync\?\.playing \?\? false\) \|\| !!sync\?\.buffering/.test(page)
+  && /paused: \(\) => player\.paused \|\| player\.buffering/.test(src("src/components/NowPlaying.ts")));
 
 check("歌词延迟取镜像现值（正=延后口径不动）", /lyricDelay: \(\) => sync\?\.delayMs \?\? 0/.test(page));
 

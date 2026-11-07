@@ -139,17 +139,25 @@ function linesToKaraoke(lines: DlLine[]): SparkleKaraokeLine[] {
   });
 }
 
-/** 裸播放头的外推（毫秒）：快照 + 本地单调钟；不含 +0.2s 补偿、不含歌词延迟（口径见桥模块头）。 */
+/** 外推窗口上限：同步是 4Hz，正常只补不到 250ms。主窗卡住或引擎停在缓冲态时
+ *  sync 会断供 —— 本地单调钟不能无限跑，否则歌词会比声音早出去好几行。 */
+const EXTRAP_CAP_MS = 500;
+
+/** 裸播放头的外推（毫秒）：快照 + 本地单调钟；不含 +0.2s 补偿、不含歌词延迟（口径见桥模块头）。
+ *  「后端在出声」是外推的唯一前提：暂停 / 缓冲中一律停在快照位置。 */
 function rawPosMs(): number {
   if (!sync) return 0;
 
-  return sync.posMs + (sync.playing ? performance.now() - syncAt : 0);
+  if (!sync.playing || sync.buffering) return sync.posMs;
+
+  return sync.posMs + Math.min(performance.now() - syncAt, EXTRAP_CAP_MS);
 }
 
 const ctx = {
   // 与主窗 NowPlaying 同口径：posMs 是裸播放头，clockCompMs 由主窗按后端下发。
   time: () => rawPosMs() + (sync?.clockCompMs ?? CLOCK_COMP_MS),
-  paused: () => !(sync?.playing ?? false),
+  // 缓冲中按「暂停」喂给 AMLL：逐词遮罩是实时动画，光冻 time() 挡不住它自己扫完整行
+  paused: () => !(sync?.playing ?? false) || !!sync?.buffering,
   expanded: () => true, // 覆盖层没有「收起」一档：窗口在=恒展开
   showTrans: () => getLyricAux() !== "off",
   lyricAux: () => getLyricAux(),

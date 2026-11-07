@@ -18,6 +18,7 @@ import {
 import { hotkeyRecorder } from "../lib/hotkeys";
 
 const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
+const isLinux = /Linux/.test(navigator.userAgent);
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
 
@@ -56,10 +57,10 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
   const globalHint = conf.bridged
     ? isMac
       ? "由系统注册，当键位为空时，该功能不生效"
-      : "Linux 经 XDG 桌面门户注册"
+      : isLinux ? "Linux 经 XDG 桌面门户注册" : ""
     : "浏览器开发态没有 shell 层，全局热键不生效";
 
-  const waylandHint = "Wayland 下全局快捷键由桌面环境统一管理。请到系统设置的「键盘 / 快捷键」中，通过 XDG GlobalShortcuts 桌面门户为 Quaver 绑定；应用内不再提供全局快捷键录制。";
+  const waylandHint = "Wayland 下全局快捷键由桌面环境统一管理。请到桌面设置的「键盘 / 快捷键」中进行设置。";
 
   const portalNotice = () => {
     const g = document.createElement("div");

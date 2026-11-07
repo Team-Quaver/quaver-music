@@ -12,21 +12,21 @@
   },
   "private": true,
   "packageManager": "pnpm@10.33.0",
-  "version": "1.7.0",
+  "version": "2.0.0",
   "type": "module",
   "main": "electron/main.ts",
   "engines": {
     "node": ">=24.22.1"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev.ts",
     "typecheck": "tsc --noEmit",
-    "typecheck:node": "tsc -p tsconfig.node.json && tsc -p tsconfig.scripts.json",
+    "typecheck:node": "node scripts/ensure-liino-node.ts && tsc -p tsconfig.node.json && tsc -p tsconfig.scripts.json",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
-    "build": "tsc --noEmit && vite build",
+    "build": "node scripts/ensure-liino-node.ts && tsc --noEmit && vite build",
     "preview": "vite preview",
-    "app": "tsc --noEmit && vite build && electron .",
+    "app": "node scripts/ensure-liino-node.ts && tsc --noEmit && vite build && electron .",
     "verify:config": "node scripts/verify-config.ts && node scripts/verify-prefs-map.ts",
     "verify:input": "node scripts/verify-input-policy.ts",
     "verify:song-menu": "node scripts/verify-song-menu.ts",
@@ -79,6 +79,7 @@
     "verify:tint": "node scripts/verify-tint.ts",
     "verify:accent": "node scripts/verify-accent.ts",
     "verify:mpv": "node scripts/verify-mpv.ts",
+    "verify:liino": "node scripts/verify-liino.ts",
     "verify:redflag": "node scripts/verify-redflag.ts",
     "verify:local": "node scripts/verify-local.ts",
     "verify:all-songs": "node scripts/verify-all-songs.ts",
@@ -88,6 +89,8 @@
     "verify:listen-report": "node scripts/verify-listen-report.ts"
   },
   "dependencies": {
+    "@team-quaver/liino-node": "file:../vendor/Liino/node",
+    "koffi": "^2.16.3",
     "mpris-service": "2.1.2"
   },
   "devDependencies": {
@@ -105,9 +108,11 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "dmg-license",
       "electron",
+      "electron-winstaller",
       "esbuild",
-      "dmg-license"
+      "koffi"
     ]
   }
 }

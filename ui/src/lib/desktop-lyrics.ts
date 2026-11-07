@@ -109,6 +109,7 @@ function syncPayload(): DlSyncPayload {
     posMs: Math.max(0, (player.time || 0) * 1000),
     clockCompMs: Math.round(player.lyricComp * 1000),
     playing: player.playing,
+    buffering: player.buffering,
     delayMs: getLyricDelayMs(c),
     durationSec: Math.round((c?.interval ?? player.duration) || 0),
     canPrev: player.canPrev,

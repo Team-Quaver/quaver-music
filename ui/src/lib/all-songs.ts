@@ -1,9 +1,11 @@
 // Quaver — 「所有歌曲」的数据合流与分类索引。
 //
-// 两个来源：
+// 三个来源：
 //   • 本地音乐（local:<trackId>，可带刮削命中的 qqMid）
 //   • 我喜欢（在线曲目 mid）
-// 同一首歌既在本地又已收藏时，按本地刮削到的 qqMid 去重，保留本地版本（播放走本地文件）。
+//   • 微云网盘（曲库匹配曲沿用 QQ mid；未匹配的原文件用 weiyun:<fileId>）
+// 同一首歌同时出现在多个来源时按 mid 去重，优先级 本地 > 我喜欢 > 微云：
+// 本地刮削命中的 qqMid 会挡住同 mid 的收藏与云端条目（保留本地版本，播放走本地文件）。
 import { artistIdentity } from "./artist-key.ts";
 import type { Song } from "../player";
 
@@ -30,12 +32,14 @@ const UNKNOWN_ALBUM = "\u0000unknown-album";
 
 const songKey = (song: Song) => String(song._key ?? song.mid ?? "");
 
-/** 合并本地音乐与「我喜欢」；本地曲若已刮削到 qqMid，与同 mid 的收藏曲只留本地版本。 */
-export function mergeAllSongs(localSongs: Song[], likedSongs: Song[]): Song[] {
+/** 合并本地音乐、「我喜欢」与微云网盘；同一 mid 只留优先级最高的来源
+ *  （本地 > 我喜欢 > 微云）。本地曲若已刮削到 qqMid，会挡住同 mid 的收藏与云端条目。 */
+export function mergeAllSongs(localSongs: Song[], likedSongs: Song[], cloudSongs: Song[] = []): Song[] {
   const merged: Song[] = [];
   const seenLocal = new Set<string>();
   const localQqMids = new Set<string>();
   const seenLiked = new Set<string>();
+  const seenCloud = new Set<string>();
 
   for (const song of localSongs) {
     const qqMid = String(song.local?.qqMid ?? "").trim();
@@ -56,6 +60,18 @@ export function mergeAllSongs(localSongs: Song[], likedSongs: Song[]): Song[] {
 
     if (localQqMids.has(song.mid) || seenLiked.has(song.mid)) continue;
     seenLiked.add(song.mid);
+    merged.push(song);
+  }
+
+  // 微云排在最后：同 mid 的曲目若已在本地/收藏里，保留先出现的来源；
+  // 未匹配曲库的原文件（weiyun:<fileId>）不与任何来源撞键，照常补进目录。
+  for (const song of cloudSongs) {
+    const mid = String(song?.mid ?? "").trim();
+
+    if (!mid) continue;
+
+    if (localQqMids.has(mid) || seenLiked.has(mid) || seenCloud.has(mid)) continue;
+    seenCloud.add(mid);
     merged.push(song);
   }
 
