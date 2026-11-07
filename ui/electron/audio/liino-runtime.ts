@@ -26,6 +26,11 @@ export function goArchName(nodeArch: string): string {
   return nodeArch === "x64" ? "amd64" : nodeArch === "ia32" ? "386" : nodeArch;
 }
 
+/** Node 的 platform 与 Go 的 GOOS 只在 Windows 上不同名。 */
+export function goPlatformName(platform: string): string {
+  return platform === "win32" ? "windows" : platform;
+}
+
 /** 各平台的 libliino 文件名（与 vendor/Liino/node/libliino.ts 的 NAMES 表一致）。 */
 export function liinoLibraryName(targetPlatform: string = hostPlatform): string {
   if (targetPlatform === "win32") return "liino.dll";
@@ -101,7 +106,18 @@ export function resolveLiinoLibrary(opts: LiinoResolveOpts = {}): LiinoRuntime {
   }
 
   if (opts.vendorBuildRoot) {
-    roots.push({ root: join(opts.vendorBuildRoot, `${targetPlatform}-${dir}`), source: "vendor" });
+    // vendor/Liino/scripts/build-capi.* writes Go's GOOS name (windows-amd64),
+    // while process.platform is win32. Keep the platform-name directory as a
+    // fallback for manual stages, but look in the directory the build script
+    // actually creates first. This mismatch made a correctly built DLL appear
+    // missing only in development.
+    const goPlatform = goPlatformName(targetPlatform);
+
+    roots.push({ root: join(opts.vendorBuildRoot, `${goPlatform}-${dir}`), source: "vendor" });
+
+    if (goPlatform !== targetPlatform) {
+      roots.push({ root: join(opts.vendorBuildRoot, `${targetPlatform}-${dir}`), source: "vendor" });
+    }
   }
 
   for (const { root, source } of roots) {

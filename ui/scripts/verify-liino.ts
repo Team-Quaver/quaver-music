@@ -66,6 +66,22 @@ ok("库解析认 QUAVER_LIINO 排障口", /QUAVER_LIINO/.test(runtime));
 
 ok("开发态回落 vendor/Liino/build", /vendorBuildRoot/.test(engine) && /vendor\/Liino\/build/.test(engine));
 
+ok("开发态 Windows 目录按 GOOS 映射（windows-*，不是 win32-*）",
+  /goPlatformName\(/.test(runtime) && /platform === "win32" \? "windows" : platform/.test(runtime));
+
+ok("Windows 解码顺序 WinRT → WMF（0/1）",
+  /func \(backend\) Priority\(\) int \{ return 0 \}/.test(src("../vendor/Liino/decode/winrt/winrt.go"))
+    && /func \(backend\) Priority\(\) int \{ return 1 \}/.test(src("../vendor/Liino/decode/wmf/wmf.go")));
+
+ok("实时解码 buffering 按实际拉流恢复，短 seek 不闪转圈",
+  /framesPulledSince/.test(src("../vendor/Liino/pipeline.go"))
+    && /WAIT_DEBOUNCE_MS/.test(src("src/lib/transport.ts")));
+
+ok("dev/app/build/typecheck:node 自动补齐 liino-node dist",
+  (src("package.json").match(/node scripts\/ensure-liino-node\.ts/g) ?? []).length === 3
+    && /scripts\/ensure-liino-node\.ts/.test(src("scripts/dev.ts"))
+    && /scripts\/dev\.ts/.test(src("package.json")));
+
 // —— 渲染层识别 ——
 
 const player = src("src/player.ts");
@@ -89,6 +105,7 @@ ok("假音频镜像对 Liino 同样生效", /player\.engineBacked && !!player\.c
 const settings = src("src/views/settings.ts");
 
 ok("设置页有 Liino 引擎行", /Liino 原生直出运行中/.test(settings));
+
 ok("设置页有 Liino 引擎选项（首个，标注默认）", /decodeRow\("Liino", "Liino（原生直出，默认）"\)/.test(settings));
 
 ok("播放器说清 Liino 的边界（无 PCM 兼容拓扑）", /没有 MPV 的 PCM 兼容拓扑/.test(player));

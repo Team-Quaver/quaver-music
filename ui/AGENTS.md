@@ -285,6 +285,17 @@ cd vendor/Liino && bash scripts/build-capi.sh      # 先出库（开发态落到
 cd ui && pnpm run app                              # 真出声跑一圈（默认即 Liino，可用 QUAVER_AUDIO_BACKEND=mpv 对照）
 ```
 
+- **开发态 Node 绑定不用手工解包**：`pnpm run dev` / `app` / `build` / `typecheck:node` 会先跑
+  `ui/scripts/ensure-liino-node.ts`，用 `ui/tsconfig.liino-node.json` 编译
+  `vendor/Liino/node/*.ts`，再把 `dist/` 同步到 hoisted 布局里的
+  `ui/node_modules/@team-quaver/liino-node/`。子模块按上游习惯不提交 `dist/`，所以
+  `pnpm install` 之后缺 `dist/index.js` 是正常的；报这个错时先看该脚本的输出，不要再去
+  `app.asar` 里抠文件。
+- **Windows 开发态目录名是 `windows-amd64` 不是 `win32-amd64`**：`build-capi.ps1` 按 Go 的
+  GOOS 落盘，`process.platform` 却是 `win32`。`liino-runtime.ts` 的 vendor 查找优先
+  `goPlatformName(platform)`，并保留 `win32-*` 作为手工暂存的兜底；打包态
+  `resources/liino/win32-*` 的口径不变。
+
 - 门面在 `electron/audio/backend.ts`：`bootAudioEngine()` 按启动快照的 `[Playing] Backend`
   二选一（`QUAVER_AUDIO_BACKEND=liino` 仍是启动排障顶掉口），且 **init 之前必须先 probe**
   —— Liino dlopen 失败就地回落 mpv 并写日志。`main.ts` 不再直接 `audioEngine.init()`；
@@ -346,6 +357,25 @@ cd ui && pnpm run app                              # 真出声跑一圈（默认
   都起一个 goroutine 抢 `stream.mu`，拖一下进度会排队几十个网络 seek，解码器在整个队列排空前
   一个字节都不出（「拖进度就卡住/一卡一卡」的病根）。另外 `loopAlive`/`retireLoop` 保证
   **EOF 之后到达的 seek 会重开源**（解码 goroutine 已退出时没人读队列），别把这两条删了。
+- **HTTP(S) FLAC 在 Windows 由 WinRT 接管**：Media Foundation 能打开远程 FLAC、也能报出时长，
+  但 `SetCurrentPosition` 会返回 `E_ABORT`（首次 `Read` 也可能直接失败），上层重试到最后就是
+  「进度条一回手又回到 0」。现在 Windows 默认就是 WinRT → WMF；WMF 侧仍在嗅到 codec=flac 且
+  URI 是 http(s) 时返回 `ErrUnsupported`，作为 WinRT 不可用时的第二层保护。不要改回“所有源
+  统一 seek(0) 探针”——FLAC 的 0 位置可能被当成 no-op，探测并不可靠。
+- **WinRT 的 EOF 必须相对 seek 起点记账**：`seekFrames + queuedFrames >= durationFrames`，
+  否则 seek 后 `queuedFrames` 从 0 重数，尾段会被误判成还有一整首，时钟越过曲尾。seek 时
+  保持 AudioGraph 运行（先停再起会把 MediaSource 拉回 0），并用 `input.position()` 的实际落点
+  校正 `seekFrames`；这几条一起守「拖进度条不回到 0」。
+- **Windows 默认 WinRT → WMF → ffgo**：`decode/winrt` 的 `Priority()` 为 0，`decode/wmf` 为 1；
+  WinRT 覆盖 Store codec（Ogg/Opus）与远程 FLAC，WMF 是本地常见格式和 WinRT 不可用时的回落。
+  WinRT 的 AudioGraph 是实时路径，每开一首都要建一个未连接的 device output node 打时钟，这是
+  全量 WinRT-first 的固有成本；格式矩阵已覆盖本地/HTTP MP3、FLAC、OGG、5.1 FLAC 的 seek，
+  再加格式时先补矩阵再动优先级。
+- **实时解码的 buffering 恢复不能只看管道水位**：`Available()==0` 在 WinRT 实时路径下是常态，
+  旧逻辑要求积到 `PrerollFrames/2` 才回 playing，seek 后会永远卡在 buffering（音频在走、UI
+  转圈、歌词停表）。现在 `onUnderrun` 记录 `bufferAt`，设备实际又拉走一个 period 的帧也算恢复；
+  `StatePlaying` 不再因监视器恰好吃到空管道就切 buffering。渲染层再对 `waiting` 做 180ms 去抖，
+  避免短 seek 闪转圈/歌词一顿。
 - **seek 失败不是曲终**：HTTP 源的 seek 是一串 Range 读（byteSeek 回退时走 demuxer 的
   二分搜索），一次慢回源就会在 FFmpeg 里变成 `Error reading HTTP response: Connection timed out`
   + `read_timestamp() failed in the middle` —— 而 seek 失败后的 demuxer 状态是未定义的。

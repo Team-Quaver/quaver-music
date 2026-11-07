@@ -201,6 +201,9 @@ declare global {
 /** 外推单帧上限：引擎事件断供时进度最多再走 0.35s 就冻结（防时钟跳变甩飞进度条） */
 const EXTRAP_CAP_SEC = 0.35;
 
+/** 短 seek 抖动不该闪 loading：持续缓冲超过这个时长才报 waiting/停歌词。 */
+const WAIT_DEBOUNCE_MS = 180;
+
 /** 页面级客户端标识：同一页面的所有 transport 共用一个（后端热切会重建 transport），
  *  页面 reload / 窗口重建时换新值。主进程引擎据此区分「同一页面的迟到旧命令」与
  *  「新页面」：后者从 1 重新计数世代，不能按「更小 = 更旧」丢掉。 */
@@ -235,6 +238,8 @@ export class EngineTransport implements Transport {
   protected pcmEpoch = 0;
   private seekInFlight = false;
   private pendingSeek: { at: number; immediate: boolean } | null = null;
+  private waitTimer: ReturnType<typeof setTimeout> | null = null;
+  private stalled = false; // 去抖后的缓冲态：真正的卡顿才停歌词/亮转圈
   /** pcm 兼容模式的渲染钩子（由动态加载的 PcmEngineTransport 挂上；native 恒为 null）。
    *  子类构造是同步完成的，IPC 事件不可能在 hook 挂上前送达 —— 不需要缓冲。 */
   protected pcmHook: PcmHooks | null = null;
@@ -309,11 +314,21 @@ export class EngineTransport implements Transport {
 
         if (this.st.paused !== prev.paused) this.emit(this.st.paused ? { type: "pause" } : { type: "play" });
 
-        if (this.st.buffering && !prev.buffering) this.emit({ type: "waiting" });
+        let recovered = false;
+
+        if (this.st.buffering && !prev.buffering) {
+          this.armWait();
+        } else if (!this.st.buffering) {
+          this.clearWaitTimer();
+
+          recovered = this.stalled;
+          this.stalled = false;
+        }
+
         // 缓冲恢复，或从 idle/暂停进入出声状态 → playing（起播后 loading 指示靠它熄灭）
         const started = !this.st.paused && !this.st.idle && !this.st.buffering && (prev.idle || prev.paused || prev.buffering);
 
-        if ((!this.st.buffering && prev.buffering) || started) this.emit({ type: "playing" });
+        if (recovered || started) this.emit({ type: "playing" });
 
         if (this.st.pos !== prev.pos) this.emit({ type: "time" });
 
@@ -345,6 +360,8 @@ export class EngineTransport implements Transport {
         return;
       case "dead":
         // mpv 退出：冻结时间轴并报错；下一次 load 会自动重拉 mpv（重试语义交给播放器）
+        this.clearWaitTimer();
+        this.stalled = false;
         this.pcmHook?.kill();
         this.st = { pos: this.st.pos, dur: this.st.dur, paused: true, buffering: false, idle: true };
         this.emit({ type: "error", message: String(ev.message ?? "mpv 进程退出") });
@@ -353,15 +370,35 @@ export class EngineTransport implements Transport {
     }
   }
 
+  private clearWaitTimer(): void {
+    if (this.waitTimer === null) return;
+    clearTimeout(this.waitTimer);
+    this.waitTimer = null;
+  }
+
+  /** 起播/seek 的短暂 rebuffer 不报 waiting；持续超过去抖窗口才算真卡顿。 */
+  private armWait(): void {
+    if (this.waitTimer !== null || this.stalled) return;
+    this.waitTimer = setTimeout(() => {
+      this.waitTimer = null;
+
+      if (!this.st.buffering || this.st.paused || this.st.idle) return;
+      this.stalled = true;
+      this.emit({ type: "waiting" });
+    }, WAIT_DEBOUNCE_MS);
+  }
+
   get src() { return this.loadedUrl; }
   get paused() { return this.st.paused || this.st.idle; }
   get duration() { return this.st.dur; }
-  get buffering() { return this.st.buffering; }
+  get buffering() { return this.stalled; }
 
   /** 换曲预置：立刻把播放头钉到目标位置，并冻结旧流的外推时钟。
    *  取流（QQ resolve / token）与 loadfile 安装都可能卡数秒，这段时间界面已经切到新曲，
    *  播放头必须同样站到新曲起点 —— 而不是继续报上一首唱到哪。 */
   prepare(sec: number) {
+    this.clearWaitTimer();
+    this.stalled = false;
     this.pendingStart = Math.max(0, sec);
     this.pendingToken++;
     const wasPaused = this.paused;
@@ -417,6 +454,10 @@ export class EngineTransport implements Transport {
     this.loadedUrl = url;
     this.pendingStart = null; // 接管的是引擎里真在放的流：预置位置退场
     this.st = { pos: s.pos, dur: s.dur, paused: s.paused, buffering: s.buffering, idle: s.idle };
+    this.clearWaitTimer();
+    this.stalled = false;
+
+    if (this.st.buffering && !this.st.paused && !this.st.idle) this.armWait();
     this.pcmHook?.reset(s.pos);
     this.posAt = performance.now();
     this.frozen = 0;
@@ -438,6 +479,7 @@ export class EngineTransport implements Transport {
       if (!hook || !r?.ok) return;
 
       if (Number.isFinite(Number(r.gain))) hook.setGain(Math.max(0, Math.min(1, Number(r.gain))));
+
       if (r.eq) hook.setEq(r.eq);
     }).catch(() => {});
   }
@@ -449,6 +491,8 @@ export class EngineTransport implements Transport {
     const epoch = this.pcmEpoch = nextEpoch(this.pcmEpoch);
     const token = this.pendingToken;
 
+    this.clearWaitTimer();
+    this.stalled = false;
     // 引擎接受 load 之前的旧流位置一律作废：播放头就是这次要起播的位置。
     this.st = { pos: startAt, dur: 0, paused: !!opts?.paused, buffering: true, idle: false };
     this.posAt = performance.now();
@@ -507,6 +551,8 @@ export class EngineTransport implements Transport {
   }
 
   stop() {
+    this.clearWaitTimer();
+    this.stalled = false;
     this.loadedUrl = "";
     this.pendingStart = null;
     this.pendingToken++;
@@ -572,6 +618,7 @@ export class EngineTransport implements Transport {
   dispose() {
     try { this.offEngine(); } catch {}
 
+    this.clearWaitTimer();
     this.pendingSeek = null;
     this.pcmHook?.destroy();
     this.pcmHook = null;
