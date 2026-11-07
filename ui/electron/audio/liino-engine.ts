@@ -620,7 +620,8 @@ export class LiinoEngine {
           version: lib?.version ?? "",
           running: !!this.player && !this.dead,
           device: this.device,
-          // Liino 自己开输出会话：窗口级音频捕获（OBS/Oopz 那套）只有 mpv 兼容模式能做
+          // 这个字段指 mpv 的 PCM 兼容拓扑（音频过一遍渲染层），不是「能否被捕获」：
+          // Liino 自己开同进程 shared-mode 输出会话，按应用捕获照常可用。
           captureCompatible: false,
           decoder: this.decodeNote(),
         };

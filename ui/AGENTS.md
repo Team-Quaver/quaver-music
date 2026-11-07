@@ -313,9 +313,10 @@ cd ui && pnpm run app                              # 真出声跑一圈（设置
   electron 值导入，verify 直接跑）。Quark EQ 映射：bell/lowShelf/highShelf 直落 Liino 双二阶，
   **LP/HP 目前没有对应实现**，如实报 `dropped` 数并写进回包 note，不许悄悄冒充；bypass =
   `setBypass(true)`，与 mpv 的 `af=""` 同语义（Open 会 Reset DSP 链，load 之后必须重新套 EQ+增益）。
-- Liino 只有原生直出，**没有 PCM 兼容模式**（mpv `--ao=pcm` 那条窗口捕获管道在它这里不存在）：
-  `mode(pcm)` 必须回 `ok:false`，渲染层把偏好如实改落 native 并提示「窗口级音频捕获请改回 MPV」。
-  `status.captureCompatible` 恒 false，设置页/频谱的判定都基于这一点。
+- Liino 只有原生直出，**没有 mpv 的 PCM 兼容拓扑**（`--ao=pcm` 那条「音频过一遍渲染层」的管道
+  在它这里不存在）。**这不等于不能按应用捕获**：Liino 自己开同进程 shared-mode 输出会话，
+  正是 OBS/Oopz 那类按应用捕获需要的形态；`captureCompatible` 只表示「无 PCM 兼容拓扑」。
+  `mode(pcm)` 必须回 `ok:false`，渲染层把偏好如实改落 native 并提示「确需 PCM 兼容拓扑请改回 MPV」。
 - stop = 卸载当前流（清 `lastUrl`）；Liino 的真停会话不能裸 `play()`（native 不重排环形缓冲
   世代，永远停在 ready），引擎按 mpv 的「idle 重挂 lastUrl」语义先重开流；没有可重挂的流就
   老实回 `ok:false`，渲染层重新取链起播。

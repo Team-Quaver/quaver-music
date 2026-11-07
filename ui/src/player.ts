@@ -29,6 +29,13 @@ import type { ListenReportTarget, ListenTimeReporter } from "./lib/listen-report
 import { PlaybackEndGate } from "./lib/playback-end";
 import type { CloudSongFingerprint } from "./lib/cloud";
 import { findPlaybackFallback, hasPlayableTier, warmPlaybackFallbackSources } from "./lib/playback-fallback";
+import { toast } from "./lib/toast";
+
+/** OGG 档位（Vorbis/Opus）：Liino 不捆绑解码器，Windows/macOS 上要靠系统能力。 */
+const OGG_TIERS = new Set(["96ogg", "192ogg", "320ogg", "640ogg", "atmos71"]);
+
+/** 解码链耗尽的错误特征。网络/HTTP 错误不会命中，别把断流误报成「缺解码器」。 */
+const CODEC_FAIL_RE = /FFmpeg library not found|helper script missing|no decoder backend|unsupported channel layout|not supported by backend|source not supported/i;
 
 export type Song = {
   mid: string;
@@ -229,6 +236,7 @@ class Player {
   private startWatchdog: number | null = null;
   private failStreak = 0;                    // 自动跳曲连续失败数（真出声即清零；达队列长度停止跳，防断网时无限快跳）
   private lastAutoplay = true;               // 最近一轮 startCurrent 的 autoplay（error 分类：还原挂流失败不自动重试）
+  private codecHintShown = "";               // 已提示过「该档缺系统解码器」的档位：解码能力是平台级的，按曲记录会每首弹一次
   private lastPrevPressAt = 0;               // 媒体键/热键「上一曲」连按判定时刻（prevPress 专用；播放条双击走原生 dblclick，不共用计时器）
   private prefetch = new Map<string, Promise<StreamResult>>(); // mid+档 → 已协商流（单击预热，双击秒起播）
   private pendingSeek = 0; // 换音质续播：新流时长就绪后跳到旧进度
@@ -366,6 +374,8 @@ class Player {
 
         if (!this.lastAutoplay || (this.transport.paused && !wasLoading)) { this.notify(); return; }
 
+        this.remindCodecUnavailable(e.message ?? "");
+
         void this.handleStreamError(e.message ?? "音频流加载失败");
         break;
       }
@@ -392,7 +402,7 @@ class Player {
   /** 偏好与实况不一致时说人话：Liino 没有 PCM 兼容档，回落 mpv 也必须让用户看见。 */
   private backendNoticeFor(kind: DecodeBackend, mode: EngineMode): string {
     if (this.engineKind === "liino" && (kind === "MPVCompat" || mode === "pcm")) {
-      return "Liino 后端只支持原生直出；需要窗口级音频捕获请改用 MPV 后端";
+      return "Liino 后端只有原生直出，没有 MPV 的 PCM 兼容拓扑；确需该拓扑请改用 MPV 后端";
     }
 
     if (kind === "Liino" && this.engineKind !== "liino") return "Liino 后端不可用，已回落 MPV";
@@ -1401,6 +1411,30 @@ class Player {
 
   /** 前端降级链（与后端 tierTable rank 降序对齐，见 vendor/Typhoeus-go/typhoeus/quality.go） */
   private static readonly FALLBACK_CHAIN = ["master", "atmos71", "atmos51", "atmos2", "flac", "640ogg", "320ogg", "320", "192ogg", "128", "96ogg"];
+
+  /** OGG 档位在 Liino 上解码失败时，按平台给一次可执行的提示。
+   *  Windows：走 Web Media Extensions（系统可选组件）；macOS：先展示档位，暂不实现系统 OGG 解码。
+   *  只在「解码链确实耗尽」时触发：断流/token 过期交给原有的降档链，不误报成缺解码器。 */
+  private remindCodecUnavailable(msg: string): void {
+    if (this.engineKind !== "liino" || !CODEC_FAIL_RE.test(msg)) return;
+
+    const tier = String(getLastStream()?.tier ?? "");
+
+    if (!OGG_TIERS.has(tier)) return;
+
+    if (this.codecHintShown === tier) return;
+    this.codecHintShown = tier;
+
+    const ua = navigator.userAgent;
+
+    if (/Windows/i.test(ua)) {
+      toast("当前 OGG（Vorbis/Opus）音质需要系统解码器：可安装 Microsoft Store 的「Web Media Extensions」，或切换到 MP3/FLAC 档", "err");
+    } else if (/Macintosh|Mac OS X/i.test(ua)) {
+      toast("macOS 暂未实现 OGG（Vorbis/Opus）解码；请切换到 MP3/FLAC 档", "err");
+    } else {
+      toast("系统缺少 FFmpeg 解码库，OGG（Vorbis/Opus）音质无法播放；请安装 ffmpeg 或切换音质", "err");
+    }
+  }
 
   private async handleStreamError(msg: string) {
     const s = this.current;

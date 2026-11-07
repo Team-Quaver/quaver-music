@@ -1956,6 +1956,7 @@ export default async function settingsView(root: HTMLElement) {
   const devSel = wrap.querySelector<HTMLSelectElement>("#audio-backend")!;
   const devHint = wrap.querySelector<HTMLElement>("#audio-device-hint")!;
   const engNote = wrap.querySelector<HTMLElement>("#engine-note")!;
+  const engHint = wrap.querySelector<HTMLElement>("#engine-hint")!;
 
   /** mpv 来源标签：随包运行时 / 系统 mpv / QUAVER_MPV 指定（排障时一眼看出跑的哪一份） */
   const MPV_SOURCE_LABEL: Record<string, string> = { bundled: "随包运行时", path: "系统 mpv", env: "QUAVER_MPV/QUAVER_LIINO 指定", vendor: "vendor/Liino 构建", packaged: "随包 libliino" };
@@ -1980,6 +1981,11 @@ export default async function settingsView(root: HTMLElement) {
         : player.backend === "mpv-compat"
         ? `- 原生（兼容）运行中${src ? "（" + src + "）" : ""}`
         : st.available ? `- 默认 MPV（${src}），当前浏览器兜底` : "- " + (st.reason || "mpv 不可用，已回退浏览器音频");
+
+    engHint.hidden = player.backend !== "liino";
+    engHint.textContent = player.backend === "liino"
+      ? "- Liino 只有原生直出（没有 MPV 的 PCM 兼容拓扑）；OGG/Opus 依赖系统解码器：Windows 可安装 Web Media Extensions，macOS 暂未实现。"
+      : "";
   }
 
   async function paintDevices() {
