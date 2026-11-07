@@ -151,7 +151,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const { default: puppeteer } = await import("puppeteer-core");
 
 const browser = await puppeteer.launch({
-  executablePath: "/usr/bin/google-chrome", headless: "new",
+  executablePath: "/usr/bin/google-chrome", headless: true,
   args: ["--no-sandbox", "--disable-gpu"],
 });
 

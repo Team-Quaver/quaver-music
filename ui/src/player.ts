@@ -2718,7 +2718,9 @@ function mprisLyricText(lines: LyricLine[]): string {
   return getMprisLrc() ? lyricLinesToLrc(lines) : lyricLinesToText(lines);
 }
 
-// 开发/自动化测试钩子：shell 挂载时暴露单例（生产构建里 vite define 会剔除）
-declare global { interface Window { __quaverPlayer?: Player } }
+// 开发/自动化测试钩子：shell 挂载时暴露单例（生产构建里 vite define 会剔除）。
+// 类型放宽到 any：scripts/** 的探针按需读不同字段（audio / queue / transport…），
+// 与 scripts/test-globals.d.ts 的 Window 声明保持同一形状，避免两侧合并冲突。
+declare global { interface Window { __quaverPlayer?: any } }
 
 if (import.meta.env?.DEV) window.__quaverPlayer = player;

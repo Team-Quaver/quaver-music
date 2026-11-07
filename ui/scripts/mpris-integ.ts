@@ -6,8 +6,8 @@ import { execFile } from "node:child_process";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const sh = (...args) =>
-  new Promise((res) => execFile(args[0], args.slice(1), { timeout: 10000 }, (e, so, se) => res({ code: e ? 1 : 0, out: (so + se).trim() })));
+const sh = (...args: string[]) =>
+  new Promise<{ code: number; out: string }>((res) => execFile(args[0], args.slice(1), { timeout: 10000 }, (e, so, se) => res({ code: e ? 1 : 0, out: (so + se).trim() })));
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => { console.log((ok ? "PASS " : "FAIL ") + name + (detail ? "  | " + detail.slice(0, 140) : "")); ok ? pass++ : fail++; };

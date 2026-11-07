@@ -5,7 +5,7 @@ const BASE = "http://127.0.0.1:5173";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({
-  executablePath: "/usr/bin/google-chrome", headless: "new",
+  executablePath: "/usr/bin/google-chrome", headless: true,
   args: ["--no-sandbox", "--disable-gpu", "--autoplay-policy=no-user-gesture-required"],
 });
 
@@ -31,7 +31,7 @@ await step("默认音质=auto", async () => {
   const st = await page.evaluate(() => window.__cfg.get("Quality.DefaultQuality"));
 
   if (st !== "Auto") throw new Error("DefaultQuality=" + st);
-  const sel = await page.$eval("#quality-grid .sel", (el) => el.dataset.q);
+  const sel = await page.$eval("#quality-grid .sel", (el) => el.getAttribute("data-q"));
 
   if (sel !== "auto") throw new Error("selected=" + sel);
 
@@ -40,12 +40,12 @@ await step("默认音质=auto", async () => {
 
 // 2) 设置页新开关
 await step("Fallback 排序开关（默认不优先全景声）", async () => {
-  const s = await page.$eval("#qfallback-cards .sel", (el) => el.dataset.opt);
+  const s = await page.$eval("#qfallback-cards .sel", (el) => el.getAttribute("data-opt"));
 
   if (s !== "no-atmos") throw new Error("sel=" + s);
   await page.click('#qfallback-cards [data-opt="rank"]');
   await sleep(120);
-  const after = await page.evaluate(() => ({ sel: document.querySelector("#qfallback-cards .sel")?.dataset.opt, stored: window.__cfg.get("Quality.FallbackToQMAtmos") }));
+  const after = await page.evaluate(() => ({ sel: document.querySelector<HTMLElement>("#qfallback-cards .sel")?.dataset.opt, stored: window.__cfg.get("Quality.FallbackToQMAtmos") }));
 
   if (after.sel !== "rank" || after.stored !== "True") throw new Error(JSON.stringify(after));
   await page.click('#qfallback-cards [data-opt="no-atmos"]');
@@ -54,12 +54,12 @@ await step("Fallback 排序开关（默认不优先全景声）", async () => {
 });
 
 await step("关闭按钮行为开关（默认缩放到托盘）", async () => {
-  const s = await page.$eval("#close-cards .sel", (el) => el.dataset.opt);
+  const s = await page.$eval("#close-cards .sel", (el) => el.getAttribute("data-opt"));
 
   if (s !== "tray") throw new Error("sel=" + s);
   await page.click('#close-cards [data-opt="quit"]');
   await sleep(120);
-  const after = await page.evaluate(() => ({ sel: document.querySelector("#close-cards .sel")?.dataset.opt, stored: window.__cfg.get("Window.CloseAction") }));
+  const after = await page.evaluate(() => ({ sel: document.querySelector<HTMLElement>("#close-cards .sel")?.dataset.opt, stored: window.__cfg.get("Window.CloseAction") }));
 
   if (after.sel !== "quit" || after.stored !== "quit") throw new Error(JSON.stringify(after));
   await page.click('#close-cards [data-opt="tray"]');

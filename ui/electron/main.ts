@@ -3,7 +3,7 @@
 // frame:false：无原生标题栏——窗口右上角平铺三个窗口按钮（min/max/close），经 preload IPC 接管。
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, session, Tray, nativeImage, nativeTheme, safeStorage, shell } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { appendFileSync, existsSync, readFileSync, renameSync, statSync, unlinkSync } from "node:fs";
@@ -87,7 +87,7 @@ const LOG = app.isPackaged
 // 日志单一上限 50MiB：超过就整档换成 .old（不保留半份，避免截断点掉进 UTF-8 中间）。
 const LOG_MAX_BYTES = 50 * 1024 * 1024;
 
-const log = (...a) => {
+const log = (...a: unknown[]) => {
   const s = a.map((x) => (typeof x === "string" ? x : String(x))).join(" ");
 
   try {
@@ -139,16 +139,31 @@ if (REDFLAG) log("[sparkle] 安全模式（QUAVER_REDFLAG=1）：仅加载预装
 
 const sparkleHostVersion = () => String(app.getVersion() || PKG_META.version || "0.0.0");
 
+/** 渲染层传来的 Sparkle 条目元数据（market 索引与本地手装共用这一个形状）。 */
+interface SparkleMeta {
+  id?: string;
+  name?: string;
+  version?: string;
+  minHostVersion?: string;
+  allowBeta?: boolean;
+  author?: string;
+  description?: string;
+  category?: string;
+  source?: string;
+  download?: string;
+  hash?: string;
+}
+
 /** 安装前的最终门禁：渲染层提示只是体验优化，真正的版本限制必须在主进程执行。 */
-const sparkleHostVersionError = (meta) => getSparkleHostVersionError(sparkleHostVersion(), meta?.minHostVersion, meta?.allowBeta);
+const sparkleHostVersionError = (meta: SparkleMeta | null | undefined) => getSparkleHostVersionError(sparkleHostVersion(), meta?.minHostVersion, meta?.allowBeta);
 
 // 落盘一个第三方插件（market 下载与本地手装共用同一布局）：plugins/<id>/main.js + plugin.json
-const sparkleInstall = async (id, buf, meta) => {
+const sparkleInstall = async (id: string, buf: Buffer, meta: SparkleMeta) => {
   const dir = join(SPARKLE_PLUGINS_ROOT, id);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   await writeFile(join(dir, "main.js"), buf, { mode: 0o600 });
   // category（theme/plugin/extension）随索引元数据持久化：设置页据此把已装内容归入 主题/插件/扩展
-  const category = ["theme", "plugin", "extension"].includes(meta?.category) ? String(meta.category) : undefined;
+  const category = ["theme", "plugin", "extension"].includes(meta?.category as string) ? String(meta.category) : undefined;
   // 来源与下载坐标随安装落盘：更新检查据此区分 Marketplace 插件与本地手装，
   // 也能在索引暂时拿不到条目时兜底重新下载。本地手装不写 download → 永不自动更新。
   const source = meta?.source === "market" || meta?.source === "local" ? meta.source : undefined;
@@ -173,7 +188,7 @@ const sparkleInstall = async (id, buf, meta) => {
 };
 
 // 启动即按磁盘配置定初值：窗口装饰只在构造时能给定 frame，晚一步就得拆窗重建（用户会看到闪一下）。
-let bootConf = {};
+let bootConf: Record<string, string> = {};
 
 try {
   const r = readValues();
@@ -245,22 +260,27 @@ const STABLE_PORT = 4174;
 // 兜底护栏：主进程任何未捕获异常/未处理 rejection 都会让 Electron 弹
 // 「A JavaScript error occurred in the main process」并可能带走整个应用 —— 一次后台网络
 // 中断不该炸掉正在放歌的窗口。这里只记账不退场；真出问题时看日志定位，而不是让用户点 Ok。
-process.on("uncaughtException", (e) => log("[quaver] uncaught exception:", String((e && e.stack) || e)));
+process.on("uncaughtException", (e) => log("[quaver] uncaught exception:", String((e && (e as Error).stack) || e)));
 
-process.on("unhandledRejection", (r) => log("[quaver] unhandled rejection:", String((r && r.stack) || r)));
+process.on("unhandledRejection", (r) => log("[quaver] unhandled rejection:", String((r && (r as Error).stack) || r)));
 
-let win = null;
-let cachedUrl = null; // preview 服务器只起一次；CSD/SSD 重建窗口时复用
+let win: BrowserWindow | null = null;
+let cachedUrl: string | null = null; // preview 服务器只起一次；CSD/SSD 重建窗口时复用
 
 // 应用页真实基地址（含 QUAVER_URL 覆盖）：桌面歌词窗加载同源页要用它，createWindow 里每次导航前刷新
-let appUrl = null;
+let appUrl: string | null = null;
 
 // 桌面歌词控制器：whenReady 里构造（IPC 注册 + 平台判据），boot 由 createWindow 尾部触发
-let desktopLyrics = null;
-let sidecar = null;   // 自拉起的 Typhoeus-Go sidecar 子进程
-let mpris = null;     // Linux MPRIS 服务（进程内；win/mac 不走这里）
-let credentialStore = null; // 凭证存档（ready 之后才能建：safeStorage 要 ready 才可用）
-let weiyunAuthStore = null; // 微云 API Key 密文存档（同样只在密钥环可用时落盘）
+let desktopLyrics: DesktopLyricsController | null = null;
+
+// sidecar 子进程上贴一个我们自己记的端口号（重载/等待时拿回来用）
+interface SidecarChild extends ChildProcessWithoutNullStreams {
+  quaverPort?: number;
+}
+let sidecar: SidecarChild | null = null;   // 自拉起的 Typhoeus-Go sidecar 子进程
+let mpris: MprisBridge | null = null;     // Linux MPRIS 服务（进程内；win/mac 不走这里）
+let credentialStore: CredentialStore | null = null; // 凭证存档（ready 之后才能建：safeStorage 要 ready 才可用）
+let weiyunAuthStore: CredentialStore | null = null; // 微云 API Key 密文存档（同样只在密钥环可用时落盘）
 
 // 窗口装饰模式：csd=自绘（frame:false，右上角按钮簇）；ssd=系统标题栏。初值取 quaver.conf 的 [Window] Decor。
 const configuredDecor = bootConf["Window.Decor"];
@@ -268,7 +288,7 @@ let decorMode = configuredDecor === "csd" || configuredDecor === "ssd"
   ? configuredDecor
   : defaultDecor(process.platform);
 let rebuilding = false;
-let tray = null; // Linux 走 D-Bus StatusNotifierItem（KDE/GNOME 托盘）
+let tray: Tray | null = null; // Linux 走 D-Bus StatusNotifierItem（KDE/GNOME 托盘）
 
 // 关闭按钮行为（quaver:close-action 同步；初值取 quaver.conf 的 [Window] CloseAction）：
 // tray = 拦截 window close 改 hide（CSD 按钮簇✕、SSD 标题栏✕、Alt+F4 全部生效，托盘菜单可恢复）；
@@ -285,7 +305,7 @@ const hotkeys = createGlobalHotkeys({
   log,
   readBindings: () => {
     const { values } = readValues();
-    const out = {};
+    const out: Record<string, string> = {};
 
     for (const [action, confKey] of Object.entries(GLOBAL_CONF_KEYS)) out[action] = values[confKey] ?? "";
 
@@ -351,7 +371,7 @@ ipcMain.on("quaver:mpris", (_e, state) => {
 });
 
 // build-res 资源定位：打包态在 <resources>/build-res，开发态在 ui/build-res。
-const buildRes = (name) => join(app.isPackaged ? process.resourcesPath : UI_ROOT, "build-res", name);
+const buildRes = (name: string) => join(app.isPackaged ? process.resourcesPath : UI_ROOT, "build-res", name);
 
 // 托盘外壳（面板/菜单栏/任务栏）的深浅 —— 判据是**外壳底色**，不是应用窗口主题。
 // 这里踩过坑：最初拿 nativeTheme 当判据，而它被我们写进 themeSource 的**应用主题**钉住（本应用
@@ -391,7 +411,7 @@ function trayImage() {
 
   if (src.isEmpty()) return nativeImage.createEmpty(); // 素材缺失也别让 Tray 构造抛错
   const image = nativeImage.createEmpty();
-  const rep = (px) => src.resize({ width: px, height: px, quality: "best" }).toDataURL();
+  const rep = (px: number) => src.resize({ width: px, height: px, quality: "best" }).toDataURL();
   image.addRepresentation({ scaleFactor: 1, dataURL: rep(TRAY_ICON_PT) });
   image.addRepresentation({ scaleFactor: 2, dataURL: rep(TRAY_ICON_PT * 2) });
 
@@ -420,13 +440,26 @@ function createTray() {
 // 状态来自渲染层快照（quaver:mpris → updateTrayMenu），命令回发 quaver:mpris-cmd ——
 // 与 MPRIS 命令同一通道，播放器仍是唯一事实源，主进程只转发不动播放状态。
 // 渲染层不在线（窗口未起/拆窗间隙）时快照缺位 → 控制项按兜底灰置，点击自然丢弃（同热键语义）。
-let trayState = null;
+/** 渲染层 quaverMpris 快照里托盘菜单消费的字段（真相在 src/mpris.ts 的 snapshot）。 */
+interface TrayState {
+  t?: string;
+  status?: string;
+  loop?: string;
+  shuffle?: boolean;
+  can?: { prev?: boolean; next?: boolean; play?: boolean; pause?: boolean };
+  track?: { key?: string; name?: string; artists?: string[] };
+}
+
+let trayState: TrayState | null = null;
 let trayMenuSig = "";
 
 // 值来自 src/mpris.ts snapshot 的 loop 映射（player.mode），文案与播放条播放模式菜单一致
-const TRAY_LOOP_LABELS = { None: "顺序播放", Playlist: "列表循环", Track: "单曲循环" };
+const TRAY_LOOP_LABELS: Record<string, string> = { None: "顺序播放", Playlist: "列表循环", Track: "单曲循环" };
 
-function trayCmd(cmd, extra = {}) {
+/** 托盘菜单能下发的命令名（渲染层 quaver:mpris-cmd 的消费面）。 */
+type TrayCmdName = "play" | "pause" | "next" | "prev" | "setLoop" | "setShuffle";
+
+function trayCmd(cmd: TrayCmdName, extra: Record<string, unknown> = {}) {
   if (win && !win.isDestroyed()) win.webContents.send("quaver:mpris-cmd", { cmd, ...extra });
 }
 
@@ -456,7 +489,9 @@ function buildTrayMenu() {
   const s = trayState;
   const t = s?.track ?? null;
   const playing = s?.status === "Playing";
-  const loop = TRAY_LOOP_LABELS[s?.loop] ? s.loop : "None";
+  // s?.loop 取不到值时整表达式必假，进得了真分支就说明快照在场 —— 判空交给类型断言，
+  // 不加额外运行时分支（原逻辑如此）。
+  const loop = TRAY_LOOP_LABELS[s?.loop as string] ? (s as TrayState).loop : "None";
   // 曲目行：歌名（title=主名+版本后缀，不含说明文字）- 歌手（" / " 连接，与界面同款）。
   // 成型与**截断**都在 tray-title.ts：win/mac 的原生菜单不折行，菜单宽度 = 最宽那一项，
   // 一首长中文歌名 + 多位歌手就能把托盘菜单撑成横贯屏幕的一条（Linux 面板宿主自己会省略）。
@@ -492,7 +527,7 @@ function buildTrayMenu() {
 }
 
 // 快照持续到达（离散变化 + 5s 心跳）：签名不变不重建，免得空刷 DBus 菜单
-function updateTrayMenu(state) {
+function updateTrayMenu(state: TrayState | null) {
   trayState = state;
   const t = state?.track;
 
@@ -519,7 +554,7 @@ function refreshTrayMenu() {
 }
 
 /** sidecar 交回新凭证（登录 DONE / 令牌刷新）或登出（null）→ 加密落盘 / 清存档。 */
-function applySidecarCredential(cred) {
+function applySidecarCredential(cred: Record<string, unknown> | null | undefined) {
   if (!credentialStore) return;
 
   if (!cred) {
@@ -534,7 +569,7 @@ function applySidecarCredential(cred) {
 }
 
 /** sidecar 交回微云 API Key → 加密落盘；null 表示撤销授权。Token 本体永不进日志。 */
-function applySidecarWeiyunAuth(auth) {
+function applySidecarWeiyunAuth(auth: { token?: string; mcpUrl?: string } | null | undefined) {
   if (!weiyunAuthStore) return;
 
   if (!auth) {
@@ -616,7 +651,7 @@ function spawnSidecar() {
       QUAVER_CREDENTIAL_MODE: "external",
     },
     stdio: ["pipe", "pipe", "pipe"],
-  });
+  }) as SidecarChild;
 
   try {
     child.stdin.on("error", (e) => log("[quaver] sidecar stdin 写入失败:", String(e))); // EPIPE：子进程已退出
@@ -651,7 +686,7 @@ function spawnSidecar() {
 }
 
 // 等 sidecar 可响应再开窗：Onefile PyInstaller 首启要解包，慢于页面首屏请求（实测竞态）。
-async function waitSidecar(port, timeoutMs = 15000) {
+async function waitSidecar(port: number | undefined, timeoutMs = 15000) {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
@@ -675,7 +710,7 @@ async function waitSidecar(port, timeoutMs = 15000) {
 
 function serveStatic() {
   // dist 缺失时的友好错误页（先 pnpm run build）
-  const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".png": "image/png", ".json": "application/json", ".jpg": "image/jpeg" };
+  const types: Record<string, string> = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".png": "image/png", ".json": "application/json", ".jpg": "image/jpeg" };
 
   const server = createServer(async (req, res) => {
     const path = decodeURIComponent((req.url || "/").split("?")[0]);
@@ -898,8 +933,8 @@ ipcMain.on("quaver:config-sync", (e) => {
 
 /** 配置写入后的全窗广播（payload.keys=null 表示「整表重载」）。主窗自身的 cfgSet 已在内存
  *  先行更新，收到自己引发的广播只是冗余刷新；桌面歌词窗则靠它保持字体/字号/翻译档实时。 */
-function broadcastConfigChanged(written, patch) {
-  const values = {};
+function broadcastConfigChanged(written: string[] | null, patch?: Record<string, unknown>) {
+  const values: Record<string, string> = {};
 
   for (const k of written ?? []) values[k] = String(patch?.[k] ?? "");
   const payload = written ? { keys: written, values } : { all: true };
@@ -1033,7 +1068,7 @@ ipcMain.handle("quaver:sparkle", async (_e, msg) => {
     if (op === "pick-local") {
       // 「添加本地插件」第一步：native 文件选择器 + 读文件。内容 base64 交渲染层做形状校验
       // （default export 需为 SparklePlugin），元数据从插件本体读出后再走 install-local。
-      const r = await dialog.showOpenDialog(win ?? undefined, {
+      const r = await dialog.showOpenDialog((win ?? undefined) as BrowserWindow, {
         title: "选择 Sparkle 插件文件",
         filters: [{ name: "Sparkle 插件（单文件 ESM）", extensions: ["js", "mjs"] }],
         properties: ["openFile"],
@@ -1107,7 +1142,7 @@ ipcMain.handle("quaver:background", async (_e, msg) => {
     if (op === "info") return { ok: true, ...backgroundInfo() };
 
     if (op === "pick") {
-      const r = await dialog.showOpenDialog(win ?? undefined, {
+      const r = await dialog.showOpenDialog((win ?? undefined) as BrowserWindow, {
         title: "选择背景图片",
         filters: [{ name: "图片", extensions: BG_DIALOG_EXTENSIONS }],
         properties: ["openFile"],
@@ -1144,7 +1179,7 @@ ipcMain.handle("quaver:local", async (_e, msg) => {
 
   try {
     if (op === "pick-folder") {
-      const r = await dialog.showOpenDialog(win ?? undefined, {
+      const r = await dialog.showOpenDialog((win ?? undefined) as BrowserWindow, {
         title: "选择音乐文件夹（NAS 已挂载的目录同样适用）",
         properties: ["openDirectory"],
       });
@@ -1200,7 +1235,7 @@ ipcMain.on("quaver:hotkeys-info-sync", (e) => { e.returnValue = hotkeys.info(); 
 
 /** 外部子进程（sidecar / mpv / 看门狗）不在 Chromium 的进程表里，只能自己读。
  *  Linux 走 /proc，其余平台退到 ps；拿不到就返回 null —— 自检面板少一行，不该整块坏掉。 */
-function rssKBOf(pid: number): number | null {
+function rssKBOf(pid: number | null | undefined): number | null {
   if (!pid || pid <= 0) return null;
 
   try {
@@ -1219,7 +1254,7 @@ function rssKBOf(pid: number): number | null {
 /** Pss（按比例摊掉共享页后的占用）：Linux 从 smaps_rollup 读，其余平台没有等价物 → null。
  *  为什么值得读：Chromium 各进程共享同一批映射（electron 二进制、ICU、字体、/dev/shm），
  *  RSS 逐行相加必然虚高，Pss 相加才接近真实占用。 */
-function pssKBOf(pid: number): number | null {
+function pssKBOf(pid: number | null | undefined): number | null {
   if (process.platform !== "linux" || !pid || pid <= 0) return null;
 
   try {
@@ -1328,7 +1363,9 @@ ipcMain.handle("quaver:metrics", () => {
     const label = PROC_LABELS[m.type] ?? m.type;
     // 归属优先按 pid 认（webContents.getOSProcessId 是唯一可靠的对应关系）；认不出来的渲染进程
     // 明说「未归属」而不是套个窗名 —— 那多半是 DevTools 自己的进程，标错比标不出来更误导人。
-    const orphan = m.type === "Tab" || m.type === "Page";
+    // Electron 的类型面把渲染进程种类写死成一份枚举，实际线上还见过 "Page"（旧版/别的宿主）——
+    // 判据按字符串比，别被过时枚举挡住。
+    const orphan = m.type === "Tab" || (m.type as string) === "Page";
 
     const tag = m.pid === process.pid ? "主进程（本进程）"
       : m.pid === mainPid ? label + " · 主窗"

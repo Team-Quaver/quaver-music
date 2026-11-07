@@ -55,6 +55,12 @@ const dconfDbPath = () => join(configHome(), "dconf", "user");
 /** GTK 命名色里能代表「窗口/视图底色」的几个（GTK4 的 libadwaita 命名 + GTK3 常见的 window_bg_color） */
 const GTK_BG_KEYS = ["window_bg_color", "theme_bg_color", "view_bg_color"];
 
+/** 子进程返回值的可读字段：真 spawnSync 的 SpawnSyncReturns 是它的超集，单测给最小假对象即可。 */
+type Spawnish = { status?: number | null; stdout?: string | Buffer | null; stderr?: string | Buffer | null; error?: Error | null };
+
+/** 注入用的 spawnSync 替身（位置参数与真函数一致，opts 只透传不解读）。 */
+type SpawnFn = (bin: string, args: readonly string[], opts?: any) => Spawnish;
+
 /** 探测函数的注入口（全部可选）：单测传假路径 / 假子进程用，生产调用一律缺省。 */
 export interface ProbeOpts {
   desktop?: string;
@@ -62,7 +68,7 @@ export interface ProbeOpts {
   gtkInis?: string[];
   gtkCssDirs?: string[];
   dconfDb?: string;
-  run?: typeof spawnSync;
+  run?: SpawnFn;
   timeoutMs?: number;
   pollMs?: number;
   /** mac / win 侧 */
@@ -196,7 +202,7 @@ export function gtkCssTheme(text: string): "dark" | "light" | null {
 /** 从 GTK 配置目录里挑**最后被写**的那份 css（同目录常有好几份：colors.css / <bar>.css / gtk.css）。
  *  返回路径；一份都没有返回 null。 */
 export function gtkCssNewest(dirs: string[]): string | null {
-  let best = null; // { mtime, path }
+  let best: { mtime: number; path: string } | null = null;
 
   for (const dir of dirs) {
     let names;
@@ -288,7 +294,7 @@ export function watchSystemTheme(onChange: (theme: "dark" | "light" | null) => v
 
 /** 现有 GTK 配置目录里的全部 css（监视用；新出现的 css 由兜底轮询兜住） */
 function gtkCssFiles(opts: ProbeOpts): string[] {
-  const out = [];
+  const out: string[] = [];
 
   for (const dir of opts.gtkCssDirs ?? gtkCssDirs()) {
     try {

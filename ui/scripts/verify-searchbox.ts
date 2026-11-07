@@ -6,7 +6,7 @@ const BASE = "http://127.0.0.1:5173";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({
-  executablePath: "/usr/bin/google-chrome", headless: "new",
+  executablePath: "/usr/bin/google-chrome", headless: true,
   args: ["--no-sandbox", "--disable-gpu", "--autoplay-policy=no-user-gesture-required"],
 });
 
@@ -34,8 +34,8 @@ await step("搜索框=顶带流内组件（.content-top），独立一行、不�
 
     if (!sb) throw new Error("no .searchbar in .content-top");
     const r = sb.getBoundingClientRect();
-    const c = document.querySelector(".content").getBoundingClientRect();
-    const t = document.querySelector(".page-title").getBoundingClientRect();
+    const c = document.querySelector<HTMLElement>(".content")!.getBoundingClientRect();
+    const t = document.querySelector<HTMLElement>(".page-title")!.getBoundingClientRect();
     window.__sb = sb;
 
     return {
@@ -60,14 +60,14 @@ await step("搜索框=顶带流内组件（.content-top），独立一行、不�
 
 await step("CSD 三按钮在右上角（无浮窗底/无标题栏，无拖拽把手）", async () => {
   const info = await page.evaluate(() => {
-    const b = document.querySelector(".winbtns");
+    const b = document.querySelector<HTMLElement>(".winbtns")!;
     const r = b.getBoundingClientRect();
     const cs = getComputedStyle(b);
 
     return {
       right: Math.round(innerWidth - r.right), y: Math.round(r.top),
-      bg: cs.backgroundColor, legacyGrip: !!b.querySelector(".win-grip"),
-      order: [...b.querySelectorAll("button")].map((x) => x.dataset.win).join(","),
+      bg: cs.backgroundColor, legacyGrip: !!b.querySelector<HTMLElement>(".win-grip"),
+      order: [...b.querySelectorAll<HTMLElement>("button")].map((x) => x.dataset.win).join(","),
     };
   });
 
@@ -97,7 +97,7 @@ await step("切视图不重建：同一 DOM 节点 + 输入保留", async () => 
 });
 
 await step("联想下拉（/search/complete）", async () => {
-  await page.evaluate(() => { const q = document.querySelector(".searchbar input"); q.value = ""; q.dispatchEvent(new Event("input")); });
+  await page.evaluate(() => { const q = document.querySelector<HTMLInputElement>(".searchbar input")!; q.value = ""; q.dispatchEvent(new Event("input")); });
   await page.type(".searchbar input", "告白");
   await sleep(900);
   const items = await page.$$eval(".sb-drop:not([hidden]) .sb-item", (els) => els.map((e) => e.textContent.trim()));
@@ -123,7 +123,7 @@ await step("Enter → 搜索页出结果", async () => {
 await step("搜索后输入框仍常驻可见", async () => {
   const info = await page.evaluate(() => ({
     same: document.querySelector(".searchbar") === window.__sb,
-    v: document.querySelector(".searchbar input").value,
+    v: document.querySelector<HTMLInputElement>(".searchbar input")!.value,
   }));
 
   if (!info.same) throw new Error("searchbar re-created after search nav");
@@ -135,7 +135,7 @@ await step("搜索后输入框仍常驻可见", async () => {
 
 await step("分类标签切换（歌曲→歌手）", async () => {
   // 换用四类都有结果的关键词（「告白」的歌手档上游命中为 0，属正常空结果）
-  await page.evaluate(() => { const q = document.querySelector(".searchbar input"); q.value = ""; q.dispatchEvent(new Event("input")); });
+  await page.evaluate(() => { const q = document.querySelector<HTMLInputElement>(".searchbar input")!; q.value = ""; q.dispatchEvent(new Event("input")); });
   await page.type(".searchbar input", "周杰伦");
   await page.keyboard.press("Enter");
   await page.waitForSelector(".search-body .row", { timeout: 8000 });

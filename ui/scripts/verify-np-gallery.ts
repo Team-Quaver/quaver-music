@@ -15,10 +15,14 @@ import { deflateSync } from "node:zlib";
 const BASE = process.env.QBASE || "http://127.0.0.1:5173";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** dev-server 绝对 URL（Vite 直接命中 src/ 源文件）：既非包名也非相对路径，TS 解析不了。
+ *  经变量传入 import() 即为 any，运行时与字面量写法一致。 */
+const importDev = (u: string) => import(u);
+
 // 64x64 纯色 PNG（零依赖手工组块：IHDR/IDAT/IEND + CRC32），够 blur(60px) 出纯色氛围底
 function solidPng(r, g, b) {
   const crc32 = (buf) => {
-    let c, t = [];
+    let c, t: number[] = [];
 
     for (let n = 0; n < 256; n++) { c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c; }
 
@@ -38,7 +42,7 @@ function solidPng(r, g, b) {
   };
 
   const ihdr = Buffer.from([0, 0, 0, 64, 0, 0, 0, 64, 8, 2, 0, 0, 0]);
-  const rows = [];
+  const rows: Buffer[] = [];
 
   for (let y = 0; y < 64; y++) {
     const line = Buffer.alloc(1 + 64 * 3);
@@ -58,7 +62,7 @@ const PNG_A = solidPng(180, 60, 60);
 const PNG_B = solidPng(60, 60, 180);
 
 const browser = await puppeteer.launch({
-  executablePath: "/usr/bin/google-chrome", headless: "new",
+  executablePath: "/usr/bin/google-chrome", headless: true,
   args: ["--no-sandbox", "--disable-gpu", "--autoplay-policy=no-user-gesture-required"],
 });
 
@@ -70,7 +74,7 @@ page.on("pageerror", (e) => console.log("[pageerror]", String(e)));
 
 // 封面域名拦截为本地 PNG（交替两色，便于确认「换曲真的换了图」）
 let flip = false;
-const inhibitCalls = [];
+const inhibitCalls: Record<string, unknown>[] = [];
 
 await page.setRequestInterception(true);
 
@@ -179,7 +183,7 @@ await step("频谱关闭 + 懒加载样式未到位时，打开 ⋮ 不会挤动
 await step("矮窗开启频谱：波形画布不会穿过音质胶囊", async () => {
   await page.setViewport({ width: 760, height: 520 });
   await page.evaluate(async () => {
-    const { spectrumFacade } = await import("/src/lib/spectrum-controller.ts");
+    const { spectrumFacade } = await importDev("/src/lib/spectrum-controller.ts");
     spectrumFacade.setEnabled(true);
   });
   await setupSong("short");
@@ -195,7 +199,7 @@ await step("矮窗开启频谱：波形画布不会穿过音质胶囊", async ()
 
   if (boxes.qualityBottom >= boxes.spectrumTop) throw new Error(`音质胶囊与频谱相交: ${JSON.stringify(boxes)}`);
   await page.evaluate(async () => {
-    const { spectrumFacade } = await import("/src/lib/spectrum-controller.ts");
+    const { spectrumFacade } = await importDev("/src/lib/spectrum-controller.ts");
     spectrumFacade.setEnabled(false);
     window.__player.expanded = false;
     window.__player.notifyPublic();
@@ -238,7 +242,7 @@ await step("主页面：搜索历史候选覆盖吸顶区（含无 backdrop-filt
 await step("展开本页：A 垫底层可见且被压在 scrim 之下", async () => {
   await setupSong("A");
   await page.waitForFunction(() => {
-    const a = document.querySelector("#np-bg");
+    const a = document.querySelector<HTMLElement>("#np-bg")!;
 
     return !!a && getComputedStyle(a).opacity === "1" && a.style.backgroundImage.includes("y.gtimg.cn");
   }, { timeout: 8000 });
@@ -263,9 +267,9 @@ await step("展开播放页：隐藏顶栏与候选、释放搜索焦点；ESC �
 
 await step("背景层零 z-index 操纵（scrim 渐变蒙版不被顶掉）", async () => {
   const st = await page.evaluate(() => ({
-    a: getComputedStyle(document.querySelector("#np-bg")).zIndex,
-    b: getComputedStyle(document.querySelector("#np-bg2")).zIndex,
-    grad: getComputedStyle(document.querySelector(".np-scrim")).backgroundImage.includes("linear-gradient"),
+    a: getComputedStyle(document.querySelector<HTMLElement>("#np-bg")!).zIndex,
+    b: getComputedStyle(document.querySelector<HTMLElement>("#np-bg2")!).zIndex,
+    grad: getComputedStyle(document.querySelector<HTMLElement>(".np-scrim")!).backgroundImage.includes("linear-gradient"),
   }));
 
   if (st.a !== "auto" || st.b !== "auto") throw new Error("背景层 z-index 被操纵: " + JSON.stringify(st));
@@ -276,14 +280,14 @@ await step("背景层零 z-index 操纵（scrim 渐变蒙版不被顶掉）", as
 await step("换曲交叉淡化：B 淡入 → 收尾后 A 接管、B 退场", async () => {
   await setupSong("B");
   await page.waitForFunction(() => {
-    const b = document.querySelector("#np-bg2");
+    const b = document.querySelector<HTMLElement>("#np-bg2")!;
 
     return !!b && b.classList.contains("show") && b.style.backgroundImage.includes("y.gtimg.cn");
   }, { timeout: 8000 });
   await sleep(750); // settle(520ms) + 淡出过渡
 
   const st = await page.evaluate(() => {
-    const a = document.querySelector("#np-bg"), b = document.querySelector("#np-bg2");
+    const a = document.querySelector<HTMLElement>("#np-bg")!, b = document.querySelector<HTMLElement>("#np-bg2")!;
 
     return { aShow: a.classList.contains("show"), aImg: a.style.backgroundImage.includes("y.gtimg.cn"),
       bShow: b.classList.contains("show"), bImg: b.style.backgroundImage !== "" };
@@ -338,12 +342,12 @@ await step("kara 模式：AMLL 挂载、行级隐藏、左缘渐变蒙版仍在"
     document.querySelector("#np-karaoke .amll-lyric-player")?.textContent.includes("你好"), { timeout: 8000 });
 
   const st = await page.evaluate(() => {
-    const host = document.querySelector("#np-karaoke .amll-lyric-player");
+    const host = document.querySelector<HTMLElement>("#np-karaoke .amll-lyric-player")!;
     const r = host.getBoundingClientRect();
 
     return { w: r.width, h: r.height,
-      karaDisplay: getComputedStyle(document.querySelector("#np-lyrics")).display,
-      leftGrad: getComputedStyle(document.querySelector(".np-scrim")).backgroundImage.includes("90deg") };
+      karaDisplay: getComputedStyle(document.querySelector<HTMLElement>("#np-lyrics")!).display,
+      leftGrad: getComputedStyle(document.querySelector<HTMLElement>(".np-scrim")!).backgroundImage.includes("90deg") };
   });
 
   if (st.w < 100 || st.h < 100) throw new Error("AMLL 元素无尺寸 " + JSON.stringify(st));
@@ -356,7 +360,7 @@ await step("kara 模式：AMLL 挂载、行级隐藏、左缘渐变蒙版仍在"
 await step("kara 辅助行：翻译档优先翻译、音译档优先音译，缺的一路回落另一路（且不落词上方）", async () => {
   // AMLL 每行的 DOM：children[0]=主行，[1]=第一子行（辅助行），[2]=第二子行（本设计里恒空）
   const read = () => page.evaluate(() => {
-    const host = document.querySelector("#np-karaoke .amll-lyric-player");
+    const host = document.querySelector<HTMLElement>("#np-karaoke .amll-lyric-player")!;
     const mains = [...(host?.querySelectorAll('[class*="lyricMainLine"]') ?? [])];
 
     const rows = mains.flatMap((m) => {
@@ -372,7 +376,7 @@ await step("kara 辅助行：翻译档优先翻译、音译档优先音译，缺
   const setMode = (m) => page.evaluate((mode) => { window.__player.setLyricAuxMode(mode); window.__player.notifyPublic(); }, m);
 
   const waitRows = (want) => page.waitForFunction((w) => {
-    const host = document.querySelector("#np-karaoke .amll-lyric-player");
+    const host = document.querySelector<HTMLElement>("#np-karaoke .amll-lyric-player")!;
     const mains = [...(host?.querySelectorAll('[class*="lyricMainLine"]') ?? [])];
 
     return mains.some((mm) => (mm.parentElement?.textContent ?? "").includes(w));
@@ -448,7 +452,7 @@ await step("kara 振假名：QRCKana 解析出的 ruby 画在词上方（不占�
     document.querySelectorAll('#np-karaoke [class*="rubyWord"]').length > 0, { timeout: 8000 });
 
   const st = await page.evaluate(() => {
-    const host = document.querySelector("#np-karaoke .amll-lyric-player");
+    const host = document.querySelector<HTMLElement>("#np-karaoke .amll-lyric-player")!;
     const ruby = [...(host?.querySelectorAll('[class*="rubyWord"]') ?? [])];
     const mains = [...(host?.querySelectorAll('[class*="lyricMainLine"]') ?? [])];
     const rowOf = (m: Element) => [...(m.parentElement?.children ?? [])].map((c) => (c.textContent ?? "").trim());
@@ -535,7 +539,7 @@ await step("歌词列模式：全高拉伸、频谱避让、隐藏已播放行�
   }
 
   await page.evaluate(async () => {
-    const { spectrumFacade } = await import("/src/lib/spectrum-controller.ts");
+    const { spectrumFacade } = await importDev("/src/lib/spectrum-controller.ts");
     spectrumFacade.setEnabled(true);
   });
   await page.waitForFunction(() => document.querySelector(".np")?.classList.contains("spectrum-on"), { timeout: 5000 });
@@ -547,7 +551,7 @@ await step("歌词列模式：全高拉伸、频谱避让、隐藏已播放行�
   }
 
   await page.evaluate(async () => {
-    const { spectrumFacade } = await import("/src/lib/spectrum-controller.ts");
+    const { spectrumFacade } = await importDev("/src/lib/spectrum-controller.ts");
     spectrumFacade.setEnabled(false);
   });
   await setMode("hide-played"); await sleep(350);
@@ -578,7 +582,7 @@ await step("画廊按钮：开 = 展开并全屏、按钮点亮", async () => {
   const from = inhibitCalls.length;
   await page.click("#pb-gallery");
   await page.waitForFunction(() => window.__player.expanded && window.__player.gallery
-    && document.querySelector(".np").classList.contains("open")
+    && document.querySelector<HTMLElement>(".np")!.classList.contains("open")
     && document.fullscreenElement != null, { timeout: 8000 });
 
   if (!(await page.$eval("#pb-gallery", (el) => el.classList.contains("on")))) throw new Error("按钮未点亮");
@@ -592,7 +596,7 @@ await step("画廊按钮再点：收起并退出全屏", async () => {
   const from = inhibitCalls.length;
   await page.click("#pb-gallery");
   await page.waitForFunction(() => !window.__player.expanded && !window.__player.gallery
-    && !document.querySelector(".np").classList.contains("open")
+    && !document.querySelector<HTMLElement>(".np")!.classList.contains("open")
     && document.fullscreenElement == null, { timeout: 8000 });
   await waitForInhibit("idle", false, from);
   await checkTopbar(true);

@@ -25,7 +25,7 @@ const FAKE_PLUGIN = `export default { id: "smoke-local", name: "冒烟本地插�
 const FAKE_PLUGIN_B64 = Buffer.from(FAKE_PLUGIN, "utf8").toString("base64");
 
 const browser = await puppeteer.launch({
-  executablePath: "/usr/bin/google-chrome", headless: "new",
+  executablePath: "/usr/bin/google-chrome", headless: true,
   args: ["--no-sandbox", "--disable-gpu"],
 });
 
@@ -43,7 +43,12 @@ await page.evaluateOnNewDocument((fakeB64) => {
   const inst = (meta) => ({ id: meta.id, dir: `/x/${meta.id}`, manifest: { ...meta, main: "main.js" }, installedAt: Date.now() });
   window.quaverSparkle = {
     list: async () => ({ ok: true, plugins: window.__installed }),
-    install: async (m) => { window.__installed.push(inst(m.meta)); return { ok: true, id: m.meta.id }; },
+    install: async (m) => {
+      if (!m.meta) throw new Error("install 缺少 meta");
+      window.__installed.push(inst(m.meta));
+
+      return { ok: true, id: m.meta.id };
+    },
     uninstall: async (m) => { window.__installed = window.__installed.filter((x) => x.id !== m.id); return { ok: true }; },
     market: async () => ({ ok: true, index: { version: 1, plugins: [
       { id: "t1", name: "主题一号", version: "1.0.0", author: "Q", description: "冒烟主题", category: "theme", download: "http://x/t1.js" },
@@ -51,7 +56,13 @@ await page.evaluateOnNewDocument((fakeB64) => {
       { id: "e1", name: "扩展一号", version: "1.0.0", author: "Q", description: "冒烟扩展", category: "extension", download: "http://x/e1.js" },
     ] } }),
     pickLocal: async () => window.__pickResult,
-    installLocal: async (m) => { window.__installLocalMsg = m; window.__installed.push(inst(m.meta)); return { ok: true, id: m.meta.id }; },
+    installLocal: async (m) => {
+      if (!m.meta) throw new Error("installLocal 缺少 meta");
+      window.__installLocalMsg = m;
+      window.__installed.push(inst(m.meta));
+
+      return { ok: true, id: m.meta.id };
+    },
   };
 }, FAKE_PLUGIN_B64);
 
@@ -69,7 +80,7 @@ await click('.set-tabs .set-tab[data-tab="plugins"]');
 
 await page.waitForSelector(".sparkle-cats", { timeout: 5000 });
 
-const cats = await page.$$eval(".sparkle-cats .set-tab", (els) => els.map((e) => e.dataset.cat));
+const cats = await page.$$eval(".sparkle-cats .set-tab", (els) => els.map((e) => e.getAttribute("data-cat")));
 
 check("三标签齐备（主题/插件/Marketplace）", JSON.stringify(cats) === JSON.stringify(["theme", "plugin", "market"]), JSON.stringify(cats));
 
@@ -88,12 +99,12 @@ const marketBadges = await page.$$eval(".sparkle-market-list .sparkle-badge", (e
 check("Marketplace 列表只显示两类徽标（旧 extension 归插件）", JSON.stringify(marketBadges) === JSON.stringify(["主题", "插件", "插件"]), JSON.stringify(marketBadges));
 
 // Marketplace 内部分类筛选 chips
-const mcatChips = await page.$$eval(".sparkle-mkt-chip", (els) => els.map((e) => e.dataset.mcat));
+const mcatChips = await page.$$eval(".sparkle-mkt-chip", (els) => els.map((e) => e.getAttribute("data-mcat")));
 
 check("Marketplace 分类筛选 chips 齐备", JSON.stringify(mcatChips) === JSON.stringify(["all", "theme", "plugin"]), JSON.stringify(mcatChips));
 
 const mcatCount = async () => (await page.$$(".sparkle-market-list .sparkle-row")).length;
-const pickMcat = async (c) => { await page.evaluate((cc) => document.querySelector(`.sparkle-mkt-chip[data-mcat="${cc}"]`).click(), c); await sleep(150); };
+const pickMcat = async (c) => { await page.evaluate((cc) => document.querySelector<HTMLElement>(`.sparkle-mkt-chip[data-mcat="${cc}"]`)!.click(), c); await sleep(150); };
 
 await pickMcat("theme");
 
@@ -111,8 +122,8 @@ check("「全部」恢复三行", (await mcatCount()) === 3);
 
 const installEntry = async (name) => {
   await page.evaluate((kw) => {
-    const row = [...document.querySelectorAll(".sparkle-market-list .sparkle-row")].find((r) => r.textContent.includes(kw));
-    row.querySelector(".sparkle-install").click();
+    const row = [...document.querySelectorAll<HTMLElement>(".sparkle-market-list .sparkle-row")].find((r) => r.textContent.includes(kw))!;
+    row.querySelector<HTMLElement>(".sparkle-install")!.click();
   }, name);
   await sleep(300);
 };
@@ -124,7 +135,7 @@ await installEntry("插件一号");
 await installEntry("扩展一号");
 
 const rowInfo = (panelSel, keyword) => page.$$eval(`${panelSel} .sparkle-row`, (rows, kw) => {
-  const row = rows.find((r) => r.textContent.includes(kw));
+  const row = rows.find((r) => r.textContent.includes(kw))!;
 
   if (!row) return null;
 
@@ -157,14 +168,14 @@ check("宿主内置插件徽标=预装", pre?.badge === "预装", JSON.stringify
 // 必须落在同一条竖线上 —— 卸载插在齿轮与开关之间、且动作区三列定宽，就是为了这个
 // （开关是行的视觉锚点，不能被整行的按钮数推走）。这是行布局唯一的真回归测试，别删。
 const colLeft = (kw, sel) => page.evaluate((k, s) => {
-  const row = [...document.querySelectorAll('[data-cat="plugin"] .sparkle-row')].find((r) => r.textContent.includes(k));
+  const row = [...document.querySelectorAll<HTMLElement>('[data-cat="plugin"] .sparkle-row')].find((r) => r.textContent.includes(k))!;
   const el = row?.querySelector(s);
 
   return el ? Math.round(el.getBoundingClientRect().left) : null;
 }, kw, sel);
 
 const actsOrder = (kw) => page.evaluate((k) => {
-  const row = [...document.querySelectorAll('[data-cat="plugin"] .sparkle-row')].find((r) => r.textContent.includes(k));
+  const row = [...document.querySelectorAll<HTMLElement>('[data-cat="plugin"] .sparkle-row')].find((r) => r.textContent.includes(k))!;
 
   return [...(row?.querySelectorAll(".sparkle-actions > *") ?? [])].map((e) => e.className.split(" ")[0]);
 }, kw);
@@ -182,11 +193,11 @@ check("动作区 DOM 顺序 = 齿轮 → 卸载 → 开关", JSON.stringify(p1Or
 
 // 卸载 = 垃圾桶图标按钮：与齿轮同尺寸，文字语义走 title/aria-label
 const btnBox = await page.evaluate(() => {
-  const row = [...document.querySelectorAll('[data-cat="plugin"] .sparkle-row')].find((r) => r.textContent.includes("插件一号"));
+  const row = [...document.querySelectorAll<HTMLElement>('[data-cat="plugin"] .sparkle-row')].find((r) => r.textContent.includes("插件一号"))!;
   const box = (sel) => { const el = row?.querySelector(sel); const r = el?.getBoundingClientRect(); return el && r ? { w: Math.round(r.width), h: Math.round(r.height) } : null; };
   const b = row?.querySelector(".sparkle-uninstall");
 
-  return { gear: box(".sparkle-gear"), trash: box(".sparkle-uninstall"), text: b?.textContent.trim() ?? null, title: b?.title ?? null, aria: b?.getAttribute("aria-label") ?? null, svg: !!b?.querySelector("svg") };
+  return { gear: box(".sparkle-gear"), trash: box(".sparkle-uninstall"), text: b?.textContent!.trim() ?? null, title: b?.getAttribute("title") ?? null, aria: b?.getAttribute("aria-label") ?? null, svg: !!b?.querySelector<HTMLElement>("svg") };
 });
 
 check("卸载 = 垃圾桶图标按钮（无文字，语义在 title/aria-label）", btnBox.text === "" && btnBox.title === "卸载" && btnBox.aria === "卸载 插件一号" && btnBox.svg === true, JSON.stringify(btnBox));
@@ -220,8 +231,8 @@ check("旧 extension 装进「插件」标签（非 Team Quaver → 第三方，
 await click(catTab("plugin"));
 
 await page.evaluate(() => {
-  const row = [...document.querySelectorAll('[data-cat="plugin"] .sparkle-row')].find((r) => r.textContent.includes("Die For You"));
-  row.querySelector(".sparkle-gear").click();
+  const row = [...document.querySelectorAll<HTMLElement>('[data-cat="plugin"] .sparkle-row')].find((r) => r.textContent.includes("Die For You"))!;
+  row.querySelector<HTMLElement>(".sparkle-gear")!.click();
 });
 
 await page.waitForSelector(".sparkle-settings-dialog", { timeout: 5000 });
@@ -234,7 +245,7 @@ const dlgHasSection = await page.evaluate(() => {
 
 check("齿轮弹窗渲染插件设置区（含「换一句」）", dlgHasSection === true);
 
-await page.evaluate(() => document.querySelector('.sparkle-settings-dialog [data-act="close"]').click());
+await page.evaluate(() => document.querySelector<HTMLElement>('.sparkle-settings-dialog [data-act="close"]')!.click());
 
 await sleep(400);
 
@@ -243,7 +254,7 @@ check("「关闭」收弹窗", !(await page.$(".sparkle-settings-dialog")));
 // —— 4. 本地插件警告弹窗：5s 倒计时 ——
 await click(catTab("market"));
 
-await page.evaluate(() => document.querySelector(".sparkle-local").click());
+await page.evaluate(() => document.querySelector<HTMLElement>(".sparkle-local")!.click());
 
 await page.waitForSelector(".upd-overlay .upd-dialog.danger", { timeout: 5000 });
 
@@ -254,7 +265,7 @@ check(
   (await text(".local-warn-text")) === "Quaver Music 无法保证 Marketplace 插件的可用性和安全性，与此同时，我们更无法保证，且并不推荐您通过手动安装的方式安装插件，但自由权利能在您手中，请确保安全后点击确认",
 );
 
-check("确认键初始禁用（5s）", await page.$eval('[data-act="confirm"]', (e) => e.disabled));
+check("确认键初始禁用（5s）", await page.$eval('[data-act="confirm"]', (e) => e.matches(":disabled")));
 
 await sleep(1200);
 
@@ -271,15 +282,15 @@ check("Esc 未触发安装", (await page.evaluate(() => window.__installLocalMsg
 // —— 5. 完整本地安装流程（装完归入「插件」标签） ——
 await page.evaluate((b64) => { window.__pickResult = { ok: true, name: "smoke-local.js", dataBase64: b64 }; }, FAKE_PLUGIN_B64);
 
-await page.evaluate(() => document.querySelector(".sparkle-local").click());
+await page.evaluate(() => document.querySelector<HTMLElement>(".sparkle-local")!.click());
 
 await page.waitForSelector(".upd-overlay .upd-dialog.danger", { timeout: 5000 });
 
 await sleep(5300); // 等倒计时走完
 
-check("5s 后确认解锁", !(await page.$eval('[data-act="confirm"]', (e) => e.disabled)));
+check("5s 后确认解锁", !(await page.$eval('[data-act="confirm"]', (e) => e.matches(":disabled"))));
 
-await page.evaluate(() => document.querySelector('[data-act="confirm"]').click());
+await page.evaluate(() => document.querySelector<HTMLElement>('[data-act="confirm"]')!.click());
 
 await page.waitForFunction(() => window.__installLocalMsg !== null, { timeout: 8000 });
 
@@ -300,13 +311,13 @@ const BAD_B64 = Buffer.from("export default { name: 42 }", "utf8").toString("bas
 
 await page.evaluate((b64) => { window.__pickResult = { ok: true, name: "bad.js", dataBase64: b64 }; window.__installLocalMsg = null; }, BAD_B64);
 
-await page.evaluate(() => document.querySelector(".sparkle-local").click());
+await page.evaluate(() => document.querySelector<HTMLElement>(".sparkle-local")!.click());
 
 await page.waitForSelector(".upd-overlay .upd-dialog.danger", { timeout: 5000 });
 
 await sleep(5300);
 
-await page.evaluate(() => document.querySelector('[data-act="confirm"]').click());
+await page.evaluate(() => document.querySelector<HTMLElement>('[data-act="confirm"]')!.click());
 
 await sleep(1200);
 

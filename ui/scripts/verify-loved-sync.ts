@@ -18,7 +18,7 @@ mkdirSync(TMP + "/profile", { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({
-  executablePath: "/usr/bin/google-chrome", headless: "new",
+  executablePath: "/usr/bin/google-chrome", headless: true,
   userDataDir: TMP + "/profile",
   env: { ...process.env, TMPDIR: TMP, XDG_CACHE_HOME: TMP + "/cache" },
   args: ["--no-sandbox", "--disable-gpu", "--no-proxy-server",
@@ -31,9 +31,17 @@ const page = await browser.newPage();
 
 await page.setViewport({ width: 1024, height: 720 });
 
+interface LikedStats {
+  n500: number;
+  n100: number;
+  n100DoneAt: number[];
+  other: number;
+}
+
 // 只看结构与状态：挡掉图片/字体；统计 /user/liked 的分页请求（num=500=整单预载，num=100=增量小窗）；
 // 另留一次性「读侧滞后」开关：把下一发 num=100 打成旧数据，验证滞后庇护（不碰真账号的写）
-let likedStats = { n500: 0, n100: 0, n100DoneAt: [], other: 0 };
+let likedStats: LikedStats = { n500: 0, n100: 0, n100DoneAt: [], other: 0 };
+
 let staleArm = false, staleUsed = false, stalePayload = null;
 
 await page.setRequestInterception(true);
@@ -287,12 +295,12 @@ await step("别处取消收藏 → 打开中的页逐行淡出移除", async () 
   if (s.loved.includes(pick2.mid) || s.cache.includes(pick2.mid)) throw new Error("本地状态未移除");
 
   // 删除重排后双击：序号/列表以当时 DOM 为准 —— 双击第 1 行必须播第 1 行这首歌（不真放流，只抓参数）
-  const played = await page.evaluate(() => new Promise((resolve) => {
+  const played = await page.evaluate(() => new Promise<{ want?: string | null; got?: string | null; label?: string | null }>((resolve) => {
     const pl = window.__quaverPlayer;
     const orig = pl.playList.bind(pl);
     pl.playList = (all, i) => {
       pl.playList = orig;
-      const firstRow = document.querySelector(".rows .row[data-songkey]");
+      const firstRow = document.querySelector<HTMLElement>(".rows .row[data-songkey]");
       resolve({ want: firstRow?.dataset.songkey, got: all?.[Number(i)]?.mid,
         label: firstRow?.querySelector(".idx")?.textContent?.trim() });
     };

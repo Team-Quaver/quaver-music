@@ -7,7 +7,7 @@
 // 同一首歌同时出现在多个来源时按 mid 去重，优先级 本地 > 我喜欢 > 微云：
 // 本地刮削命中的 qqMid 会挡住同 mid 的收藏与云端条目（保留本地版本，播放走本地文件）。
 import { artistIdentity } from "./artist-key.ts";
-import type { Song } from "../player";
+import type { Song } from "../player.ts";
 
 export interface SongGroup {
   key: string;

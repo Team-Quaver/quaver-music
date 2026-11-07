@@ -375,8 +375,8 @@ section("端到端：手动导入歌词/封面 + 元数据校正（右键菜单�
   r = await jpost("/local/cover/import", { id: tagged.id, name: "a.bin", data: b64(Buffer.from("NOT_AN_IMAGE_AT_ALL")) });
   eq("非图封面 422", r.status, 422);
   // 撤销导入 → 回到 sidecar file
-  r = await fetch(`${base}/local/lyric/import/${tagged.id}`, { method: "DELETE" });
-  const rev = (await r.json()) as any;
+  const revRes = await fetch(`${base}/local/lyric/import/${tagged.id}`, { method: "DELETE" });
+  const rev = (await revRes.json()) as any;
   check("撤销导入成功", rev?.data?.track?.lyricSource === "file", JSON.stringify(rev?.data).slice(0, 80));
   ly = (await jget(`/local/lyric/${tagged.id}`)).body.data;
   check("撤销后回到 sidecar", ly.source === "file", JSON.stringify(ly).slice(0, 80));

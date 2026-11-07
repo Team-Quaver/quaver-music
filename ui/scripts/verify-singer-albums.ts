@@ -9,7 +9,7 @@ const BASE = "http://127.0.0.1:5173";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({
-  executablePath: "/usr/bin/google-chrome", headless: "new",
+  executablePath: "/usr/bin/google-chrome", headless: true,
   args: ["--no-sandbox", "--disable-gpu", "--autoplay-policy=no-user-gesture-required"],
 });
 
@@ -33,15 +33,15 @@ await sleep(800);
 
 await step("首页：顶带返回按钮隐藏、搜索框居中", async () => {
   const info = await page.evaluate(() => {
-    const b = document.querySelector(".top-back");
-    const sb = document.querySelector(".searchbar");
+    const b = document.querySelector<HTMLElement>(".top-back")!;
+    const sb = document.querySelector<HTMLElement>(".searchbar")!;
 
     if (!b) throw new Error("no .top-back in .content-top");
 
     if (!sb || !sb.closest(".content-top")) throw new Error("searchbar missing/left band");
     window.__sb = sb;
     const r = sb.getBoundingClientRect();
-    const c = document.querySelector(".content").getBoundingClientRect();
+    const c = document.querySelector<HTMLElement>(".content")!.getBoundingClientRect();
 
     return { hidden: b.hidden || getComputedStyle(b).display === "none", centered: Math.abs(r.left + r.width / 2 - (c.left + c.width / 2)) < 4 };
   });
@@ -60,8 +60,8 @@ await sleep(1800);
 
 await step("歌手页：返回钮出现（搜索框左侧、零重叠、可点）", async () => {
   const info = await page.evaluate(() => {
-    const b = document.querySelector(".top-back");
-    const sb = document.querySelector(".searchbar");
+    const b = document.querySelector<HTMLElement>(".top-back")!;
+    const sb = document.querySelector<HTMLElement>(".searchbar")!;
     const br = b.getBoundingClientRect(), sr = sb.getBoundingClientRect();
 
     return {
@@ -91,7 +91,7 @@ await step("歌手页：返回钮出现（搜索框左侧、零重叠、可点�
 
 await step("歌手页：热歌/新歌 两个标签各有一份独立列表（order=1 / order=2）", async () => {
   const hot = await page.evaluate(() => ({
-    idx: [...document.querySelectorAll(".tag-body .tag-panel")].findIndex((p) => !p.hidden),
+    idx: [...document.querySelectorAll<HTMLElement>(".tag-body .tag-panel")].findIndex((p) => !p.hidden),
     rows: document.querySelectorAll(".tag-body .tag-panel:not([hidden]) .row").length,
     first: document.querySelector(".tag-body .tag-panel:not([hidden]) .row .rt")?.textContent ?? "",
   }));
@@ -103,7 +103,7 @@ await step("歌手页：热歌/新歌 两个标签各有一份独立列表（ord
   await sleep(200);
 
   const nw = await page.evaluate(() => ({
-    idx: [...document.querySelectorAll(".tag-body .tag-panel")].findIndex((p) => !p.hidden),
+    idx: [...document.querySelectorAll<HTMLElement>(".tag-body .tag-panel")].findIndex((p) => !p.hidden),
     rows: document.querySelectorAll(".tag-body .tag-panel:not([hidden]) .row").length,
     first: document.querySelector(".tag-body .tag-panel:not([hidden]) .row .rt")?.textContent ?? "",
   }));
@@ -137,7 +137,7 @@ await sleep(900);
 await step("点返回钮 → 回首页且按钮再隐藏", async () => {
   const info = await page.evaluate(() => ({
     hash: location.hash,
-    hidden: document.querySelector(".top-back").hidden || getComputedStyle(document.querySelector(".top-back")).display === "none",
+    hidden: document.querySelector<HTMLElement>(".top-back")!.hidden || getComputedStyle(document.querySelector<HTMLElement>(".top-back")!).display === "none",
     sameSearchBox: document.querySelector(".searchbar") === window.__sb,
   }));
 
@@ -161,7 +161,7 @@ await step("全部专辑页：路由可达、卡片多于歌手页内联区、�
     cards: document.querySelectorAll(".grid .card").length,
     href0: document.querySelector(".grid .card")?.getAttribute("href") ?? "",
     meta: document.querySelector(".pl-meta")?.textContent.trim() ?? "",
-    backVisible: !document.querySelector(".top-back").hidden,
+    backVisible: !document.querySelector<HTMLElement>(".top-back")!.hidden,
     name: document.querySelector(".pl-name")?.textContent.trim() ?? "",
   }));
 
@@ -181,7 +181,7 @@ await step("全部专辑页 → 点返回回歌手页（栈式往返，再点回
   const h1 = await page.evaluate(() => location.hash);
 
   if (!h1.startsWith("#/singer?")) throw new Error("back should land on singer, got " + h1);
-  const backStill = await page.evaluate(() => !document.querySelector(".top-back").hidden);
+  const backStill = await page.evaluate(() => !document.querySelector<HTMLElement>(".top-back")!.hidden);
 
   if (!backStill) throw new Error("back button should stay on singer page");
   await page.click(".top-back"); await sleep(900);

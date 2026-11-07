@@ -12,7 +12,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const BASE = process.env.QA_BASE ?? "http://127.0.0.1:5173";
 
 const browser = await puppeteer.launch({
-  executablePath: "/usr/bin/google-chrome", headless: "new",
+  executablePath: "/usr/bin/google-chrome", headless: true,
   args: ["--no-sandbox", "--disable-gpu", "--autoplay-policy=no-user-gesture-required"],
 });
 
@@ -22,7 +22,7 @@ await page.setViewport({ width: 1280, height: 840 });
 
 page.on("pageerror", (e) => console.log("[pageerror]", String(e)));
 
-const results = [];
+const results: [string, string][] = [];
 
 const step = async (name, fn) => {
   try { const note = await fn(); console.log(`PASS ${name}${note ? " — " + note : ""}`); results.push(["PASS", name]); }
@@ -43,7 +43,7 @@ await page.evaluate(() => {
   p.shuffle = false;
   window.__probeCalls = null;
   window.__probeArm = () => {
-    const calls = [];
+    const calls: [string, any][] = [];
     p.transport.seek = (t) => calls.push(["seek", t]);
     p.jump = (i) => calls.push(["jump", i]);
     window.__probeCalls = calls;
@@ -55,10 +55,10 @@ await page.evaluate(() => {
 const arm = () => page.evaluate(() => window.__probeArm());
 const calls = () => page.evaluate(() => window.__probeCalls);
 const setMode = (v) => page.evaluate((vv) => window.__cfg.set({ "Playing.PrevReplay": vv }), v);
-const click = () => page.evaluate(() => document.querySelector("#pb-prev").dispatchEvent(new MouseEvent("click", { bubbles: true })));
+const click = () => page.evaluate(() => document.querySelector<HTMLElement>("#pb-prev")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
 
 const dblclick = () => page.evaluate(() => {
-  const el = document.querySelector("#pb-prev");
+  const el = document.querySelector<HTMLElement>("#pb-prev")!;
   el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   el.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));

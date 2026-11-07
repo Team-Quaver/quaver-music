@@ -334,9 +334,11 @@ check("兼容模式暂停不 suspend AudioContext（避免 WASAPI 重激活卡�
 // 真跑一遍 worklet 内核：暂停必须输出静音但冻结消费，恢复从原帧继续。
 {
   let WorkletProcessor: any;
-  const status = [];
+  const status: any[] = [];
 
   class FakeAudioWorkletProcessor {
+    port: { onmessage: null; postMessage: (msg: any) => void };
+
     constructor() {
       this.port = {
         onmessage: null,

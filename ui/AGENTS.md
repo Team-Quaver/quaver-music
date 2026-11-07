@@ -26,12 +26,19 @@ pnpm run dev -- --port 5173 --strictPort --host 127.0.0.1
   所以 `.ts` 在 `"type": "module"` 包里是 ESM 语义、顶层 `require` 不存在。`.cts` 强制 CJS-TS，
   正好落在 Electron 的 CJS 分支 + Node 的剥离器上。
 
-两套 tsconfig：`tsconfig.json` = 渲染层（`src/**`，浏览器语义）；`tsconfig.node.json` = Node 侧
-（`electron/**` + `scripts/**`，nodenext + 上述开关，`lib` 含 DOM 是给 puppeteer `page.evaluate` 回调用的）。
+三套 tsconfig：`tsconfig.json` = 渲染层（`src/**`，浏览器语义）；`tsconfig.node.json` = Electron
+主进程（`electron/**`，nodenext + 上述开关）；`tsconfig.scripts.json` = 开发期脚本
+（`scripts/**` + `src/globals.d.ts`，extends 前者，只放宽 `noImplicitAny` 与 catch 变量检查，
+模块解析换 bundler 以便脚本直接 import `src/`；`scripts/test-globals.d.ts` 登记测试钩子）。
+`lib` 含 DOM 是给 puppeteer `page.evaluate` 回调用的。
+
+> TypeScript 7 起，即使 `noImplicitAny: false`，无上下文的 `const xs = []` 也推成 `never[]`
+> （空数组再被 union 包住时更隐蔽，报错常是「string 不能赋给 never」）。新增空数组请显式标注
+> `const xs: string[] = []` / `new Map<string, T>()`，别指望 `noImplicitAny` 兜底。
 
 ```sh
-pnpm run typecheck       # 渲染层，必须 0 错（build 闸门）
-pnpm run typecheck:node  # Node 侧，迁移中：尚未清零，不作闸门
+pnpm run typecheck       # 渲染层（build 闸门）
+pnpm run typecheck:node  # electron + scripts 两个工程，都必须 0 错
 pnpm run lint            # anti-slop（vendored Oxlint 插件，配置在 .oxlintrc.json）
 ```
 
@@ -357,6 +364,26 @@ cd ui && pnpm run app                              # 真出声跑一圈（默认
   都起一个 goroutine 抢 `stream.mu`，拖一下进度会排队几十个网络 seek，解码器在整个队列排空前
   一个字节都不出（「拖进度就卡住/一卡一卡」的病根）。另外 `loopAlive`/`retireLoop` 保证
   **EOF 之后到达的 seek 会重开源**（解码 goroutine 已退出时没人读队列），别把这两条删了。
+- **意图与「此刻能开设备」是两个变量**（曲末/拖进度卡死的病根，vendor/Liino）：`playIntent` 由
+  Play/Pause/Stop/Open 拥有，`wantPlay` 只表示机器此刻允许不允许把设备开起来 —— 曲末
+  `finishLocked` 会清后者、**不能**连带清前者。以前两个一起清零，EOF 之后的 seek 走
+  `reopen(resumeIntent())` 重建管线，重建出来就永远不被允许启动：状态停在 ready、设备停着、
+  环形缓冲写满、解码线程 park，界面看着在播而进度一格不动（「播完一首歌卡住」「拖几下就卡住」）。
+  同理 `Pause()` 现在两个都清，暂停态下的重建不会再自己出声。
+- **曲末重开带世代守卫**：EOF 排队 seek 触发的 `reopenIf(gen, …)` 必须过 `loadGen` 检查，
+  上一首迟到的重开会关掉刚切过去的新流并把镜头按回旧断点。
+- **设备启动不在 monitor 线程上**：`requestDeviceStart` 单飞异步开 session（PipeWire 等会话管理器、
+  WASAPI 等音频服务，可能几十秒不返回）。monitor 一旦卡在 `output.Open` 里就是整个状态机停摆 ——
+  preroll 不再变 playing、EOF 不再变 ended、切歌也救不回来。开不起来把状态退回 ready 由下一 tick
+  重试，停在 playing 是死局（没人再拉帧，连 underrun 都不会报）。
+- **paused 且 out==nil 不许递归**：切设备失败会留下「状态还是 paused、会话已经没了」这个窗口，
+  `Play()` 以前递归调自己，capi 在主线程上直接 `fatal error: stack overflow` 拖死进程。现在退回
+  ready 交给 monitor。
+- **重置 pulled 必须一起重置 `bufferAt`**（Open / hardStop / checkDevice）：残留的高水位让
+  `framesPulledSince` 永远不满足，而按实时产量的后端（WinRT）填不满 `preroll/2`，转圈能挂几十秒。
+  验证：`cd vendor/Liino && CGO_ENABLED=0 go test -run 'TestSeekAfterEndResumes|TestSeekWhilePaused|TestPlayAfterOutputSession|TestStaleReopen|TestLoadAndStopReset' .`；
+  整轮回归（曲末 + 拖进度两个病状的场景复现）跑 `TestProbeStuckAfterEnd|TestProbeSeekDragWedges`，
+  混合循环压测跑 `TestStressEndToEndCycles`（`-short` 会跳过它）。
 - **HTTP(S) FLAC 在 Windows 由 WinRT 接管**：Media Foundation 能打开远程 FLAC、也能报出时长，
   但 `SetCurrentPosition` 会返回 `E_ABORT`（首次 `Read` 也可能直接失败），上层重试到最后就是
   「进度条一回手又回到 0」。现在 Windows 默认就是 WinRT → WMF；WMF 侧仍在嗅到 codec=flac 且

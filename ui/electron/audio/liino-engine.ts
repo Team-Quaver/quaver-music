@@ -160,7 +160,9 @@ export class LiinoEngine {
    *  必须丢弃，否则会把新歌的 open 顶掉，新歌的 loaded 又因世代不匹配被渲染层过滤 ——
    *  表现就是「歌不响、一直转圈」。 */
   client: string;
-  /** 已发过曲末的世代：同一首只发一次 ended（同 engine.ts 的 endedEntryId 语义）。 */
+  /** 已发过曲末的世代：一段播放只发一次 ended（同 engine.ts 的 endedEntryId 语义）。
+   *  load/play/seek 都算「这一段尾巴重新来过」，必须把它作废，否则重放到末尾时
+   *  队列不再前进。 */
   endedEpoch: number;
   eq: EqState;
   eqPlan: LiinoEqPlan;
@@ -740,6 +742,9 @@ export class LiinoEngine {
         if (unloaded && !this.lastUrl) return { ok: false, error: "没有已挂载的播放流" };
 
         this.st.paused = false; // 意图先落地（native 只在变化时推事件，值相同则不推）
+        // 重新起播 = 这一段尾巴要重新算一次曲末：不放开 dedupe，重放到末尾的
+        // ended 会被吃掉，队列不再前进（表现还是「播完一首歌卡在这」）。
+        this.endedEpoch = -1;
         this.rampTo(1, this.fade.inMs);
 
         // SAFETY: catch 边界进来的都是 unknown；只取 message 拼日志/回包，字段缺失兜 "unknown"
@@ -805,6 +810,8 @@ export class LiinoEngine {
           player.seek(Math.round(at * 1000));
         } catch (e) { return this.hardFail(caught(e)); }
 
+        // 拖进度同样是「这段尾巴重放一次」：曲末 dedupe 必须跟着作废。
+        this.endedEpoch = -1;
         this.st.pos = at; // 乐观位置：seeked/state 事件马上对齐
         this.st.idle = false;
         this.pushState(true);

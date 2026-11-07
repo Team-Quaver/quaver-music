@@ -40,8 +40,9 @@ function decodePng(buf) {
   const SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
   if (buf.length < 8 || !buf.subarray(0, 8).equals(SIG)) return null;
-  let p = 8, ihdr = null;
-  const idat = [];
+  let p = 8;
+  let ihdr: { width: number; height: number; depth: number; color: number; interlace: number } | null = null;
+  const idat: Buffer[] = [];
 
   while (p + 8 <= buf.length) {
     const len = buf.readUInt32BE(p);
@@ -99,23 +100,23 @@ function decodePng(buf) {
 
 /** 取 SVG 里出现最多的 fill 色（本项目这些素材是单色图形）→ "#rrggbb" 小写；没有返回 null */
 function svgFill(text) {
-  const count = new Map();
+  const count = new Map<string, number>();
 
   for (const m of text.matchAll(/fill:\s*(#[0-9a-fA-F]{6})/g)) {
     const c = m[1].toLowerCase();
     count.set(c, (count.get(c) ?? 0) + 1);
   }
 
-  let best = null;
+  let best: string | null = null;
 
-  for (const [c, n] of count) if (!best || n > count.get(best)) best = c;
+  for (const [c, n] of count) if (!best || n > (count.get(best) ?? 0)) best = c;
 
   return best;
 }
 
 /** 不透明像素里出现最多的颜色 → "#rrggbb"；顺带给出不透明占比、alpha 掩码与图形包围盒 */
 function opaqueStats(img) {
-  const count = new Map();
+  const count = new Map<string, number>();
   const mask = Buffer.alloc(img.width * img.height);
   let opaque = 0;
   let x0 = img.width, x1 = -1, y0 = img.height, y1 = -1;
@@ -132,9 +133,9 @@ function opaqueStats(img) {
     count.set(c, (count.get(c) ?? 0) + 1);
   }
 
-  let best = null;
+  let best: string | null = null;
 
-  for (const [c, n] of count) if (!best || n > count.get(best)) best = c;
+  for (const [c, n] of count) if (!best || n > (count.get(best) ?? 0)) best = c;
   const w = Math.max(0, x1 - x0 + 1), h = Math.max(0, y1 - y0 + 1);
 
   return {
@@ -272,7 +273,7 @@ check("两份素材是两个不同的文件", TRAY_ICON_FILES.dark !== TRAY_ICON
 // SVG（设计源）与它的光栅化产物必须还对得上：改了 SVG 忘了重新导出，只有像素能证明
 // （重新导出命令见 electron/tray-icon.ts 头部）
 const SRC_SVG = { dark: "tray-icon.svg", light: "tray-icon-dark.svg" };
-const decoded = {};
+const decoded: Record<string, ReturnType<typeof opaqueStats> | undefined> = {};
 
 for (const [appearance, pngRel] of Object.entries(TRAY_ICON_FILES)) {
   const svgSrc = join(UI, "..", "img", SRC_SVG[appearance]);      // 设计源
@@ -303,7 +304,7 @@ for (const [appearance, pngRel] of Object.entries(TRAY_ICON_FILES)) {
   const fillColor = existsSync(svgSrc) ? svgFill(readFileSync(svgSrc, "utf8")) : null;
   check(`${pngRel} 是单色图形且主色与 SVG 一致`, st.color !== null && st.color === fillColor,
     `png ${st.color} vs svg ${fillColor}`);
-  const rgb = st.color ? [1, 3, 5].map((i) => parseInt(st.color.slice(i, i + 2), 16)) : null;
+  const rgb = st.color ? [1, 3, 5].map((i) => parseInt(st.color!.slice(i, i + 2), 16)) : null;
   const luma = rgb ? rgb.reduce((a, b) => a + b, 0) / 3 : 0;
   check(`${pngRel} 明暗与用途相符（${appearance === "dark" ? "深色外壳 → 浅色图形" : "浅色外壳 → 深色图形"}）`,
     appearance === "dark" ? luma > 127 : luma < 128, `主色亮度 ${luma.toFixed(0)}`);

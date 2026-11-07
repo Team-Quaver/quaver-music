@@ -62,7 +62,6 @@ const src = {
   kana: read("src/lyrics/qrc-kana.ts"),
   lyricsBoot: read("src/lyrics/builtin.ts"),
   lyric: read("src/lyric.ts"),
-  guide: read("../vendor/Sparkle/docs/plugin-author-guide.md"),
 };
 
 let checks = 0;

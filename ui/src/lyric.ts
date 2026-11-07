@@ -2,7 +2,7 @@
 //
 // 数据层只负责「把两路都挂上」，不负责选路：显示哪一路由「翻译选项」决定，
 // 规则集中在 pickAux()：行级视图与**内置歌词引擎**（src/lyrics/amll.ts）共用这一份实现。
-import type { LyricAuxMode } from "./lib/prefs";
+import type { LyricAuxMode } from "./lib/prefs.ts";
 
 export interface LyricLine {
   t: number; // 秒

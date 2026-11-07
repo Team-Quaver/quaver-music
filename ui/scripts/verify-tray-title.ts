@@ -136,7 +136,10 @@ eq("无歌手就只显示歌名", trayTitleLine({ name: "纯音乐" }), "纯音�
 
 eq("空歌手名被丢掉", trayTitleLine({ name: "夜曲", artists: ["", "  ", "周杰伦"] }), "夜曲 - 周杰伦");
 
-eq("artists 不是数组（脏数据）不炸，退回只有歌名", trayTitleLine({ name: "夜曲", artists: "周杰伦" }), "夜曲");
+// SAFETY: 故意喂脏数据验证运行时容错；只绕过编译期参数类型，值保持原样。
+const dirtyArtists = "周杰伦" as any;
+
+eq("artists 不是数组（脏数据）不炸，退回只有歌名", trayTitleLine({ name: "夜曲", artists: dirtyArtists }), "夜曲");
 
 eq("换行/连续空白压成单空格（\\n 在 win/mac 上会真画成两行，菜单变高）",
   trayTitleLine({ name: "夜\n曲  ", artists: ["  周  杰伦 "] }), "夜 曲 - 周 杰伦");

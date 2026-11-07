@@ -18,12 +18,66 @@
 // 环境不支持）→ unsupported；授权弹窗被拒 → failed；socket 断开 → closed。
 // 重绑（热键配置变更）= 关旧会话 → 全新 CreateSession → Bind —— 门户语义里一个会话只能
 // Bind 一次，桌面端可能为此再弹一次授权框（GNOME 会，Hyprland/WLR 系不弹）。
-import { createConnection } from "node:net";
+import { createConnection, type Socket } from "node:net";
+
+// —— 线级类型 ——
+// 值形状由签名串决定，TS 看不到这层对应关系：编码入口收 unknown，按 sig 分支处显式收窄。
+
+/** 'B' 大端（规范默认）/ 'l' 小端。 */
+type Endian = "B" | "l";
+
+/** 会话总线地址：abstract 走 \0 前缀，path 走文件系统。 */
+export interface BusAddress {
+  kind: "unix" | "abstract";
+  path: string;
+}
+
+/** variant：值本身要连内层签名一起送。 */
+export interface WireVariant {
+  sig: string;
+  value: unknown;
+}
+
+/** reserve32 的回填句柄。 */
+interface Marker {
+  buf: Buffer[];
+  idx: number;
+}
+
+/** 一条出站消息的可选项；serial/sig/body 由 _send 补。 */
+export interface MessageOptions {
+  type: number;
+  flags?: number;
+  serial: number;
+  path?: string;
+  interface?: string;
+  member?: string;
+  destination?: string;
+  errorName?: string;
+  replySerial?: number;
+  sig?: string;
+  body?: unknown;
+}
+
+/** 解出来的一条消息。header 字段缺省即 undefined（下面按必然存在收窄成标量）。 */
+export interface Message {
+  type: number;
+  serial: number;
+  fields: Record<number, unknown>;
+  replySerial: number;
+  interface: string;
+  member: string;
+  path: string;
+  errorName: string;
+  sig: string;
+  body: unknown[];
+  consumed: number;
+}
 
 // —— 会话总线地址 ——
 
 /** DBUS_SESSION_BUS_ADDRESS（取第一个 unix 段）→ {path} | {abstract}；缺省再看 XDG 兜底。 */
-export function parseBusAddress(addr, env = process.env) {
+export function parseBusAddress(addr: string | null | undefined, env: NodeJS.ProcessEnv = process.env): BusAddress | null {
   for (const part of String(addr ?? "").split(";")) {
     if (!part.startsWith("unix:")) continue;
 
@@ -48,10 +102,10 @@ export function parseBusAddress(addr, env = process.env) {
 }
 
 // —— 线级类型对齐表（b 布尔线上是 u32；v 变体自身对齐 1，内部的值按各自类型对齐）——
-const ALIGN = { y: 1, b: 4, n: 2, q: 2, i: 4, u: 4, x: 8, t: 8, d: 8, s: 4, o: 4, g: 1, v: 1, a: 4, "(": 8, "{": 8 };
+const ALIGN: Record<string, number> = { y: 1, b: 4, n: 2, q: 2, i: 4, u: 4, x: 8, t: 8, d: 8, s: 4, o: 4, g: 1, v: 1, a: 4, "(": 8, "{": 8 };
 
 /** 完整类型在签名串里的结束下标（a/( /{ 需要配对扫描，单字符类型即自身）。 */
-export function sigEnd(sig, i) {
+export function sigEnd(sig: string, i: number): number {
   const c = sig[i];
 
   if (c === "a") return sigEnd(sig, i + 1);
@@ -73,8 +127,13 @@ export function sigEnd(sig, i) {
 
 // —— 编码：单缓冲 + 绝对偏移对齐（消息头恒补到 8 的倍数，body 对齐因此与按消息对齐一致）——
 export class Writer {
-  constructor(endian) { this.endian = endian; this.buf = []; this.len = 0; }
-  put(align, chunk) {
+  // declare：类型只活在编译期。裸声明会被 Node 的类型剥离变成 `endian;`，
+  // 等于给实例凭空加一批 own property，这里刻意避免。
+  declare endian: Endian;
+  declare buf: Buffer[];
+  declare len: number;
+  constructor(endian: Endian) { this.endian = endian; this.buf = []; this.len = 0; }
+  put(align: number, chunk: Buffer) {
     const p = (align - (this.len % align)) % align;
 
     if (p) { this.buf.push(Buffer.alloc(p)); this.len += p; }
@@ -82,26 +141,26 @@ export class Writer {
     this.buf.push(chunk);
     this.len += chunk.length;
   }
-  u8(v) { this.put(1, Buffer.from([v & 0xff])); }
-  u32(v) {
+  u8(v: number) { this.put(1, Buffer.from([v & 0xff])); }
+  u32(v: number) {
     const b = Buffer.alloc(4);
 
     if (this.endian === "B") b.writeUInt32BE(v >>> 0); else b.writeUInt32LE(v >>> 0);
     this.put(4, b);
   }
-  u64(v) {
+  u64(v: number) {
     const b = Buffer.alloc(8);
     const big = BigInt(v);
 
     if (this.endian === "B") b.writeBigUInt64BE(big); else b.writeBigUInt64LE(big);
     this.put(8, b);
   }
-  string(s) {
+  string(s: string) {
     const raw = Buffer.from(String(s ?? ""), "utf8");
     this.u32(raw.length);
     this.put(1, Buffer.concat([raw, Buffer.from([0])]));
   }
-  sigStr(s) {
+  sigStr(s: string) {
     const raw = Buffer.from(String(s ?? ""), "utf8");
 
     if (raw.length > 254) throw new Error("signature too long");
@@ -120,7 +179,7 @@ export class Writer {
 
     return marker;
   }
-  patch32(marker, value) {
+  patch32(marker: Marker, value: number) {
     const b = marker.buf[marker.idx];
 
     if (this.endian === "B") b.writeUInt32BE(value >>> 0); else b.writeUInt32LE(value >>> 0);
@@ -133,27 +192,27 @@ export class Writer {
  *   s/o/g → string ｜ u/t → number ｜ b → boolean ｜ y → number
  *   v → { sig, value } ｜ a<X> → 数组（a{…} 也可传对象）｜ (…) → 数组
  */
-export function encodeValue(w, sig, v) {
+export function encodeValue(w: Writer, sig: string, v: unknown) {
   const c = sig[0];
 
-  if (c === "s" || c === "o") { w.put(4, Buffer.alloc(0)); w.string(v); return; }
+  if (c === "s" || c === "o") { w.put(4, Buffer.alloc(0)); w.string(v as string); return; }
 
-  if (c === "u") { w.u32(v); return; }
+  if (c === "u") { w.u32(v as number); return; }
 
-  if (c === "t" || c === "x") { w.u64(v); return; }
+  if (c === "t" || c === "x") { w.u64(v as number); return; }
 
   if (c === "b") { w.u32(v ? 1 : 0); return; }
 
-  if (c === "y") { w.u8(v); return; }
+  if (c === "y") { w.u8(v as number); return; }
 
-  if (c === "g") { w.sigStr(v); return; }
+  if (c === "g") { w.sigStr(v as string); return; }
 
   if (c === "v") {
-    const inner = String(v.sig);
+    const inner = String((v as WireVariant).sig);
 
     if (inner.length !== sigEnd(inner, 0) + 1) throw new Error(`variant sig must be one complete type: ${inner}`);
     w.sigStr(inner);
-    encodeValue(w, inner, v.value);
+    encodeValue(w, inner, (v as WireVariant).value);
 
     return;
   }
@@ -162,22 +221,22 @@ export function encodeValue(w, sig, v) {
     const elSig = sig.slice(1, sigEnd(sig, 0) + 1);
     const elAlign = ALIGN[elSig[0]] ?? 1;
 
-    const items = elSig[0] === "{" && !Array.isArray(v)
-      ? Object.entries(v ?? {})
-      : (v ?? []);
+    const items: [string, unknown][] | unknown[] = elSig[0] === "{" && !Array.isArray(v)
+      ? Object.entries((v ?? {}) as Record<string, unknown>)
+      : ((v ?? []) as unknown[]);
 
     const marker = w.reserve32();
     // 规范：数组长度 n 不含 length 字段后的首元素对齐垫片，但含元素之间的垫片
     // （worked example：单个 8 字节元素 + 4 字节垫片时 n=8）。算错会被 dbus-broker
     // 以 invalid body 踢线（c-dvar 按「首元素起点→内容终点」严格复核）。
-    let contentAt = null;
+    let contentAt: number | null = null;
 
     for (const item of items) {
       w.put(elAlign, Buffer.alloc(0));
 
       if (contentAt === null) contentAt = w.len;
 
-      if (elSig[0] === "{") { encodeValue(w, elSig[1], item[0]); encodeValue(w, elSig.slice(2, -1), item[1]); }
+      if (elSig[0] === "{") { encodeValue(w, elSig[1], (item as [unknown, unknown])[0]); encodeValue(w, elSig.slice(2, -1), (item as [unknown, unknown])[1]); }
       else encodeValue(w, elSig, item);
     }
 
@@ -189,7 +248,7 @@ export function encodeValue(w, sig, v) {
   if (c === "(") {
     w.put(8, Buffer.alloc(0));
     const inner = sig.slice(1, sigEnd(sig, 0));
-    const list = Array.isArray(v) ? v : [v];
+    const list: unknown[] = Array.isArray(v) ? v : [v];
     let i = 0;
 
     for (let p = 0; p < inner.length; p = sigEnd(inner, p) + 1) encodeValue(w, inner.slice(p, sigEnd(inner, p) + 1), list[i++]);
@@ -200,8 +259,8 @@ export function encodeValue(w, sig, v) {
   if (c === "{") { // dict entry（只作为数组元素出现，见上；这里兜独立用法）
     w.put(8, Buffer.alloc(0));
     const inner = sig.slice(1, sigEnd(sig, 0));
-    encodeValue(w, inner[0], v[0]);
-    encodeValue(w, inner.slice(1), v[1]);
+    encodeValue(w, inner[0], (v as [unknown, unknown])[0]);
+    encodeValue(w, inner.slice(1), (v as [unknown, unknown])[1]);
 
     return;
   }
@@ -210,7 +269,7 @@ export function encodeValue(w, sig, v) {
 }
 
 /** 编一条 D-Bus 消息。opts: {type, flags, serial, path, interface, member, destination, errorName, replySerial, sig, body}。 */
-export function buildMessage(opts, endian = "B") {
+export function buildMessage(opts: MessageOptions, endian: Endian = "B") {
   const w = new Writer(endian);
   w.u8(endian === "B" ? 0x42 : 0x6c); // 'B' | 'l'
   w.u8(opts.type); // 1=method_call 2=method_return 3=error 4=signal
@@ -219,7 +278,7 @@ export function buildMessage(opts, endian = "B") {
   const bodyMarker = w.reserve32();
   w.u32(opts.serial);
   // header fields：array of (byte, variant)
-  const fields = [];
+  const fields: [number, WireVariant][] = [];
 
   if (opts.path) fields.push([1, { sig: "o", value: opts.path }]);
 
@@ -251,7 +310,7 @@ export function buildMessage(opts, endian = "B") {
   const bodyAt = w.len;
 
   if (opts.sig && opts.body !== undefined) {
-    const values = Array.isArray(opts.body) ? opts.body : [opts.body];
+    const values: unknown[] = Array.isArray(opts.body) ? opts.body : [opts.body];
     let i = 0;
 
     for (let at = 0; at < opts.sig.length; at = sigEnd(opts.sig, at) + 1) {
@@ -267,15 +326,18 @@ export function buildMessage(opts, endian = "B") {
 // —— 解码 ——
 
 class Reader {
-  constructor(buf, little) { this.buf = buf; this.little = little; this.off = 0; }
-  align(a) { this.off += (a - (this.off % a)) % a; }
-  need(n) {
+  declare buf: Buffer;
+  declare little: boolean;
+  declare off: number;
+  constructor(buf: Buffer, little: boolean) { this.buf = buf; this.little = little; this.off = 0; }
+  align(a: number) { this.off += (a - (this.off % a)) % a; }
+  need(n: number) {
     if (this.off + n > this.buf.length) throw new Error(`truncated @${this.off}+${n}/${this.buf.length}`);
   }
   u8() { this.need(1); return this.buf[this.off++]; }
   u32() { this.align(4); this.need(4); const v = this.little ? this.buf.readUInt32LE(this.off) : this.buf.readUInt32BE(this.off); this.off += 4; return v; }
   u64() { this.align(8); this.need(8); const v = this.little ? this.buf.readBigUInt64LE(this.off) : this.buf.readBigUInt64BE(this.off); this.off += 8; return Number(v); }
-  string(a = 4) {
+  string(a = 4): string {
     this.align(a);
     const n = this.u32();
     this.need(n + 1);
@@ -284,7 +346,7 @@ class Reader {
 
     return s;
   }
-  sig() {
+  sig(): string {
     this.align(1);
     const n = this.u8();
     this.need(n + 1);
@@ -294,7 +356,7 @@ class Reader {
     return s;
   }
   /** 按单个完整类型读一个值。a{…} → [[k,v],…] ｜ (…) → 数组 ｜ v → 展开后的内值。 */
-  value(sig) {
+  value(sig: string): unknown {
     const c = sig[0];
 
     if (c === "s" || c === "o") return this.string(4);
@@ -317,14 +379,14 @@ class Reader {
       this.align(ALIGN[elSig[0]] ?? 1); // 首元素垫片不计入 n（与编码端同一口径）
       const end = this.off + byteLen;
       const elAlign = ALIGN[elSig[0]] ?? 1;
-      const out = [];
+      const out: unknown[] = [];
 
       if (elSig[0] === "{") {
         while (this.off < end) {
           this.align(elAlign);
           const k = this.value(elSig[1]);
           const v = this.value(elSig.slice(2, -1));
-          out.push([k, v]);
+          out.push([k, v] as [unknown, unknown]);
         }
       } else {
         while (this.off < end) {
@@ -341,7 +403,7 @@ class Reader {
     if (c === "(") {
       this.align(8);
       const inner = sig.slice(1, sigEnd(sig, 0));
-      const out = [];
+      const out: unknown[] = [];
 
       for (let p = 0; p < inner.length; p = sigEnd(inner, p) + 1) out.push(this.value(inner.slice(p, sigEnd(inner, p) + 1)));
 
@@ -353,7 +415,7 @@ class Reader {
 }
 
 /** 解一条完整消息（buf 须含全包；字节不够返回 null）。偏移基准 = 消息首字节，与线上一致。 */
-export function parseMessage(buf) {
+export function parseMessage(buf: Buffer): Message | null {
   if (buf.length < 16) return null;
   const endian = String.fromCharCode(buf[0]);
 
@@ -371,7 +433,7 @@ export function parseMessage(buf) {
   if (buf.length < bodyStart + bodyLen) return null;
   const r = new Reader(buf, little);
   r.off = 16; // fields 数组内容起点（12..15 是长度）
-  const fields = {};
+  const fields: Record<number, unknown> = {};
 
   while (r.off < fieldsEnd) {
     r.align(8);
@@ -381,15 +443,17 @@ export function parseMessage(buf) {
   }
 
   r.off = bodyStart;
-  const bodySig = fields[8] ?? "";
-  const body = [];
+  const bodySig = (fields[8] as string | undefined) ?? "";
+  const body: unknown[] = [];
 
   for (let p = 0; p < bodySig.length; p = sigEnd(bodySig, p) + 1) body.push(r.value(bodySig.slice(p, sigEnd(bodySig, p) + 1)));
 
   return {
     type, serial, fields,
-    replySerial: fields[5],
-    interface: fields[2], member: fields[3], path: fields[1], errorName: fields[4], sig: bodySig,
+    // 头字段缺省时线上就是 undefined；只有 reply/error 分支会读它，这里收窄成标量
+    // 让调用侧不必到处判空（判空本身在原代码里也不存在，行为不变）。
+    replySerial: fields[5] as number,
+    interface: fields[2] as string, member: fields[3] as string, path: fields[1] as string, errorName: fields[4] as string, sig: bodySig,
     body,
     consumed: bodyStart + bodyLen,
   };
@@ -403,8 +467,8 @@ const hexUid = () => {
   return Buffer.from(String(uid), "utf8").toString("hex");
 };
 
-function defaultConnect(addr) {
-  return new Promise((resolve, reject) => {
+function defaultConnect(addr: BusAddress) {
+  return new Promise<Socket>((resolve, reject) => {
     const opts = addr.kind === "abstract" ? { path: `\0${addr.path}` } : { path: addr.path };
     const s = createConnection(opts);
     s.once("connect", () => resolve(s));
@@ -412,19 +476,22 @@ function defaultConnect(addr) {
   });
 }
 
+/** 建连函数：注入用（mock 总线跑线级单测），缺省走 defaultConnect。 */
+export type ConnectFn = (addr: BusAddress) => Promise<Socket>;
+
 /** 连接会话总线并完成 SASL EXTERNAL（注入 connect 便于 mock 测试）。 */
-export async function connectSessionBus({ connect = defaultConnect, env = process.env } = {}) {
+export async function connectSessionBus({ connect = defaultConnect, env = process.env }: { connect?: ConnectFn; env?: NodeJS.ProcessEnv } = {}): Promise<Socket> {
   const addr = parseBusAddress(env.DBUS_SESSION_BUS_ADDRESS, env);
 
   if (!addr) throw new Error("no session bus address");
   const socket = await connect(addr);
   socket.setNoDelay(true);
-  await new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     socket.write(`\0AUTH EXTERNAL ${hexUid()}\r\n`, "utf8");
     const to = setTimeout(() => finish(new Error("sasl timeout")), 5000);
     let acc = "";
 
-    const onData = (chunk) => {
+    const onData = (chunk: Buffer) => {
       acc += chunk.toString("utf8");
       let i;
 
@@ -442,9 +509,9 @@ export async function connectSessionBus({ connect = defaultConnect, env = proces
       }
     };
 
-    const onError = (e) => finish(e);
+    const onError = (e: Error) => finish(e);
 
-    const finish = (err) => {
+    const finish = (err: Error | null) => {
       clearTimeout(to);
       socket.off("data", onData);
       socket.off("error", onError);
@@ -474,10 +541,80 @@ const IFACE = "org.freedesktop.portal.GlobalShortcuts";
  * onStatus({state, reason})：connecting / ready / failed / unsupported。
  */
 /** BindShortcuts 的属性表：只放该快捷键**真有**的键（D-Bus 变体字典，多余键/undefined 会打坏编码） */
-type ShortcutProps = { description: { sig: string; value: string }; preferred_trigger?: { sig: string; value: string } };
+type ShortcutProps = { description: WireVariant; preferred_trigger?: WireVariant };
+
+/** 调用方交进来的一条快捷键绑定意图。 */
+export interface ShortcutSpec {
+  id: string;
+  description?: string;
+  trigger?: string;
+}
+
+/** 门户状态机：partial = 部分触发串被桌面端丢弃。 */
+export type PortalState = "connecting" | "ready" | "partial" | "failed" | "unsupported";
+
+/** onStatus 回调负载。 */
+export interface PortalStatus {
+  state: PortalState;
+  reason?: string;
+  missing?: string[];
+}
+
+/** PortalShortcuts 构造参数。 */
+export interface PortalOptions {
+  log?: (...args: unknown[]) => void;
+  onAction?: (id: string) => void;
+  onStatus?: (status: PortalStatus) => void;
+  connect?: ConnectFn;
+  env?: NodeJS.ProcessEnv;
+}
+
+/** 等一条信号时的匹配条件（缺省项 = 不比对该维）。 */
+interface SignalMatch {
+  path?: string;
+  interface?: string;
+  member?: string;
+}
+
+/** Request::Response 的解码结果。 */
+interface RequestResponse {
+  code: number;
+  results: Record<string, unknown>;
+  msg: Message;
+}
+
+/** serial → 同步回包等待者。 */
+interface Pending {
+  resolve: (body: unknown[]) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+/** 信号等待者；timer 只有限时等待才有。 */
+interface Waiter {
+  match: SignalMatch;
+  resolve: (res: RequestResponse) => void;
+  timer?: ReturnType<typeof setTimeout>;
+}
 
 export class PortalShortcuts {
-  constructor({ log = () => {}, onAction = () => {}, onStatus = () => {}, connect, env = process.env } = {}) {
+  declare log: (...args: unknown[]) => void;
+  declare onAction: (id: string) => void;
+  declare onStatus: (status: PortalStatus) => void;
+  declare connect: ConnectFn | undefined;
+  declare env: NodeJS.ProcessEnv;
+  declare socket: Socket | null;
+  declare serial: number;
+  declare pendings: Map<number, Pending>;
+  declare waiters: Waiter[];
+  declare stashed: Map<string, RequestResponse>;
+  declare sessionPath: string;
+  declare applying: boolean;
+  declare wantShortcuts: ShortcutSpec[] | null;
+  declare dead: boolean;
+  declare acc: Buffer;
+  declare state: PortalState;
+  constructor({ log = () => {}, onAction = () => {}, onStatus = () => {}, connect, env = process.env }: PortalOptions = {}) {
     this.log = log;
     this.onAction = onAction;
     this.onStatus = onStatus;
@@ -485,9 +622,9 @@ export class PortalShortcuts {
     this.env = env;
     this.socket = null;
     this.serial = Math.floor(Math.random() * 1000) + 1;
-    this.pendings = new Map(); // serial → {resolve, reject, timer}
+    this.pendings = new Map<number, Pending>(); // serial → {resolve, reject, timer}
     this.waiters = [];         // Request::Response 等待者
-    this.stashed = new Map();  // path → Response 结果：waiter 尚未挂上就到的信号先存着
+    this.stashed = new Map<string, RequestResponse>();  // path → Response 结果：waiter 尚未挂上就到的信号先存着
                                // （method_return 与 Response 同段抵达时，await 续延要等微任务，
                                //  不 stash 的话先到的信号会被空表丢弃 → 干等超时）
     this.sessionPath = "";
@@ -497,7 +634,7 @@ export class PortalShortcuts {
     this.acc = Buffer.alloc(0);
   }
 
-  _status(state, reason = "", missing = []) {
+  _status(state: PortalState, reason = "", missing: string[] = []) {
     this.state = state;
 
     try { this.onStatus({ state, reason, missing }); } catch { /* 回调不许炸连接 */ }
@@ -518,7 +655,7 @@ export class PortalShortcuts {
     this._teardown("destroyed");
   }
 
-  _teardown(_reason) {
+  _teardown(_reason: string) {
     const pend = [...this.pendings.values()];
     this.pendings.clear();
 
@@ -533,15 +670,15 @@ export class PortalShortcuts {
     this.sessionPath = "";
   }
 
-  _send(opts, sig, body) {
-    this.socket.write(buildMessage({ ...opts, serial: ++this.serial, sig, body }));
+  _send(opts: Omit<MessageOptions, "serial" | "sig" | "body">, sig: string, body: unknown) {
+    this.socket!.write(buildMessage({ ...opts, serial: ++this.serial, sig, body }));
 
     return this.serial;
   }
 
   /** 发方法调用并等 method_return / error（portal 的 request 句柄就是同步返回的）。 */
-  _call(dest, path, iface, member, sig, body, timeoutMs = 10000) {
-    return new Promise((resolve, reject) => {
+  _call(dest: string, path: string, iface: string, member: string, sig: string, body: unknown, timeoutMs = 10000) {
+    return new Promise<unknown[]>((resolve, reject) => {
       const serial = this._send({ type: 1, destination: dest, path, interface: iface, member }, sig, body);
 
       const timer = setTimeout(() => {
@@ -554,17 +691,17 @@ export class PortalShortcuts {
   }
 
   /** 等一条匹配的信号（Request::Response）。timeoutMs=0 = 不限时（授权弹窗可能悬很久）。 */
-  _waitSignal(match, timeoutMs = 0) {
+  _waitSignal(match: SignalMatch, timeoutMs = 0) {
     const stashed = match.path ? this.stashed.get(match.path) : null;
 
     if (stashed) {
-      this.stashed.delete(match.path);
+      this.stashed.delete(match.path as string);
 
       return Promise.resolve(stashed);
     }
 
-    return new Promise((resolve, reject) => {
-      const w = { match, resolve };
+    return new Promise<RequestResponse>((resolve, reject) => {
+      const w: Waiter = { match, resolve };
       this.waiters.push(w);
 
       if (timeoutMs) {
@@ -576,7 +713,7 @@ export class PortalShortcuts {
     });
   }
 
-  start(shortcuts) {
+  start(shortcuts: ShortcutSpec[]) {
     this.wantShortcuts = shortcuts;
 
     if (this.applying || this.dead) return; // 跑完这轮后按 wantShortcuts 重来
@@ -589,33 +726,34 @@ export class PortalShortcuts {
       if (this.wantShortcuts !== shortcuts) {
         const next = this.wantShortcuts;
         this._teardown("rebind");
-        void this.start(next);
+        void this.start(next as ShortcutSpec[]);
       }
     });
   }
 
-  setShortcuts(shortcuts) { this.start(shortcuts); }
+  setShortcuts(shortcuts: ShortcutSpec[]) { this.start(shortcuts); }
 
   async _run() {
-    const shortcuts = this.wantShortcuts;
+    // start() 先写 wantShortcuts 才调 _run，这里必然非空
+    const shortcuts = this.wantShortcuts as ShortcutSpec[];
     this._teardown("restart"); // 干掉上一次的连接/会话
     this._status("connecting");
 
     try {
       this.socket = await (this.connect
-        ? this.connect(parseBusAddress(this.env.DBUS_SESSION_BUS_ADDRESS, this.env))
+        ? this.connect(parseBusAddress(this.env.DBUS_SESSION_BUS_ADDRESS, this.env) as BusAddress)
         : connectSessionBus({ env: this.env }));
     } catch (e) {
-      this._status("unsupported", `会话总线不可用：${e?.message ?? e}`);
+      this._status("unsupported", `会话总线不可用：${(e as Error)?.message ?? e}`);
 
       return;
     }
 
-    const sock = this.socket;
+    const sock = this.socket as Socket;
     sock.setNoDelay(true);
-    sock.on("data", (chunk) => this._onData(chunk));
+    sock.on("data", (chunk: Buffer) => this._onData(chunk));
     // 闭包捕获 sock：重绑路径会先 _teardown 换新 socket，老事件迟到时不许殃及新连接
-    sock.on("error", (e) => {
+    sock.on("error", (e: Error) => {
       if (this.socket !== sock || this.dead) return;
       this.log("[hotkeys] portal socket error:", String(e?.message ?? e));
       this._teardown("error");
@@ -642,7 +780,7 @@ export class PortalShortcuts {
         { handle_token: { sig: "s", value: token }, session_handle_token: { sig: "s", value: "quaver" } },
       ]);
 
-      const resp = await this._waitSignal({ interface: "org.freedesktop.portal.Request", member: "Response", path: requestPath }, 15000);
+      const resp = await this._waitSignal({ interface: "org.freedesktop.portal.Request", member: "Response", path: requestPath as string }, 15000);
 
       if (resp.code !== 0) throw new Error(`CreateSession 被拒（code ${resp.code}）`);
       this.sessionPath = String(resp.results.session_handle ?? "");
@@ -655,10 +793,10 @@ export class PortalShortcuts {
 
         if (s.trigger) props.preferred_trigger = { sig: "s", value: s.trigger };
 
-        return [s.id, props];
+        return [s.id, props] as [string, ShortcutProps];
       });
 
-      let bindRequest;
+      let bindRequest: unknown;
 
       try {
         [bindRequest] = await this._call(DESKTOP, OBJ, IFACE, "BindShortcuts", "oa(sa{sv})sa{sv}", [
@@ -666,7 +804,7 @@ export class PortalShortcuts {
           { handle_token: { sig: "s", value: `${token}b` } },
         ], 15000);
       } catch (e) {
-        if (!/UnknownMethod|UnknownInterface|InvalidArgs/i.test(String(e?.message ?? e))) throw e;
+        if (!/UnknownMethod|UnknownInterface|InvalidArgs/i.test(String((e as Error)?.message ?? e))) throw e;
         this.log("[hotkeys] portal v2 BindShortcuts rejected, trying legacy v1 a{sv}");
         [bindRequest] = await this._call(DESKTOP, OBJ, IFACE, "BindShortcuts", "oa{sv}sa{sv}", [
           this.sessionPath,
@@ -676,24 +814,24 @@ export class PortalShortcuts {
 
             if (s.trigger) value.preferred_trigger = { sig: "s", value: s.trigger };
 
-            return [s.id, { sig: "a{sv}", value }];
+            return [s.id, { sig: "a{sv}", value }] as [string, WireVariant];
           })),
           "",
           { handle_token: { sig: "s", value: `${token}b` } },
         ], 15000);
       }
 
-      const bindResp = await this._waitSignal({ interface: "org.freedesktop.portal.Request", member: "Response", path: bindRequest }, 0);
+      const bindResp = await this._waitSignal({ interface: "org.freedesktop.portal.Request", member: "Response", path: bindRequest as string }, 0);
 
       if (bindResp.code !== 0) throw new Error(`快捷键绑定被取消（code ${bindResp.code}）`);
       // Response.results.shortcuts 是**实际绑上**的子集 —— 桌面端会把与系统占用冲突的
       // 首选触发串静默丢弃（如 Hyprland 的 Ctrl+Alt+←/→ 切工作区）。差集回传给调用方提示。
-      const boundIds = new Set((bindResp.results.shortcuts ?? []).map(([id]) => String(id)));
+      const boundIds = new Set(((bindResp.results.shortcuts ?? []) as [unknown, unknown][]).map(([id]) => String(id)));
       const missing = shortcuts.filter((s) => !boundIds.has(s.id)).map((s) => s.id);
       this._status(missing.length ? "partial" : "ready", missing.length ? `未绑上（可能被其他应用占用）：${missing.join("、")}` : "", missing);
       this.log(`[hotkeys] portal ready: ${boundIds.size}/${shortcuts.length} shortcuts${missing.length ? `（未绑上：${missing.join(", ")}）` : ""}, session ${this.sessionPath}`);
     } catch (e) {
-      const msg = String(e?.message ?? e);
+      const msg = String((e as Error)?.message ?? e);
 
       const unsupported = /UnknownMethod|UnknownInterface|InvalidArgs|AccessDenied/i.test(msg)
         || /CreateSession timeout/.test(msg);
@@ -703,14 +841,14 @@ export class PortalShortcuts {
     }
   }
 
-  _onData(chunk) {
+  _onData(chunk: Buffer) {
     this.acc = this.acc.length ? Buffer.concat([this.acc, chunk]) : chunk;
 
     while (true) {
-      let msg;
+      let msg: Message | null;
 
       try { msg = parseMessage(this.acc); } catch (e) {
-        this.log("[hotkeys] portal bad message:", String(e?.message ?? e));
+        this.log("[hotkeys] portal bad message:", String((e as Error)?.message ?? e));
         this.acc = Buffer.alloc(0);
 
         return;
@@ -722,7 +860,7 @@ export class PortalShortcuts {
     }
   }
 
-  _dispatch(msg) {
+  _dispatch(msg: Message) {
     if (msg.type === 2 || msg.type === 3) { // method_return / error
       const p = this.pendings.get(msg.replySerial);
 
@@ -739,8 +877,8 @@ export class PortalShortcuts {
     if (msg.type !== 4) return;
 
     if (msg.interface === "org.freedesktop.portal.Request" && msg.member === "Response") {
-      const [code, pairs] = msg.body;
-      const results = Object.fromEntries((pairs ?? []).map(([k, v]) => [k, v]));
+      const [code, pairs] = msg.body as [number, [unknown, unknown][]?];
+      const results = Object.fromEntries(((pairs ?? []) as [unknown, unknown][]).map(([k, v]) => [k, v]));
 
       for (const w of [...this.waiters]) {
         const m = w.match;
@@ -765,7 +903,7 @@ export class PortalShortcuts {
     }
 
     if (msg.interface === IFACE && msg.member === "Activated" && this.sessionPath) {
-      const [session, shortcutId] = msg.body;
+      const [session, shortcutId] = msg.body as [string, string?];
 
       if (session === this.sessionPath) {
         try { this.onAction(String(shortcutId ?? "")); } catch (e) { this.log("[hotkeys] onAction failed:", String(e)); }

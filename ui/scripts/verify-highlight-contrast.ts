@@ -71,8 +71,13 @@ function dE(a, b) { const [l1, a1, b1] = rgb2lab(a), [l2, a2, b2] = rgb2lab(b); 
 const f2 = (n) => n.toFixed(2);
 const f1 = (n) => n.toFixed(1);
 
+type RGB = number[];
+
+type Cover = { glow: RGB; accent: RGB };
+
 // —— 封面采样：glow 与 accent 同色相（同一张封面），L 分别 0.62 / 0.5 ——
-const COVERS = [];
+
+const COVERS: Cover[] = [];
 
 for (let h = 0; h < 360; h += 10) for (const s of [0.18, 0.5, 1.0]) {
   COVERS.push({ glow: hsl2rgb(h, Math.min(1, s * 1.05), 0.62), accent: hsl2rgb(h, s, 0.5) });
@@ -215,7 +220,7 @@ for (const [tn, T] of Object.entries(TOK)) {
 // ================= 正在播放页（底色恒深；二维扫描 封面亮度 × 遮罩透明度）=================
 console.log("\n=== 正在播放页 · 翻译选项（底色恒深，与明暗主题无关）===");
 
-const SURFACES = [];
+const SURFACES: RGB[] = [];
 
 for (let g = 0; g <= 255; g += 15) for (const a of [0.35, 0.45, 0.55]) SURFACES.push(over([g, g, g], a, SCRIM));
 

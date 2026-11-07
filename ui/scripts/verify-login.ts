@@ -151,24 +151,49 @@ const loginSource = source
 const makeLogin = new Function("api", "postJson", "window", "location", "setTimeout", "errText",
   stripTypeScriptTypes(loginSource) + "; return loginView;");
 
-const pending = [];
-const intervals = new Map();
-const delayed = [];
+interface PendingRequest {
+  path: string;
+  body?: any;
+  resolve: (v?: any) => void;
+  reject: (e?: any) => void;
+}
+
+const pending: PendingRequest[] = [];
+const intervals = new Map<number, () => void>();
+const delayed: (() => void)[] = [];
 let timerId = 0;
-const state = { textContent: "" }, qr = { innerHTML: "" }, refresh = { onclick: null };
+
+interface ClickStub {
+  onclick: (() => void) | null;
+}
+
+interface HideableClickStub extends ClickStub {
+  hidden: boolean;
+}
+
+interface ButtonStub extends ClickStub {
+  disabled: boolean;
+}
+
+const state = { textContent: "" }, qr = { innerHTML: "" };
+const refresh: ClickStub = { onclick: null };
 
 const quickEl = {
   innerHTML: "", hidden: false, classList: { add() {} },
   querySelector(s) { return { "#quick-login": quickLogin, "#quick-error": quickError }[s]; },
 };
-const quickLogin = { disabled: false, onclick: null };
+
+const quickLogin: ButtonStub = { disabled: false, onclick: null };
 const quickError = { textContent: "" };
-const fallback = { hidden: true, onclick: null };
+const fallback: HideableClickStub = { hidden: true, onclick: null };
+
 const qrPanel = {
   hidden: true, querySelector: (s) => ({ "#qr": qr, "#lstate": state, "#refresh": refresh, "#qr-fallback": qrFallback }[s]),
   querySelectorAll: () => tabs,
 };
-const qrFallback = { hidden: true, onclick: null };
+
+const qrFallback: HideableClickStub = { hidden: true, onclick: null };
+
 const fakeRoot = {
   innerHTML: "",
   classList: { add() {} },
@@ -206,19 +231,19 @@ ok("运行时：检测到本机 QQ 后渲染头像/昵称/QQ 号",
 
 ok("运行时：探测完成后才露出二维码兜底入口", fallback.hidden === false);
 
-fallback.onclick();
+fallback.onclick!();
 
 ok("运行时：切到二维码时隐藏快捷登录并露出返回入口",
   quickEl.hidden && qrPanel.hidden === false && qrFallback.hidden === false);
 
-qrFallback.onclick();
+qrFallback.onclick!();
 
 ok("运行时：从二维码切回快捷登录并收起返回入口",
   quickEl.hidden === false && qrPanel.hidden && intervals.size === 0);
 
 pending.splice(1); // start() 的二维码请求不在本轮断言里
 
-quickLogin.onclick();
+quickLogin.onclick!();
 
 ok("运行时：点击登录提交的是探测到的 uin", pending[1].path === "/login/qq-quick" && pending[1].body.uin === 123456);
 

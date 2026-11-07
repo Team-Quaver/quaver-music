@@ -271,17 +271,23 @@ else {
   const bundleFile = join(ROOT, "b.mjs");
   writeFileSync(bundleFile, chunk.code);
   // 最小 DOM 桩（config.ts boot 的 localStorage 回落路径）
-  const ls = new Map();
-  globalThis.localStorage = {
-    getItem: (k) => (ls.has(k) ? ls.get(k) : null),
-    setItem: (k, v) => void ls.set(k, String(v)),
-    removeItem: (k) => void ls.delete(k),
-  };
-  globalThis.document = { documentElement: { dataset: {}, classList: { toggle: () => {}, add: () => {}, remove: () => {} }, style: { setProperty: () => {}, removeProperty: () => {}, getPropertyValue: () => "" } }, body: { classList: { toggle: () => {}, add: () => {}, remove: () => {} } }, addEventListener: () => {}, visibilityState: "visible" };
-  globalThis.window = {
-    addEventListener: () => {}, setTimeout, clearTimeout, localStorage: globalThis.localStorage,
-    matchMedia: () => ({ matches: false, addEventListener: () => {} }),
-  };
+  const ls = new Map<string, string>();
+  Object.assign(globalThis, {
+    localStorage: {
+      getItem: (k: string) => (ls.has(k) ? ls.get(k) : null),
+      setItem: (k: string, v: string) => void ls.set(k, String(v)),
+      removeItem: (k: string) => void ls.delete(k),
+    },
+  });
+  Object.assign(globalThis, {
+    document: { documentElement: { dataset: {}, classList: { toggle: () => {}, add: () => {}, remove: () => {} }, style: { setProperty: () => {}, removeProperty: () => {}, getPropertyValue: () => "" } }, body: { classList: { toggle: () => {}, add: () => {}, remove: () => {} } }, addEventListener: () => {}, visibilityState: "visible" },
+  });
+  Object.assign(globalThis, {
+    window: {
+      addEventListener: () => {}, setTimeout, clearTimeout, localStorage: globalThis.localStorage,
+      matchMedia: () => ({ matches: false, addEventListener: () => {} }),
+    },
+  });
   const C = await import(bundleFile);
 
   eq("off：原文不动", await C.cjkConvert("設計一個設計師"), "設計一個設計師");

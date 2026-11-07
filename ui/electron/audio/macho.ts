@@ -79,7 +79,7 @@ export function machOMinOs(src: Buffer | string): OsVer | null {
   if (!is64 && magic !== MH_MAGIC) return null;
   const ncmds = buf.readUInt32LE(off + 16);
   let p = off + (is64 ? 32 : 28);
-  let minOs = null;
+  let minOs: OsVer | null = null;
 
   for (let i = 0; i < ncmds; i++) {
     if (p + 8 > buf.length) break;

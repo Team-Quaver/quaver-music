@@ -56,7 +56,7 @@ const slice = (src, a, b) => {
 };
 
 /** release fixture：assets 传 [文件名, 大小] */
-const rel = (tag, assets = [], extra = {}) => ({
+const rel = (tag, assets: [string, number][] = [], extra = {}) => ({
   tag, name: tag, prerelease: false, publishedAt: "2026-10-07T02:00:00Z", body: "", ...extra,
   assets: assets.map(([name, size]) => ({ name, size, url: `https://github.com/x/releases/download/${tag}/${name}` })),
 });

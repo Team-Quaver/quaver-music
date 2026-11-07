@@ -39,42 +39,48 @@ writeFileSync(OUT, chunk.code);
 for (let i = 0; i < 4; i++) copyFileSync(OUT, OUT + '.' + i + '.mjs');
 
 // —— 最小 DOM 桩 ——
-const ls = new Map();
-const cssVars = new Map();
-const htmlDataset = {};
-const htmlClasses = new Set();
-const bodyClasses = new Set();
+const ls = new Map<string, string>();
+const cssVars = new Map<string, string>();
+const htmlDataset: Record<string, string> = {};
+const htmlClasses = new Set<string>();
+const bodyClasses = new Set<string>();
 const bodyDataset: Record<string, string> = {};
-const mkClassList = (set) => ({ toggle: (n, on) => (on ? set.add(n) : set.delete(n)), contains: (n) => set.has(n) });
+const mkClassList = (set: Set<string>) => ({ toggle: (n: string, on: boolean) => (on ? set.add(n) : set.delete(n)), contains: (n: string) => set.has(n) });
 
-globalThis.localStorage = {
-  getItem: (k) => (ls.has(k) ? ls.get(k) : null),
-  setItem: (k, v) => void ls.set(k, String(v)),
-  removeItem: (k) => void ls.delete(k),
-};
-
-globalThis.document = {
-  documentElement: {
-    dataset: htmlDataset,
-    classList: mkClassList(htmlClasses),
-    style: {
-      setProperty: (k, v) => void cssVars.set(k, v),
-      removeProperty: (k) => void cssVars.delete(k),
-      getPropertyValue: (k) => cssVars.get(k) ?? "",
-    },
+Object.assign(globalThis, {
+  localStorage: {
+    getItem: (k: string) => (ls.has(k) ? ls.get(k) : null),
+    setItem: (k: string, v: string) => void ls.set(k, String(v)),
+    removeItem: (k: string) => void ls.delete(k),
   },
-  body: { classList: mkClassList(bodyClasses), dataset: bodyDataset },
-  addEventListener: () => {},
-  visibilityState: "visible",
-};
+});
 
-globalThis.window = {
-  matchMedia: () => ({ matches: false, addEventListener: () => {} }),
-  addEventListener: () => {},
-  setTimeout,
-  clearTimeout,
-  // 故意不给 quaverCSD / quaverConfig：浏览器 dev 的形态
-};
+Object.assign(globalThis, {
+  document: {
+    documentElement: {
+      dataset: htmlDataset,
+      classList: mkClassList(htmlClasses),
+      style: {
+        setProperty: (k: string, v: string) => void cssVars.set(k, v),
+        removeProperty: (k: string) => void cssVars.delete(k),
+        getPropertyValue: (k: string) => cssVars.get(k) ?? "",
+      },
+    },
+    body: { classList: mkClassList(bodyClasses), dataset: bodyDataset },
+    addEventListener: () => {},
+    visibilityState: "visible",
+  },
+});
+
+Object.assign(globalThis, {
+  window: {
+    matchMedia: () => ({ matches: false, addEventListener: () => {} }),
+    addEventListener: () => {},
+    setTimeout,
+    clearTimeout,
+    // 故意不给 quaverCSD / quaverConfig：浏览器 dev 的形态
+  },
+});
 
 const P = await import(OUT);
 
@@ -800,7 +806,7 @@ section("桌面端启动快照（quaverConfig.boot）");
 {
   ls.clear();
   ls.set("quaver.conf.v1", JSON.stringify({ "Style.Style": "light" })); // 应被 boot 快照盖过
-  let setCalls = [];
+  let setCalls: Record<string, string>[] = [];
   globalThis.window.quaverConfig = {
     boot: { ok: true, dir: "/x/Quaver Music", path: "/x/Quaver Music/quaver.conf", writable: true, values: { "Style.Style": "dark", "Playing.Volume": "0.42" } },
     set: (p) => { setCalls.push(p); return Promise.resolve({ ok: true }); },
@@ -814,7 +820,7 @@ section("桌面端启动快照（quaverConfig.boot）");
   D.setTheme("light");
   eq("有桥时写走 IPC（不再碰 localStorage）", setCalls.length, 1);
   eq("IPC patch 是 Section.Key", Object.keys(setCalls[0]), ["Style.Style"]);
-  eq("写桥后 localStorage 未被改写成全量", JSON.parse(ls.get("quaver.conf.v1"))["Style.Style"], "light");
+  eq("写桥后 localStorage 未被改写成全量", JSON.parse(ls.get("quaver.conf.v1")!)["Style.Style"], "light");
   delete globalThis.window.quaverConfig;
 }
 
@@ -823,7 +829,7 @@ section("高频项（音量）合并落盘");
 
 {
   ls.clear(); seed({});
-  let calls = [];
+  let calls: Record<string, string>[] = [];
   globalThis.window.quaverConfig = { boot: { ok: false }, set: (p) => { calls.push(p); return Promise.resolve({ ok: true }); } };
   const V = await import(`${OUT}.1.mjs?debounce=1`);
 
@@ -834,7 +840,7 @@ section("高频项（音量）合并落盘");
   eq("窗口到期只写一次", calls.length, 1);
   eq("写的是最后一个值", calls[0]["Playing.Volume"], "0.5");
   check("相同值不产生写入", (V.setVolume(0.5), await new Promise((r) => setTimeout(r, 400)), calls.length === 1), `calls=${calls.length}`);
-  eq("静音写入 Muted", (V.setMuted(true), await new Promise((r) => setTimeout(r, 50)), calls.at(-1)["Playing.Muted"]), "True");
+  eq("静音写入 Muted", (V.setMuted(true), await new Promise((r) => setTimeout(r, 50)), calls.at(-1)!["Playing.Muted"]), "True");
   delete globalThis.window.quaverConfig;
 }
 

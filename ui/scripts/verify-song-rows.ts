@@ -50,7 +50,7 @@ ok("player: 未登记容器时回落全篇扫（插件自绘视图不至于没�
   /document\.querySelectorAll\("\.card\.playing,\.row\.playing"\)/.test(player));
 
 // —— 不变量：data-songkey 的行只可能由 renderSongRows 造，.playing 只可能由 markActive 打 ——
-const srcFiles = [];
+const srcFiles: string[] = [];
 
 const walk = (dir) => {
   for (const name of readdirSync(dir, { withFileTypes: true })) {

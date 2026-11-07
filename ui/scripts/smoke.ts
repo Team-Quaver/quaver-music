@@ -11,7 +11,7 @@ mkdirSync(OUT, { recursive: true });
 
 const browser = await puppeteer.launch({
   executablePath: "/usr/bin/google-chrome",
-  headless: "new",
+  headless: true,
   args: ["--no-sandbox", "--disable-gpu", "--autoplay-policy=no-user-gesture-required"],
 });
 
@@ -48,7 +48,7 @@ await shot("01-home");
 // 2) 打开第一个歌单并取歌曲
 await step("playlist: 歌单详情出歌曲", async () => {
   const href = await page.$eval(".playlist-grid .card", (a) => a.getAttribute("href"));
-  await page.evaluate((h) => { location.hash = h.replace(/^#/, ""); }, href);
+  await page.evaluate((h) => { location.hash = (h ?? "").replace(/^#/, ""); }, href);
   await sleep(3500);
   const rows = await page.$$eval(".content .row", (els) => els.length);
 
@@ -96,7 +96,7 @@ await step("api: 搜索端到 UI 中继", async () => {
 await step("login: 二维码 img 出图", async () => {
   await page.evaluate(() => { location.hash = "#/login"; });
   await page.waitForFunction(() => {
-    const img = document.querySelector(".qr img");
+    const img = document.querySelector<HTMLImageElement>(".qr img");
 
     return img && img.complete && img.naturalWidth > 0;
   }, { timeout: 15000 });

@@ -16,7 +16,7 @@
 //      与架构，以及是否商店托管（store=spark/linglong —— APM 琥珀 / 如意玲珑容器里更新由商店
 //      推送，渲染层据此不挑包、不下载），渲染层据此挑安装包。
 import { app, BrowserWindow, ipcMain, shell } from "electron";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { access, chmod, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
@@ -29,14 +29,14 @@ const GITHUB_REPO = "team-quaver/quaver-music";
 const GITHUB_API = `https://api.github.com/repos/${GITHUB_REPO}/releases`;
 
 /** 进度推给当前窗口（下载在主进程，渲染层只认 quaver:update-progress 事件）。 */
-const sendProgress = (id, received, total) => {
+const sendProgress = (id: string, received: number, total: number) => {
   const win = BrowserWindow.getAllWindows()[0];
 
   try { win?.webContents?.send("quaver:update-progress", { id, received, total }); } catch { /* 窗口已关 */ }
 };
 
 // ——— 下载任务表：id → AbortController（弹窗关闭/取消按钮据此中断） ———
-const downloads = new Map();
+const downloads = new Map<string, AbortController>();
 
 // ——— 小工具 ———
 
@@ -124,14 +124,14 @@ async function storeManaged(): Promise<string | null> {
 
 /** Linux：交给系统默认应用打开（xdg-open）—— deb/rpm/flatpak 走这里，用户在自己的包管理器里确认安装。 */
 function xdgOpen(path: string) {
-  return new Promise((resolve) => {
+  return new Promise<Error | null>((resolve) => {
     let done = false;
-    const finish = (err: unknown) => { if (done) return; done = true; resolve(err ?? null); };
-    let child;
+    const finish = (err: Error | null) => { if (done) return; done = true; resolve(err ?? null); };
+    let child: ChildProcess;
 
     try {
       child = spawn("xdg-open", [path], { detached: true, stdio: "ignore" });
-    } catch (e) { finish(e); return; }
+    } catch (e) { finish(e as Error); return; }
 
     child.once("error", finish);
     child.once("spawn", () => { child.unref(); finish(null); });
@@ -139,7 +139,7 @@ function xdgOpen(path: string) {
 }
 
 /** 从下载 URL 取落盘文件名（github assets 的 URL 段就是原始文件名）。 */
-function assetBasename(url) {
+function assetBasename(url: string) {
   try {
     const name = decodeURIComponent(new URL(url).pathname.split("/").pop() ?? "");
 
@@ -168,7 +168,7 @@ async function uniqueDest(dir: string, name: string) {
 
 /** 流式下载：进度按整百分比推送（事件风暴会让渲染层卡顿）。
  *  sha256 非空时落盘后校验：对不上（下载损坏 / 上游重打包）删掉文件并报失败，绝不交付坏包。 */
-async function downloadTo(id, url, dest, log, sha256 = "") {
+async function downloadTo(id: string, url: string, dest: string, log: (...args: unknown[]) => void, sha256 = "") {
   const ctl = new AbortController();
   downloads.set(id, ctl);
   const ws = createWriteStream(dest, { mode: 0o755 });
@@ -181,7 +181,7 @@ async function downloadTo(id, url, dest, log, sha256 = "") {
     let received = 0;
     let lastPct = -1;
     await pipeline(
-      Readable.fromWeb(res.body),
+      Readable.fromWeb(res.body as unknown as Parameters<typeof Readable.fromWeb>[0]),
       new Transform({
         transform(chunk, _enc, cb) {
           received += chunk.length;
@@ -216,19 +216,19 @@ async function downloadTo(id, url, dest, log, sha256 = "") {
     await rmQuiet(dest);
     const canceled = ctl.signal.aborted;
 
-    return { ok: false, canceled, error: canceled ? "下载已取消" : String(e?.message ?? e) };
+    return { ok: false, canceled, error: canceled ? "下载已取消" : String((e as Error)?.message ?? e) };
   } finally {
     downloads.delete(id);
   }
 }
 
-async function rmQuiet(path) {
+async function rmQuiet(path: string) {
   try { await rm(path, { force: true }); } catch { /* 尽力而为 */ }
 }
 
 // ——— IPC 注册 ———
 
-export function setupUpdaterIPC({ log }) {
+export function setupUpdaterIPC({ log }: { log: (...args: unknown[]) => void }) {
   ipcMain.handle("quaver:update", async (_e, msg) => {
     const op = msg?.op;
 
@@ -450,9 +450,9 @@ export function setupUpdaterIPC({ log }) {
 
       return { ok: false, error: `未知 op: ${op}` };
     } catch (e) {
-      log(`[quaver] update op ${op} failed:`, String(e?.stack || e));
+      log(`[quaver] update op ${op} failed:`, String((e as Error)?.stack || e));
 
-      return { ok: false, error: String(e?.message ?? e) };
+      return { ok: false, error: String((e as Error)?.message ?? e) };
     }
   });
 }

@@ -18,7 +18,7 @@ mkdirSync(TMP + "/profile", { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({
-  executablePath: "/usr/bin/google-chrome", headless: "new",
+  executablePath: "/usr/bin/google-chrome", headless: true,
   userDataDir: TMP + "/profile",
   env: { ...process.env, TMPDIR: TMP, XDG_CACHE_HOME: TMP + "/cache" },
   args: ["--no-sandbox", "--disable-gpu", "--no-proxy-server",
@@ -31,10 +31,18 @@ const page = await browser.newPage();
 
 await page.setViewport({ width: 1024, height: 720 });
 
+interface DetailStats {
+  detailP1: number;
+  detailP2: number;
+  p1DoneAt: number[];
+}
+
 // 挡图片/字体；统计目标歌单 detail 请求（page≥2 只会出现在整单回源里，窗口回源只打 page=1）；
 // 留一次性「读侧滞后」开关：把下一发首页窗口打成旧数据，验证庇护（不碰真账号的写）
 let PLTID = "";
-let stats = { detailP1: 0, detailP2: 0, p1DoneAt: [] };
+
+let stats: DetailStats = { detailP1: 0, detailP2: 0, p1DoneAt: [] };
+
 let staleArm = false, staleUsed = false, stalePayload = null;
 
 await page.setRequestInterception(true);
@@ -276,12 +284,12 @@ await step("从歌单删除 → 行淡出移除 + 序号重排 + 双击命中当
   if (at < 0) throw new Error("3s 内行未移出");
 
   // 删除重排后双击：序号/列表以当时 DOM 为准 —— 双击第 1 行必须播第 1 行这首歌（不真放流，只抓参数）
-  const played = await page.evaluate(() => new Promise((resolve) => {
+  const played = await page.evaluate(() => new Promise<{ want?: string | null; got?: string | null; label?: string | null }>((resolve) => {
     const pl = window.__quaverPlayer;
     const orig = pl.playList.bind(pl);
     pl.playList = (all, i) => {
       pl.playList = orig;
-      const firstRow = document.querySelector(".rows .row[data-songkey]");
+      const firstRow = document.querySelector<HTMLElement>(".rows .row[data-songkey]");
       resolve({ want: firstRow?.dataset.songkey, got: all?.[Number(i)]?.mid,
         label: firstRow?.querySelector(".idx")?.textContent?.trim() });
     };

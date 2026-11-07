@@ -29,10 +29,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // —— ① 静态面 ——
 
+/** dist/.vite/manifest.json 里一条 chunk 记录（只声明本探针会读的字段）。 */
+type ManifestChunk = { file?: string; src?: string; isEntry?: boolean; css?: string[]; imports?: string[]; dynamicImports?: string[] };
+
 function manifest() {
   const p = join(DIST, ".vite", "manifest.json");
 
-  return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : {};
+  return (existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : {}) as Record<string, ManifestChunk>;
 }
 
 const bytes = (rel) => { const f = join(DIST, rel); return existsSync(f) ? statSync(f).size : 0; };
@@ -47,7 +50,7 @@ function reportStatic() {
   const byFile = new Map(keys.map((k) => [m[k].file, k]));
 
   const closure = (entryKey) => {
-    const seen = [];
+    const seen: string[] = [];
 
     const walk = (k) => {
       const c = m[k];
@@ -63,14 +66,14 @@ function reportStatic() {
     return seen;
   };
 
-  const out = { entries: {}, chunks: {} };
+  const out: { entries: Record<string, unknown>; chunks: Record<string, unknown> } = { entries: {}, chunks: {} };
 
   for (const e of keys.filter((k) => m[k].isEntry)) {
     const files = closure(e);
     const js = files.reduce((s, f) => s + bytes(f), 0);
-    const css = [...new Set(files.flatMap((f) => m[byFile.get(f)]?.css ?? []))];
+    const css = [...new Set(files.flatMap((f) => m[byFile.get(f)!]?.css ?? []))];
     const cssBytes = css.reduce((s, f) => s + bytes(f), 0);
-    const lazy = [...new Set(files.flatMap((f) => m[byFile.get(f)]?.dynamicImports ?? []).map((k) => m[k]?.file).filter(Boolean))];
+    const lazy = [...new Set(files.flatMap((f) => m[byFile.get(f)!]?.dynamicImports ?? []).map((k) => m[k]?.file).filter(Boolean) as string[])];
     const lazyBytes = lazy.reduce((s, f) => s + bytes(f), 0);
     out.entries[e] = { js, cssBytes, lazyBytes, files, css, lazy };
     console.log(`  ${e.padEnd(22)} 首屏 JS ${kb(js)}KB/${files.length}chunk + CSS ${kb(cssBytes)}KB ｜ 懒加载可达 ${kb(lazyBytes)}KB/${lazy.length}`);
@@ -87,7 +90,7 @@ function reportStatic() {
     const g = graph[rel];
     const mods = g.modules ?? [];
     const top = mods.slice(0, 2).map((t) => t.id.replace(/^.*(node_modules|src|vendor|third_party)/, "$1").slice(0, 44)).join(" · ");
-    console.log("    " + kb(g.bytes) + "KB " + rel.split("/").pop().padEnd(26) + " " + g.kind.padEnd(8) + String(mods.length).padStart(3) + " mods" + (top ? " ｜ " + top : ""));
+    console.log("    " + kb(g.bytes) + "KB " + rel.split("/").pop()!.padEnd(26) + " " + g.kind.padEnd(8) + String(mods.length).padStart(3) + " mods" + (top ? " ｜ " + top : ""));
     out.chunks[rel] = { bytes: g.bytes, kind: g.kind, modules: mods.map((m) => m.id) };
   }
 
@@ -118,7 +121,7 @@ const rssOf = (pid) => { try { return Number(readFileSync(`/proc/${pid}/status`,
 
 async function live() {
   mkdirSync(PERIODIR, { recursive: true });
-  let proc = null;
+  let proc: ReturnType<typeof spawn> | null = null;
 
   if (!flag("live-only")) {
     const cfgDir = join(PERIODIR, LABEL);
@@ -146,14 +149,14 @@ async function live() {
 
   console.log(`  已连: ${url}`);
   const browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${PORT}` });
-  const page = (await browser.pages()).find((p) => p.url() === url);
+  const page = (await browser.pages()).find((p) => p.url() === url)!;
   const cdp = await page.createCDPSession();
   // 懒加载缝坏掉的第一信号是控制台报错（404 的 chunk、被 CSP 拦的 import）——全程收集，最后点名
-  const errors = [];
-  page.on("pageerror", (e) => errors.push("pageerror: " + String(e && e.message || e).slice(0, 160)));
+  const errors: string[] = [];
+  page.on("pageerror", (e: unknown) => errors.push("pageerror: " + String(e && (e as Error).message || e).slice(0, 160)));
   page.on("console", (m) => { if (m.type() === "error") errors.push("console.error: " + m.text().slice(0, 160)); });
   await cdp.send("Performance.enable");
-  const samples = [];
+  const samples: Record<string, unknown>[] = [];
 
   const sample = async (name) => {
     let perf;
@@ -205,7 +208,7 @@ async function live() {
   await sleep(5000);
   await sample("boot");
 
-  for (const [name, hash, wait] of [["settings", "#/settings", 2000], ["guess", "#/guess", 2600], ["daily", "#/daily", 2600], ["liked", "#/liked", 2600], ["search", "#/search?q=%E5%91%8A%E7%99%BD", 3600], ["home", "#/", 2000]]) { await go(hash, wait); await sample(name); }
+  for (const [name, hash, wait] of [["settings", "#/settings", 2000], ["guess", "#/guess", 2600], ["daily", "#/daily", 2600], ["liked", "#/liked", 2600], ["search", "#/search?q=%E5%91%8A%E7%99%BD", 3600], ["home", "#/", 2000]] as [string, string, number][]) { await go(hash, wait); await sample(name); }
 
   // 反复进出「最重的两个页面」后残留多少：堆应当回到首轮水位（涨 = 有东西没解绑）
   const leakBefore = (await cdp.send("Runtime.getHeapUsage")).usedSize;
@@ -228,7 +231,7 @@ async function live() {
 
   const h0 = (await cdp.send("Runtime.getHeapUsage")).usedSize;
 
-  const dict = cn2tAsset
+  const dict: Record<string, unknown> = cn2tAsset
     ? await page.evaluate(async (asset) => {
         const t0 = performance.now();
         const mod = await import(/* @vite-ignore */ asset);
@@ -247,7 +250,7 @@ async function live() {
   await cdp.send("HeapProfiler.collectGarbage").catch(() => {});
   await sleep(800);
   await sample("steady-gc");
-  const loaded = await page.evaluate(() => performance.getEntriesByType("resource").filter((r) => r.name.endsWith('.js')).map((r) => `${r.name.split("/").pop()}(${(r.decodedBodySize / 1024).toFixed(0)}k)`));
+  const loaded = await page.evaluate(() => performance.getEntriesByType("resource").filter((r) => r.name.endsWith('.js')).map((r) => `${r.name.split("/").pop()}(${((r as PerformanceResourceTiming).decodedBodySize / 1024).toFixed(0)}k)`));
   console.log("  实际加载 JS：", loaded.join(" "));
   const uniq = [...new Set(errors)];
   console.log("  页面错误(懒加载缝): " + (uniq.length ? uniq.join(" | ") : "无"));
@@ -265,7 +268,7 @@ async function live() {
 
 mkdirSync(PERIODIR, { recursive: true });
 
-const result = {};
+const result: Record<string, unknown> = {};
 
 if (!flag("live-only")) result.static = reportStatic();
 

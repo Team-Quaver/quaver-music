@@ -5,7 +5,7 @@ const BASE = "http://[::1]:5199";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({
-  executablePath: "/usr/bin/google-chrome", headless: "new",
+  executablePath: "/usr/bin/google-chrome", headless: true,
   args: ["--no-sandbox", "--disable-gpu", "--no-proxy-server", "--autoplay-policy=no-user-gesture-required"],
 });
 
@@ -48,7 +48,8 @@ await page.evaluate(() => {
 
 // 造 400 首歌，渲染进一个离屏容器（走真实 renderSongRows）
 const setup = await page.evaluate(async () => {
-  const m = await import("/src/lib/songs.ts");
+  const songsUrl: string = "/src/lib/songs.ts"; // dev-server 绝对 URL：既非包名也非相对路径，TS 解析不了，运行时由 Vite 命中源文件
+  const m = await import(songsUrl);
   (window as any).__songs = m;
   const box = document.createElement("div");
 
@@ -199,11 +200,11 @@ await step("markActive：高亮跟着当前曲走，旧高亮被清干净", asyn
 
     setCurrent("mid7");
     player.markActive();
-    const first = [...box.querySelectorAll(".row.playing")].map((e) => e.dataset.songkey);
+    const first = [...box.querySelectorAll<HTMLElement>(".row.playing")].map((e) => e.dataset.songkey);
 
     setCurrent("mid9");
     player.markActive();
-    const second = [...box.querySelectorAll(".row.playing")].map((e) => e.dataset.songkey);
+    const second = [...box.querySelectorAll<HTMLElement>(".row.playing")].map((e) => e.dataset.songkey);
 
     setCurrent("");
     player.markActive();
@@ -231,7 +232,7 @@ await step("markActive：同曲在多个列表里都点亮", async () => {
     player.markActive();
 
     const a = [...w.__box.querySelectorAll(".row.playing")].map((e) => e.dataset.songkey);
-    const b = [...box2.querySelectorAll(".row.playing")].map((e) => e.dataset.songkey);
+    const b = [...box2.querySelectorAll<HTMLElement>(".row.playing")].map((e) => e.dataset.songkey);
 
     box2.remove();
     m.renderSongRows(w.__box, w.__mk(400), w.__hooks); // 复原主列表
@@ -254,10 +255,10 @@ await step("markActive：同一首重复出现时两处都点亮", async () => {
     player.queue = [{ mid: "mid2" }]; player.index = 0;
     player.markActive();
 
-    const on = [...box.querySelectorAll(".row.playing")].map((e) => e.dataset.songkey);
+    const on = [...box.querySelectorAll<HTMLElement>(".row.playing")].map((e) => e.dataset.songkey);
     const rows = [...box.querySelectorAll<HTMLElement>(".row[data-songkey]")];
     w.__calls = [];
-    rows[rows.length - 1].querySelector(".rmeta").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    rows[rows.length - 1].querySelector<HTMLElement>(".rmeta")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
 
     return { on, lastCall: w.__calls[0] };
   });
@@ -275,9 +276,9 @@ await step("双击同 mid 的两行 → 各自拿到自己的对象（不串台�
     const rows = [...box.querySelectorAll<HTMLElement>(".row[data-songkey]")];
     const dupAt = rows.filter((el) => el.dataset.songkey === "mid2");
 
-    dupAt[0].querySelector(".rmeta").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    dupAt[0].querySelector<HTMLElement>(".rmeta")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
     const first = { ...w.__calls }; w.__calls = [];
-    dupAt[1].querySelector(".rmeta").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    dupAt[1].querySelector<HTMLElement>(".rmeta")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
 
     return { n: dupAt.length, first, second: { ...w.__calls } };
   });
