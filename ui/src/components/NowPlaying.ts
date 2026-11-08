@@ -24,7 +24,7 @@
 // + 深色渐变压暗 + .np 固体底色兜底；进度与控制由常驻播放条承担。
 import { player, type Song } from "../player";
 import { pickAux } from "../lyric";
-import { coverUrl, songTitle, stripEm, QUALITY_SHORT, effectiveQuality, getLastStream } from "../lib/api";
+import { coverUrl, coverUrlCandidates, songTitle, stripEm, QUALITY_SHORT, effectiveQuality, getLastStream } from "../lib/api";
 import type { StreamInfo } from "../lib/streaminfo";
 import { icons } from "../lib/icons";
 import { getLyricScale, setLyricScale, LYRIC_SCALE_MAX, LYRIC_SCALE_MIN, LYRIC_SCALE_STEP, LYRIC_AUX_MODES, npLyricFullHeight, npLyricHidePlayed, getNpBackgroundRenderer, type LyricAuxMode, type BackgroundRenderer } from "../lib/prefs";
@@ -796,7 +796,55 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
   let lastAuxMode = "";    // 翻译选项档位（换档要重挑每行的辅助行文本）
   let lastIdx = -1;        // 高亮行索引（避免每帧改 class）
   let lastCover: string | null = null; // 封面 img 的 src 签名（4Hz notify 里防 <img> 重建/重解码）
+  let npCoverWant = "";    // 当前封面候选链的指纹（首项 URL；换曲/换封面才重置降级游标）
+  let npCoverUrls: string[] = [];
+  let npCoverTry = 0;
   let lineEls: HTMLElement[] = [];
+
+  // 正在播放页大封面从 QQ 音乐最高档 1500 起取；个别专辑没有该档时 <img> 404，
+  // 按候选链逐级下降到 1200/800/500/300/150/90。候选首项兼作指纹：4Hz notify
+  // 不会反复重建 <img>/重解码，只有真的换曲或本地封面版本变化才重置游标。
+  function showNpCover(s: Song | undefined) {
+    const urls = coverUrlCandidates(s);
+    const want = urls[0] ?? "";
+
+    if (want !== npCoverWant) {
+      npCoverWant = want;
+      npCoverUrls = urls;
+      npCoverTry = 0;
+      lastCover = null;
+    }
+
+    const pic = npCoverUrls[npCoverTry] ?? "";
+
+    if (pic === lastCover) return;
+    lastCover = pic;
+
+    if (!pic) {
+      cover.innerHTML = `<div class="np-cover-ph">${icons.disc ?? ""}</div>`;
+
+      return;
+    }
+
+    cover.innerHTML = `<img src="${pic}" alt=""/>`;
+    const img = cover.querySelector("img");
+
+    if (!img) return;
+
+    img.onerror = () => {
+      if (npCoverUrls[npCoverTry] !== pic) return; // 期间已换曲/换候选
+
+      if (npCoverTry + 1 >= npCoverUrls.length) {
+        cover.innerHTML = `<div class="np-cover-ph">${icons.disc ?? ""}</div>`;
+
+        return;
+      }
+
+      npCoverTry++;
+      lastCover = null;
+      showNpCover(s);
+    };
+  }
 
   // —— 歌词（提供器接管 .np-kara-host：内置 AMLL 渲染逐字 QRC/TTML 与行级 LRC）——
   // notify 只有 4Hz，逐字扫色要逐帧时间：逐帧时钟/播放态/翻译显隐/收起冻结全部由
@@ -1251,7 +1299,7 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
     const pic = s ? coverUrl(s, 300) : "";
     syncNpAml(pic, open);
 
-    if (pic !== lastCover) { lastCover = pic; cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : `<div class="np-cover-ph">${icons.disc ?? ""}</div>`; }
+    showNpCover(s);
 
     // 换曲 / 歌词内容替换 / 状态迁移 / 接管模式切换（重导入同曲时状态仍是 ok，只靠版本号识别）
     const st: "idle" | "loading" | "ok" | "none" = player.lyrics.length ? "ok" : player.lyricState;

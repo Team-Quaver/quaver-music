@@ -85,7 +85,7 @@ ok("舞台: 控制条在封面上方，含暂停/下一首/红心", has(guessCod
 
 ok("舞台: 手动换一批入口保留", has(guessCode, 'id="radio-restart"') && has(guessCode, "restart.addEventListener(\"click\""));
 
-ok("封面: 使用与正在播放页相同的 300 档封面地址", has(guessCode, "coverUrl(s, 300)") && !has(guessCode, "coverUrl(s, 600)"));
+ok("封面: 电台舞台用 300 档（正在播放页大图另走 1500 起的降级链）", has(guessCode, "coverUrl(s, 300)") && !has(guessCode, "coverUrl(s, 600)"));
 
 ok("封面: 图片加载失败回落 ∞ 占位", has(guessCode, "img.onerror"));
 

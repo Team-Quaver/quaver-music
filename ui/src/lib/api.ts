@@ -127,6 +127,23 @@ export const coverUrl = (s: any, size = 300) => {
   return base ? `https://y.gtimg.cn/music/photo_new/T002R${size}x${size}M000${base}.jpg` : "";
 };
 
+/** QQ 音乐专辑封面 CDN 的现行档位（高 → 低）。1000/1080/2000 实测都是 404，
+ *  1500 是最高档；并非每张专辑都有全部档位，正在播放页大图按此链逐级回落。 */
+export const QQ_COVER_SIZES = [1500, 1200, 800, 500, 300, 150, 90] as const;
+
+/** 同一封面的候选 URL（高 → 低）。本地/微云封面只有一个 URL，去重后仍是单元素。 */
+export function coverUrlCandidates(s: any, sizes: readonly number[] = QQ_COVER_SIZES): string[] {
+  const urls: string[] = [];
+
+  for (const size of sizes) {
+    const url = coverUrl(s, size);
+
+    if (url && !urls.includes(url)) urls.push(url);
+  }
+
+  return urls;
+}
+
 // 上游 picUrl 常是 http，https 同域可用则升级
 export const upPic = (u?: string) => (u ?? "").replace(/^http:/, "https:");
 

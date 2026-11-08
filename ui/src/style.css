@@ -1639,7 +1639,7 @@ html[data-lyric-tint="off"] .np-kara-host { --amll-lp-color: white; }
 }
 /* 悬浮感 = 封面投影，只属于「正在播放」：暂停时收干净（随 notify 的 .playing 同步）。
    投影预画在 .np-cover-wrap::before 上、播放/暂停只过渡 opacity：box-shadow 一动就等于
-   每帧整块重绘封面区域 —— 本地封面是整张原图（CDN 是 300px 小图），重绘大纹理会闪白帧；
+   每帧整块重绘封面区域 —— 本地封面是整张原图（CDN 大图现取最高档），重绘大纹理会闪白帧；
    opacity 是纯合成器动画，零重绘，播放/暂停来回也不跳变 */
 .np-cover-wrap { width: min(320px, 38vh); aspect-ratio: 1; position: relative; }
 .np-cover-wrap::before {

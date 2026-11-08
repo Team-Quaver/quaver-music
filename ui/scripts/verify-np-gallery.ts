@@ -2,6 +2,7 @@
 // 跑：  node scripts/verify-np-gallery.ts   （需 dev server，QBASE 缺省 http://127.0.0.1:5173）
 // 不需要 sidecar：歌曲/歌词经 window.__player 桩进（DEV 钩子），封面请求被拦截为本地纯色 PNG。
 // 覆盖：
+//  - 大封面从 QQ 音乐最高档 1500 起取，缺档时 <img> 逐级降级（1500 → 1200）
 //  - np 背景双层（A 垫底 / B 淡入）就位与换曲交接（A 接管、B 退场），全程不操纵 z-index
 //    —— 背景层一旦盖住 .np-scrim，kara 模式左缘渐变蒙版（歌词可读性背光）就没了
 //  - 画廊模式（播放条按钮）：开 = 展开本页 + 全屏；再点 = 收起 + 退全屏 + 按钮熄灭
@@ -74,6 +75,8 @@ page.on("pageerror", (e) => console.log("[pageerror]", String(e)));
 
 // 封面域名拦截为本地 PNG（交替两色，便于确认「换曲真的换了图」）
 let flip = false;
+let failCover1500 = false;
+const coverRequests: string[] = [];
 const inhibitCalls: Record<string, unknown>[] = [];
 
 await page.setRequestInterception(true);
@@ -87,7 +90,15 @@ page.on("request", (req) => {
     }) });
   }
 
-  if (req.url().includes("y.gtimg.cn")) { flip = !flip; return req.respond({ status: 200, contentType: "image/png", body: flip ? PNG_A : PNG_B }); }
+  if (req.url().includes("y.gtimg.cn")) {
+    coverRequests.push(req.url());
+
+    if (failCover1500 && req.url().includes("T002R1500x1500")) {
+      return req.respond({ status: 404, contentType: "text/plain", body: "not found" });
+    }
+
+    flip = !flip; return req.respond({ status: 200, contentType: "image/png", body: flip ? PNG_A : PNG_B });
+  }
 
   req.continue();
 });
@@ -147,6 +158,18 @@ const setupSong = (mid) => page.evaluate((mid) => {
 await page.goto(`${BASE}/index.html#/`, { waitUntil: "networkidle2" });
 
 await sleep(1500); // 等 initSparkle（内置歌词引擎 + 官方插件都是动态 import）
+
+await step("大封面：1500 优先，缺档时逐级降到 1200", async () => {
+  failCover1500 = true;
+  await setupSong("cover-fallback");
+  await page.waitForFunction(() =>
+    (document.querySelector<HTMLImageElement>("#np-cover img")?.src ?? "").includes("T002R1200x1200M000"), { timeout: 8000 });
+
+  if (!coverRequests.some((url) => url.includes("T002R1500x1500M000"))) throw new Error("没有先请求 1500 档");
+  failCover1500 = false;
+  await page.evaluate(() => { window.__player.expanded = false; window.__player.notifyPublic(); });
+  await page.waitForFunction(() => !document.querySelector(".np")?.classList.contains("open"), { timeout: 4000 });
+});
 
 await step("频谱关闭 + 懒加载样式未到位时，打开 ⋮ 不会挤动正在播放页", async () => {
   await setupSong("layout");
