@@ -846,8 +846,9 @@ Exec 写死「当前 electron + 仓库 ui/」，落进 `applications/` 就是启
 托盘挂在**外壳**上（Linux 面板 / macOS 菜单栏 / Windows 通知区），不是挂在应用窗口里——两件事都
 按这个前提判：
 
-- **图标明暗**（`electron/tray-icon.ts` + `main.ts:trayAppearance`）：判据必须是「系统给外壳的
-  颜色」，Linux 探测桌面配色、macOS 读 `AppleInterfaceStyle`、Windows 读注册表
+- **图标明暗**（`electron/tray-icon.ts` + `main.ts:trayAppearance`）：**Linux 用彩色应用图标
+  （`build-res/icons/256x256.png`，不分明暗）**；macOS / Windows 按「系统给外壳的颜色」挑单色图，
+  判据是 macOS 读 `AppleInterfaceStyle`、Windows 读注册表
   `HKCU\...\Themes\Personalize\SystemUsesLightTheme`（`systheme.ts:readWindowsShellTheme`）。
   两个**别用**的写法：
   - `nativeTheme.shouldUseDarkColors` —— 它跟着应用自己的 `themeSource` 走，而本应用默认主题是
@@ -858,7 +859,8 @@ Exec 写死「当前 electron + 仓库 ui/」，落进 `applications/` 就是启
     深浅色档位走（实测：浅色配浅色图标、深色配深色图标）—— 外壳判据最忌这个，所以 Windows 自己读
     注册表。刷新触发同理：注册表没有 mtime 可盯，`watchWindowsShellTheme` 定时轮询（2s），
     不能只等 `nativeTheme` 的 `updated`。
-  尺寸统一 16pt 出图（mac 按点画 NSImage，直塞 512² 就是「托盘图标巨大」）。
+  尺寸按平台出图：macOS / Windows 16pt，Linux SNI 32px（mac 按点画 NSImage，直塞 512²
+  就是「托盘图标巨大」；映射见 `electron/tray-icon.ts:trayIconSize`）。
 - **菜单标题行**（`electron/tray-title.ts`）：`electron/tray-title.ts:trayTitleLine` 拼「歌名 -
   歌手」并按**显示列宽**截断（40 列，汉字记 2 列）。原因：Win32 HMENU 与 macOS NSMenu **都不折
   行**，菜单宽度 = 最宽那一项，一首长中文歌名 + 多位歌手就能把托盘菜单撑成横贯屏幕的一条；Linux

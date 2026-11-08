@@ -2,15 +2,17 @@
 //
 // 托盘图标的坑不在「图从哪来」，在两个口径上，两条都踩过：
 //  1) 尺寸：macOS 把 Tray 的 NSImage 按「点」原样画 —— 直塞一张 512² 的 PNG 进去就是 512pt 的
-//     巨图。Linux 面板 / Windows 通知区会自己缩，所以只有 mac 露馅。这里统一钉一个逻辑尺寸，
-//     三平台都按它 resize，另附 @2x 位图（高 DPI 下不糊）。
+//     巨图。Linux 面板 / Windows 通知区会自己缩，所以只有 mac 露馅。这里按平台钉逻辑尺寸
+//     （mac/win 16pt，Linux SNI 32px），另附 @2x 位图（高 DPI 下不糊）。
 //  2) 明暗：托盘挂在**外壳**（Linux 面板 / macOS 菜单栏 / Windows 任务栏）上，不是挂在应用窗口里。
 //     外壳底色跟应用自己选的深浅色是两回事，所以判据在主进程（systheme / nativeTheme 的系统档，
 //     见 main.ts 的 trayAppearance），本模块只负责「外观 → 素材」这一层映射，免得两边各写一份 if。
+//     Linux 例外：用彩色应用图标（不分明暗），素材直接复用 build-res/icons 里的 256px。
 //
 // 素材（仓库根 img/，单一真相）与产物：
-//   img/tray-icon.svg        浅色图标（#cccccc）→ 深色外壳上用
-//   img/tray-icon-dark.svg   深色图标（#000000）→ 浅色外壳上用
+//   img/quaver-icon-dark.svg 彩色应用图标 → Linux 托盘用（build-res/icons/256x256.png）
+//   img/tray-icon.svg        浅色图标（#cccccc）→ macOS/Windows 深色外壳上用
+//   img/tray-icon-dark.svg   深色图标（#000000）→ macOS/Windows 浅色外壳上用
 //   ui/build-res/tray/*.png  上两份的光栅化产物：nativeImage 只认 PNG/JPEG(+ICO/ICNS)，
 //                            读不了 SVG（见 Electron nativeImage 文档「Supported Formats」），
 //                            所以 SVG 是设计源、PNG 才是随包被加载的那份。
@@ -28,8 +30,23 @@
 // 通知到达时才去读注册表，其余时间它等于 shouldUseDarkColors（= 应用主题）→ 托盘图跟着「深浅色
 // 模式」走。详见 systheme.ts 的 Windows 一节。
 
-/** 托盘逻辑尺寸（pt/px）。16 = macOS 菜单栏 / Windows 通知区 / Linux SNI 的通用档位。 */
+/** 托盘逻辑尺寸（pt/px）。16 = macOS 菜单栏 / Windows 通知区的通用档位。 */
 export const TRAY_ICON_PT = 16;
+
+/** Linux 托盘逻辑尺寸（px）。SNI 宿主（Plasma 等）按面板实际像素取图，32 更清晰。 */
+export const TRAY_ICON_LINUX_PT = 32;
+
+/**
+ * 按平台取托盘逻辑尺寸。
+ * @param {string} platform Node 的 process.platform
+ * @returns {number} 逻辑尺寸（pt/px）
+ */
+export function trayIconSize(platform: string): number {
+  return platform === "linux" ? TRAY_ICON_LINUX_PT : TRAY_ICON_PT;
+}
+
+/** Linux 托盘素材：彩色应用图标（复用随包的 hicolor 素材，不随外壳明暗切换）。 */
+export const TRAY_ICON_LINUX_FILE = "icons/256x256.png";
 
 /** 外壳外观 → 素材（相对 build-res 的路径）。「深色外壳配浅色图标」是这个映射的全部要点。 */
 export const TRAY_ICON_FILES = {
@@ -46,4 +63,14 @@ export function trayIconFile(appearance: string | null | undefined): string {
   // 判不出来（探测全落空）时按深色处理：Linux 面板与 mac 菜单栏默认偏深底，
   // 浅色图标在两种底色上都还能看（深色图标在深底上直接消失）—— 也是托盘图从前的口径。
   return appearance === "light" ? TRAY_ICON_FILES.light : TRAY_ICON_FILES.dark;
+}
+
+/**
+ * 按平台挑托盘素材：Linux 固定用彩色应用图标，macOS/Windows 按外壳明暗挑单色图标。
+ * @param {string} platform Node 的 process.platform
+ * @param {"dark"|"light"|null|undefined} appearance 外壳外观（仅 macOS/Windows 使用）
+ * @returns {string} build-res 相对路径
+ */
+export function trayIconPath(platform: string, appearance: string | null | undefined): string {
+  return platform === "linux" ? TRAY_ICON_LINUX_FILE : trayIconFile(appearance);
 }

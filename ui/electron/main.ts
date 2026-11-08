@@ -27,7 +27,7 @@ import { DesktopLyricsController } from "./desktop-lyrics.ts";
 // ——三者是不同的问题，别混
 import { readMacShellTheme, readSystemTheme, readWindowsShellTheme, watchMacShellTheme, watchSystemTheme, watchWindowsShellTheme } from "./systheme.ts";
 // 托盘图标：尺寸口径 + 明暗两份素材的映射（纯逻辑，见模块头）
-import { TRAY_ICON_PT, trayIconFile } from "./tray-icon.ts";
+import { trayIconPath, trayIconSize } from "./tray-icon.ts";
 // 托盘菜单的曲目标题行：成型 + 按显示列宽截断（纯逻辑，见模块头 —— 原生菜单不折行，长歌名会撑宽菜单）
 import { trayTitleLine } from "./tray-title.ts";
 // 启动闪屏：sidecar/服务端就绪前的空窗期由它顶着（模块头有完整时序说明）
@@ -401,11 +401,12 @@ function trayAppearance() {
   return nativeTheme.shouldUseDarkColors ? "dark" : "light";
 }
 
-/** 托盘图：按 TRAY_ICON_PT 统一出图 + 附一张 @2x（mac 高 DPI 菜单栏不糊）。
+/** 托盘图：按平台挑素材与逻辑尺寸（Linux 彩色应用图标 32px，其余单色 16pt）+ @2x（高 DPI 不糊）。
  *  尺寸必须显式 resize —— macOS 按点的原尺寸画 NSImage，素材直塞就是「托盘图标巨大」的成因。 */
 function trayImage() {
   const appearance = trayAppearance();
-  const rel = trayIconFile(appearance);
+  const rel = trayIconPath(process.platform, appearance);
+  const pt = trayIconSize(process.platform);
   // 一行日志记下判断结果：这套「外壳底色」的判据在 Linux 上依桌面而定（Hyprland 这类没有系统级
   // 深浅色 API），出问题时只看日志就知道是判错了还是没刷新
   log(`[quaver] tray icon: 外壳=${appearance} → build-res/${rel}`);
@@ -414,8 +415,8 @@ function trayImage() {
   if (src.isEmpty()) return nativeImage.createEmpty(); // 素材缺失也别让 Tray 构造抛错
   const image = nativeImage.createEmpty();
   const rep = (px: number) => src.resize({ width: px, height: px, quality: "best" }).toDataURL();
-  image.addRepresentation({ scaleFactor: 1, dataURL: rep(TRAY_ICON_PT) });
-  image.addRepresentation({ scaleFactor: 2, dataURL: rep(TRAY_ICON_PT * 2) });
+  image.addRepresentation({ scaleFactor: 1, dataURL: rep(pt) });
+  image.addRepresentation({ scaleFactor: 2, dataURL: rep(pt * 2) });
 
   return image;
 }

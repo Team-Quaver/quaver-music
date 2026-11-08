@@ -18,7 +18,10 @@ import {
   DESKTOP_ID, desktopEntryContent, findSystemDesktopEntry, installLinuxDesktopIntegration, quoteExecPath,
   readDesktopEntryValue, readDesktopHidden, readDesktopIcon, removeDevManagedDesktopEntry, xdgDataDirs, xdgDataHome,
 } from "../electron/linux-desktop.ts";
-import { TRAY_ICON_FILES, TRAY_ICON_PT, trayIconFile } from "../electron/tray-icon.ts";
+import {
+  TRAY_ICON_FILES, TRAY_ICON_LINUX_FILE, TRAY_ICON_LINUX_PT, TRAY_ICON_PT,
+  trayIconFile, trayIconPath, trayIconSize,
+} from "../electron/tray-icon.ts";
 
 let pass = 0, fail = 0;
 const section = (t) => console.log(`\n=== ${t} ===`);
@@ -260,7 +263,35 @@ for (const s of ICON_SIZES) {
 // ——— 托盘图标 ———
 section("托盘图标：尺寸口径 + 明暗素材 + 接线");
 
-eq("逻辑尺寸统一 16pt（mac 菜单栏 / win 通知区 / linux SNI 的通用档位）", TRAY_ICON_PT, 16);
+eq("逻辑尺寸默认 16pt（mac 菜单栏 / win 通知区）", TRAY_ICON_PT, 16);
+
+eq("Linux 托盘逻辑尺寸 32px", TRAY_ICON_LINUX_PT, 32);
+
+eq("Linux 取 32px", trayIconSize("linux"), 32);
+
+eq("macOS / Windows 仍取 16pt", [trayIconSize("darwin"), trayIconSize("win32")], [16, 16]);
+
+eq("Linux 固定用彩色应用图标（不分明暗）", [trayIconPath("linux", "dark"), trayIconPath("linux", "light")],
+  [TRAY_ICON_LINUX_FILE, TRAY_ICON_LINUX_FILE]);
+
+eq("macOS / Windows 仍按外壳明暗挑单色图标",
+  [trayIconPath("darwin", "dark"), trayIconPath("darwin", "light"), trayIconPath("win32", "dark")],
+  [TRAY_ICON_FILES.dark, TRAY_ICON_FILES.light, TRAY_ICON_FILES.dark]);
+
+check("Linux 托盘素材是应用图标集里的 256px（随包已有，无需另生成）", TRAY_ICON_LINUX_FILE === "icons/256x256.png");
+
+{
+  const p = join(UI, "build-res", TRAY_ICON_LINUX_FILE);
+  const img = existsSync(p) ? decodePng(readFileSync(p)) : null;
+
+  check("Linux 托盘素材在位且是 256² 正方形", !!img && img.width === 256 && img.height === 256,
+    img ? `${img.width}x${img.height}` : "缺文件");
+  if (img) {
+    const st = opaqueStats(img);
+    check("Linux 托盘素材带应用图标的深色底与图形（不是空白/单色图）",
+      st.ratio > 0.5 && st.ratio < 1, `不透明占比 ${(st.ratio * 100).toFixed(1)}%`);
+  }
+}
 
 eq("深色外壳配浅色图标", trayIconFile("dark"), TRAY_ICON_FILES.dark);
 
@@ -320,13 +351,16 @@ check("build-res/tray 下没有留下 tray.png", !existsSync(join(UI, "build-res
 check("主进程不再硬编码旧托盘图（tray.png）", !mainSrc.includes("tray.png"));
 
 check("主进程经 tray-icon.ts 挑素材（明暗映射只有一份真相）",
-  /const appearance = trayAppearance\(\)/.test(mainSrc) && /trayIconFile\(appearance\)/.test(mainSrc));
+  /const appearance = trayAppearance\(\)/.test(mainSrc) && /trayIconPath\(process\.platform, appearance\)/.test(mainSrc));
 
 check("判据结果进日志（外壳=… → 哪份素材）：外壳底色判错时只看日志就能定位",
   /tray icon: 外壳=\$\{appearance\}/.test(mainSrc));
 
 check("托盘图按逻辑尺寸 resize（不 resize 就是 mac 上「图标巨大」的成因）",
   /resize\(\{\s*width:\s*px,\s*height:\s*px/.test(mainSrc));
+
+check("主进程按平台取托盘尺寸（Linux 32px 的唯一真相在 tray-icon.ts）",
+  /const pt = trayIconSize\(process\.platform\)/.test(mainSrc));
 
 check("附了 @2x 位图（高 DPI 菜单栏不糊）", /addRepresentation\(\{\s*scaleFactor:\s*2/.test(mainSrc));
 
