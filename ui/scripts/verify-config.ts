@@ -127,6 +127,12 @@ eq("默认值表覆盖 Window.Decor", [defaults("darwin")["Window.Decor"], defau
 
 check("模板落盘也按平台给默认值", template("darwin").includes("Decor=csd") && template("linux").includes("Decor=csd"));
 
+eq("macOS 默认后端为 MPV（Liino 仅实验性）", defaults("darwin")["Playing.Backend"], "MPV");
+
+eq("其余平台默认后端仍为 Liino", defaults("linux")["Playing.Backend"], "Liino");
+
+check("macOS 模板落盘 MPV 后端", template("darwin").includes("Backend=MPV"));
+
 eq("侧栏菜单默认顺序（8 项）", defaults()["Style.NavOrder"], "home,guess,daily,liked,playlists,all,local,cloud");
 eq("侧栏菜单默认无隐藏项", defaults()["Style.NavHidden"], "");
 eq("侧栏顺序接受重排的合法 id", writeValues({ "Style.NavOrder": "local,home,cloud" }), ["Style.NavOrder"]);

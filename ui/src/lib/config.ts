@@ -19,6 +19,12 @@ function defaultDecor(): string {
   return "csd";
 }
 
+/** 浏览器 dev 没有主进程快照：按 UA 选与 electron/config.ts 一致的出厂后端。
+ *  macOS 上 Liino 为实验性，默认 MPV；其余平台默认 Liino。 */
+export function defaultBackend(): "MPV" | "Liino" {
+  return typeof navigator !== "undefined" && /Macintosh|Mac OS X|iPhone|iPad/.test(navigator.userAgent) ? "MPV" : "Liino";
+}
+
 // 与 electron/config.ts 的 SCHEMA 默认值保持一致（浏览器 dev 兜底 / 文件缺键时用；
 // 桌面端主进程 readValues() 已补齐全量，这里只是不让两种环境的行为分叉）。改一处要改两处。
 const FALLBACK: ConfigSnapshot = {
@@ -49,7 +55,7 @@ const FALLBACK: ConfigSnapshot = {
   "Window.SidebarCollapsed": "False",
   "Window.SidebarWidth": "",
   "Window.QueueWidth": "",
-  "Playing.Backend": "Liino",
+  "Playing.Backend": defaultBackend(),
   "Playing.AudioDevice": "auto",
   "Playing.Fade": "normal",
   "Playing.Volume": "0.8",

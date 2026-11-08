@@ -329,6 +329,11 @@ export function defaultDecor(_platform: string = process.platform): "csd" | "ssd
   return "csd";
 }
 
+/** 音频后端出厂默认：macOS 上 Liino 仍属实验性，默认回到 MPV；其余平台默认 Liino。 */
+export function defaultBackend(platform: string = process.platform): "MPV" | "Liino" {
+  return platform === "darwin" ? "MPV" : "Liino";
+}
+
 /** schema 里一个键的完整描述：默认值、文件内注释、值域校验器。 */
 export interface KeySpec {
   key: string;
@@ -577,7 +582,10 @@ export const SCHEMA: SectionSpec[] = [
       {
         key: "Backend",
         def: "Liino",
-        doc: ["默认 Liino（原生直出）；MPV=原生直出（MPV）；MPVCompat=原生兼容（MPV 解码 + renderer 出声）；Chromium=浏览器"],
+        doc: [
+          "Linux/Windows 默认 Liino（原生直出）；macOS 默认 MPV，Liino 为实验性选项。",
+          "MPV=原生直出（MPV）；MPVCompat=原生兼容（MPV 解码 + renderer 出声）；Chromium=浏览器",
+        ],
         valid: (v: string) => ["MPV", "MPVCompat", "Liino", "Chromium", "Blink"].includes(v), // Blink 是旧值
       },
       {
@@ -1053,6 +1061,7 @@ export function defaults(platform: string = process.platform): Record<string, st
   for (const sec of SCHEMA) for (const k of sec.keys) out[`${sec.section}.${k.key}`] = k.def;
 
   out["Window.Decor"] = defaultDecor(platform);
+  out["Playing.Backend"] = defaultBackend(platform);
 
   return out;
 }

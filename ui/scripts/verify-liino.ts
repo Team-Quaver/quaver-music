@@ -106,7 +106,12 @@ const settings = src("src/views/settings.ts");
 
 ok("设置页有 Liino 引擎行", /Liino 原生直出运行中/.test(settings));
 
-ok("设置页有 Liino 引擎选项（首个，标注默认）", /decodeRow\("Liino", "Liino（原生直出，默认）"\)/.test(settings));
+ok("macOS 设置页把 Liino 标为实验性、其余平台标为默认",
+  /isMac \? "Liino（实验性原生模式）" : "Liino（原生直出，默认）"/.test(settings));
+
+ok("macOS 设置页把 MPV 标为默认", /isMac \? "原生直出（MPV，默认）" : "原生直出（MPV）"/.test(settings));
+
+ok("macOS 默认后端为 MPV", /platform === "darwin" \? "MPV" : "Liino"/.test(src("electron/config.ts")));
 
 ok("播放器说清 Liino 的边界（无 PCM 兼容拓扑）", /没有 MPV 的 PCM 兼容拓扑/.test(player));
 

@@ -859,8 +859,13 @@ section("macOS 浏览器兜底");
   try {
     const M = await import(`${OUT}.2.mjs?mac=1`);
     await M.loadConfig();
+    eq("浏览器 dev 在 macOS 默认 MPV（Liino 为实验性）", M.getDecode(), "MPV");
     eq("浏览器 dev 在 macOS 也默认 csd", M.getDecor(), "csd");
     check("浏览器 dev 没有壳层桥 → 不挂 mac-csd（保留自绘占位钮）", !bodyClasses.has("mac-csd"));
+
+    seed({ "Playing.Backend": "mpv" });
+    await M.loadConfig();
+    eq("macOS 非法后端值回落 MPV", M.getDecode(), "MPV");
   } finally {
     if (realNavigator) Object.defineProperty(globalThis, "navigator", realNavigator);
   }

@@ -62,6 +62,14 @@ export default async function settingsView(root: HTMLElement) {
   const decodeRow = (name: string, label: string, disabled = false) =>
     `<label><input type="radio" name="decode" value="${name}"${disabled ? " disabled" : ""}/>${label}${disabled ? ` <span class="muted soon">敬请期待</span>` : ""}</label>`;
 
+  const backendNote = isMac ? "- 默认 MPV，可选原生直出 / 兼容" : "- 默认 Liino，可选原生直出 / 兼容";
+  const mpvLabel = isMac ? "原生直出（MPV，默认）" : "原生直出（MPV）";
+  const liinoLabel = isMac ? "Liino（实验性原生模式）" : "Liino（原生直出，默认）";
+
+  const backendRows = isMac
+    ? decodeRow("MPV", mpvLabel) + decodeRow("MPVCompat", "原生兼容（MPV 仅解码模式，实验性支持）") + decodeRow("Liino", liinoLabel) + decodeRow("Blink", "兼容模式（Blink）")
+    : decodeRow("Liino", liinoLabel) + decodeRow("MPV", mpvLabel) + decodeRow("MPVCompat", "原生兼容（MPV 仅解码模式，实验性支持）") + decodeRow("Blink", "兼容模式（Blink）");
+
   root.classList.add("settings-page"); // 整页滚动 + 吸顶标签条，见 style.css 的 .settings-page
 
   // 页头：图标（当「封面」用）+ 大标题，随整页滚出。吸顶条里再放一份迷你图标。
@@ -282,9 +290,9 @@ export default async function settingsView(root: HTMLElement) {
       </div>
 
       <div class="set-group">
-        <div class="set-label">播放引擎 <span class="set-note-inline" id="engine-note">- 默认 Liino，可选原生直出 / 兼容</span></div>
+        <div class="set-label">播放引擎 <span class="set-note-inline" id="engine-note">${backendNote}</span></div>
         <div class="opt-radios" id="decode-radios">
-          ${decodeRow("Liino", "Liino（原生直出，默认）")}${decodeRow("MPV", "原生直出（MPV）")}${decodeRow("MPVCompat", "原生兼容（MPV 仅解码模式，实验性支持）")}${decodeRow("Blink", "兼容模式（Blink）")}
+          ${backendRows}
         </div>
       </div>
 
@@ -1973,12 +1981,12 @@ export default async function settingsView(root: HTMLElement) {
     });
     const src = MPV_SOURCE_LABEL[st.source] ?? "";
     engNote.textContent = player.backend === "liino"
-      ? `- Liino 原生直出运行中${src ? "（" + src + "）" : ""}`
+      ? `- Liino 原生直出运行中${src ? "（" + src + "）" : ""}${isMac ? "（实验性）" : ""}`
       : player.backend === "mpv"
         ? `- 原生直出运行中${src ? "（" + src + "）" : ""}`
         : player.backend === "mpv-compat"
         ? `- 原生（兼容）运行中${src ? "（" + src + "）" : ""}`
-        : st.available ? `- 默认 Liino（${src}），当前浏览器兜底` : "- " + (st.reason || "mpv 不可用，已回退浏览器音频");
+        : st.available ? `- 默认 ${isMac ? "MPV" : "Liino"}（${src}），当前浏览器兜底` : "- " + (st.reason || "mpv 不可用，已回退浏览器音频");
   }
 
   async function paintDevices() {

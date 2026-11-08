@@ -1,4 +1,4 @@
-// Quaver — 主进程音频后端门面（默认 Liino；库不可 dlopen 时回落 mpv）。
+// Quaver — 主进程音频后端门面（Linux/Windows 默认 Liino、macOS 默认 mpv；库不可 dlopen 时回落 mpv）。
 //
 // 与旧版最大的区别：`ipcMain.handle("quaver:audio")` **只在门面注册一次**，命令按当前
 // `active` 转发。Electron 同一通道只能有一个 handler（先到先得、后到的静默失败），
@@ -22,7 +22,7 @@ export interface AudioEngineBoot {
   baseUrl?: string;
   getWin: () => BrowserWindow | null;
   log: EngineLog;
-  /** quaver.conf 的 [Playing] Backend 快照：Liino / MPV / MPVCompat / Chromium；空值走 Liino。 */
+  /** quaver.conf 的 [Playing] Backend 快照：Liino / MPV / MPVCompat / Chromium；空值走平台默认。 */
   backendPreference?: string;
 }
 

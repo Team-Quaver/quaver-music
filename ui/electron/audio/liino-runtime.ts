@@ -13,7 +13,7 @@ import { platform as hostPlatform } from "node:process";
 import { isPassFilter, normalizeEqState } from "./eq-config.ts";
 import type { EqBandType } from "./eq-config.ts";
 
-/** 主进程音频后端：liino（默认，纯 Go 管线，见 vendor/Liino）/ mpv（回落）。 */
+/** 主进程音频后端：liino（Linux/Windows 默认、macOS 实验性，纯 Go 管线，见 vendor/Liino）/ mpv（回落）。 */
 export type AudioBackendKind = "mpv" | "liino";
 
 /** 后端选择：QUAVER_AUDIO_BACKEND=liino 顶掉启动快照（排障口），其余按 quaver.conf 的偏好走。 */

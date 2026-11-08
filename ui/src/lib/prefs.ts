@@ -7,7 +7,7 @@
 // 主题与字体在本模块直接落到 <html>：data-theme 驱动 style.css 的变量组，
 // CSS 变量 --font-ui / --font-lyric 分别作用于界面与歌词。
 
-import { cfg, cfgSet, cfgSetSoon } from "./config";
+import { cfg, cfgSet, cfgSetSoon, defaultBackend } from "./config";
 import { TTML_DB_DEFAULT_URL, isTtmlDatabaseUrl } from "./ttml";
 import { parseHex, toHex } from "./color";
 import { normalizeEqState, type EqState } from "../../electron/audio/eq-config.ts";
@@ -439,7 +439,7 @@ export function setDecor(m: DecorMode) {
 }
 
 // —— 播放模式：
-//    Liino      = 原生直出（默认，主进程经 FFI 直出，无 PCM 兼容拓扑）
+//    Liino      = 原生直出（Linux/Windows 默认；macOS 实验性，主进程经 FFI 直出，无 PCM 兼容拓扑）
 //    MPV        = 原生直出（mpv 自己打开音频设备）
 //    MPVCompat  = 原生（兼容）：mpv 解码，PCM 交给 renderer WebAudio 出声
 //    Blink      = 浏览器 <audio>（兜底/对照，配置文件里写 Chromium）
@@ -455,7 +455,7 @@ export function getDecode(): DecodeBackend {
 
   if (v === "Liino") return "Liino";
 
-  return "Liino";
+  return defaultBackend();
 }
 
 export function setDecode(v: DecodeBackend) {
