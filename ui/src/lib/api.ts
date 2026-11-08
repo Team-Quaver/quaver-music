@@ -132,10 +132,10 @@ export const coverUrl = (s: any, size = 300) => {
 export const QQ_COVER_SIZES = [1500, 1200, 800, 500, 300, 150, 90] as const;
 
 /** 同一封面的候选 URL（高 → 低）。本地/微云封面只有一个 URL，去重后仍是单元素。 */
-export function coverUrlCandidates(s: any, sizes: readonly number[] = QQ_COVER_SIZES): string[] {
+export function coverUrlCandidates(s: any): string[] {
   const urls: string[] = [];
 
-  for (const size of sizes) {
+  for (const size of QQ_COVER_SIZES) {
     const url = coverUrl(s, size);
 
     if (url && !urls.includes(url)) urls.push(url);

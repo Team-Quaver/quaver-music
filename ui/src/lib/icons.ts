@@ -7,13 +7,11 @@ export const icons = {
   pause: svg('<rect x="7" y="5" width="3.4" height="14" rx="1" fill="currentColor" stroke="none"/><rect x="13.6" y="5" width="3.4" height="14" rx="1" fill="currentColor" stroke="none"/>', 20),
   prev: svg('<path d="M7 5v14M20 5.5v13L10 12z" fill="currentColor" stroke="currentColor" stroke-width="1.6"/><path d="M20 5.5v13L10 12z" fill="currentColor" stroke="none"/>', 17),
   next: svg('<path d="M17 5v14M4 5.5v13L14 12z" fill="currentColor" stroke="currentColor" stroke-width="1.6"/><path d="M4 5.5v13L14 12z" fill="currentColor" stroke="none"/>', 17),
-  loopOff: svg('<path opacity=".45" d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path opacity=".45" d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><path d="M4 4l16 16"/>', 18),
   loopAll: svg('<path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>', 18),
   loopOne: svg('<path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><text x="12" y="15.5" font-size="9" fill="currentColor" stroke="none" text-anchor="middle" font-weight="700">1</text>', 18),
   shuffle: svg('<path d="M17 3l4 4-4 4"/><path d="M21 7H7a4 4 0 0 0-4 4v1"/><path d="M17 21l4-4-4-4"/><path d="M3 17h2.5a4 4 0 0 0 3.3-1.8l5.4-8.4A4 4 0 0 1 17.5 5H21"/>', 18),
   heart: svg('<path d="M12 20s-7-4.6-9-9c-1.3-3 .8-6.5 4-6.5 2 0 3.5 1.2 5 3 1.5-1.8 3-3 5-3 3.2 0 5.3 3.5 4 6.5-2 4.4-9 9-9 9z"/>'),
   heartFill: svg('<path d="M12 20s-7-4.6-9-9c-1.3-3 .8-6.5 4-6.5 2 0 3.5 1.2 5 3 1.5-1.8 3-3 5-3 3.2 0 5.3 3.5 4 6.5-2 4.4-9 9-9 9z" fill="currentColor" stroke="currentColor"/>'),
-  radio: svg('<rect x="4" y="9" width="16" height="11" rx="2.5"/><path d="M8 9l8-4"/><circle cx="8.5" cy="14.5" r="2.2"/><path d="M13.5 13h3M13.5 16h2"/>'),
   calendar: svg('<rect x="4" y="5.5" width="16" height="15" rx="2"/><path d="M8 3.5v4M16 3.5v4M4 10h16"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17.5h.01M12 17.5h.01M16 17.5h.01"/>'),
   // 无限电台标记：复用应用里已经在用的 ∞ 字形（首页电台卡、电台页品牌标都是它），
   // 不另画路径 —— 放进 svg 只是为了占住与其它图标同尺寸的 18×18 图标位。
@@ -24,8 +22,7 @@ export const icons = {
   sparkles: svg('<path d="M11 3l1.7 4.3L17 9l-4.3 1.7L11 15l-1.7-4.3L5 9l4.3-1.7z"/><path d="M18.5 15l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>', 18, 1.6),
   queue: svg('<path d="M4 6h11M4 11h11M4 16h7"/><path d="M17 13.5v6l4.5-3z" fill="currentColor" stroke="none"/>'),
   chevronDown: svg('<path d="M6 9l6 6 6-6"/>'),
-  chevronUp: svg('<path d="M6 15l6-6 6 6"/>'),
-  // 返回上级（壳层顶带的 ←）：与 chevronDown/Up 同族，只是更粗更紧。
+  // 返回上级（壳层顶带的 ←）：与 chevronDown 同族，只是更粗更紧。
   // 归属在这份共享图标表里而不是 views/_shared：壳层（首屏）只要它，整张 _shared 属懒加载侧。
   back: svg('<path d="M14 6l-6 6 6 6"/>', 16, 2.2),
   // 次级菜单指示（正在播放页 ⋮ 的「跳转歌手」）：默认指右，需要反方向时由调用方翻转。
@@ -42,7 +39,6 @@ export const icons = {
   // 加上 1.7 描边的半宽就顶出 24 视窗（右侧被裁、音量拉满时像「出界」）——
   // 这一版弧的墨迹右缘约 x=22.98，左右留白对称，描边完整落在视窗内。
   volHigh: svg('<path d="M11 4.5 6.5 8H2v8h4.5L11 19.5z" fill="currentColor" stroke="none"/><path d="M14.8 9.2a4.2 4.2 0 0 1 0 5.6"/><path d="M18 6.8a8 8 0 0 1 0 10.4"/><path d="M19.6 5.2a10.4 10.4 0 0 1 0 13.6"/>', 18, 1.7),
-  pin: svg('<path d="M12 16V4M8 8l4-4 4 4"/><path d="M4 20h16"/>', 16),
   spinner: svg('<circle cx="12" cy="12" r="8" opacity=".25"/><path d="M12 4a8 8 0 0 1 8 8"/>', 18, 2.2),
   retry: svg('<path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v4h-4"/>', 18, 2),
   // 队列面板：拖拽排序把手（六点阵）与清空（垃圾桶）

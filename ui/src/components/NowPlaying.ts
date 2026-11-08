@@ -819,26 +819,12 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
 
     if (pic === lastCover) return;
     lastCover = pic;
+    cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : `<div class="np-cover-ph">${icons.disc ?? ""}</div>`;
 
-    if (!pic) {
-      cover.innerHTML = `<div class="np-cover-ph">${icons.disc ?? ""}</div>`;
-
-      return;
-    }
-
-    cover.innerHTML = `<img src="${pic}" alt=""/>`;
     const img = cover.querySelector("img");
 
-    if (!img) return;
-
-    img.onerror = () => {
+    if (img) img.onerror = () => {
       if (npCoverUrls[npCoverTry] !== pic) return; // 期间已换曲/换候选
-
-      if (npCoverTry + 1 >= npCoverUrls.length) {
-        cover.innerHTML = `<div class="np-cover-ph">${icons.disc ?? ""}</div>`;
-
-        return;
-      }
 
       npCoverTry++;
       lastCover = null;
