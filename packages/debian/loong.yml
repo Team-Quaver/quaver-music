@@ -1,0 +1,4 @@
+# deb：loong64。依赖口径与 ARM/x86 完全一致，只把 Electron 换成社区龙芯构建。
+extends:
+  - file:../packages/debian/arm-x86.yml
+  - file:../packages/loong64.yml

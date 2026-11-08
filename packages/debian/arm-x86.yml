@@ -1,9 +1,12 @@
-# deb：x86_64(amd64) 与 aarch64(arm64) 共用；只依赖发行版 mpv。
+# deb：x86_64(amd64) 与 aarch64(arm64) 共用；loong 由 packages/debian/loong.yml 继承。
+# 依赖发行版 mpv + ffmpeg + pipewire。
 extends: file:../packages/electron-builder-base.yml
 deb:
   packageName: quaver-music
   packageCategory: sound
   depends:
     - mpv
+    - ffmpeg
+    - pipewire
   recommends: []
   artifactName: Quaver-${version}-${arch}.deb

@@ -1,0 +1,15 @@
+# LoongArch Electron 运行时。
+# electron-builder 上游没有 loong64 目标，构建时必须用 @loongdotjs 分支；
+# Electron 本体用 darkyzhou/electron-loong64 社区构建（glibc >= 2.38 + LSX，new-world）。
+# 当前 v43.7.7（2026-10-13）仍早于 eMudhra 修复线（43.8.1+），尚无带修复的龙芯包。
+electronVersion: 43.7.7
+electronDownload:
+  mirror: https://github.com/darkyzhou/electron-loong64/releases/download/
+  customDir: v{{ version }}
+
+# 交叉打 loong64 时不要在 x64 宿主上 rebuild 原生依赖：abstract-socket 会产出 x86-64
+# 的 bindings.node 并被当成 loong64 载荷带进包。它是 dbus-next 的可选依赖，缺失时
+# dbus-next 会退回普通 socket；koffi 自带全平台预编译，不依赖 rebuild。
+npmRebuild: false
+files:
+  - "!node_modules/abstract-socket/**"

@@ -219,8 +219,15 @@ ok("electron-builder 不再复制 mpris-daemon.cjs", !builder.includes("mpris-da
 
 ok("CI 不再构建/搬运 MPRIS daemon", !workflows.includes("vendor/Typhoeus/mpris") && !workflows.includes("mpris-daemon.cjs"));
 
-ok("loong64 手工 asar 会装生产依赖", workflows.includes("npm install --prefix \"$APP\" --omit=dev")
-  && workflows.includes("node_modules/mpris-service/dist/index.js"));
+ok("loong64 与其它 Linux 档共用 electron-builder",
+  workflows.includes("--linux deb --loong64")
+  && workflows.includes("@loongdotjs/electron-builder@26.15.6")
+  && workflows.includes("@loongdotjs/app-builder-lib@26.15.6")
+  && workflows.includes("@loongdotjs/builder-util@26.15.3"));
+
+ok("loong64 不再手工组装 asar / 手工装生产依赖",
+  !workflows.includes("npm install --prefix \"$APP\"")
+  && !workflows.includes("pnpm dlx @electron/asar pack"));
 
 ok("Typhoeus 子模块已退役", !gitmodules.includes("path = vendor/Typhoeus\n") && !gitmodules.includes("quaver-typhoeus"));
 

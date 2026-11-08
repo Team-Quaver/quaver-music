@@ -42,7 +42,7 @@ asarUnpack:
   - resources/liino/**
   - resources/audio/**
 linux:
-  category: Audio
+  category: AudioVideo;Music;Audio;Player
   desktop:
     entry:
       Name: Quaver Music
