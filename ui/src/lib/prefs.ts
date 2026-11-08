@@ -558,7 +558,8 @@ export function setInhibitSleep(v: boolean) {
 }
 
 // 听歌时长上报（[Playing] ReportListenTime，默认开）：只统计真实出声时间，
-// 满 60 秒经 sidecar 提交到 QQ 音乐音响力；关闭立即停止累计并丢弃未发送尾段。
+// 切歌/停止/退出时经 sidecar 一次性提交本曲累计到 QQ 音乐音响力；关闭立即停止累计
+// 并丢弃未发送时长。
 export function getReportListenTime(): boolean {
   return !/^(false|0|no)$/i.test(cfg("Playing.ReportListenTime", "True"));
 }

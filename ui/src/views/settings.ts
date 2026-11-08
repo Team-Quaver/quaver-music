@@ -340,7 +340,7 @@ export default async function settingsView(root: HTMLElement) {
           <button class="opt-card" data-opt="on" type="button">开启</button>
           <button class="opt-card" data-opt="off" type="button">关闭</button>
         </div>
-        <p class="muted set-hint">登录后每满 60 秒向 QQ 音乐上报一次真实播放时长；暂停、缓冲、系统休眠与本地曲目不计入。</p>
+        <p class="muted set-hint">登录后在本曲切歌、停止或退出时，向 QQ 音乐一次性上报真实播放时长；暂停、缓冲、系统休眠与本地曲目不计入。</p>
       </div>
 
       <div class="set-group">
