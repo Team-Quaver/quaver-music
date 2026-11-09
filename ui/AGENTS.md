@@ -394,6 +394,15 @@ cd ui && pnpm run app                              # 真出声跑一圈（Linux/
   否则 seek 后 `queuedFrames` 从 0 重数，尾段会被误判成还有一整首，时钟越过曲尾。seek 时
   保持 AudioGraph 运行（先停再起会把 MediaSource 拉回 0），并用 `input.position()` 的实际落点
   校正 `seekFrames`；这几条一起守「拖进度条不回到 0」。
+- **WinRT 对「还没出过声的 MediaSource」做 Seek 会卡 5 秒或 `E_ABORT`**（Windows 上
+  「FLAC → Ogg/Vorbis → 切回 FLAC 不响、拖一下进度条或重启才好」的病根）。每次 load 都带
+  `start_ms`，而换档后新开的 MediaSource 首帧尚未产出：`MediaSourceAudioInputNode::Seek`
+  会阻塞满内部 5 s 超时，或直接回 `E_ABORT`（`0x80004004`），上层随后重建整条解码链，用户
+  听到的就是数秒静音/不出声。修法在 `decode/winrt/session.go:warmUp`：**网络源**在初始 seek
+  前先让 AudioGraph 产出 ≥100ms 音频（上限 2s）再定位，帧节点 reset 掉预热帧；本地文件不动
+  （本地冷 seek 只需毫秒，预热只会白加延迟）。`pump` 一旦真的读到帧也会置 `warm`，所以
+  播放中第一次拖进度条不会再付预热成本。回归：
+  `go test ./decode/winrt -run TestSeekBeforeFirstFrameOverHTTP`。
 - **Windows 默认 WinRT → WMF → ffgo**：`decode/winrt` 的 `Priority()` 为 0，`decode/wmf` 为 1；
   WinRT 覆盖 Store codec（Ogg/Opus）与远程 FLAC，WMF 是本地常见格式和 WinRT 不可用时的回落。
   WinRT 的 AudioGraph 是实时路径，每开一首都要建一个未连接的 device output node 打时钟，这是

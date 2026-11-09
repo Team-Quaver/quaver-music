@@ -102,6 +102,13 @@ ok("Windows HTTP Ogg 在系统 FFmpeg 可用时优先 ffgo（avoid WinRT cold-op
     && /return -1/.test(src("../vendor/Liino/decode/native/prefer_windows.go"))
     && /backendsFor\(src\)/.test(src("../vendor/Liino/decode/decode.go")));
 
+ok("WinRT 初始 seek 前先预热网络源（切回 FLAC 不再卡 5s/E_ABORT）",
+  /func \(s \*stream\) warmUp\(\) error/.test(src("../vendor/Liino/decode/winrt/session.go"))
+    && /if s\.warm \|\| !isNetworkURI\(s\.uri\)/.test(src("../vendor/Liino/decode/winrt/session.go"))
+    && /if err := s\.warmUp\(\); err != nil/.test(src("../vendor/Liino/decode/winrt/session.go"))
+    && /func isNetworkURI\(uri string\) bool/.test(src("../vendor/Liino/decode/winrt/session.go"))
+    && /TestSeekBeforeFirstFrameOverHTTP/.test(src("../vendor/Liino/decode/winrt/winrt_test.go")));
+
 ok("实时解码 buffering 按实际拉流恢复，短 seek 不闪转圈",
   /framesPulledSince/.test(src("../vendor/Liino/pipeline.go"))
     && /WAIT_DEBOUNCE_MS/.test(src("src/lib/transport.ts")));
