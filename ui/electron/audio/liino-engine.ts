@@ -43,7 +43,9 @@ function liinoOverride(): string {
 /** snapshot()/clock() 的 JSON 里我们真消费的字段（自己收口，不依赖绑定的类型口径）。 */
 interface SnapshotFields {
   state?: string;
-  generation?: number;
+  /** native snapshot 的世代字段名是 gen（不是 generation）。 */
+  gen?: number;
+  generation?: number; // 兼容旧库：只在 gen 缺失时兜底
   position_ms?: number;
   duration_ms?: number;
   buffered_ms?: number;
@@ -441,6 +443,10 @@ export class LiinoEngine {
     const snap = ev.snapshot;
     const state = String(snap?.state ?? "");
     const dur = Number(snap?.duration_ms);
+    // 合并 liinoStateFields 之前先记住「这一代是否还在等起播」：旧操作（stop）
+    // 在新 load 之后落地时，native 会发 closed 且状态回落 stopped/idle；此时
+    // 不把它当错误，UI 就只能等 20s 起播看门狗，表现就是一直转圈。
+    const wasLive = !this.st.paused && !this.st.idle;
 
     if (isFinite(dur) && dur >= 0) this.st.dur = dur / 1000;
     this.st = { ...this.st, ...liinoStateFields(state, this.st.paused) };
@@ -465,6 +471,14 @@ export class LiinoEngine {
         return;
       case "failed":
         this.send({ t: "error", epoch: this.epoch, message: String(snap?.error ?? "Liino 播放失败") });
+        this.pushState(true);
+
+        return;
+      case "closed":
+        // 正常 stop 会先把 st.paused 置 true；这里仍看到「起播中/播放中」，
+        // 说明这是一条被迟到的旧命令拆掉的会话。立即报错让渲染层重试/降档，
+        // 不要把它留在 buffering 一直转圈。
+        if (wasLive) this.send({ t: "error", epoch: this.epoch, message: String(snap?.error ?? "Liino 音频流意外停止") });
         this.pushState(true);
 
         return;
@@ -776,8 +790,9 @@ export class LiinoEngine {
 
         this.lastUrl = url;
         // Open 已同步换代；记下 native 世代，onEvent 用它丢弃上一代排队事件。
-        // snapshot 的 generation 就是 gen.curLoad()（Open 在返回前已推进）。
-        const generation = Number(this.parseJSON<SnapshotFields>(player.snapshot())?.generation);
+        // snapshot 的 gen 就是 gen.curLoad()（Open 在返回前已推进）。
+        const snap = this.parseJSON<SnapshotFields>(player.snapshot());
+        const generation = Number(snap?.gen ?? snap?.generation);
 
         if (Number.isFinite(generation) && generation > 0) this.generation = generation;
         // Open 会 Reset() 整条 DSP 链：EQ 与增益必须在挂流后重新套用一次

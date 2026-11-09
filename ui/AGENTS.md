@@ -416,9 +416,15 @@ cd ui && pnpm run app                              # 真出声跑一圈（Linux/
 - **Liino 事件按 native load 世代过滤（不是渲染层 epoch）**：`Event.Gen` 是 native 的
   `gen.curLoad()`；换档后事件队列里可能还躺着上一代 failed/ended。`LiinoEngine.onEvent`
   **丢弃更小的 gen、跟随更大的 gen**（更大 = native 自己在 seek/read 失败后 `reopenIf`
-  的恢复路径，也必须接住）；`load` 之后立刻用 `snapshot().generation` 对齐当前世代。
+  的恢复路径，也必须接住）；`load` 之后立刻用 `snapshot().gen` 对齐当前世代。
   另外 stop/pause 的淡出回调要带 `epoch + player` 双重校验：250ms 淡出期间已经来了新 load
   时，旧回调绝不能 `player.stop()` 掉新会话（表现就是「切档后不响，只有换歌才恢复」）。
+  **snapshot 的字段名是 `gen`，不是 `generation`**（native `JSONShape.Gen`）；读错会让
+  `load` 后不更新世代，上一代排队事件被当成当前代。C API 的 `liino_stop` 是 detach 执行的
+  （可能等网络/设备），所以它必须捕获调用时的 `TrackGeneration()` 并走 `StopIf(gen)`：
+  旧 stop 在新 `Open` 之后落地时只能是 no-op，否则会把新流当场 `hardStop`，渲染层永远等不到
+  `loaded`、只看见转圈。native 的异步 `loaded/ended/closed` 也必须用 `publishFrom(gen, …)`
+  按「产生事件的世代」发布，不能等发布时再取 `curLoad()` 冒充新流。
 - **实时解码的 buffering 恢复不能只看管道水位**：`Available()==0` 在 WinRT 实时路径下是常态，
   旧逻辑要求积到 `PrerollFrames/2` 才回 playing，seek 后会永远卡在 buffering（音频在走、UI
   转圈、歌词停表）。现在 `onUnderrun` 记录 `bufferAt`，设备实际又拉走一个 period 的帧也算恢复；

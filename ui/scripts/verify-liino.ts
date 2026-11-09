@@ -63,6 +63,22 @@ ok("Liino 引擎广播同一事件通道（quaver:audio-event）", /wc\.send\("q
 ok("Liino 引擎禁用 waitEvent（FFI 阻塞 = 冻窗）",
   !/\.waitEvent\(/.test(engine));
 
+ok("Liino 世代读 snapshot 的 gen（native JSON 字段名不是 generation）",
+  /gen\?: number/.test(engine) && /snap\?\.gen \?\? snap\?\.generation/.test(engine));
+
+ok("迟到的旧 stop 不能拆掉新流（native StopIf 按 track 世代守卫）",
+  /func \(p \*Player\) StopIf\(gen uint64\) error/.test(src("../vendor/Liino/liino.go"))
+    && /h\.player\.TrackGeneration\(\)/.test(src("../vendor/Liino/capi/capi.go"))
+    && /h\.player\.StopIf\(gen\)/.test(src("../vendor/Liino/capi/capi.go")));
+
+ok("native 异步事件按产生它的世代发布（旧 loaded/ended 不冒充新流）",
+  /func \(p \*Player\) publishFrom\(gen uint64, ev Event\) bool/.test(src("../vendor/Liino/liino.go"))
+    && /p\.publishFrom\(gen, Event\{Kind: KindLoaded/.test(src("../vendor/Liino/pipeline.go"))
+    && /p\.publishFrom\(gen, Event\{Kind: KindEnded/.test(src("../vendor/Liino/pipeline.go")));
+
+ok("Liino 意外 closed 立刻报错，不留在 buffering 干等看门狗",
+  /case "closed":/.test(engine) && /wasLive/.test(engine) && /Liino 音频流意外停止/.test(engine));
+
 ok("库解析认 QUAVER_LIINO 排障口", /QUAVER_LIINO/.test(runtime));
 
 ok("开发态回落 vendor/Liino/build", /vendorBuildRoot/.test(engine) && /vendor\/Liino\/build/.test(engine));
