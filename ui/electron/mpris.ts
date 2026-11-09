@@ -79,7 +79,18 @@ export interface MprisPlayerInstance {
   getPosition(): number;
   seeked(posUs: number): void;
   objectPath(sub: string): string;
-  _bus?: { disconnect?(): void };
+  _bus?: MprisBus;
+}
+
+/** dbus-next 的 MessageBus 只用到这两个口子；send 是库里出错时最后会走到的路径。 */
+interface MprisBusMessage {
+  serial?: number | null;
+  _sent?: boolean;
+}
+
+interface MprisBus {
+  disconnect?(): void;
+  send?(msg: MprisBusMessage): void;
 }
 
 export interface MprisPlayerFactory {
@@ -93,6 +104,8 @@ export interface MprisBridge {
 
 export interface MprisBridgeOptions {
   onCommand: (msg: MprisCommand) => void;
+  /** 总线已经不可救（连接关闭 / EPIPE）时回调；主进程据此销毁并择机重建。 */
+  onFatal?: (reason: string) => void;
   log?: (...parts: unknown[]) => void;
   platform?: NodeJS.Platform;
   factory?: MprisPlayerFactory;
@@ -116,6 +129,15 @@ function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
 
   return Math.max(0, Math.min(1, value));
+}
+
+function errorText(error: unknown): string {
+  return String((error as Error)?.message ?? error);
+}
+
+/** dbus-next 在 socket 已关闭、但 `end` 事件还没落地时会直接 throw。 */
+function isClosedBusError(error: unknown): boolean {
+  return /cannot send message, stream is closed|tried to write a message to a closed stream|write (?:epipe|after end)|econnreset|enotconn/i.test(errorText(error));
 }
 
 function normalizeLoop(value: string, fallback: MprisLoop): MprisLoop {
@@ -176,6 +198,7 @@ function loadFactory(): MprisPlayerFactory {
 /** 创建 Linux MPRIS 服务；非 Linux / 无会话总线依赖时返回 null，不阻断应用启动。 */
 export function createMprisBridge({
   onCommand,
+  onFatal,
   log = () => {},
   platform = process.platform,
   factory,
@@ -201,10 +224,48 @@ export function createMprisBridge({
     return null;
   }
 
+  let failed = false;
+
+  const fail = (error: unknown): void => {
+    if (failed) return;
+    failed = true;
+    const reason = errorText(error);
+    log("[mpris] bus closed:", reason);
+    queueMicrotask(() => onFatal?.(reason));
+  };
+
+  // dbus-next 0.9.2 的 MessageBus 在收到消息时用 try/catch 兜业务异常，兜底分支
+  // 又直接 `this.send(Error)`：如果此刻 socket 已不可写，这个二次发送会从库内部抛
+  // 「Cannot send message, stream is closed」，把 Electron 主进程一起带走。
+  // 这里只包住这一条发送路径；其它异常照旧抛出，不掩盖真正的协议错误。
+  const bus = player._bus;
+
+  if (bus && typeof bus.send === "function") {
+    try {
+      const send = bus.send.bind(bus);
+
+      bus.send = (msg: MprisBusMessage): void => {
+        if (failed) return;
+
+        try {
+          send(msg);
+        } catch (e) {
+          if (!isClosedBusError(e)) throw e;
+          fail(e);
+        }
+      };
+    } catch (e) {
+      log("[mpris] bus send guard unavailable:", errorText(e));
+    }
+  }
+
   player.on("error", (e) => {
     // 无会话总线（headless / SSH 无 DBUS_SESSION_BUS_ADDRESS）不是致命错误：
     // 应用继续可用，只是系统媒体控件缺席。
-    log("[mpris] dbus error:", String((e as Error)?.message ?? e));
+    const reason = errorText(e);
+    log("[mpris] dbus error:", reason);
+
+    if (isClosedBusError(e)) fail(e);
   });
 
   player.canControl = true;
@@ -269,7 +330,7 @@ export function createMprisBridge({
   });
   player.on("goTo", (trackId) => emit({ v: 1, t: "cmd", cmd: "jump", trackId: String(trackId ?? "") }));
 
-  const applyState = (raw: unknown): void => {
+  const applyStateUnsafe = (raw: unknown): void => {
     if (!raw || typeof raw !== "object") return;
     const state = raw as Partial<MprisState>;
 
@@ -370,11 +431,24 @@ export function createMprisBridge({
     }
   };
 
+  const applyState = (raw: unknown): void => {
+    if (failed) return;
+
+    try {
+      applyStateUnsafe(raw);
+    } catch (e) {
+      if (isClosedBusError(e)) fail(e);
+      else log("[mpris] state projection failed:", errorText(e));
+    }
+  };
+
   log("[mpris] service initialized on", MPRIS_PATH);
 
   return {
     applyState,
     destroy() {
+      failed = true;
+
       try { player._bus?.disconnect?.(); } catch (e) { log("[mpris] disconnect failed:", String(e)); }
     },
   };

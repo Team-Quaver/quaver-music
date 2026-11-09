@@ -202,6 +202,7 @@ ok("destroy 释放 D-Bus 连接", player()?.disconnected === true);
 
 // —— 接线与依赖残留 ——
 const main = read(join(root, "electron", "main.ts"));
+const mprisSrc = read(join(root, "electron", "mpris.ts"));
 const pkg = JSON.parse(read(join(root, "package.json"))) as { dependencies?: Record<string, string> };
 const builder = readRepo("packages/electron-builder-base.yml");
 const gitmodules = readRepo(".gitmodules");
@@ -210,6 +211,10 @@ const renderer = read(join(root, "src", "mpris.ts"));
 const playerSrc = read(join(root, "src", "player.ts"));
 
 ok("主进程使用进程内 createMprisBridge", main.includes("createMprisBridge") && main.includes("mpris?.applyState(state)"));
+
+ok("MPRIS 断线不会把主进程带走，且会自动重建",
+  mprisSrc.includes("isClosedBusError") && /stream is closed/i.test(mprisSrc)
+  && main.includes("scheduleMprisRestart") && main.includes("onFatal"));
 
 ok("主进程不再 spawn MPRIS daemon", !main.includes("mpris-daemon") && !/spawn\([^)]*mpris/.test(main));
 

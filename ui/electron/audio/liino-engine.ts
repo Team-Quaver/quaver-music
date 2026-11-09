@@ -403,20 +403,29 @@ export class LiinoEngine {
 
     if (!player || this.dead) return;
 
-    for (let i = 0; i < MAX_EVENTS_PER_TICK; i++) {
-      const raw = player.nextEvent();
-
-      if (!raw) break;
-      this.onEvent(this.parseJSON<EventFields>(raw), player);
-    }
-
-    if (this.st.paused || this.st.idle) return;
-
     try {
+      for (let i = 0; i < MAX_EVENTS_PER_TICK; i++) {
+        const raw = player.nextEvent();
+
+        if (!raw) break;
+        this.onEvent(this.parseJSON<EventFields>(raw), player);
+      }
+
+      if (this.st.paused || this.st.idle) return;
+
       this.st.pos = this.clampedPosition(player);
       this.pushState();
     } catch (e) {
-      this.log("[liino] tick failed:", String(caught(e)));
+      // nextEvent 在 native 事件通道关闭时会抛 LiinoError。这个异常发生在
+      // setInterval 回调里，不接住就是主进程未捕获异常；接住后拆掉会话，
+      // 下一条命令会重新 create，而不是让应用带着一个死轮询继续跑。
+      const message = caught(e);
+
+      this.note = `Liino 事件轮询失败：${message}`;
+      this.log("[liino]", this.note);
+      this.hardFail(message);
+      this.send({ t: "error", epoch: this.epoch, message: this.note });
+      this.pushState(true);
     }
   }
 
@@ -645,6 +654,7 @@ export class LiinoEngine {
     const player = this.player;
     this.player = null;
     this.resumeAt = 0;
+    this.stopPolling();
     // 作废进行中的 create：晚到的结果会看到代际变了，自行关闭而不是复活会话。
     this.playerGen++;
     this.playerBoot = null;
@@ -791,7 +801,14 @@ export class LiinoEngine {
         this.lastUrl = url;
         // Open 已同步换代；记下 native 世代，onEvent 用它丢弃上一代排队事件。
         // snapshot 的 gen 就是 gen.curLoad()（Open 在返回前已推进）。
-        const snap = this.parseJSON<SnapshotFields>(player.snapshot());
+        let snap: SnapshotFields | null = null;
+
+        try {
+          snap = this.parseJSON<SnapshotFields>(player.snapshot());
+        } catch (e) {
+          return this.hardFail(caught(e));
+        }
+
         const generation = Number(snap?.gen ?? snap?.generation);
 
         if (Number.isFinite(generation) && generation > 0) this.generation = generation;

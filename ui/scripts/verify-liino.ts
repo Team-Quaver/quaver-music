@@ -71,6 +71,10 @@ ok("迟到的旧 stop 不能拆掉新流（native StopIf 按 track 世代守卫�
     && /h\.player\.TrackGeneration\(\)/.test(src("../vendor/Liino/capi/capi.go"))
     && /h\.player\.StopIf\(gen\)/.test(src("../vendor/Liino/capi/capi.go")));
 
+ok("淡出/阻塞期间的新 load 不能被旧 stop 重置（hardStopIf 二次校验）",
+  /func \(p \*Player\) hardStopIf\(trackGen uint64\)/.test(src("../vendor/Liino/liino.go"))
+    && /p\.pending = func\(\) \{ p\.hardStopIf\(gen\) \}/.test(src("../vendor/Liino/liino.go")));
+
 ok("native 异步事件按产生它的世代发布（旧 loaded/ended 不冒充新流）",
   /func \(p \*Player\) publishFrom\(gen uint64, ev Event\) bool/.test(src("../vendor/Liino/liino.go"))
     && /p\.publishFrom\(gen, Event\{Kind: KindLoaded/.test(src("../vendor/Liino/pipeline.go"))
@@ -78,6 +82,9 @@ ok("native 异步事件按产生它的世代发布（旧 loaded/ended 不冒充�
 
 ok("Liino 意外 closed 立刻报错，不留在 buffering 干等看门狗",
   /case "closed":/.test(engine) && /wasLive/.test(engine) && /Liino 音频流意外停止/.test(engine));
+
+ok("Liino 事件轮询异常会被接住并重建会话（不把主进程带崩）",
+  /nextEvent\(\)/.test(engine) && /Liino 事件轮询失败/.test(engine) && /this\.stopPolling\(\)/.test(engine));
 
 ok("库解析认 QUAVER_LIINO 排障口", /QUAVER_LIINO/.test(runtime));
 

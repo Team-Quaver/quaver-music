@@ -281,6 +281,7 @@ interface SidecarChild extends ChildProcessWithoutNullStreams {
 }
 let sidecar: SidecarChild | null = null;   // 自拉起的 Typhoeus-Go sidecar 子进程
 let mpris: MprisBridge | null = null;     // Linux MPRIS 服务（进程内；win/mac 不走这里）
+let mprisRetry: NodeJS.Timeout | null = null; // 会话总线断开后的重建计时器
 let credentialStore: CredentialStore | null = null; // 凭证存档（ready 之后才能建：safeStorage 要 ready 才可用）
 let weiyunAuthStore: CredentialStore | null = null; // 微云 API Key 密文存档（同样只在密钥环可用时落盘）
 
@@ -359,7 +360,37 @@ function handleMprisCommand(msg: MprisCommand) {
 }
 
 function startMpris() {
-  mpris = createMprisBridge({ log, onCommand: handleMprisCommand });
+  mpris = createMprisBridge({
+    log,
+    onCommand: handleMprisCommand,
+    onFatal: (reason) => {
+      log("[mpris] 总线已断开，准备重建:", reason);
+      scheduleMprisRestart();
+    },
+  });
+}
+
+/** 会话总线（dbus-daemon/broker）重启或连接被对端关闭后，MPRIS 只能整条重建。
+ *  dbus-next 的旧连接不可复活；不重建会让系统媒体控件永久消失，重建失败则继续退避。 */
+function scheduleMprisRestart() {
+  if (quitting || mprisRetry) return;
+
+  try { mpris?.destroy(); } catch {}
+
+  mpris = null;
+  mprisRetry = setTimeout(() => {
+    mprisRetry = null;
+
+    if (quitting) return;
+
+    try {
+      startMpris();
+    } catch (e) {
+      log("[mpris] 重建失败:", String(e));
+      scheduleMprisRestart();
+    }
+  }, 2_000);
+  mprisRetry.unref?.();
 }
 
 // 渲染层快照（preload quaverMpris.send）→ 进程内 MPRIS 服务（win/mac 无此服务，
@@ -1698,6 +1729,8 @@ for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
 
     try { sidecar?.kill(); } catch {}
 
+    if (mprisRetry) { clearTimeout(mprisRetry); mprisRetry = null; }
+
     try { mpris?.destroy(); } catch {}
 
     // app.exit 不触发 will-quit（上面已手动清理）；显式接信号后也不再用默认终止
@@ -1709,6 +1742,8 @@ app.on("will-quit", () => {
   try { hotkeys.destroy(); } catch {} // win/mac 反注册系统级热键；Linux 关门户会话
 
   try { sidecar?.kill(); } catch {}
+
+  if (mprisRetry) { clearTimeout(mprisRetry); mprisRetry = null; }
 
   try { mpris?.destroy(); } catch {}
 

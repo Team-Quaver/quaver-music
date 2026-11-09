@@ -425,6 +425,11 @@ cd ui && pnpm run app                              # 真出声跑一圈（Linux/
   旧 stop 在新 `Open` 之后落地时只能是 no-op，否则会把新流当场 `hardStop`，渲染层永远等不到
   `loaded`、只看见转圈。native 的异步 `loaded/ended/closed` 也必须用 `publishFrom(gen, …)`
   按「产生事件的世代」发布，不能等发布时再取 `curLoad()` 冒充新流。
+  **淡出收尾还要二次校验**：`StopIf` 检查世代后到真正的 `hardStop` 之间仍可能插入新 `Open`
+  （淡出、阻塞的 stream.Close 都够长）。`hardStopIf(trackGen)` 在拿 `p.mu` 后重新比
+  `curTrack()`，旧轮次只能退出，不能 reset 新一轮的 pipe/device。宿主侧的 `nextEvent()`
+  也必须包在 try/catch 里：事件通道关闭时它会抛 `LiinoError`，而轮询在 `setInterval`
+  里，逃出去就是主进程未捕获异常；接住后拆会话并让下一条命令重建。
 - **实时解码的 buffering 恢复不能只看管道水位**：`Available()==0` 在 WinRT 实时路径下是常态，
   旧逻辑要求积到 `PrerollFrames/2` 才回 playing，seek 后会永远卡在 buffering（音频在走、UI
   转圈、歌词停表）。现在 `onUnderrun` 记录 `bufferAt`，设备实际又拉走一个 period 的帧也算恢复；
@@ -900,6 +905,9 @@ Exec 写死「当前 electron + 仓库 ui/」，落进 `applications/` 就是启
 - **MPRIS 在 Electron 主进程内**（`electron/mpris.ts` + `mpris-service` 生产依赖）：渲染层只推
   状态快照，D-Bus 命令原样回推；没有 daemon、没有 `mpris:build`、没有额外子进程。别再把它搬回
   Typhoeus submodule 或 sidecar —— 前者制造漏构建静默失效，后者把系统媒体控件绑死后端生命周期。
+  **总线断开不会带走应用**：`dbus-next` 0.9.2 在 socket 已关闭时会从库内部抛
+  `Cannot send message, stream is closed`；`createMprisBridge` 只拦这一条发送路径，并把
+  `onFatal` 交给主进程销毁后延迟重建。别把总线错误重新交给 Electron 的未捕获异常。
 - **`xesam:asText`（扩展元数据）由当前歌词派生**：player 在歌词落定时算 `lyricAsText`
   （`mprisLyricText` → `src/lyric.ts:lyricLinesToLrc` 或 `lyricLinesToText`，不含翻译/音译），
   快照随 `track.asText` 推送，主进程投影成 D-Bus Metadata。Dank Material Shell / Noctalia 的

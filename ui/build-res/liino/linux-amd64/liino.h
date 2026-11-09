@@ -25,6 +25,7 @@ extern const char *_GoStringPtr(_GoString_ s);
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 #line 1 "cgo-generated-wrapper"
 
