@@ -21,6 +21,35 @@ export function selectedBackend(value: string | undefined): AudioBackendKind {
   return String(value ?? "").trim().toLowerCase() === "liino" ? "liino" : "mpv";
 }
 
+/** 把 resolve 的 mime 收口成 Liino 的容器提示（"ogg"/"flac"/"mp3"…）。
+ *  mime 是第一依据，档位 id 是第二依据（mime 偶尔缺失或被 CDN 写成
+ *  application/octet-stream）。中继 URL 没有文件后缀，Windows 解码器选择只能靠它。 */
+export function decodeFormatHint(mime: string, tier: string): string {
+  const m = mime.toLowerCase();
+
+  if (m.includes("ogg") || m.includes("opus")) return "ogg";
+
+  if (m.includes("flac")) return "flac";
+
+  if (m.includes("mpeg") || m.includes("mp3")) return "mp3";
+
+  if (m.includes("mp4") || m.includes("m4a") || m.includes("aac")) return "aac";
+
+  if (m.includes("wav")) return "wav";
+
+  const t = tier.toLowerCase();
+
+  if (t.includes("ogg")) return "ogg";
+
+  if (t === "atmos71") return "ogg"; // 7.1.4 = 12ch Opus（见 src/lib/streaminfo.ts 的容器矩阵）
+
+  if (t === "flac" || t === "master" || t === "atmos2" || t === "atmos51") return "flac";
+
+  if (t === "320" || t === "128") return "mp3";
+
+  return "";
+}
+
 /** Go 的 arch 命名与 Node 不同名（amd64 vs x64），目录名按 Go 口径。 */
 export function goArchName(nodeArch: string): string {
   return nodeArch === "x64" ? "amd64" : nodeArch === "ia32" ? "386" : nodeArch;

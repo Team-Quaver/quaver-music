@@ -234,7 +234,7 @@ check("loadfile 在途时旧的 idle/pause 事件不清掉新曲播放态",
     && /if \(!loadPending && !\(this\.mode === "pcm" && this\.pcmEnding\)\) this\.st\.paused = !!d/.test(engineSrc));
 
 check("渲染层把 engine loaded 映射为 canplay，且异步 loadfile 不急着熄 loading",
-  /case "loaded":[\s\S]{0,260}type: "canplay"/.test(transportSrc)
+  /case "loaded":[\s\S]{0,700}type: "canplay"/.test(transportSrc)
     && /this\.transport\.kind !== "engine"\) this\.loading = false/.test(playerSrc));
 
 check("渲染层按 load 代次丢弃迟到的 loaded/error（快速连切不误熄转圈）",

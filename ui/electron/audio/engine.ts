@@ -116,6 +116,8 @@ export class AudioEngine {
   loadEntryId: number;               // 本代 loadfile 的 playlist entry id（旧 mpv 可能拿不到，保持 0）
   loadfileIndex: boolean;            // 当前 mpv 是否需要 loadfile 的 index 占位参数
   loadWatchdog: NodeJS.Timeout | null;
+  /** 本次 load 要求的断点（>1s）：mpv start= 没落地时，file-loaded 后补一次 seek。 */
+  resumeAt: number;
   mode: AudioOutputMode;              // native / pcm（原生兼容）
   pcmPipe: PcmPipe | null;           // pcm 模式的 MPV 输出管道
   pcmReady: boolean;                 // renderer 已接上并允许消费 PCM
@@ -167,6 +169,7 @@ export class AudioEngine {
     this.loadEntryId = 0;
     this.loadfileIndex = false;
     this.loadWatchdog = null;
+    this.resumeAt = 0;
     this.mode = "native";
     this.pcmPipe = null;
     this.pcmReady = false;
@@ -851,6 +854,7 @@ export class AudioEngine {
           // pcm 模式的时间轴以 renderer 实际消费的样本为准；mpv 的 time-pos 会被
           // `ao_pcm` 的无时钟解码/管道预写带偏，只留给快照兜底，不用于 UI。
           if (this.mode !== "pcm") this.st.pos = typeof d === "number" && isFinite(d) ? d : 0;
+          this.maybeResumeMpv(source);
           this.pushState();
           break;
         case 2:
@@ -1021,6 +1025,25 @@ export class AudioEngine {
     }
   }
 
+  /** start= 没把 mpv 放到断点时补一次普通 seek（Windows 冷启动解码器偶发）。
+   *  只在当前这代真的 file-loaded 之后判断，避免拿旧曲的 time-pos 误判。 */
+  private maybeResumeMpv(mpv: MpvIpc | null): void {
+    if (this.resumeAt <= 1 || this.mode === "pcm" || !mpv || mpv.dead) return;
+
+    if (this.loadedGen !== this.loadGen) return;
+
+    if (this.st.pos + 5 >= this.resumeAt) { this.resumeAt = 0; return; }
+
+    const target = this.resumeAt;
+
+    this.resumeAt = 0;
+    this.st.pos = target;
+    this.log("[audio] initial resume missed; seeking to", target);
+    void mpv.commandAsync(["seek", target, "absolute"], LOAD_ACK_TIMEOUT_MS).catch((e) => {
+      this.log("[audio] resume seek failed:", String(e));
+    });
+  }
+
   /** 渲染层给的可能是相对路径（/api/stream/...）——mpv 是独立进程，必须绝对化。
    *  vkey/token 依旧只出现在这条本机中继 URL 里，不进命令行与参数。 */
   absolutize(url: string): string {
@@ -1047,6 +1070,7 @@ export class AudioEngine {
     this.pcmLastDataAt = Date.now();
     this.pcmReloading = false;
     this.pcmBuf = Buffer.alloc(0);
+    this.resumeAt = 0;
     this.pushState(true);
   }
 
@@ -1069,6 +1093,7 @@ export class AudioEngine {
     if (epoch !== this.pcmEpoch) return { ok: true, stale: true };
 
     this.beginLoadState(paused, startAt);
+    this.resumeAt = startAt > 1 ? startAt : 0;
 
     if (paused) this.pcmPipe?.pause();
     else this.pcmPipe?.resume();
@@ -1115,6 +1140,7 @@ export class AudioEngine {
     const dur = this.st.dur;
     const gen = this.beginLoadGeneration();
 
+    this.resumeAt = 0;
     this.pcmReloading = true;
     this.pcmBase = at;
     this.pcmPos = at;
@@ -1310,6 +1336,7 @@ export class AudioEngine {
 
         const gen = this.beginLoadGeneration();
         this.beginLoadState(paused, startAt);
+        this.resumeAt = startAt > 1 ? startAt : 0;
         await this.setPauseIntent(mpv, paused);
 
         if (epoch !== this.pcmEpoch) return { ok: true, stale: true };
@@ -1383,6 +1410,7 @@ export class AudioEngine {
       case "stop": {
         if (!this.mpv || this.mpv.dead) return { ok: true };
         const mpv = this.mpv;
+        this.resumeAt = 0;
         this.cancelLoadWatchdog();
         const stopGen = this.loadGen;
         this.pcmPipe?.pause();
@@ -1422,6 +1450,7 @@ export class AudioEngine {
 
         if (!isFinite(sec)) return { ok: false, error: "bad sec" };
         const at = Math.max(0, sec);
+        this.resumeAt = 0;
         this.finishFadeOut(); // 淡出途中 seek（MPRIS Stop）：马上收尾，别听见歌头再静音
 
         if (this.mode === "pcm" && this.lastUrl) {

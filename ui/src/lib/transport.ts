@@ -50,7 +50,8 @@ export interface Transport {
   readonly pcmAnalyser?: () => AnalyserNode | null;
   /** 结束一轮 seek（进度条拖拽抬手）。 */
   seekSettled?(): void;
-  load(url: string, opts?: { paused?: boolean; startAt?: number }): Promise<void>;
+  /** mime/tier = 解码器容器提示（引擎侧决定 Ogg/FLAC 走哪个后端）。 */
+  load(url: string, opts?: { paused?: boolean; startAt?: number; mime?: string; tier?: string }): Promise<void>;
   play(): Promise<void>;
   pause(): void;
   stop(): void;
@@ -116,7 +117,7 @@ export class WebTransport implements Transport {
 
   prepare(sec: number) { this.pendingStart = Math.max(0, sec); }
 
-  async load(url: string, _opts?: { paused?: boolean; startAt?: number }) {
+  async load(url: string, _opts?: { paused?: boolean; startAt?: number; mime?: string; tier?: string }) {
     // src 赋值本身就会触发媒体 load 算法，绝不能再补 load()——
     // 双 load 会把随后的 play() 以 AbortError 打断。暂停态由调用方决定是否 play()（赋 src 不会出声）。
     this.audio.src = url;
@@ -484,7 +485,7 @@ export class EngineTransport implements Transport {
     }).catch(() => {});
   }
 
-  async load(url: string, opts?: { paused?: boolean; startAt?: number }) {
+  async load(url: string, opts?: { paused?: boolean; startAt?: number; mime?: string; tier?: string }) {
     await this.modeReady;
 
     const startAt = Math.max(0, Number(opts?.startAt) || 0);
@@ -509,7 +510,10 @@ export class EngineTransport implements Transport {
     this.loadedUrl = url;
 
     try {
-      const r = await this.invoke({ cmd: "load", url, paused: !!opts?.paused, startAt, epoch, client: PAGE_CLIENT });
+      const r = await this.invoke({
+        cmd: "load", url, paused: !!opts?.paused, startAt, epoch,
+        client: PAGE_CLIENT, mime: opts?.mime ?? "", tier: opts?.tier ?? "",
+      });
 
       // 引擎按世代丢弃了这条 load（同页面已有更新的那一轮接手）。不能当成功继续等
       // loaded/playing —— 那条事件永远不会为这一轮到来，UI 会一直转圈。

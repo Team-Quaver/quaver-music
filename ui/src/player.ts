@@ -729,6 +729,8 @@ class Player {
     const wasPlaying = !this.transport.paused;
     this.prefetch.clear();
     this.prefetchedMid = "";
+    this.fallbackTried.clear();
+    this.failStreak = 0;
     this.fallbackForMid = "";
     this.fallbackSong = null;
     void this.startCurrent(at > 1 ? at : 0, wasPlaying);
@@ -1176,8 +1178,10 @@ class Player {
   private consumePendingSeek() {
     const dur = this.transport.duration;
 
-    if (this.pendingSeek > 1 && dur > this.pendingSeek) {
-      const t = this.pendingSeek;
+    if (this.pendingSeek > 1 && dur > 0) {
+      // 断点可能正好落在曲尾（不同档位的编码 padding 让时长差几百毫秒）：
+      // 不能因为 dur <= pendingSeek 就放弃续播，钳到可播范围内再 seek。
+      const t = Math.min(this.pendingSeek, Math.max(0, dur - 0.25));
       this.pendingSeek = 0;
 
       try { this.transport.seek(t); } catch { /* 稍后 time 事件再补 */ this.pendingSeek = t; }
@@ -1350,7 +1354,9 @@ class Player {
       setLastStream({ tier: r.tier, label: r.label, degraded: r.degraded });
       // engine 直接把 start= 交给 mpv，避免「先从头加载再 seek」多一次重拉；
       // web 仍需等元数据就绪后由 consumePendingSeek 跳转。
-      await this.transport.load(r.url, { paused: !autoplay, startAt });
+      await this.transport.load(r.url, {
+        paused: !autoplay, startAt, mime: r.mime, tier: r.tier,
+      });
 
       if (account !== this.accountSeq || seq !== this.playSeq || this.current !== s) return;
       // 兜底源本身已经挂上：让播放条音质胶囊如实显示来源，不再冒充 QQ 档位。
@@ -2086,6 +2092,11 @@ class Player {
     setSessionQuality(q);
     this.prefetch.clear();
     this.prefetchedMid = "";
+    // 用户显式换档 = 新的重试意图：清掉这首自动降级链的失败记录，别让之前
+    // 失败的档位把这一次也直接判成「链耗尽」→ 跳歌（表现为只有换歌才能恢复）。
+    this.fallbackTried.clear();
+    this.codecHintShown = "";
+    this.failStreak = 0;
 
     if (this.current) void this.startCurrent(at > 1 ? at : 0);
     else this.notify();

@@ -399,6 +399,26 @@ cd ui && pnpm run app                              # 真出声跑一圈（Linux/
   WinRT 的 AudioGraph 是实时路径，每开一首都要建一个未连接的 device output node 打时钟，这是
   全量 WinRT-first 的固有成本；格式矩阵已覆盖本地/HTTP MP3、FLAC、OGG、5.1 FLAC 的 seek，
   再加格式时先补矩阵再动优先级。
+- **HTTP Ogg 有 FFmpeg 时优先 ffgo（`native.PriorityFor`）**：WinRT 的默认顺序是为「没有系统
+  FFmpeg」准备的（Web Media Extensions 兜 Ogg Vorbis/Opus）；但 QQ 的 640ogg/320ogg 可能是
+  Ogg FLAC，Store codec 解不了，而且 Ogg 的初始 seek 在 MediaSource 上是实时图里最慢的一条。
+  `decode.OpenAuto` 现在按 `Source.Format` 重排（`SourcePriority` 可选接口），HTTP Ogg 让
+  ffgo 排到 -1；Probe 失败（没装 FFmpeg）时照常走 WinRT/WMF，不改变无 FFmpeg 用户的行为。
+  容器提示由渲染层 `Transport.load({mime, tier})` → engine `decodeFormatHint(mime, tier)`
+  → `player.open({format})` 一路传下去，别只靠 URL 后缀（中继路径没有后缀）。
+- **初始 seek 的落点要如实回报**：WinRT 的 `Seek` 返回请求值会把「MediaSource 还在打开、
+  实际仍在 0」伪装成续播成功（时钟停在断点、声音从头放）。`winrt.seek` 现在返回
+  `input.position()` 的实际落点；两个主进程引擎在 file-loaded 后若发现落点仍比请求点早
+  5s 以上，会补一次普通 `seek`（Liino `loaded` 后看 `clock`；mpv 等 `time-pos` 且只认
+  `loadedGen === loadGen`）。`start=` / `start_ms` 只是提示，不是保证；补 seek 的代码在
+  主进程（`liino-engine.ts:maybeResume` / `engine.ts:maybeResumeMpv`），别放回渲染层
+  首屏（verify-bundle 的 208KiB 预算贴着线）。
+- **Liino 事件按 native load 世代过滤（不是渲染层 epoch）**：`Event.Gen` 是 native 的
+  `gen.curLoad()`；换档后事件队列里可能还躺着上一代 failed/ended。`LiinoEngine.onEvent`
+  **丢弃更小的 gen、跟随更大的 gen**（更大 = native 自己在 seek/read 失败后 `reopenIf`
+  的恢复路径，也必须接住）；`load` 之后立刻用 `snapshot().generation` 对齐当前世代。
+  另外 stop/pause 的淡出回调要带 `epoch + player` 双重校验：250ms 淡出期间已经来了新 load
+  时，旧回调绝不能 `player.stop()` 掉新会话（表现就是「切档后不响，只有换歌才恢复」）。
 - **实时解码的 buffering 恢复不能只看管道水位**：`Available()==0` 在 WinRT 实时路径下是常态，
   旧逻辑要求积到 `PrerollFrames/2` 才回 playing，seek 后会永远卡在 buffering（音频在走、UI
   转圈、歌词停表）。现在 `onUnderrun` 记录 `bufferAt`，设备实际又拉走一个 period 的帧也算恢复；

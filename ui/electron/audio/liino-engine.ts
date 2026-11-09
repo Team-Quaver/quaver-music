@@ -17,7 +17,7 @@ import type { Liino, LiinoPlayer } from "@team-quaver/liino-node";
 import { normalizeEqState, type EqState } from "./eq-config.ts";
 import type { EngineLog, EngineState } from "./engine.ts";
 import {
-  caught, liinoDevicePlan, liinoEqPlan, liinoMasterGain, liinoStateFields, resolveLiinoLibrary,
+  caught, decodeFormatHint, liinoDevicePlan, liinoEqPlan, liinoMasterGain, liinoStateFields, resolveLiinoLibrary,
   type LiinoDeviceEntry, type LiinoDevicePlan, type LiinoEqPlan, type LiinoRuntime, type RemoteJson,
 } from "./liino-runtime.ts";
 
@@ -43,6 +43,7 @@ function liinoOverride(): string {
 /** snapshot()/clock() 的 JSON 里我们真消费的字段（自己收口，不依赖绑定的类型口径）。 */
 interface SnapshotFields {
   state?: string;
+  generation?: number;
   position_ms?: number;
   duration_ms?: number;
   buffered_ms?: number;
@@ -155,6 +156,9 @@ export class LiinoEngine {
   mode: "native";                    // Liino 只有原生直出这一种拓扑
   /** 渲染层世代（load/seek 带上来）：比它旧的一律丢弃，切歌竞态不靠时序碰运气。 */
   epoch: number;
+  /** native 层当前 load 的世代（事件里的 gen）。Liino 的契约是「消费方丢弃旧世代
+   *  事件」：旧流排队里的 failed/ended 若被当成新流，会直接触发降档甚至跳歌。 */
+  generation: number;
   /** 渲染层页面标识（transport.ts 的 PAGE_CLIENT）：区分「新页面」与「旧页面的迟到命令」。
    *  新页面从 1 重新计数世代，只有它能带着更小的 epoch 被接受；同一页面内的迟到旧命令
    *  必须丢弃，否则会把新歌的 open 顶掉，新歌的 loaded 又因世代不匹配被渲染层过滤 ——
@@ -164,6 +168,9 @@ export class LiinoEngine {
    *  load/play/seek 都算「这一段尾巴重新来过」，必须把它作废，否则重放到末尾时
    *  队列不再前进。 */
   endedEpoch: number;
+  /** 这次 load 要求的续播点（>1s）。平台解码器可能接受 start_ms 却不执行
+   *  （Windows 冷启动的 HTTP OGG/FLAC），loaded 后用一次普通 seek 补上。 */
+  resumeAt: number;
   eq: EqState;
   eqPlan: LiinoEqPlan;
   fade: { inMs: number; outMs: number };
@@ -196,8 +203,10 @@ export class LiinoEngine {
     this.lastUrl = "";
     this.mode = "native";
     this.epoch = 0;
+    this.generation = 0;
     this.client = "";
     this.endedEpoch = -1;
+    this.resumeAt = 0;
     this.eq = normalizeEqState(null);
     this.eqPlan = liinoEqPlan(this.eq);
     this.fade = { inMs: 400, outMs: 250 };
@@ -412,6 +421,23 @@ export class LiinoEngine {
   /** native 事件 → 渲染层事件。状态字段一律由 liinoStateFields 单点映射，kind 只管副作用。 */
   onEvent(ev: EventFields | null, player: LiinoPlayer): void {
     if (!ev?.kind) return;
+
+    // Liino 的 Event.Gen 就是 load 世代。换档/切歌后事件队列里仍可能躺着上一代
+    // 的 failed/ended：不丢就会把新流的起播直接判成失败（随后一路降档/跳歌）。
+    // 更大的 gen 是 native 自己在 seek/read 失败后 reopen 的恢复路径（reopenIf
+    // 也会 nextLoad），必须接受并跟上；更小的才是排队里的旧事件。
+    const eventGen = Number(ev.gen);
+
+    if (this.generation > 0 && Number.isFinite(eventGen) && eventGen > 0) {
+      if (eventGen < this.generation) {
+        this.log("[liino] ignored stale event:", ev.kind, "gen", eventGen, "current", this.generation);
+
+        return;
+      }
+
+      if (eventGen > this.generation) this.generation = eventGen;
+    }
+
     const snap = ev.snapshot;
     const state = String(snap?.state ?? "");
     const dur = Number(snap?.duration_ms);
@@ -426,8 +452,9 @@ export class LiinoEngine {
     switch (ev.kind) {
       case "loaded":
         // 「这条流真的能播」：渲染层用它熄 loading 转圈（与 mpv 的 file-loaded 同语义）
-        this.send({ t: "loaded", epoch: this.epoch });
         this.st.pos = this.clampedPosition(player);
+        this.maybeResume(player);
+        this.send({ t: "loaded", epoch: this.epoch, pos: this.st.pos });
         this.pushState(true);
 
         return;
@@ -462,6 +489,30 @@ export class LiinoEngine {
         return;
       default:
         return;
+    }
+  }
+
+  /** 初始 seek 是否真的落在断点。loaded 是 pipeline 做完初始 seek 之后才发的，
+   *  所以这里的 clock 位置就是解码器实际落点；偏离 >5s（容器索引点容忍）就补一次
+   *  运行时 seek —— 那条路径各后端都已验证。只补一次，load/seek/stop 会覆盖。 */
+  private maybeResume(player: LiinoPlayer): void {
+    if (this.resumeAt <= 1) return;
+
+    const actual = this.clampedPosition(player);
+
+    if (actual + 5 >= this.resumeAt) { this.resumeAt = 0; return; }
+
+    const target = this.resumeAt;
+
+    this.resumeAt = 0;
+
+    // SAFETY: catch 边界进来的都是 unknown；只取 message 拼日志，字段缺失兜 "unknown"
+    try {
+      player.seek(Math.round(target * 1000));
+      this.st.pos = target;
+      this.log("[liino] initial resume missed:", actual, "->", target);
+    } catch (e) {
+      this.log("[liino] resume seek failed:", String(caught(e)));
     }
   }
 
@@ -579,6 +630,7 @@ export class LiinoEngine {
   destroyPlayer(): void {
     const player = this.player;
     this.player = null;
+    this.resumeAt = 0;
     // 作废进行中的 create：晚到的结果会看到代际变了，自行关闭而不是复活会话。
     this.playerGen++;
     this.playerBoot = null;
@@ -693,6 +745,7 @@ export class LiinoEngine {
 
         const paused = !!cmd.paused;
         const startAt = Math.max(0, Number(cmd.startAt) || 0);
+        const format = decodeFormatHint(String(cmd.mime ?? ""), String(cmd.tier ?? ""));
         const player = await this.ensurePlayer();
 
         // ensurePlayer 可能等了 dlopen/create：期间更新的 load 已经接手，这条不能再 open。
@@ -709,14 +762,24 @@ export class LiinoEngine {
         this.rampTo(0, this.fadeTarget === 0 ? this.fade.outMs : 0, null);
         this.st = { ...this.st, pos: startAt, dur: 0, paused, buffering: true, idle: false };
         this.endedEpoch = -1;
+        this.resumeAt = startAt > 1 ? startAt : 0;
         this.pushState(true);
 
         // SAFETY: catch 边界进来的都是 unknown；只取 message 拼日志/回包，字段缺失兜 "unknown"
         try {
-          player.open(url, { start_ms: Math.round(startAt * 1000), auto_play: !paused });
+          player.open(url, {
+            start_ms: Math.round(startAt * 1000),
+            auto_play: !paused,
+            format: format || undefined,
+          });
         } catch (e) { return this.hardFail(caught(e)); }
 
         this.lastUrl = url;
+        // Open 已同步换代；记下 native 世代，onEvent 用它丢弃上一代排队事件。
+        // snapshot 的 generation 就是 gen.curLoad()（Open 在返回前已推进）。
+        const generation = Number(this.parseJSON<SnapshotFields>(player.snapshot())?.generation);
+
+        if (Number.isFinite(generation) && generation > 0) this.generation = generation;
         // Open 会 Reset() 整条 DSP 链：EQ 与增益必须在挂流后重新套用一次
         this.applyEqualizer();
         this.applyVolume();
@@ -765,23 +828,36 @@ export class LiinoEngine {
       }
 
       case "pause": {
+        const pauseEpoch = this.epoch;
+        const pausePlayer = this.player;
         this.st.paused = true;
         this.pushState(true);
         // 先淡出、到 0 再真停；期间来了新歌（load 作废这步）就交给它接管
         // SAFETY: catch 边界进来的都是 unknown；只取 message 拼日志/回包，字段缺失兜 "unknown"
-        this.rampTo(0, this.fade.outMs, () => { try { this.player?.pause(); } catch (e) { this.hardFail(caught(e)); } });
+        this.rampTo(0, this.fade.outMs, () => {
+          if (this.epoch !== pauseEpoch || this.player !== pausePlayer || !pausePlayer) return;
+
+          try { pausePlayer.pause(); } catch (e) { this.hardFail(caught(e)); }
+        });
 
         return { ok: true };
       }
 
       case "stop": {
         const stopEpoch = this.epoch;
+        const stopPlayer = this.player;
+        this.resumeAt = 0;
         this.st.paused = true;
         this.pushState(true);
 
         this.rampTo(0, this.fade.outMs, () => {
+          // 淡出这 250ms 里可能已经来了新的 load（用户连点音质/切歌）。旧一轮的
+          // stop 绝不能落到新会话上：那条 stop 会把刚挂好的流卸掉，表现就是
+          // 「切档后不响，只有再切一首歌才恢复」。
+          if (this.epoch !== stopEpoch || this.player !== stopPlayer || !stopPlayer) return;
+
           // SAFETY: catch 边界进来的都是 unknown；只取 message 拼日志/回包，字段缺失兜 "unknown"
-          try { this.player?.stop(); } catch (e) { this.hardFail(caught(e)); }
+          try { stopPlayer.stop(); } catch (e) { this.hardFail(caught(e)); }
 
           // 仍是同一代才清 lastUrl：淡出期间已切到新歌时那条 URL 属于新歌
           if (this.epoch === stopEpoch) {
@@ -801,6 +877,8 @@ export class LiinoEngine {
 
         const at = Math.max(0, sec);
         const player = this.player;
+
+        this.resumeAt = 0;
 
         if (!player || this.dead) return { ok: false, error: "liino 会话未运行" };
         this.finishFadeOut();

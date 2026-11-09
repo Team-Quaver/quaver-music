@@ -247,7 +247,11 @@ let lastStream: LastStream | null = null;
 export const getLastStream = () => lastStream;
 export const setLastStream = (s: LastStream | null) => { lastStream = s; };
 
-export interface StreamResult extends LastStream { url: string }
+export interface StreamResult extends LastStream {
+  url: string;
+  /** 上游声明的容器/编码（"audio/ogg" 等）。仅作解码器选择提示，不参与播放。 */
+  mime?: string;
+}
 
 const RESOLVE_TIMEOUT_MS = 12000; // 上游取链+嗅探偶发挂起：超时报错，让 UI 出可重试的错误态而不是永久转圈
 
@@ -333,7 +337,10 @@ export async function resolveStreamUrl(song: any, quality: Quality | "auto" = ef
         cache_seed: musicCacheSeed(), cloud_file_id: cloudFileId,
       }, decodeWeiyunFileName(song.directUrl));
 
-      return { url: "/api" + r.path, tier: r.tier, label: r.cached ? "微云缓存" : r.tier_label, degraded: r.degraded };
+      return {
+        url: "/api" + r.path, tier: r.tier, label: r.cached ? "微云缓存" : r.tier_label,
+        degraded: r.degraded, mime: r.mime,
+      };
     }
   }
 
@@ -347,7 +354,7 @@ export async function resolveStreamUrl(song: any, quality: Quality | "auto" = ef
   try {
     const r = await postResolve({ mid: song.mid, media_mid: mediaId, tier, auto: true, deprioritize, duration_ms: durationHintMs(song), cache_seed: musicCacheSeed() });
 
-    return { url: "/api" + r.path, tier: r.tier, label: r.tier_label, degraded: r.degraded };
+    return { url: "/api" + r.path, tier: r.tier, label: r.tier_label, degraded: r.degraded, mime: r.mime };
   } catch (e: any) {
     // 目标档本身取不到（会员/加密在 auto 模式已被后端裁剪，走到这里多为无源/网络）→ 兜底标准档
     if (tier !== "128") {
@@ -357,7 +364,7 @@ export async function resolveStreamUrl(song: any, quality: Quality | "auto" = ef
 
       const r = await postResolve({ mid: song.mid, media_mid: mediaId, tier: "128", auto: true, deprioritize, duration_ms: durationHintMs(song), cache_seed: musicCacheSeed() });
 
-      return { url: "/api" + r.path, tier: "128", label: "标准音质", degraded: true };
+      return { url: "/api" + r.path, tier: "128", label: "标准音质", degraded: true, mime: r.mime };
     }
 
     throw e;

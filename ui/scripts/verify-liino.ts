@@ -10,6 +10,7 @@
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { decodeFormatHint } from "../electron/audio/liino-runtime.ts";
 
 const UI = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -73,9 +74,30 @@ ok("Windows 解码顺序 WinRT → WMF（0/1）",
   /func \(backend\) Priority\(\) int \{ return 0 \}/.test(src("../vendor/Liino/decode/winrt/winrt.go"))
     && /func \(backend\) Priority\(\) int \{ return 1 \}/.test(src("../vendor/Liino/decode/wmf/wmf.go")));
 
+ok("Windows HTTP Ogg 在系统 FFmpeg 可用时优先 ffgo（avoid WinRT cold-open/seek）",
+  /func \(backend\) PriorityFor\(src decode\.Source\) int/.test(src("../vendor/Liino/decode/native/prefer_windows.go"))
+    && /return -1/.test(src("../vendor/Liino/decode/native/prefer_windows.go"))
+    && /backendsFor\(src\)/.test(src("../vendor/Liino/decode/decode.go")));
+
 ok("实时解码 buffering 按实际拉流恢复，短 seek 不闪转圈",
   /framesPulledSince/.test(src("../vendor/Liino/pipeline.go"))
     && /WAIT_DEBOUNCE_MS/.test(src("src/lib/transport.ts")));
+
+ok("初始 start_ms 未落地时 Liino 引擎补一次普通 seek（切档不回到 0）",
+  /private maybeResume\(player: LiinoPlayer\)/.test(engine)
+    && /this\.resumeAt = startAt > 1 \? startAt : 0/.test(engine)
+    && /player\.seek\(Math\.round\(target \* 1000\)\)/.test(engine));
+
+ok("初始 start= 未落地时 mpv 引擎补一次普通 seek",
+  /private maybeResumeMpv\(mpv: MpvIpc \| null\)/.test(src("electron/audio/engine.ts"))
+    && /"seek", target, "absolute"/.test(src("electron/audio/engine.ts")));
+
+ok("容器提示：mime 优先 + 档位兜底（Ogg FLAC/7.1 走 ffgo）",
+  decodeFormatHint("audio/ogg", "weiyun") === "ogg"
+    && decodeFormatHint("application/octet-stream", "atmos71") === "ogg"
+    && decodeFormatHint("", "640ogg") === "ogg"
+    && decodeFormatHint("audio/flac", "master") === "flac"
+    && decodeFormatHint("", "128") === "mp3");
 
 ok("dev/app/build/typecheck:node 自动补齐 liino-node dist",
   (src("package.json").match(/node scripts\/ensure-liino-node\.ts/g) ?? []).length === 3

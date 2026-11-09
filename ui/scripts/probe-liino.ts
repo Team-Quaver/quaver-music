@@ -181,6 +181,30 @@ app.whenReady().then(async () => {
     reload.ok === true && !reload.stale && liinoEngine.epoch === 4, JSON.stringify(reload));
   ok("接受后当前流仍是这一条", liinoEngine.lastUrl === stream.url && !liinoEngine.st.idle);
 
+  // —— 换音质续播：load(startAt) 必须把解码器放在断点，而不是从 0 起播 ——
+  //    这是 Windows 解码器（WinRT/WMF）最容易退化的契约；渲染层还有一层
+  //    「落点不对就补一次普通 seek」的兜底，见 liino-engine.ts:maybeResume。
+  const resumeMark = events.length;
+  const resume = await liinoEngine.call({
+    cmd: "load", url: stream.url, paused: false, startAt: 0.8, epoch: 5, client: "probe-page-2",
+  });
+
+  ok("load(startAt) 被接受", resume.ok === true && !resume.stale, JSON.stringify(resume));
+
+  const resumeDeadline = Date.now() + 4000;
+  let resumeState: any = null;
+
+  while (Date.now() < resumeDeadline) {
+    await sleep(80);
+    resumeState = [...events.slice(resumeMark)].reverse().find((e) => e?.t === "state");
+
+    if (resumeState && !resumeState.paused && resumeState.pos > 0.6) break;
+  }
+
+  ok("load(startAt) 从断点起播（≥0.6s，不是 0）",
+    !!resumeState && resumeState.pos >= 0.6 && resumeState.pos <= 1.6,
+    JSON.stringify(resumeState));
+
   // —— 曲末：用 startAt 贴尾重挂，等 ended（只发一次，重复会被渲染层当双倍切歌）——
   // 注：不测「播放中 seek 到贴尾」，那个场景 native 有独立问题（native 侧重排缓冲后
   // underrun 不恢复），归 vendor/Liino 上游；我们只用引擎的 load(startAt) 语义换位置。
