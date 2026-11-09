@@ -50,9 +50,17 @@ section("固定/鼠标透穿");
   eq("Linux X11 开放", supportsDlLock("linux", { XDG_SESSION_TYPE: "x11", DISPLAY: ":0" }), true);
   eq("Linux XDG 缺失时按 DISPLAY 兜底", supportsDlLock("linux", { DISPLAY: ":0" }), true);
   eq("Wayland 关闭", supportsDlLock("linux", { XDG_SESSION_TYPE: "wayland", WAYLAND_DISPLAY: "wayland-0" }), false);
+  eq("XWayland 开放（会话仍是 Wayland，Electron 实际后端是 x11）",
+    supportsDlLock("linux", { XDG_SESSION_TYPE: "wayland", WAYLAND_DISPLAY: "wayland-0", DISPLAY: ":0" }, "x11"), true);
+  eq("原生 Wayland 关闭（实际后端优先于会话变量）",
+    supportsDlLock("linux", { XDG_SESSION_TYPE: "wayland", WAYLAND_DISPLAY: "wayland-0" }, "wayland"), false);
+  eq("会话变量说 X11、实际后端是 Wayland 也关闭",
+    supportsDlLock("linux", { XDG_SESSION_TYPE: "x11", DISPLAY: ":0" }, "wayland"), false);
   eq("Linux 无图形会话关闭", supportsDlLock("linux", {}), false);
   eq("其它 Unix 关闭", supportsDlLock("freebsd", { DISPLAY: ":0" }), false);
   const dl = src("electron/desktop-lyrics.ts");
+  check("主进程把 Electron 实际 ozone 后端喂给闸门（XWayland 不再被会话类型误杀）",
+    /supportsDlLock\(\s*process\.platform,\s*process\.env,\s*app\.commandLine\.getSwitchValue\("ozone-platform"\),\s*\)/.test(dl));
   check("主进程按锁档调用 setIgnoreMouseEvents（锁定 true / 解锁 false 同一入口）",
     /win\.setIgnoreMouseEvents\(locked, locked \? \{ forward: true \} : undefined\)/.test(dl));
   check("锁定同时取消可移动位（Linux no-op，但 X11 的输入穿透已切断拖拽）", /win\.setMovable\(!locked\)/.test(dl));
@@ -839,7 +847,7 @@ check("歌词不透明度滑条 10..100%（调的是字）",
   && /setDesktopLyricsOpacity\(Number\(dlOpacity\.value\) \/ 100\)/.test(views));
 
 check("桌面歌词说明只保留固定功能的平台限制",
-  /固定（鼠标透穿）」仅在 macOS \/ Windows \/ X11 会话开放/.test(views)
+  /固定（鼠标透穿）」仅在 macOS \/ Windows \/ X11（含 XWayland）窗口开放/.test(views)
   && !/悬停地板/.test(views) && !/不支持最大化/.test(views) && !/申请浮窗/.test(views));
 
 check("窗体不透明度滑条 0..100%（调背板，默认 0 = 只有字）——与歌词那条分开、命名不混",

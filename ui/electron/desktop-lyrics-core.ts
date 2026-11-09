@@ -11,9 +11,9 @@
 //     0.1s、点数值归零）。控制条左侧是曲目抬头（小封面 + 歌名 - 歌手）；字体走独立的
 //     [DesktopLyrics] Font，字重走 Weight，轮廓与阴影分别走 Border 与 Shadow* 两组。
 //
-// **固定/鼠标透穿**：macOS、Windows 与 Linux X11 会话开放这一档。锁定后窗口钉在原位并
+// **固定/鼠标透穿**：macOS、Windows 与 Linux X11 后端（含 XWayland）开放这一档。锁定后窗口钉在原位并
 // setIgnoreMouseEvents(true)，鼠标事件落到下层窗口；解除入口在托盘菜单与设置页（锁住后的
-// 歌词层本身已经收不到点击）。Wayland 不开放该档，避免把「合成器说了算」的静默失效包装成开关。
+// 歌词层本身已经收不到点击）。原生 Wayland 不开放该档，避免把「合成器说了算」的静默失效包装成开关。
 // 未锁定时窗体仍是纯 CSD：拖拽区由页面自己划（-webkit-app-region: drag，见
 // src/desktop-lyrics.css），整层可拖、可悬停出控制条。
 //
@@ -154,17 +154,29 @@ export interface DlSettings {
 /**
  * 桌面歌词「固定/鼠标透穿」的平台闸门。
  *
- * 只认 macOS、Windows 与 Linux 的 X11 会话。Wayland 下交给合成器的输入区域与旧版行为差异
- * 太大，不做成会静默失效的开关。Linux 上 XDG_SESSION_TYPE 缺失时再用 WAYLAND_DISPLAY /
- * DISPLAY 兜底，兼容精简会话环境。
+ * 只认 macOS、Windows 与 Linux 的 X11 **窗口后端**（XWayland 也是 X11 后端——它的窗口、
+ * 置顶与输入形状都走 X11 那套，只是服务端由 Wayland 合成器托管）。原生 Wayland 下交给
+ * 合成器的输入区域与旧版行为差异太大，不做成会静默失效的开关。
+ *
+ * 不能只看 XDG_SESSION_TYPE：Wayland 会话里 XDG_SESSION_TYPE 同样是 "wayland"，而
+ * Electron 完全可能用 --ozone-platform=x11 跑在 XWayland 上。ozonePlatform 传 Electron
+ * 实际解析出的 --ozone-platform（app.commandLine.getSwitchValue），它才是窗口真正的后端；
+ * 没传（纯逻辑测试/非 Electron 调用）才退回会话变量，XDG 缺失时再用 WAYLAND_DISPLAY /
+ * DISPLAY 兜底。
  */
 export function supportsDlLock(
   platform: string = process.platform,
   env: Record<string, string | undefined> = process.env,
+  ozonePlatform: string | null = null,
 ): boolean {
   if (platform === "darwin" || platform === "win32") return true;
 
   if (platform !== "linux") return false;
+  const backend = String(ozonePlatform ?? "").trim().toLowerCase();
+
+  if (backend === "x11") return true;
+
+  if (backend === "wayland") return false;
   const session = String(env.XDG_SESSION_TYPE ?? "").trim().toLowerCase();
 
   if (session === "wayland") return false;

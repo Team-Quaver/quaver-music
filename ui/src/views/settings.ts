@@ -535,7 +535,7 @@ export default async function settingsView(root: HTMLElement) {
             <input id="dl-color-hex" type="text" spellcheck="false" autocomplete="off" size="9" maxlength="7" aria-label="桌面歌词颜色 HEX" />
           </div>
         </div>
-        <p class="muted set-hint">「固定（鼠标透穿）」仅在 macOS / Windows / X11 会话开放。</p>
+        <p class="muted set-hint">「固定（鼠标透穿）」仅在 macOS / Windows / X11（含 XWayland）窗口开放。</p>
       </div>
     </section>
 
@@ -1747,7 +1747,7 @@ export default async function settingsView(root: HTMLElement) {
     () => (getDesktopLyrics() ? "on" : "off"),
     (v) => setDesktopLyrics(v === "on"),
   );
-  // 固定/鼠标透穿：平台能力从主进程现读（macOS / Windows / X11 才有）。Wayland 隐藏整行，
+  // 固定/鼠标透穿：平台能力从主进程现读（macOS / Windows / X11，含 XWayland）。原生 Wayland 隐藏整行，
   // 不在 UI 里给一个按下去也不会生效的开关。锁定后的解除入口同时留在托盘。
   const dlLockRow = wrap.querySelector<HTMLElement>("#dl-lock-row")!;
   dlLockRow.hidden = !desktopLyricsStateSync()?.canLock;

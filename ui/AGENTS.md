@@ -536,12 +536,15 @@ cd ui && pnpm run app                              # 真出声跑一圈（Linux/
 一个**独立的 Electron 窗**（`electron/desktop-lyrics.ts` + 页 `desktop-lyrics.html` / `src/desktop-lyrics.ts`），
 与主窗单向上镜像数据（主窗 player 是唯一事实源，见 `src/lib/desktop-lyrics.ts`）。几条别踩的：
 
-- **未锁定时是纯 CSD；macOS / Windows / X11 有「固定 + 鼠标透穿」档**。拖拽区由页面自己划
+- **未锁定时是纯 CSD；macOS / Windows / X11（含 XWayland）有「固定 + 鼠标透穿」档**。拖拽区由页面自己划
   （`#dl-root{-webkit-app-region:drag}` + 控制条/进度条/缩放手把 `no-drag`），挪窗交给窗口管理器 ——
   Wayland 下 `setPosition()` 会被合成器无视，拖拽区是唯一真能挪窗的路（旧版 move-by IPC 已删）。
   锁定时主进程走 `setIgnoreMouseEvents(true)` + `setMovable(false)`，页面同步加 `.dl-locked` 收起控件；
-  解除入口只留托盘与设置页（锁住的窗收不到点击）。Wayland 不开放该档，平台闸门在
-  `desktop-lyrics-core.ts:supportsDlLock`。`no-drag` 的豁免**只在同一子树内**成立（主窗顶带踩过：
+  解除入口只留托盘与设置页（锁住的窗收不到点击）。原生 Wayland 不开放该档，平台闸门在
+  `desktop-lyrics-core.ts:supportsDlLock`。**闸门看的是 Electron 实际 ozone 后端而不是
+  `XDG_SESSION_TYPE`**：Wayland 会话里跑 XWayland 时后者仍是 `wayland`，只有
+  `app.commandLine.getSwitchValue("ozone-platform") === "x11"` 才说明窗口真的走 X11。
+  `no-drag` 的豁免**只在同一子树内**成立（主窗顶带踩过：
   兄弟子树里的 no-drag 挡不住铺过来的 drag 矩形）——本窗三个控件都是 `#dl-root` 的直接子元素才挖得动洞。
 - **两层不透明度，别混成一个**：`Opacity` = **歌词层**（挂在**内容**两处：`#dl-clip` 与 `#dl-empty`
   的 `opacity: var(--dl-opacity)`）；`Backdrop` = **窗体不透明度**（`#dl-board`，`inset:0` **铺满客户端表面**、

@@ -13,8 +13,9 @@
 // 退化成「消息自然丢弃」，与热键/托盘同一套容错。
 //
 // 窗体形态：未锁定时是纯 CSD —— 无边框 + 页面自己划拖拽区（-webkit-app-region: drag）。
-// macOS / Windows / X11 另有「固定并鼠标透穿」档：锁定后窗口钉住、setIgnoreMouseEvents(true)，
-// 点击全部落给下层；解除入口在托盘与设置页。Wayland 不开放该档，理由见 desktop-lyrics-core.ts 头。
+// macOS / Windows / X11（含 XWayland）另有「固定并鼠标透穿」档：锁定后窗口钉住、
+// setIgnoreMouseEvents(true)，点击全部落给下层；解除入口在托盘与设置页。原生 Wayland
+// 不开放该档，理由见 desktop-lyrics-core.ts 头。
 // 也没有「最大化/全屏」这一档：歌词是贴桌面的横带，铺满整屏读不了也拖不回来 —— 构造参数只是
 // 「不给按钮」，拦不住窗口管理器的手势，所以另有一道「被最大化就立刻退回」的反应式守卫。
 // 初始尺寸由「字号倍率 × 行数档位」贴合内容算出（defaultSizeFor，记忆里有能用的尺寸就用记忆的），
@@ -24,7 +25,7 @@
 // （拖动中两条轴都钉、松手只把宽度放回区间，见 pinSize / releaseWidth）—— 浮窗不掉，
 // Wayland 下靠合成器夹取，而 setSize 只改我们这边的视口、改不动盒子。
 // 配置解析/边界兜底在 desktop-lyrics-core.ts，窗口生命周期全在本文件。
-import { BrowserWindow, ipcMain, screen } from "electron";
+import { app, BrowserWindow, ipcMain, screen } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readValues, writeValues } from "./config.ts";
@@ -67,7 +68,7 @@ export class DesktopLyricsController {
    *  宽度在拖动那几帧也被我们钉着 —— 两条都以这里为准。0 = 还没开窗/未知。 */
   pinnedWidth: number;
   pinnedHeight: number;
-  /** 当前会话是否开放固定/鼠标透穿档（macOS / Windows / X11）。 */
+  /** 当前窗口后端是否开放固定/鼠标透穿档（macOS / Windows / X11，含 XWayland）。 */
   canLock: boolean;
 
   constructor(deps: DlDeps) {
@@ -80,7 +81,13 @@ export class DesktopLyricsController {
     this.persistTimer = null;
     this.pinnedWidth = 0;
     this.pinnedHeight = 0;
-    this.canLock = supportsDlLock();
+    // 会话类型不够：Wayland 会话里跑 XWayland 时 XDG_SESSION_TYPE 仍是 "wayland"。
+    // Electron 会把最终选中的后端解析进 --ozone-platform，拿它才分得清原生 Wayland 与 XWayland。
+    this.canLock = supportsDlLock(
+      process.platform,
+      process.env,
+      app.commandLine.getSwitchValue("ozone-platform"),
+    );
     this.registerIpc();
   }
 

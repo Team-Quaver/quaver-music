@@ -63,7 +63,7 @@ export interface DlStateSnapshot {
   enabled: boolean;
   /** 当前是否已经固定并让鼠标透穿 */
   locked: boolean;
-  /** 当前会话是否开放该档（macOS / Windows / X11）；Wayland 为 false */
+  /** 当前窗口后端是否开放该档（macOS / Windows / X11，含 XWayland）；原生 Wayland 为 false */
   canLock: boolean;
 }
 

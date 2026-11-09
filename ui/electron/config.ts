@@ -758,7 +758,7 @@ export const SCHEMA: SectionSpec[] = [
         def: "False",
         doc: [
           "固定并鼠标透穿：True=覆盖层钉在原位、鼠标事件落到下层窗口；False（默认）=可拖拽、可悬停操作。",
-          "仅 macOS、Windows 与 Linux X11 会话开放；Wayland 下该档不生效。",
+          "仅 macOS、Windows 与 Linux X11 窗口后端（含 XWayland）开放；原生 Wayland 下该档不生效。",
           "锁定后歌词层收不到点击，解除入口在托盘菜单「桌面歌词 → 固定（鼠标透穿）」或设置页同一开关。",
         ],
         valid: isBoolValue,
