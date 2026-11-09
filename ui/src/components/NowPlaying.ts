@@ -804,8 +804,11 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
   // 正在播放页大封面从 QQ 音乐最高档 1500 起取；个别专辑没有该档时 <img> 404，
   // 按候选链逐级下降到 1200/800/500/300/150/90。候选首项兼作指纹：4Hz notify
   // 不会反复重建 <img>/重解码，只有真的换曲或本地封面版本变化才重置游标。
-  function showNpCover(s: Song | undefined) {
-    const urls = coverUrlCandidates(s);
+  function showNpCover(s: Song | undefined, open: boolean) {
+    // 收起态整页 opacity:0 但仍在 DOM 里：别让一张看不见的 1500×1500 占着解码位图
+    // （实测 ~8.6MB）。收起只留 300 档，展开瞬间再按候选链升到 1500；关回来自动降回。
+    // 候选链按高→低排列，末尾三项就是 300/150/90（本地/微云只有一个 URL，slice 后仍是它）。
+    const urls = open ? coverUrlCandidates(s) : coverUrlCandidates(s).slice(-3);
     const want = urls[0] ?? "";
 
     if (want !== npCoverWant) {
@@ -828,7 +831,7 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
 
       npCoverTry++;
       lastCover = null;
-      showNpCover(s);
+      showNpCover(s, open);
     };
   }
 
@@ -1285,7 +1288,7 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
     const pic = s ? coverUrl(s, 300) : "";
     syncNpAml(pic, open);
 
-    showNpCover(s);
+    showNpCover(s, open);
 
     // 换曲 / 歌词内容替换 / 状态迁移 / 接管模式切换（重导入同曲时状态仍是 ok，只靠版本号识别）
     const st: "idle" | "loading" | "ok" | "none" = player.lyrics.length ? "ok" : player.lyricState;

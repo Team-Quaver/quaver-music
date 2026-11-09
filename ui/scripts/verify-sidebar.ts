@@ -14,6 +14,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { thumbPic } from "../src/lib/thumbs.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
@@ -286,6 +287,36 @@ ok("mac-csd 让位带是可拖拽区（-webkit-app-region: drag）",
 ok("只有壳层桥存在时才挂 mac-csd（浏览器 dev 保留自绘占位钮）",
   /quaverCSD/.test(prefs) && /classList\.toggle\("mac-csd"/.test(prefs));
 ok("壳层注入侧栏让位带节点", /class="side-dragtop"/.test(shell));
+
+// ============ ⑧ 小图标降档：32px 歌单封面不许拉 500/600 原图 ============
+// 侧栏歌单封面是 32px、头像 44px；浏览器按 URL 返回的原图解码成位图常驻内存，
+// 500/600 档一张就是 1–1.4MB。这里既钉住纯函数的三条上游形态，也钉住接线。
+ok("thumbPic：QQ 专辑/歌手图降到 90 档（保留域名与查询串）",
+  thumbPic("https://y.gtimg.cn/music/photo_new/T002R500x500M000004fGHuo31YOxu.jpg?n=1") ===
+    "https://y.gtimg.cn/music/photo_new/T002R90x90M000004fGHuo31YOxu.jpg?n=1"
+  && thumbPic("http://y.gtimg.cn/music/photo_new/T001R500x500M0000026y2vm2J1K6Q_12.jpg") ===
+    "https://y.gtimg.cn/music/photo_new/T001R90x90M0000026y2vm2J1K6Q_12.jpg");
+
+ok("thumbPic：music_cover/<key>/<size> 形态只换末段尺寸",
+  thumbPic("https://p.qpic.cn/music_cover/2pm5Nb2cMaPlwgenzP7GKuAohoyTVg9ticbd4qFHbACaEeaSCJZZk9g/300") ===
+    "https://p.qpic.cn/music_cover/2pm5Nb2cMaPlwgenzP7GKuAohoyTVg9ticbd4qFHbACaEeaSCJZZk9g/90"
+  && thumbPic("https://qpic.y.qq.com/music_cover/hKFribMhwH4ClwNWJxicuCxkibh2Mnulrvicb2w3Rv9vnpvjlXMsiaw4vmw/600?n=1") ===
+    "https://qpic.y.qq.com/music_cover/hKFribMhwH4ClwNWJxicuCxkibh2Mnulrvicb2w3Rv9vnpvjlXMsiaw4vmw/90?n=1");
+
+ok("thumbPic：imageView2 w/h 成对改，认不出的图床原样返回",
+  thumbPic("https://music-file.y.qq.com/songlist/u/oK6kowEAoK4z7K6z7w-ioins7z/7d8b/x.jpg?imageView2/4/w/600/h/600") ===
+    "https://music-file.y.qq.com/songlist/u/oK6kowEAoK4z7K6z7w-ioins7z/7d8b/x.jpg?imageView2/4/w/90/h/90"
+  && thumbPic("https://example.com/cover.jpg") === "https://example.com/cover.jpg");
+
+ok("thumbPic 顺带把 http 升级成 https；侧栏按需加载，不占首屏静态闭包",
+  thumbPic("http://y.gtimg.cn/a.jpg") === "https://y.gtimg.cn/a.jpg"
+  && /await import\("\.\/lib\/thumbs"\)/.test(shell)
+  && !/from "\.\/lib\/thumbs/.test(shell));
+
+ok("侧栏歌单/插件歌单/头像三处都走 thumbPic(…, 90)",
+  /const pic = thumbPic\(fav\.picurl \|\| fav\.bigpic_url, 90\)/.test(shell)
+  && /const pic = thumbPic\(item\.picurl, 90\)/.test(shell)
+  && /thumbPic\(base\.avatar, 90\)/.test(shell));
 
 console.log(`\n${checks - fails}/${checks} passed${fails ? ` — ${fails} FAILED` : ""}`);
 

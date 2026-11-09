@@ -1,6 +1,6 @@
 // Quaver — 路由视图：home（由 src/views/index.ts 按需动态 import，不在首屏解析）
 import "./home.css";
-import { api, coverUrl, escHtml, songTitle, upPic } from "../lib/api";
+import { api, coverUrl, escHtml, songTitle } from "../lib/api";
 import { icons } from "../lib/icons";
 import { renderSongRows } from "../lib/songs";
 import { periodCaption } from "../lib/toplist-periods";
@@ -13,11 +13,17 @@ import type {
 } from "./_shared";
 import { cardPlay, compactCount, errText, h, homeStatus, navCard, routeScroller, trackStuck } from "./_shared";
 
+// 缩略图降档函数按需加载：视图块本身已是懒加载，但**静态 import** 会让它进入口的
+// preload 依赖表（首屏预算只剩几十字节）；动态 import 的目标块不占那份表。
+const thumbs = import("../lib/thumbs");
+
 interface AISonglistResp extends RecommendSonglistResp { total?: number; hasmore?: boolean }
 
 // —— 首页：页头 + 双栏领区（快速开始 / 新歌速递）+ 推荐网格 + AI 歌单 + 排行榜 ——
 // 四个数据源并行、独立降级：任一失败不影响其他块，各自原地给重试。
 export default async function homeView(root: HTMLElement) {
+  const { thumbPic } = await thumbs;
+
   const scroller = routeScroller(root);
   const homeHead = h("div", "sticky-head home-pagehead", `
     <h1 class="page-title">首页</h1>
@@ -321,7 +327,7 @@ export default async function homeView(root: HTMLElement) {
       ? ["AI 生成", listens ? `${listens}次播放` : ""].filter(Boolean).join(" · ")
       : [x.creator_nick || "", listens ? `${listens}次播放` : ""].filter(Boolean).join(" · ") || "歌单";
 
-    const card = navCard(href, upPic(x.picurl), title, sub,
+    const card = navCard(href, thumbPic(x.picurl, 300), title, sub,
       () => cardPlay("playlist", id, href));
 
     if (aiPick) {

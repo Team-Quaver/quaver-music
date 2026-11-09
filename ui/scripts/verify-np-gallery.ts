@@ -171,6 +171,11 @@ await step("大封面：1500 优先，缺档时逐级降到 1200", async () => {
   await page.waitForFunction(() => !document.querySelector(".np")?.classList.contains("open"), { timeout: 4000 });
 });
 
+await step("收起态大封面降回 300 档（看不见的 1500 位图不应常驻）", async () => {
+  await page.waitForFunction(() =>
+    (document.querySelector<HTMLImageElement>("#np-cover img")?.src ?? "").includes("T002R300x300M000"), { timeout: 4000 });
+});
+
 await step("频谱关闭 + 懒加载样式未到位时，打开 ⋮ 不会挤动正在播放页", async () => {
   await setupSong("layout");
   await page.waitForFunction(() => document.querySelector(".np.open .np-inner"), { timeout: 4000 });

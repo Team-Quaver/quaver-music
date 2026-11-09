@@ -30,6 +30,9 @@ import { bootMenuGlass } from "./lib/menu-glass";
 /** 侧栏歌单动作只在首次触发时解析：菜单/双击是低频交互，别把整份菜单实现钉进首屏闭包。 */
 const playlistMenu = () => import("./components/PlaylistMenu");
 
+/** 侧栏小封面降档函数按需加载（首次渲染歌单前 await），别为首屏常驻一个只服务 32px 图的正则。 */
+let thumbPic: (u: string | undefined, size?: number) => string = (u) => upPic(u);
+
 // 内置导航项的清单与图标住在 lib/nav-items.ts（设置页的「菜单栏编辑」共用同一份）。
 // 顺序/显隐是用户偏好（NavOrder / NavHidden），每次 renderNav 现读，不把顺序钉死在常量里。
 export const nav = NAV_ITEMS;
@@ -444,7 +447,8 @@ function plItem(x: PlaylistMenuTarget | FavPlaylist, sub = "", menu?: PlaylistMe
   const a = document.createElement("a");
   a.className = "pl";
   const fav = x as Partial<FavPlaylist>;
-  const pic = upPic(fav.picurl || fav.bigpic_url);
+  // 32px 的槽位不要 500/600 档原图：浏览器按原图解码，三四十个歌单就是几十 MB 常驻位图。
+  const pic = thumbPic(fav.picurl || fav.bigpic_url, 90);
   const title = String(x.title ?? "歌单");
   a.title = sub ? `${title} · ${sub}` : title;
   a.innerHTML = `<span class="thumb">${pic ? `<img src="${pic}" alt="" loading="lazy"/>` : ""}</span>
@@ -514,7 +518,7 @@ function renderSidebarPlaylists(box: HTMLElement) {
     for (const item of g.items) {
       const a = document.createElement("a");
       a.className = "pl";
-      const pic = upPic(item.picurl ?? "");
+      const pic = thumbPic(item.picurl, 90);
       a.title = item.title;
       a.href = item.href;
       a.innerHTML = `<span class="thumb">${pic ? `<img src="${pic}" alt="" loading="lazy"/>` : ""}</span>
@@ -558,6 +562,8 @@ export function resetSidebarUser(): void {
 }
 
 async function bootSidebar() {
+  thumbPic = (await import("./lib/thumbs")).thumbPic;
+
   try {
     const st: any = await api("/login/status");
 
@@ -586,7 +592,7 @@ async function bootSidebar() {
     if (!base?.name) return;
     document.querySelector("#user-header")!.setAttribute("href", "#/user");
     document.querySelector<HTMLElement>("#avatar")!.innerHTML = base.avatar
-      ? `<img src="${String(base.avatar).replace(/^http:/, "https:")}" alt=""/>`
+      ? `<img src="${thumbPic(base.avatar, 90)}" alt=""/>`
       : icons.userPh;
     document.getElementById("nick")!.textContent = base.name;
     // 徽章数据驱动：会员最高档（橙=超级会员/绿=绿钻系）+ 音乐人（蓝）

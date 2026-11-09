@@ -6,11 +6,14 @@
 //
 // 两个数据源各自独立拉取、独立降级：自建失败不影响收藏，反之亦然。收藏增删经 favs 订阅
 // 即时重画；自建删除走右键菜单的 onDeleted（deleteSonglist 已更新 lib 侧缓存）。
-import { escHtml, upPic } from "../lib/api";
+import { escHtml } from "../lib/api";
 import { favSonglists, loadFavSonglists, onFavSonglistsChange } from "../lib/favs";
 import { isMySonglistsLoaded, loadMySonglists, mySonglists } from "../lib/playlists";
 import { openPlaylistMenu } from "../components/PlaylistMenu";
 import { cardPlay, errText, h, mountListFabs, navCard, routeScroller, trackStuck } from "./_shared";
+
+// 与 home.ts 同口径：动态 import 只拉 0.3KB 的降档函数，不占首屏 preload 表。
+const thumbs = import("../lib/thumbs");
 
 // 卡片落地路由：自建与收藏共用 disstid/tid + name（与侧栏条目同一套口径）
 const hrefOf = (id: number | string, title: string) =>
@@ -20,6 +23,8 @@ const hrefOf = (id: number | string, title: string) =>
 const subOf = (songnum: unknown) => (Number(songnum) > 0 ? `${Number(songnum)} 首` : "歌单");
 
 export default async function playlistsView(root: HTMLElement) {
+  const { thumbPic } = await thumbs;
+
   const head = h("div", "sticky-head home-pagehead", `
     <h1 class="page-title">歌单</h1>
     <p class="muted">我创建的歌单与我收藏的歌单</p>`);
@@ -53,7 +58,7 @@ export default async function playlistsView(root: HTMLElement) {
 
     for (const x of list) {
       const href = hrefOf(x.id, x.title);
-      const card = navCard(href, upPic(x.picurl), x.title, subOf(x.songnum), () => cardPlay("playlist", String(x.id), href));
+      const card = navCard(href, thumbPic(x.picurl, 300), x.title, subOf(x.songnum), () => cardPlay("playlist", String(x.id), href));
       card.addEventListener("contextmenu", (e) => {
         e.preventDefault();
         openPlaylistMenu(e.clientX, e.clientY,
@@ -74,7 +79,7 @@ export default async function playlistsView(root: HTMLElement) {
     for (const x of list) {
       const href = hrefOf(x.id, String(x.title ?? "歌单"));
 
-      const card = navCard(href, upPic(String(x.picurl ?? "")), String(x.title ?? "歌单"), subOf(x.songnum),
+      const card = navCard(href, thumbPic(String(x.picurl ?? ""), 300), String(x.title ?? "歌单"), subOf(x.songnum),
         () => cardPlay("playlist", String(x.id), href));
 
       card.addEventListener("contextmenu", (e) => {
