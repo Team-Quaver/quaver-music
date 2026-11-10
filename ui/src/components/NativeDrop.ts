@@ -171,11 +171,75 @@ export function openDropdown(sel: HTMLSelectElement): boolean {
 function tooltipHostOf(el: Element | null): HTMLElement | null {
   const host = el?.closest<HTMLElement>("[data-tooltip]");
 
-  return host && host.dataset.tooltip ? host : null;
+  if (host && host.dataset.tooltip) {
+    // title 与 data-tooltip 并存时 Chromium 仍会弹原生提示；影子树里的这份不在
+    // MutationObserver 的观察范围，命中的这一刻顺手摘掉。
+    if (host.hasAttribute("title")) host.removeAttribute("title");
+
+    return host;
+  }
+
+  return adoptTitleTooltip(el?.closest("[title]") ?? null);
+}
+
+/** 影子树里的 title 也要归一：宿主的 MutationObserver 只观察 document.body，
+ *  插件 shadow root 里的节点不在范围内，沿用 title 就还是原生提示。指针真正
+ *  落上去时组合路径已经给出树内目标，就地改写一次，此后走 data-tooltip 那条路。 */
+function adoptTitleTooltip(el: Element | null): HTMLElement | null {
+  if (!(el instanceof HTMLElement)) return null;
+
+  const text = el.getAttribute("title");
+
+  if (text === null) return null;
+
+  if (!el.hasAttribute("data-tooltip")) el.dataset.tooltip = text;
+  el.removeAttribute("title");
+
+  return el.dataset.tooltip ? el : null;
 }
 
 const tooltipTarget = (e: EventTarget | null): HTMLElement | null =>
   e instanceof Element ? tooltipHostOf(e) : null;
+
+/** 影子树里的指针事件冒到 document 时已被重定向成宿主元素（插件整页接管时是
+ *  .np-view-root），只有组合路径的第一项才是真正命中的按钮。插件把界面画在 shadow
+ *  root 里时，沿组合路径取目标，data-tooltip 才找得到。 */
+function composedTarget(e: Event): Element | null {
+  const first = e.composedPath()[0];
+
+  if (first instanceof Element) return first;
+
+  return e.target instanceof Element ? e.target : null;
+}
+
+/** 几何命中要穿进开放的 shadow root：document.elementFromPoint 只返回宿主，
+ *  拿不到里面带 data-tooltip 的按钮。逐层下钻，直到没有更深的影子树。 */
+function deepElementFromPoint(x: number, y: number): Element | null {
+  let el = document.elementFromPoint(x, y);
+
+  while (el?.shadowRoot) {
+    const inner = el.shadowRoot.elementFromPoint(x, y);
+
+    if (!inner || inner === el) break;
+    el = inner;
+  }
+
+  return el;
+}
+
+/** Node.contains 只沿树走，影子树里的子节点不算宿主的后代；指针在按钮内部
+ *  从 <svg> 移到 <path> 时用它判断「没离开宿主」会误判成离开。这里沿
+ *  parentNode → ShadowRoot.host 往上走，跨影子边界也算包含。 */
+function composedContains(container: Node, node: Node | null): boolean {
+  let cur: Node | null = node;
+
+  while (cur) {
+    if (cur === container) return true;
+    cur = cur.parentNode ?? (cur instanceof ShadowRoot ? cur.host : null);
+  }
+
+  return false;
+}
 
 let tip: HTMLElement | null = null;
 let tipFor: HTMLElement | null = null;
@@ -190,7 +254,7 @@ let pointerTarget: HTMLElement | null = null;
 function pointerAt(): HTMLElement | null {
   if (pointerX < 0 || pointerY < 0) return null;
 
-  const raw = document.elementFromPoint(pointerX, pointerY);
+  const raw = deepElementFromPoint(pointerX, pointerY);
 
   return tooltipHostOf(raw);
 }
@@ -201,7 +265,7 @@ function pointerAt(): HTMLElement | null {
 function disabledTooltipAt(): HTMLElement | null {
   if (pointerX < 0 || pointerY < 0) return null;
 
-  const raw = document.elementFromPoint(pointerX, pointerY);
+  const raw = deepElementFromPoint(pointerX, pointerY);
   const host = raw?.closest<HTMLElement>("button:disabled[data-tooltip], [aria-disabled=\"true\"][data-tooltip]");
 
   return host && host.dataset.tooltip ? host : null;
@@ -322,11 +386,12 @@ function showTooltip(el: HTMLElement) {
 function onTipOver(e: Event) {
   // 事件目标优先：它来自浏览器同一指针会话，不受 HiDPI/全屏后坐标取整的影响
   // （窗口右缘 50px 内尤其明显）。事件目标不存在时再按几何位置兜底。
-  const el = tooltipTarget(e.target) ?? pointerAt();
+  const inner = composedTarget(e);
+  const el = tooltipTarget(inner) ?? pointerAt();
 
   // 在同一个目标内部移动到子元素也会冒 pointerover；那不是离开，别把提示收掉。
   if (!el) {
-    if (tipFor && e.target instanceof Node && tipFor.contains(e.target)) return;
+    if (tipFor && inner && composedContains(tipFor, inner)) return;
     hideTooltip();
 
     return;
@@ -394,7 +459,7 @@ export function bootNativeOverlays() {
   document.addEventListener("pointermove", (e) => {
     pointerX = e.clientX;
     pointerY = e.clientY;
-    pointerTarget = tooltipTarget(e.target);
+    pointerTarget = tooltipTarget(composedTarget(e));
 
     // pointerover 在「目标元素自身被重写/重插」时可能不补发；移动事件是同一指针
     // 会话的高频真相，悬停目标消失时在这里立即收掉 pending 定时器。
@@ -472,12 +537,23 @@ export function bootNativeOverlays() {
     attributeFilter: ["title", "data-tooltip"],
   });
   document.addEventListener("pointerout", (e) => {
-    if (!(e.target instanceof Element)) return;
+    if (!tipFor) return;
 
-    if (tipFor && !(e.relatedTarget instanceof Node && tipFor.contains(e.relatedTarget))) hideTooltip();
+    const related = e.relatedTarget instanceof Node ? e.relatedTarget : null;
+
+    if (related && composedContains(tipFor, related)) return;
+
+    // 影子树里的 target / relatedTarget 到 document 时都被重定向成宿主，contains
+    // 看不出「从 <button> 移到它自己的 <svg>」这类内部移动；几何回查一次，
+    // 指针仍在提示宿主里就别收，否则移过一层子元素就会闪一次。
+    // related 为 null = 指针离开了文档，此时没有「内部移动」可言，直接收。
+    const at = related && pointerX >= 0 && pointerY >= 0 ? deepElementFromPoint(pointerX, pointerY) : null;
+
+    if (at && composedContains(tipFor, at)) return;
+    hideTooltip();
   }, true);
   document.addEventListener("pointerdown", (e) => {
-    if (e.target instanceof Element && tooltipHostOf(e.target)) return;
+    if (tooltipHostOf(composedTarget(e))) return;
 
     if (!(e.target instanceof Node) || !tip?.contains(e.target)) hideTooltip();
   }, true);

@@ -15,7 +15,7 @@ import type { SparkleNpView, SparkleNpViewCtx, SparkleQualityTier, SparkleSongSn
 import { player, type Song } from "../player";
 import { pickAux } from "../lyric";
 import {
-  cloudCoverPath, effectiveQuality, getLastStream, getStreamTiers, localCoverPath, QUALITY_SHORT, songMissingTiers,
+  coverUrl, effectiveQuality, getLastStream, getStreamTiers, QUALITY_SHORT, songMissingTiers,
   songTitle, stripEm, type Quality,
 } from "../lib/api";
 import { isLocalSong, localSongStreamUrl } from "../lib/local";
@@ -76,10 +76,8 @@ export const npSongSnapshot = (s: Song | undefined | null): SparkleSongSnapshot 
     src: local ? (local.kind === "webdav" ? "nas" : "local") : "online",
   };
 
-  if (local) snap.localCover = local.hasCover ? localCoverPath(local.id) : "";
-  // 微云条目：封面在宿主 sidecar 的 /api/cloud/cover/<key>，和本地封面一样是同源相对路径。
-  // 不带上它，插件在没匹配到 QQ 曲目时只剩空 album，封面就永远载不进来。
-  else if (s.cloud?.hasCover) snap.localCover = cloudCoverPath(s.cloud.key);
+  // 本地/微云封面都走 sidecar 的同源路径；只在确实有这类封面时才写，别把在线 CDN 混进 localCover。
+  if (local || s.cloud?.hasCover) snap.localCover = coverUrl(s);
 
   return snap;
 };
