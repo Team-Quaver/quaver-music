@@ -5,7 +5,7 @@ const BASE = "http://127.0.0.1:5173";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({
-  executablePath: "/usr/bin/google-chrome", headless: "new",
+  executablePath: "/usr/bin/google-chrome", headless: true,
   args: ["--no-sandbox", "--disable-gpu", "--autoplay-policy=no-user-gesture-required"],
 });
 
@@ -15,7 +15,7 @@ await page.setViewport({ width: 1280, height: 840 });
 
 page.on("pageerror", (e) => console.log("[pageerror]", String(e)));
 
-const results = [];
+const results: [string, string][] = [];
 
 const step = async (name, fn) => {
   try { const note = await fn(); console.log(`PASS ${name}${note ? " — " + note : ""}`); results.push(["PASS", name]); }
@@ -31,7 +31,7 @@ await step("ui: 播放条音质胶囊渲染（右侧）", async () => {
   const info = await page.$eval("#pb-quality", (el) => {
     const right = el.closest(".pb-right");
 
-    return { text: el.textContent.trim(), inRight: !!right, beforeLove: !!right && !!(el.compareDocumentPosition(right.querySelector("#pb-love")) & 4) };
+    return { text: el.textContent.trim(), inRight: !!right, beforeLove: !!right && !!(el.compareDocumentPosition(right.querySelector("#pb-love")!) & 4) };
   });
 
   if (!info.inRight || !info.beforeLove) throw new Error("not in .pb-right before love button");
@@ -123,7 +123,7 @@ await step("quality: 浮窗打开并切换会话档", async () => {
   const open = await page.$eval("#player-bar", (el) => el.classList.contains("q-open"));
 
   if (!open) throw new Error("qpop not open");
-  const items = await page.$$eval(".qp-q", (els) => els.map((e) => e.dataset.q));
+  const items = await page.$$eval(".qp-q", (els) => els.map((e) => e.getAttribute("data-q")));
 
   if (!items.includes("128")) throw new Error("no 128 item: " + items.join(","));
   const before = await page.evaluate(() => window.__quaverPlayer.audio.currentTime);

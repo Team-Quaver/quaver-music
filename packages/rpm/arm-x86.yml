@@ -1,9 +1,12 @@
-# RPM：x86_64 与 aarch64 共用；关 build-id 链接，避免和别的 Electron 包冲突。
+# RPM：x86_64 与 aarch64 共用；loong 由 packages/rpm/loong.yml 复用同一组字段。
+# 关 build-id 链接，避免和别的 Electron 包冲突。
 extends: file:../packages/electron-builder-base.yml
 rpm:
   packageName: quaver-music
   depends:
     - mpv
+    - ffmpeg
+    - pipewire
   artifactName: Quaver-${version}-${arch}.rpm
   fpm:
     - --rpm-rpmbuild-define

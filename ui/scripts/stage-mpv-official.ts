@@ -33,7 +33,7 @@ import { ASSETS, MACOS_FLOOR } from "./mpv-assets.ts";
 // mingw x64 与 msvc arm64：mingw 自带全套运行时 DLL（自包含），arm64 只有 msvc 构建
 // （静态链接）。mpv.pdb 是调试符号（>200MB），一律剥掉。
 
-function die(msg) { console.error(`✗ ${msg}`); process.exit(1); }
+function die(msg): never { console.error(`✗ ${msg}`); process.exit(1); }
 
 function sh(bin, args, opts = {}) {
   const r = spawnSync(bin, args, { stdio: ["ignore", "ignore", "pipe"], encoding: "utf8", ...opts });
@@ -45,7 +45,7 @@ function sh(bin, args, opts = {}) {
 
 /** zip 解包：GNU tar 不认 zip（windows runner 的 Git Bash 里 tar 也是 GNU 的），按可用性降级 */
 function extractZip(zip, dir) {
-  const attempts = [
+  const attempts: [string, string[]][] = [
     ["unzip", ["-qo", zip, "-d", dir]],
     ["bsdtar", ["-xf", zip, "-C", dir]],
     ["tar", ["-xf", zip, "-C", dir]],   // bsdtar 装在 PATH 里时叫 tar（macOS 自带、windows System32）
@@ -79,6 +79,9 @@ async function download(url, dest) {
   const res = await fetch(url, { redirect: "follow" });
 
   if (!res.ok) die(`下载失败 ${res.status}: ${url}`);
+
+  if (!res.body) die(`下载响应没有 body: ${url}`);
+
   await pipeline(res.body, createWriteStream(dest));
 }
 
@@ -172,7 +175,7 @@ try {
     rmSync(dest, { recursive: true, force: true });
     mkdirSync(dest, { recursive: true });
     cpSync(tree, dest, { recursive: true, filter: (s) => {
-      const base = s.split(/[\\/]/).pop();
+      const base = s.split(/[\\/]/).pop()!;
 
       return !base.endsWith(".pdb") && !base.endsWith(".zip") && !base.endsWith(".bat");
     } });

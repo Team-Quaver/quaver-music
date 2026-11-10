@@ -167,7 +167,7 @@ ok("css: 吸顶实底同步到面板列（三层 --stuck-cover，与 .content.ha
 import { readdirSync, statSync } from "node:fs";
 
 const srcFiles = (() => {
-  const out = [];
+  const out: string[] = [];
 
   const walk = (dir) => {
     for (const name of readdirSync(dir)) {

@@ -28,6 +28,19 @@ export const DEVICE_NAME = "device.json";
 /** Quark EQ 的默认值：共享纯逻辑生成，避免 schema 与渲染层默认曲线各写一份。 */
 const DEFAULT_EQUALIZER = JSON.stringify(defaultEqState());
 
+/** 侧栏内置导航项的合法 id（渲染层同一份清单在 src/lib/nav-items.ts，改一处要同步另一处）。 */
+const NAV_IDS = ["home", "guess", "daily", "liked", "playlists", "all", "local", "cloud"];
+const NAV_DEFAULT_ORDER = NAV_IDS.join(",");
+
+/** 逗号分隔的导航 id 列表：允许空（NavHidden）/ 非空（NavOrder），id 合法且不重复。 */
+function isNavIdList(v: string, allowEmpty: boolean): boolean {
+  const ids = v.split(",").map((s) => s.trim()).filter(Boolean);
+
+  if (!allowEmpty && ids.length === 0) return false;
+
+  return ids.every((id) => NAV_IDS.includes(id)) && new Set(ids).size === ids.length;
+}
+
 /** 配置文件里的 EQ 是整段 JSON：结构合法 + 规范化后段数不超上限。 */
 function isEqConfigValue(v: string): boolean {
   try {
@@ -309,9 +322,16 @@ export function parsePluginIdList(raw: unknown): string[] {
 export const isPluginIdList = (v: string): boolean =>
   !/[\r\n\u0000]/.test(v) && parsePluginIdList(v).every((id) => SPARKLE_ID_RE.test(id));
 
-/** 窗口装饰的出厂默认：macOS（darwin）用系统标题栏，Linux / Windows 保持无边窗口。 */
-export function defaultDecor(platform: string = process.platform): "csd" | "ssd" {
-  return platform === "darwin" ? "ssd" : "csd";
+/** 窗口装饰的出厂默认：三平台统一 CSD（自绘标题栏）。
+ *  macOS 的 CSD 不是 Linux/Windows 那套自绘三钮，而是 hiddenInset + 系统红绿灯（HIG，
+ *  见 electron/main.ts:createWindow）；所以 macOS 不再默认落到系统标题栏（SSD）。 */
+export function defaultDecor(_platform: string = process.platform): "csd" | "ssd" {
+  return "csd";
+}
+
+/** 音频后端出厂默认：macOS 上 Liino 仍属实验性，默认回到 MPV；其余平台默认 Liino。 */
+export function defaultBackend(platform: string = process.platform): "MPV" | "Liino" {
+  return platform === "darwin" ? "MPV" : "Liino";
 }
 
 /** schema 里一个键的完整描述：默认值、文件内注释、值域校验器。 */
@@ -472,6 +492,26 @@ export const SCHEMA: SectionSpec[] = [
         valid: (v: string) => ["menu", "collection"].includes(v),
       },
       {
+        key: "NavOrder",
+        def: NAV_DEFAULT_ORDER,
+        doc: [
+          "侧栏主菜单的显示顺序（逗号分隔的内置导航 id，见 src/lib/nav-items.ts）：",
+          "home=首页｜guess=猜你喜欢｜daily=每日 30 首｜liked=我喜欢｜playlists=歌单｜all=所有歌曲｜local=本地音乐｜cloud=微云网盘。",
+          "设置 → 外观 → 菜单栏支持拖拽排序；缺项/坏项由渲染层按默认顺序补到末尾，写盘时总是完整的 8 项。",
+        ],
+        valid: (v: string) => isNavIdList(v, false),
+      },
+      {
+        key: "NavHidden",
+        def: "",
+        doc: [
+          "侧栏主菜单中由用户**隐藏**的项目（逗号分隔的 id，取值同 NavOrder；空=全部显示）。",
+          "隐藏项不会删除，而是收进侧栏底部的竖三点「更多」浮窗；歌单项在高效模式下另有 CSS 自动隐藏，",
+          "与这里的用户显隐互不影响。",
+        ],
+        valid: (v: string) => isNavIdList(v, true),
+      },
+      {
         key: "MenuBlur",
         def: "True",
         doc: [
@@ -507,7 +547,7 @@ export const SCHEMA: SectionSpec[] = [
       {
         key: "Decor",
         def: defaultDecor(),
-        doc: ["窗口装饰：csd=自绘标题栏｜ssd=系统标题栏（macOS 默认 ssd，Linux / Windows 默认 csd）。切换后自动重建窗口"],
+        doc: ["窗口装饰：csd=自绘标题栏（macOS 为 hiddenInset + 系统红绿灯）｜ssd=系统标题栏。三平台默认 csd；切换后自动重建窗口"],
         valid: (v: string) => ["csd", "ssd"].includes(v),
       },
       {
@@ -541,9 +581,12 @@ export const SCHEMA: SectionSpec[] = [
     keys: [
       {
         key: "Backend",
-        def: "MPV",
-        doc: ["默认 MPV；MPVCompat=原生兼容（MPV 解码 + renderer 出声）；Chromium=浏览器"],
-        valid: (v: string) => ["MPV", "MPVCompat", "Chromium", "Blink"].includes(v), // Blink 是旧值
+        def: "Liino",
+        doc: [
+          "Linux/Windows 默认 Liino（原生直出）；macOS 默认 MPV，Liino 为实验性选项。",
+          "MPV=原生直出（MPV）；MPVCompat=原生兼容（MPV 解码 + renderer 出声）；Chromium=浏览器",
+        ],
+        valid: (v: string) => ["MPV", "MPVCompat", "Liino", "Chromium", "Blink"].includes(v), // Blink 是旧值
       },
       {
         key: "AudioDevice",
@@ -601,8 +644,8 @@ export const SCHEMA: SectionSpec[] = [
         def: "True",
         doc: [
           "向 QQ 音乐上报真实听歌时长（音响力物理流水）：True=开启（**默认**）｜False=关闭。",
-          "只统计播放器真正出声的时间，暂停/缓冲/系统休眠不计；每满 60 秒分片上报，",
-          "切歌、停止或退出时补报不足一分钟的尾段。需要登录，本地/NAS 曲目不上报",
+          "只统计播放器真正出声的时间，暂停/缓冲/系统休眠不计；切歌、停止或退出时",
+          "一次性上报本曲累计时长（不分片，避免上游记成多条）。需要登录，本地/NAS 曲目不上报",
         ],
         valid: (v: string) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
       },
@@ -637,6 +680,15 @@ export const SCHEMA: SectionSpec[] = [
   {
     section: "Lyrics",
     keys: [
+      {
+        key: "LyricTint",
+        def: "False",
+        doc: [
+          "歌词染色：True=当前句/逐字高亮跟随「高亮颜色」Tint｜False=用 AMLL 默认白色（**默认**）。",
+          "只影响播放页歌词的高亮色，不改变界面高亮色本身",
+        ],
+        valid: (v: string) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
+      },
       {
         key: "ChineseConvert",
         def: "off",
@@ -678,6 +730,16 @@ export const SCHEMA: SectionSpec[] = [
         ],
         valid: isLocalPathValue,
       },
+      {
+        key: "MprisLrc",
+        def: "True",
+        doc: [
+          "系统媒体控件歌词格式（MPRIS 扩展元数据 xesam:asText）：True=LRC（带 [mm:ss.xx] 时间戳，**默认**）｜False=纯文本。",
+          "两种格式都由当前已解析的歌词派生（QRC/TTML/LRC 都有）；LRC 供会解析时间戳的控件跟随进度，",
+          "纯文本适合把 asText 按行原样显示的控件（例：Dank Material Shell 会把时间戳当正文显示）",
+        ],
+        valid: (v: string) => ["True", "False", "true", "false", "1", "0", "yes", "no"].includes(v),
+      },
     ],
   },
   {
@@ -696,7 +758,7 @@ export const SCHEMA: SectionSpec[] = [
         def: "False",
         doc: [
           "固定并鼠标透穿：True=覆盖层钉在原位、鼠标事件落到下层窗口；False（默认）=可拖拽、可悬停操作。",
-          "仅 macOS、Windows 与 Linux X11 会话开放；Wayland 下该档不生效。",
+          "仅 macOS、Windows 与 Linux X11 窗口后端（含 XWayland）开放；原生 Wayland 下该档不生效。",
           "锁定后歌词层收不到点击，解除入口在托盘菜单「桌面歌词 → 固定（鼠标透穿）」或设置页同一开关。",
         ],
         valid: isBoolValue,
@@ -999,6 +1061,7 @@ export function defaults(platform: string = process.platform): Record<string, st
   for (const sec of SCHEMA) for (const k of sec.keys) out[`${sec.section}.${k.key}`] = k.def;
 
   out["Window.Decor"] = defaultDecor(platform);
+  out["Playing.Backend"] = defaultBackend(platform);
 
   return out;
 }

@@ -2,7 +2,7 @@
 import puppeteer from "puppeteer-core";
 
 const browser = await puppeteer.launch({
-  executablePath: "/usr/bin/google-chrome", headless: "new",
+  executablePath: "/usr/bin/google-chrome", headless: true,
   args: ["--no-sandbox", "--disable-gpu", "--no-proxy-server", "--autoplay-policy=no-user-gesture-required"],
 });
 
@@ -41,7 +41,7 @@ const resA = await page.evaluate(async () => {
   const p = window.__quaverPlayer;
   p.playList([{ mid: "TESTMID_A", id: 99999, type: 1, name: "A", interval: 200 }], 0);
   await new Promise((r) => setTimeout(r, 400));
-  const btn = document.querySelector("#pb-love");
+  const btn = document.querySelector<HTMLElement>("#pb-love")!;
   btn.click();
   await new Promise((r) => setTimeout(r, 300));
 
@@ -55,7 +55,7 @@ const resB = await page.evaluate(async () => {
   const p = window.__quaverPlayer;
   p.playList([{ mid: "TESTMID_B", name: "B", interval: 200 }], 0);
   await new Promise((r) => setTimeout(r, 400));
-  const btn = document.querySelector("#pb-love");
+  const btn = document.querySelector<HTMLElement>("#pb-love")!;
   btn.click();
   await new Promise((r) => setTimeout(r, 300));
 

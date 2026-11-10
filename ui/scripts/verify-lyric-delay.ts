@@ -18,7 +18,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 64x64 纯色 PNG（同 gallery：封面请求被拦下，np 背景/侧封面有图可解）
 function solidPng(r, g, b) {
   const crc32 = (buf) => {
-    let c, t = [];
+    let c, t: number[] = [];
 
     for (let n = 0; n < 256; n++) { c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : t[n] = c; }
 
@@ -38,7 +38,7 @@ function solidPng(r, g, b) {
   };
 
   const ihdr = Buffer.from([0, 0, 0, 64, 0, 0, 0, 64, 8, 2, 0, 0, 0]);
-  const rows = [];
+  const rows: Buffer[] = [];
 
   for (let y = 0; y < 64; y++) {
     const line = Buffer.alloc(1 + 64 * 3);
@@ -57,7 +57,7 @@ function solidPng(r, g, b) {
 const PNG = solidPng(120, 80, 160);
 
 const browser = await puppeteer.launch({
-  executablePath: "/usr/bin/google-chrome", headless: "new",
+  executablePath: "/usr/bin/google-chrome", headless: true,
   args: ["--no-sandbox", "--disable-gpu", "--autoplay-policy=no-user-gesture-required"],
 });
 
@@ -65,7 +65,7 @@ const page = await browser.newPage();
 
 await page.setViewport({ width: 1280, height: 840 });
 
-const pageErrors = [];
+const pageErrors: string[] = [];
 
 page.on("pageerror", (e) => pageErrors.push(String(e)));
 
@@ -120,26 +120,26 @@ const stubSong = (mid, { kara = false } = {}) => page.evaluate(async (mid, kara)
 
 const openMenu = async () => {
   await page.waitForFunction(() => {
-    const b = document.querySelector("#np-more");
+    const b = document.querySelector<HTMLElement>("#np-more")!;
 
     if (!b) return false;
     const r = b.getBoundingClientRect();
 
     return r.width > 0 && r.height > 0 && getComputedStyle(b).visibility !== "hidden";
   }, { timeout: 8000 });
-  await page.evaluate(() => document.querySelector("#np-more").click());
+  await page.evaluate(() => document.querySelector<HTMLElement>("#np-more")!.click());
   await page.waitForSelector("#np-menu.open", { timeout: 4000 });
 };
 
 const closeMenu = async () => {
-  await page.evaluate(() => document.querySelector(".np").dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+  await page.evaluate(() => document.querySelector<HTMLElement>(".np")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
   await page.waitForFunction(() => !document.querySelector("#np-menu.open"), { timeout: 4000 });
 };
 
 const delayVal = () => page.$eval(".np-delay-val", (el) => el.textContent.trim());
 
 const clickDelay = (side, times = 1) => page.evaluate((s, n) => {
-  const b = document.querySelector(s === "inc" ? ".np-delay-inc" : ".np-delay-dec");
+  const b = document.querySelector<HTMLElement>(s === "inc" ? ".np-delay-inc" : ".np-delay-dec")!;
 
   for (let i = 0; i < n; i++) b.click();
 }, side, times);
@@ -182,7 +182,7 @@ await step("步进与持久化：+3→+0.3s/LS 300；−5→-0.2s；点数值归
   if ((await delayVal()) !== "-0.2s") throw new Error("-5 档读数错: " + await delayVal());
 
   if ((await lsRead()).TESTA !== -200) throw new Error("LS 应为 -200: " + JSON.stringify(await lsRead()));
-  await page.evaluate(() => document.querySelector(".np-delay-val").click());
+  await page.evaluate(() => document.querySelector<HTMLElement>(".np-delay-val")!.click());
 
   if ((await delayVal()) !== "0.0s") throw new Error("归零失败: " + await delayVal());
 
@@ -218,16 +218,16 @@ await step("钳位：连点 110 下 − 封死在 -10.0s 且 dec 禁用；+ 复�
 
   if ((await delayVal()) !== "-10.0s") throw new Error("下界读数错: " + await delayVal());
 
-  if (!(await page.$eval(".np-delay-dec", (el) => el.disabled))) throw new Error("触底后 − 未禁用");
+  if (!(await page.$eval(".np-delay-dec", (el) => el.matches(":disabled")))) throw new Error("触底后 − 未禁用");
 
   if ((await lsRead()).TESTA !== -10000) throw new Error("LS 未钳到 -10000");
-  await page.evaluate(() => document.querySelector(".np-delay-val").click()); // 复位 0
+  await page.evaluate(() => document.querySelector<HTMLElement>(".np-delay-val")!.click()); // 复位 0
   await clickDelay("inc", 110);
 
   if ((await delayVal()) !== "+10.0s") throw new Error("上界读数错: " + await delayVal());
 
-  if (!(await page.$eval(".np-delay-inc", (el) => el.disabled))) throw new Error("触顶后 + 未禁用");
-  await page.evaluate(() => document.querySelector(".np-delay-val").click());
+  if (!(await page.$eval(".np-delay-inc", (el) => el.matches(":disabled")))) throw new Error("触顶后 + 未禁用");
+  await page.evaluate(() => document.querySelector<HTMLElement>(".np-delay-val")!.click());
   await closeMenu();
 });
 
@@ -244,7 +244,7 @@ await step("行级视图：延迟实时挪动当前行（时钟 = time+0.2−del
   await sleep(120);
 
   if ((await cur()) !== "第一行") throw new Error("+1.5s（歌词延后）后应落回第一行，读到 " + await cur());
-  await page.evaluate(() => document.querySelector(".np-delay-val").click());
+  await page.evaluate(() => document.querySelector<HTMLElement>(".np-delay-val")!.click());
   await closeMenu();
 });
 
@@ -253,13 +253,13 @@ await step("行级点击：seek 目标 = 行时间 + 延迟（点屏幕上那行
   await clickDelay("inc", 20); // +2.0s
   await closeMenu();
   await page.evaluate(() => { window.__seekCap.length = 0; });
-  await page.evaluate(() => { [...document.querySelectorAll(".np-ly-line")].find((d) => d.textContent.includes("第二行")).click(); });
+  await page.evaluate(() => { [...document.querySelectorAll<HTMLElement>(".np-ly-line")].find((d) => d.textContent!.includes("第二行"))!.click(); });
   await sleep(120);
   const caps = await page.evaluate(() => window.__seekCap.slice());
 
   if (caps.length !== 1 || Math.abs(caps[0] - 5) > 1e-9) throw new Error("点第二行(3s) seek 应落 5s（3+2.0），实际 " + JSON.stringify(caps));
   await openMenu();
-  await page.evaluate(() => document.querySelector(".np-delay-val").click());
+  await page.evaluate(() => document.querySelector<HTMLElement>(".np-delay-val")!.click());
   await closeMenu();
 });
 
@@ -276,7 +276,7 @@ await step("逐字 AMLL：菜单行同在；+1.0s 后 active 行随 ctx 时钟�
   await page.evaluate(() => {
     const t0 = Date.now();
 
-    return new Promise((done) => {
+    return new Promise<void>((done) => {
       const iv = setInterval(() => {
         if (document.querySelector(".np.kara") || Date.now() - t0 > 15000) { clearInterval(iv); done(); return; }
 

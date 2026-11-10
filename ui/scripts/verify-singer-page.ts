@@ -9,7 +9,7 @@ const BASE = "http://127.0.0.1:5173";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({
-  executablePath: "/usr/bin/google-chrome", headless: "new",
+  executablePath: "/usr/bin/google-chrome", headless: true,
   args: ["--no-sandbox", "--disable-gpu", "--autoplay-policy=no-user-gesture-required"],
 });
 
@@ -36,10 +36,10 @@ await step("歌手页信息头：圆形头像在左，名字/详情/简介在右
     const head = document.querySelector(".pl-head");
 
     if (!head) throw new Error("no .pl-head");
-    const art = head.querySelector(".pl-art");
+    const art = head.querySelector<HTMLElement>(".pl-art")!;
     const img = art?.querySelector("img");
-    const name = head.querySelector(".pl-name");
-    const meta = head.querySelector(".pl-meta");
+    const name = head.querySelector<HTMLElement>(".pl-name")!;
+    const meta = head.querySelector<HTMLElement>(".pl-meta")!;
     const desc = head.querySelector(".pl-desc");
     const ar = art.getBoundingClientRect(), nr = name.getBoundingClientRect();
 
@@ -109,7 +109,7 @@ await step("标签栏：默认热歌，切新歌/专辑只换面板（哈希不�
       label: b.textContent.trim(), sel: b.classList.contains("sel"),
     }));
 
-    const visible = () => [...document.querySelectorAll(".tag-body .tag-panel")].findIndex((p) => !p.hidden);
+    const visible = () => [...document.querySelectorAll<HTMLElement>(".tag-body .tag-panel")].findIndex((p) => !p.hidden);
 
     return { tabs, hot: visible(), hash: location.hash };
   });
@@ -124,10 +124,10 @@ await step("标签栏：默认热歌，切新歌/专辑只换面板（哈希不�
   await page.click('.tag-tabs .tag[data-tab="new"]'); await sleep(150);
 
   const after = await page.evaluate((h0) => {
-    const vis = [...document.querySelectorAll(".tag-body .tag-panel")].findIndex((p) => !p.hidden);
+    const vis = [...document.querySelectorAll<HTMLElement>(".tag-body .tag-panel")].findIndex((p) => !p.hidden);
 
     return { idx: vis, rows: document.querySelectorAll(".tag-body .tag-panel:not([hidden]) .row").length,
-      sel: document.querySelector(".tag[data-tab='new']").classList.contains("sel"), sameHash: location.hash === h0 };
+      sel: document.querySelector<HTMLElement>(".tag[data-tab='new']")!.classList.contains("sel"), sameHash: location.hash === h0 };
   }, hash0);
 
   if (after.idx !== 1) throw new Error("new panel not visible: idx=" + after.idx);
@@ -156,11 +156,11 @@ await step("专辑面板：卡片网格 + 「查看全部」指向 singer-albums
   await page.click('.tag-tabs .tag[data-tab="album"]'); await sleep(200);
 
   const info = await page.evaluate(() => {
-    const panel = document.querySelector(".tag-body .tag-panel:not([hidden])");
-    const first = panel.querySelector(".grid .card");
+    const panel = document.querySelector<HTMLElement>(".tag-body .tag-panel:not([hidden])")!;
+    const first = panel.querySelector<HTMLElement>(".grid .card");
 
-    return { cards: panel.querySelectorAll(".grid .card").length, href: first?.getAttribute("href") ?? "",
-      more: panel.querySelector(".sec-more")?.getAttribute("href") ?? "", imgOk: !!first?.querySelector("img")?.src };
+    return { cards: panel.querySelectorAll<HTMLElement>(".grid .card").length, href: first?.getAttribute("href") ?? "",
+      more: panel.querySelector<HTMLElement>(".sec-more")?.getAttribute("href") ?? "", imgOk: !!first?.querySelector<HTMLImageElement>("img")?.src };
   });
 
   if (info.cards < 5) throw new Error("too few album cards: " + info.cards);
@@ -174,7 +174,7 @@ await step("专辑面板：卡片网格 + 「查看全部」指向 singer-albums
 
 await step("专辑卡点击 → 跳到专辑页且信息头上对齐", async () => {
   const href = await page.evaluate(() =>
-    document.querySelector(".tag-body .tag-panel:not([hidden]) .grid .card").getAttribute("href"));
+    document.querySelector<HTMLElement>(".tag-body .tag-panel:not([hidden]) .grid .card")!.getAttribute("href"));
 
   await page.goto(BASE + "/index.html" + href);
   await sleep(1600);
@@ -183,10 +183,10 @@ await step("专辑卡点击 → 跳到专辑页且信息头上对齐", async () 
     const head = document.querySelector(".pl-head");
 
     if (!head) throw new Error("no head on album page");
-    const art = head.querySelector(".pl-art").getBoundingClientRect();
-    const name = head.querySelector(".pl-name").getBoundingClientRect();
+    const art = head.querySelector<HTMLElement>(".pl-art")!.getBoundingClientRect()!;
+    const name = head.querySelector<HTMLElement>(".pl-name")!.getBoundingClientRect()!;
 
-    return { align: Math.round(name.top - art.top), round: getComputedStyle(head.querySelector(".pl-art")).borderRadius, name: head.querySelector(".pl-name").textContent.trim() };
+    return { align: Math.round(name.top - art.top), round: getComputedStyle(head.querySelector<HTMLElement>(".pl-art")!).borderRadius, name: head.querySelector<HTMLElement>(".pl-name")!.textContent!.trim() };
   });
 
   if (info.round === "50%") throw new Error("album art should be square-ish");
@@ -207,10 +207,10 @@ await step("歌单页信息头上对齐", async () => {
     const head = document.querySelector(".pl-head");
 
     if (!head) throw new Error("no head on playlist page");
-    const art = head.querySelector(".pl-art").getBoundingClientRect();
-    const name = head.querySelector(".pl-name").getBoundingClientRect();
+    const art = head.querySelector<HTMLElement>(".pl-art")!.getBoundingClientRect()!;
+    const name = head.querySelector<HTMLElement>(".pl-name")!.getBoundingClientRect()!;
 
-    return { align: Math.round(name.top - art.top), name: head.querySelector(".pl-name").textContent.trim(), hasDesc: !!head.querySelector(".pl-desc")?.textContent.trim() };
+    return { align: Math.round(name.top - art.top), name: head.querySelector<HTMLElement>(".pl-name")!.textContent.trim(), hasDesc: !!head.querySelector<HTMLElement>(".pl-desc")?.textContent.trim() };
   });
 
   if (info.align < -2 || info.align > 8) throw new Error("playlist name not top-aligned: " + info.align);

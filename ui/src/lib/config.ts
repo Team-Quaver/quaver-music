@@ -13,11 +13,16 @@ export type ConfigSnapshot = Record<string, string>;
 
 const LS_KEY = "quaver.conf.v1";
 
-/** 浏览器 dev 没有主进程快照，只能从 UA 判断 Darwin；桌面端真正的默认值来自 electron/config.ts。 */
+/** 浏览器 dev 没有主进程快照，只能从 UA 判断 Darwin；桌面端真正的默认值来自 electron/config.ts。
+ *  三平台统一 CSD（macOS 的 CSD 用系统红绿灯，见 electron/main.ts），这里不再按 UA 分叉。 */
 function defaultDecor(): string {
-  const ua = navigator.userAgent;
+  return "csd";
+}
 
-  return /Macintosh|Mac OS X/.test(ua) ? "ssd" : "csd";
+/** 浏览器 dev 没有主进程快照：按 UA 选与 electron/config.ts 一致的出厂后端。
+ *  macOS 上 Liino 为实验性，默认 MPV；其余平台默认 Liino。 */
+export function defaultBackend(): "MPV" | "Liino" {
+  return typeof navigator !== "undefined" && /Macintosh|Mac OS X|iPhone|iPad/.test(navigator.userAgent) ? "MPV" : "Liino";
 }
 
 // 与 electron/config.ts 的 SCHEMA 默认值保持一致（浏览器 dev 兜底 / 文件缺键时用；
@@ -40,6 +45,8 @@ const FALLBACK: ConfigSnapshot = {
   "Style.TintColor": "#19c2d8",
   "Style.ControlBar": "bottom",
   "Style.PlaylistMode": "menu",
+  "Style.NavOrder": "home,guess,daily,liked,playlists,all,local,cloud",
+  "Style.NavHidden": "",
   "Style.MenuBlur": "True",
   "Style.Spectrum": "False",
   "Style.SpectrumMode": "bars",
@@ -48,7 +55,7 @@ const FALLBACK: ConfigSnapshot = {
   "Window.SidebarCollapsed": "False",
   "Window.SidebarWidth": "",
   "Window.QueueWidth": "",
-  "Playing.Backend": "MPV",
+  "Playing.Backend": defaultBackend(),
   "Playing.AudioDevice": "auto",
   "Playing.Fade": "normal",
   "Playing.Volume": "0.8",
@@ -71,12 +78,14 @@ const FALLBACK: ConfigSnapshot = {
   "Hotkeys.Focus.VolDown": "Ctrl+Down",
   "Quality.DefaultQuality": "Auto",
   "Quality.FallbackToQMAtmos": "False",
-  // [Lyrics] 歌词设置：繁简转换 / 在线 TTML 开关 / TTML 数据库地址模板 / 本地 TTML 歌词库目录。
+  // [Lyrics] 歌词设置：歌词染色 / 繁简转换 / 在线 TTML 开关 / TTML 数据库地址模板 / 本地 TTML 歌词库目录。
   // TtmlDatabase 与 electron/config.ts 的默认值同源（bikonoo 镜像，%p=平台目录、%s=歌曲 id）。
+  "Lyrics.LyricTint": "False",
   "Lyrics.ChineseConvert": "off",
   "Lyrics.OnlineTtml": "True",
   "Lyrics.TtmlDatabase": "https://amlldb.bikonoo.com/%p/%s.ttml",
   "Lyrics.TtmlLibrary": "",
+  "Lyrics.MprisLrc": "True",
   // [DesktopLyrics] 桌面歌词覆盖层（判据与 electron/config.ts 的 [DesktopLyrics] 段同规）。
   // X/Y/W/H 由主进程回写，渲染层只读不写；列在这里是为了与 SCHEMA 一一对应，
   // 别让浏览器 dev 与桌面端的取值表分叉。

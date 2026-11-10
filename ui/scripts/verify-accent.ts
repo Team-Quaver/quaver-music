@@ -11,6 +11,7 @@ import { utimesSync } from "node:fs";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { spawnSync } from "node:child_process";
 import {
   accentPayload,
   extractAccent,
@@ -130,14 +131,15 @@ try {
   mkdirSync(confDir); mkdirSync(xdgConf); mkdirSync(join(xdgCache, "matugen"), { recursive: true });
 
   /** 假子进程：color-scheme 没表态（不干扰 mode），accent-color 由用例自己给。
-   *  返回值类型标 any：AccentOpts.run 收的是 spawnSync 的完整形状，测试注入只给用到的那两个字段。 */
+   *  返回值类型标 any：AccentOpts.run 收的是 spawnSync 的完整形状，测试注入只给用到的那两个字段。
+   *  SAFETY: 桩只实现 (cmd, args) 这一种调用面，systemAccent 也只以这个形状调用 run。 */
   const fakeRun = (accent: string | null) => ((_c: string, a: string[]): any => {
     if (a.includes("color-scheme")) return { stdout: "'default'", error: false };
 
     if (a.includes("accent-color")) return { stdout: accent ?? "", error: false };
 
     return { stdout: "", error: true };
-  });
+  }) as typeof spawnSync;
 
   const envOf = (extra: Record<string, string> = {}) => ({
     QUAVER_CONFIG_DIR: confDir, XDG_CONFIG_HOME: xdgConf, XDG_CACHE_HOME: xdgCache,

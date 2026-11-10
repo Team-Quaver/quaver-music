@@ -28,6 +28,8 @@ import {
 import {
   acceleratorToPortalTrigger, createGlobalHotkeys, isWaylandSession, portalShortcutsFor,
 } from "../electron/global-hotkeys.ts";
+import type { PortalStatus } from "../electron/xdg-portal.ts";
+import type { HotkeyPayload } from "../electron/global-hotkeys.ts";
 
 const UI_ROOT = fileURLToPath(new URL("..", import.meta.url));
 let pass = 0, fail = 0;
@@ -89,21 +91,22 @@ section("prefs.ts acceleratorFromEvent / set·getHotkey");
   }).then((res) => {
     writeFileSync(join(dir, "bundle.mjs"), res[0].output.find((o) => o.type === "chunk").code);
   });
-  globalThis.localStorage = {
-    store: new Map(),
-    getItem(k) { return this.store.has(k) ? this.store.get(k) : null; },
-    setItem(k, v) { void this.store.set(k, String(v)); },
-    removeItem(k) { void this.store.delete(k); },
+  const storageMock = {
+    store: new Map<string, string>(),
+    getItem(k: string) { return this.store.has(k) ? this.store.get(k) : null; },
+    setItem(k: string, v: string) { void this.store.set(k, String(v)); },
+    removeItem(k: string) { void this.store.delete(k); },
   };
+  globalThis.localStorage = storageMock as unknown as Storage;
   globalThis.document = {
     documentElement: { dataset: {}, classList: { toggle() {} }, style: { setProperty() {}, removeProperty() {} } },
     body: { classList: { toggle() {} } },
     addEventListener() {}, visibilityState: "visible",
-  };
-  globalThis.window = { matchMedia: () => ({ matches: false, addEventListener() {} }), addEventListener() {}, setTimeout, clearTimeout };
+  } as unknown as Document;
+  globalThis.window = { matchMedia: () => ({ matches: false, addEventListener() {} }), addEventListener() {}, setTimeout, clearTimeout } as unknown as Window & typeof globalThis;
   const P = await import(join(dir, "bundle.mjs"));
 
-  const ev = (key, mods = {}) => ({ key, ctrlKey: !!mods.c, altKey: !!mods.a, shiftKey: !!mods.s, metaKey: !!mods.m });
+  const ev = (key: string, mods: { c?: number; a?: number; s?: number; m?: number } = {}) => ({ key, ctrlKey: !!mods.c, altKey: !!mods.a, shiftKey: !!mods.s, metaKey: !!mods.m });
   eq("Ctrl+P", P.acceleratorFromEvent(ev("p", { c: 1 })), "Ctrl+P");
   eq("大写键也归 Ctrl+P（shift 位并入修饰）", P.acceleratorFromEvent(ev("P", { c: 1, s: 1 })), "Ctrl+Shift+P");
   eq("Ctrl+Alt+F5", P.acceleratorFromEvent(ev("F5", { c: 1, a: 1 })), "Ctrl+Alt+F5");
@@ -116,7 +119,7 @@ section("prefs.ts acceleratorFromEvent / set·getHotkey");
 
   // 写读往返（浏览器 dev 形态：落 localStorage）
   P.setHotkey("Global", "toggle", "Ctrl+Alt+G");
-  eq("setHotkey 落到 Hotkeys.Global.Toggle", JSON.parse(localStorage.getItem("quaver.conf.v1"))["Hotkeys.Global.Toggle"], "Ctrl+Alt+G");
+  eq("setHotkey 落到 Hotkeys.Global.Toggle", JSON.parse(localStorage.getItem("quaver.conf.v1")!)["Hotkeys.Global.Toggle"], "Ctrl+Alt+G");
   eq("getHotkey 读回", P.getHotkey("Global", "toggle"), "Ctrl+Alt+G");
   P.setHotkey("Focus", "quit", "");
   eq("空串停用", P.getHotkey("Focus", "quit"), "");
@@ -172,7 +175,7 @@ eq("非 Linux 恒 false", isWaylandSession("win32", { XDG_SESSION_TYPE: "wayland
   const waylandShortcuts = portalShortcutsFor(appBindings, true);
   eq("Wayland 仍注册全部 5 个动作", waylandShortcuts.map((s) => s.id), ["toggle", "prev", "next", "volup", "voldown"]);
   check("Wayland 忽略应用内键位（不传 preferred_trigger）", waylandShortcuts.every((s) => s.trigger === ""));
-  const invalid = [];
+  const invalid: string[] = [];
   const x11Shortcuts = portalShortcutsFor(appBindings, false, (accel) => invalid.push(accel));
   eq("X11 保留应用内绑定并按空值/非法值过滤", x11Shortcuts.map((s) => [s.id, s.trigger]),
     [["toggle", "CTRL+ALT+p"], ["next", "CTRL+ALT+Right"], ["voldown", "CTRL+ALT+Down"]]);
@@ -190,16 +193,16 @@ section("createGlobalHotkeys × mock globalShortcut（shortcut 模式）");
   // unregister/unregisterAll/isSuspended/setSuspended）—— 误调 Electron 上不存在的 API
   // 会当场 TypeError 炸出来，这正是 globalShortcut.isAccelerator 那个 BUG 的回归锚：
   // 该方法不存在，抛在第一个键注册之前，win/mac 上全部热键静默失效（门户路径测不到）。
-  function mockGlobalShortcut(taken = new Set()) {
-    const registered = new Map(); // accel → callback
-    const attempts = []; // register 被调用的键（含失败的），用于断言「该不该碰注册」
+  function mockGlobalShortcut(taken = new Set<string>()) {
+    const registered = new Map<string, () => void>(); // accel → callback
+    const attempts: string[] = []; // register 被调用的键（含失败的），用于断言「该不该碰注册」
 
     return {
       registered, attempts,
-      isRegistered: (accel) => registered.has(accel),
-      register: (accel, cb) => { attempts.push(accel); if (taken.has(accel)) return false; registered.set(accel, cb); return true; },
+      isRegistered: (accel: string) => registered.has(accel),
+      register: (accel: string, cb: () => void) => { attempts.push(accel); if (taken.has(accel)) return false; registered.set(accel, cb); return true; },
       registerAll: () => { throw new Error("registerAll 不应被用到"); },
-      unregister: (accel) => { registered.delete(accel); },
+      unregister: (accel: string) => { registered.delete(accel); },
       unregisterAll: () => registered.clear(),
       isSuspended: () => false,
       setSuspended: () => {},
@@ -210,7 +213,7 @@ section("createGlobalHotkeys × mock globalShortcut（shortcut 模式）");
   Object.defineProperty(process, "platform", { value: "win32" }); // Linux 开发机假装 Windows（同步段内，用完即还原）
 
   try {
-    const notes = [];
+    const notes: HotkeyPayload[] = [];
     let bindings = { toggle: "Ctrl+Alt+P", prev: "", next: "Ctrl+Alt+Right", volup: "Ctrl+Alt+Up", voldown: "Ctrl+Alt+Down" };
     const ms = mockGlobalShortcut();
 
@@ -229,7 +232,7 @@ section("createGlobalHotkeys × mock globalShortcut（shortcut 模式）");
     eq("空值停用，其余 4 键注册", [...ms.registered.keys()].sort(),
       ["Ctrl+Alt+Down", "Ctrl+Alt+P", "Ctrl+Alt+Right", "Ctrl+Alt+Up"]);
     eq("info 汇报 ready", hk.info().state, "ready");
-    ms.registered.get("Ctrl+Alt+P")();
+    ms.registered.get("Ctrl+Alt+P")!();
     eq("按键 → 渲染层动作", notes[0], { t: "action", action: "toggle" });
 
     bindings = { ...bindings, toggle: "Ctrl+Alt+Q" };
@@ -279,24 +282,24 @@ section("xdg-portal.ts 编解码");
   // 完整消息往返（大端 + 小端——门户端 GLib 常发小端）
   const match = "type='signal',interface='org.freedesktop.portal.Request',member='Response'";
 
-  for (const endian of ["B", "l"]) {
+  for (const endian of ["B", "l"] as const) {
     const msg = buildMessage({
       type: 1, serial: 42, destination: "org.freedesktop.DBus", path: "/org/freedesktop/DBus",
       interface: "org.freedesktop.DBus", member: "AddMatch", sig: "s", body: [match],
     }, endian);
 
-    const back = parseMessage(msg);
+    const back = parseMessage(msg)!;
     check(`${endian}: AddMatch 往返`, back.member === "AddMatch" && back.sig === "s" && back.body[0] === match && back.serial === 42);
   }
 
   const sig = buildMessage({
-    type: 4, serial: 7, destination: null, path: "/org/freedesktop/portal/desktop",
+    type: 4, serial: 7, destination: undefined, path: "/org/freedesktop/portal/desktop",
     interface: "org.freedesktop.portal.GlobalShortcuts", member: "Activated", sig: "osta{sv}",
     body: ["/org/freedesktop/portal/desktop/session/1_1/quaver", "toggle", 1730000000000000, { activation_token: { sig: "s", value: "tok" } }],
   });
 
-  const sigBack = parseMessage(sig);
-  const [sigSession, sigId, sigTs, sigOpts] = sigBack.body;
+  const sigBack = parseMessage(sig)!;
+  const [sigSession, sigId, sigTs, sigOpts] = sigBack.body as [string, string, number, [string, unknown][]];
   const sigDict = Object.fromEntries(sigOpts ?? []);
   check("Activated 信号体往返（o s t a{sv}）",
     sigSession === "/org/freedesktop/portal/desktop/session/1_1/quaver" && sigId === "toggle"
@@ -308,10 +311,11 @@ section("xdg-portal.ts 编解码");
     body: ["/org/x/session/1", [["toggle", { description: { sig: "s", value: "暂停/播放" }, preferred_trigger: { sig: "s", value: "CTRL+ALT+F5" } }]], "", {}],
   });
 
-  const bindBack = parseMessage(bind);
-  const bindDict = Object.fromEntries(bindBack.body[1][0][1] ?? []);
+  const bindBack = parseMessage(bind)!;
+  const bindShortcuts = bindBack.body[1] as [string, [string, unknown][]][];
+  const bindDict = Object.fromEntries(bindShortcuts[0][1] ?? []);
   check("BindShortcuts v2 体往返",
-    bindBack.body[1][0][0] === "toggle" && bindDict.description === "暂停/播放"
+    bindShortcuts[0][0] === "toggle" && bindDict.description === "暂停/播放"
     && bindDict.preferred_trigger === "CTRL+ALT+F5" && bindBack.body[2] === "" && Array.isArray(bindBack.body[3]) && bindBack.body[3].length === 0);
   eq("parseBusAddress 首个 unix 段优先（abstract 合法）", parseBusAddress("unix:abstract=/x,guid=1;unix:path=/run/user/0/bus", {}),
     { kind: "abstract", path: "/x" });
@@ -411,15 +415,15 @@ function startMockBus({ bindMode = "v2" } = {}) {
     });
   });
 
-  return new Promise((resolve) => server.listen(path, () => resolve({ server, path })));
+  return new Promise<{ server: ReturnType<typeof createServer>; path: string }>((resolve) => server.listen(path, () => resolve({ server, path })));
 }
 
 section("PortalShortcuts × mock 总线（v2 全流程）");
 
 {
   const { server, path } = await startMockBus({ bindMode: "v2" });
-  const statuses = [];
-  const actions = [];
+  const statuses: PortalStatus[] = [];
+  const actions: string[] = [];
 
   const p = new PortalShortcuts({
     env: { DBUS_SESSION_BUS_ADDRESS: `unix:path=${path}` },
@@ -444,7 +448,7 @@ section("PortalShortcuts × mock 总线（门户不支持 → unsupported）");
 
 {
   const { server, path } = await startMockBus({ bindMode: "never" });
-  const statuses = [];
+  const statuses: PortalStatus[] = [];
 
   const p = new PortalShortcuts({
     env: { DBUS_SESSION_BUS_ADDRESS: `unix:path=${path}` },

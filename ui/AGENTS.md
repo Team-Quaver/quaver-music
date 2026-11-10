@@ -26,12 +26,19 @@ pnpm run dev -- --port 5173 --strictPort --host 127.0.0.1
   所以 `.ts` 在 `"type": "module"` 包里是 ESM 语义、顶层 `require` 不存在。`.cts` 强制 CJS-TS，
   正好落在 Electron 的 CJS 分支 + Node 的剥离器上。
 
-两套 tsconfig：`tsconfig.json` = 渲染层（`src/**`，浏览器语义）；`tsconfig.node.json` = Node 侧
-（`electron/**` + `scripts/**`，nodenext + 上述开关，`lib` 含 DOM 是给 puppeteer `page.evaluate` 回调用的）。
+三套 tsconfig：`tsconfig.json` = 渲染层（`src/**`，浏览器语义）；`tsconfig.node.json` = Electron
+主进程（`electron/**`，nodenext + 上述开关）；`tsconfig.scripts.json` = 开发期脚本
+（`scripts/**` + `src/globals.d.ts`，extends 前者，只放宽 `noImplicitAny` 与 catch 变量检查，
+模块解析换 bundler 以便脚本直接 import `src/`；`scripts/test-globals.d.ts` 登记测试钩子）。
+`lib` 含 DOM 是给 puppeteer `page.evaluate` 回调用的。
+
+> TypeScript 7 起，即使 `noImplicitAny: false`，无上下文的 `const xs = []` 也推成 `never[]`
+> （空数组再被 union 包住时更隐蔽，报错常是「string 不能赋给 never」）。新增空数组请显式标注
+> `const xs: string[] = []` / `new Map<string, T>()`，别指望 `noImplicitAny` 兜底。
 
 ```sh
-pnpm run typecheck       # 渲染层，必须 0 错（build 闸门）
-pnpm run typecheck:node  # Node 侧，迁移中：尚未清零，不作闸门
+pnpm run typecheck       # 渲染层（build 闸门）
+pnpm run typecheck:node  # electron + scripts 两个工程，都必须 0 错
 pnpm run lint            # anti-slop（vendored Oxlint 插件，配置在 .oxlintrc.json）
 ```
 
@@ -122,7 +129,7 @@ sidecar 健康检查（最长 15s）与服务端就绪在后台进行；闪屏�
 
 ### 歌词设置（[Lyrics] 段）· 繁简转换 · TTML 逐字库（本地目录 + 在线数据库）
 
-设置页「歌词」tab 四件套（schema 键见 electron/config.ts，值域注释即口径）：
+设置页「歌词」tab 五件套（schema 键见 electron/config.ts，值域注释即口径）：
 
 - `ChineseConvert`（off/simplified/traditional）→ `src/lib/cjk-convert.ts`：opencc-js 词典按方向
   动态 import（t2cn ~107KB、cn2t ~1.1MB 各一个懒 chunk —— **简→繁必须带短语级歧义**，
@@ -141,6 +148,10 @@ sidecar 健康检查（最长 15s）与服务端就绪在后台进行；闪屏�
   （同 /api/bg 红线，请求参数只产候选文件名，消毒 + 库内包含校验）；候选序 = 仓库布局
   `qq-lyrics/<songmid>.ttml` → id 平铺 → 「歌名-歌手/歌手-歌名/歌名.ttml」。优先级链：
   手动导入 > 本地 TTML 库 > 在线逐字（QRC/TTML）> 侧车 LRC/内嵌 —— 逐字优先是既有口径。
+- `MprisLrc`（默认开）→ 系统媒体控件 `xesam:asText` 的序列化格式：开 = LRC（`[mm:ss.xx]`），
+  关 = 纯文本。两档都由内存里的解析行派生（`src/lyric.ts:lyricLinesToLrc` / `lyricLinesToText`），
+  切换只 `player.refreshMprisLyrics()` 重排并补推快照，不碰歌词拉取管线。展开见「托盘」一节的
+  `xesam:asText` 条目。
 - 判据两侧同步：`isTtmlDatabaseUrl`（渲染层 src/lib/ttml.ts，输入框即时反馈）与
   `isTtmlDatabaseUrlTemplate`（electron/config.ts，写盘拦截）**同规**，改一处要改两处
   （先例：isHexColor/parseHex）。FALLBACK 表同样双写（verify-lyrics 有源码断言钉住）。
@@ -268,6 +279,234 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
   全都回不到滑杆上 —— 条与读数冻在聚焦那一刻的值，声音明明在变。松手立刻回写播放器真值，
   别留「拖中滚过轮」的那一截差（94 vs 98 那种假读数）。
 - 验证：`pnpm run verify:volume-bar`（源码接线 + 反向自证 + 活体：两种形态 × 六档尺寸的锚点与
+## Liino 后端（Linux/Windows 默认 · macOS 实验性 · 纯 Go 音频管线）
+
+主进程音频后端有两个：「liino」（Linux/Windows 默认，纯 Go 管线；macOS 为实验性、默认走 MPV）
+与「mpv」（回落）。Liino 源在
+`vendor/Liino`（AGPL，子模块）：纯 Go 解码（ffgo 动态加载系统 FFmpeg）+ 纯 Go DSP + 平台输出
+（Linux PipeWire / Windows WASAPI）打成一份 c-shared 库（`libliino.so` ≈3.5MB），主进程经
+koffi FFI **同进程**调用 —— 没有子进程、没有 IPC socket、没有看门狗。想试：
+
+```sh
+cd vendor/Liino && bash scripts/build-capi.sh      # 先出库（开发态落到 build/<os>-<arch>/）
+# Windows（PowerShell，参数与 .sh 一致）：pwsh -File scripts/build-capi.ps1 [all|<goos> <goarch>]
+cd ui && pnpm run app                              # 真出声跑一圈（Linux/Windows 默认即 Liino，可用 QUAVER_AUDIO_BACKEND=mpv 对照）
+```
+
+- **开发态 Node 绑定不用手工解包**：`pnpm run dev` / `app` / `build` / `typecheck:node` 会先跑
+  `ui/scripts/ensure-liino-node.ts`，用 `ui/tsconfig.liino-node.json` 编译
+  `vendor/Liino/node/*.ts`，再把 `dist/` 同步到 hoisted 布局里的
+  `ui/node_modules/@team-quaver/liino-node/`。子模块按上游习惯不提交 `dist/`，所以
+  `pnpm install` 之后缺 `dist/index.js` 是正常的；报这个错时先看该脚本的输出，不要再去
+  `app.asar` 里抠文件。
+- **Windows 开发态目录名是 `windows-amd64` 不是 `win32-amd64`**：`build-capi.ps1` 按 Go 的
+  GOOS 落盘，`process.platform` 却是 `win32`。`liino-runtime.ts` 的 vendor 查找优先
+  `goPlatformName(platform)`，并保留 `win32-*` 作为手工暂存的兜底；打包态
+  `resources/liino/win32-*` 的口径不变。
+
+- 门面在 `electron/audio/backend.ts`：`bootAudioEngine()` 按启动快照的 `[Playing] Backend`
+  二选一（`QUAVER_AUDIO_BACKEND=liino` 仍是启动排障顶掉口），且 **init 之前必须先 probe**
+  —— Liino dlopen 失败就地回落 mpv 并写日志。`main.ts` 不再直接 `audioEngine.init()`；
+  外部进程账走 `audioExternalPids()`（Liino 无外部 pid，内存面板自然少两行）。
+  **`quaver:audio` 的 handler 由门面唯一注册**，两个引擎只实现 `onInvoke`；运行时切换用
+  `{ cmd: "backend", value: "MPV" | "MPVCompat" | "Liino" | "Chromium" }`，门面串行地
+  拆旧→建新并回 status（`QUAVER_AUDIO_BACKEND` 只顶启动，不能把用户切换顶回去）。
+  两个引擎各自注册 handler 是以前的病根：Electron 同一通道先到先得，界面写着 Liino、
+  实际仍是启动时那个引擎在答话。
+- 渲染层切后端（`player.setBackend`）**先换主进程引擎再换 transport**；换引擎时
+  `swapTransport(..., { stopOld: false })` 且首轮 `interrupt` 不发 stop（`suppressInterruptStop`）
+  —— 旧 transport 的 stop 会打到刚建好的新引擎上，mpv 的淡出停机会在 loadfile 之后把新歌卸掉。
+- 设备 ID 是各后端的私有命名空间：`Playing.AudioDevice` 里存的 `pipewire/default` / `null`
+  只对 Liino 有意义。mpv 引擎侧统一过 `mpvAudioDevice()` 回落 `auto`（实测 bundled mpv 的
+  `--audio-device` 列表只有 auto + pulse/*，直接塞 `pipewire/default` 会让 AO 初始化失败、
+  进度停在原地且完全没声）；渲染层也只在 `engineKind === "mpv"` 时下发设备。Liino 的
+  `snapshot.device` 是显示名（"PipeWire default sink"），**不能**写回 `this.device`
+  （下一次 `create()` 会把它当 device_id，输出打不开）。
+- 引擎在 `electron/audio/liino-engine.ts`，与 mpv 引擎共享同一套 `quaver:audio` 命令面与
+  `quaver:audio-event` 广播（渲染层 `src/lib/transport.ts` 的 `EngineTransport` 零改动就能开）。
+  位置真相来自 `clock()`（已减输出延迟的可听位置，亚毫秒）；状态真相来自事件里的 snapshot。
+  **两条 FFI 纪律**：① 绝不用 `waitEvent()`（它阻塞调用线程，等于冻窗断流），只用
+  `nextEvent()` 25ms 轮询；② 位置要钳在时长里（native 的 clock 是「已消费 PCM」的算术时间，
+  曲末 drain 会越过 duration 继续涨，不钳进度条就甩出 3:21 之外）。
+- 纯逻辑（库解析 / EQ 映射 / 状态映射 / 设备列表）在 `electron/audio/liino-runtime.ts`（零
+  electron 值导入，verify 直接跑）。Quark EQ 映射：bell/lowShelf/highShelf 直落 Liino 双二阶，
+  **LP/HP 目前没有对应实现**，如实报 `dropped` 数并写进回包 note，不许悄悄冒充；bypass =
+  `setBypass(true)`，与 mpv 的 `af=""` 同语义（Open 会 Reset DSP 链，load 之后必须重新套 EQ+增益）。
+- Liino 只有原生直出，**没有 mpv 的 PCM 兼容拓扑**（`--ao=pcm` 那条「音频过一遍渲染层」的管道
+  在它这里不存在）。**这不等于不能按应用捕获**：Liino 自己开同进程 shared-mode 输出会话，
+  正是 OBS/Oopz 那类按应用捕获需要的形态；`captureCompatible` 只表示「无 PCM 兼容拓扑」。
+  `mode(pcm)` 必须回 `ok:false`，渲染层把偏好如实改落 native 并提示「确需 PCM 兼容拓扑请改回 MPV」。
+- stop = 卸载当前流（清 `lastUrl`）；Liino 的真停会话不能裸 `play()`（native 不重排环形缓冲
+  世代，永远停在 ready），引擎按 mpv 的「idle 重挂 lastUrl」语义先重开流；没有可重挂的流就
+  老实回 `ok:false`，渲染层重新取链起播。
+- **世代按「页面 + 单调递增」判旧**：transport 的 epoch 是**页面级**共享计数（后端热切重建
+  transport 也不回退），load 同时带 `client`（`transport.ts` 的 PAGE_CLIENT，一页一个）。
+  同 client 且 epoch 不更大 = 同页面里的迟到旧 load，**必须丢弃**：否则它会顶掉新歌的 open，
+  新歌的 loaded 又因世代不匹配被渲染层过滤 —— 歌不响、一直转圈。
+  client 变了 = 换了一页（窗口 CSD/SSD 重建、reload，epoch 从 1 重数），接受并以它为准；
+  不这样做新页面会永远停在加载、旧声还在响（probe-liino 两个方向都有断言；mpv/Liino 引擎同一口径）。
+- **FFI 不许把主线程卡住**（vendor/Liino 侧的实现纪律，重建库才生效）：decodeLoop 的网络
+  `stream.Seek` 移到 `p.mu` 之外；`ensureOutput` 的 `output.Open` 用独立 `openMu` 串行、
+  不持 `p.mu`；capi 的 `liino_destroy` / `liino_stop` / `liino_set_device` 异步执行
+  （三者都可能等网络/设备）；网络源的 `rw_timeout` 默认 **15s**（与 sidecar 回源预算同档；
+  旧的 5s 会在 CDN 慢回一次 Range 时误杀），并默认开 FFmpeg 的 reconnect 族选项
+  （`decode/native/native.go:networkAVOptions`，`avopt:*` 仍可逐项顶掉）。任何一处持锁做
+  I/O，都会让 Electron 主线程的 `clock()/nextEvent()` 一起冻住：窗口还在画、没声、切后端也像死了。
+  输出设备 ID 的 `FindDevice` 同时接受带/不带驱动前缀的写法（`pipewire/default`）。
+- 「播放中 seek 到贴尾」是 native 上游的独立问题（重排缓冲后 underrun 不恢复），归
+  vendor/Liino；引擎只用 `load(startAt)` 语义换镜头位置。
+- **断点续播要「声音和时钟一起到」**：WMF 以前把「时长未知」当成不可 seek（HTTP 源刚 open 时
+  `MF_PD_DURATION` 常常还拿不到），decodeLoop 于是跳过初始 seek；但 `Open` 已把 `clock.base`
+  放到断点，结果 Windows 上从 0 出声、进度条却停在断点。现在非 live 源一律尝试 seek，时钟以
+  解码器**实际到达**的位置为基；确实不可 seek 时把时钟拉回 0（宁可从头上放，也不假装续播）；
+  初始 seek 的重试预算用尽也回落从头开始，而不是把一首能放的歌判死。
+- **seek 是单一队列，不是一次一条 goroutine**：`Player.Seek` 只把目标塞进容量 1 的 `seekReq`
+  （新目标覆盖旧目标），由 **decode goroutine** 的 `applyPendingSeek` 执行。旧实现每条 UI seek
+  都起一个 goroutine 抢 `stream.mu`，拖一下进度会排队几十个网络 seek，解码器在整个队列排空前
+  一个字节都不出（「拖进度就卡住/一卡一卡」的病根）。另外 `loopAlive`/`retireLoop` 保证
+  **EOF 之后到达的 seek 会重开源**（解码 goroutine 已退出时没人读队列），别把这两条删了。
+- **意图与「此刻能开设备」是两个变量**（曲末/拖进度卡死的病根，vendor/Liino）：`playIntent` 由
+  Play/Pause/Stop/Open 拥有，`wantPlay` 只表示机器此刻允许不允许把设备开起来 —— 曲末
+  `finishLocked` 会清后者、**不能**连带清前者。以前两个一起清零，EOF 之后的 seek 走
+  `reopen(resumeIntent())` 重建管线，重建出来就永远不被允许启动：状态停在 ready、设备停着、
+  环形缓冲写满、解码线程 park，界面看着在播而进度一格不动（「播完一首歌卡住」「拖几下就卡住」）。
+  同理 `Pause()` 现在两个都清，暂停态下的重建不会再自己出声。
+- **曲末重开带世代守卫**：EOF 排队 seek 触发的 `reopenIf(gen, …)` 必须过 `loadGen` 检查，
+  上一首迟到的重开会关掉刚切过去的新流并把镜头按回旧断点。
+- **设备启动不在 monitor 线程上**：`requestDeviceStart` 单飞异步开 session（PipeWire 等会话管理器、
+  WASAPI 等音频服务，可能几十秒不返回）。monitor 一旦卡在 `output.Open` 里就是整个状态机停摆 ——
+  preroll 不再变 playing、EOF 不再变 ended、切歌也救不回来。开不起来把状态退回 ready 由下一 tick
+  重试，停在 playing 是死局（没人再拉帧，连 underrun 都不会报）。
+- **paused 且 out==nil 不许递归**：切设备失败会留下「状态还是 paused、会话已经没了」这个窗口，
+  `Play()` 以前递归调自己，capi 在主线程上直接 `fatal error: stack overflow` 拖死进程。现在退回
+  ready 交给 monitor。
+- **重置 pulled 必须一起重置 `bufferAt`**（Open / hardStop / checkDevice）：残留的高水位让
+  `framesPulledSince` 永远不满足，而按实时产量的后端（WinRT）填不满 `preroll/2`，转圈能挂几十秒。
+  验证：`cd vendor/Liino && CGO_ENABLED=0 go test -run 'TestSeekAfterEndResumes|TestSeekWhilePaused|TestPlayAfterOutputSession|TestStaleReopen|TestLoadAndStopReset' .`；
+  整轮回归（曲末 + 拖进度两个病状的场景复现）跑 `TestProbeStuckAfterEnd|TestProbeSeekDragWedges`，
+  混合循环压测跑 `TestStressEndToEndCycles`（`-short` 会跳过它）。
+- **HTTP(S) FLAC 在 Windows 由 WinRT 接管**：Media Foundation 能打开远程 FLAC、也能报出时长，
+  但 `SetCurrentPosition` 会返回 `E_ABORT`（首次 `Read` 也可能直接失败），上层重试到最后就是
+  「进度条一回手又回到 0」。现在 Windows 默认就是 WinRT → WMF；WMF 侧仍在嗅到 codec=flac 且
+  URI 是 http(s) 时返回 `ErrUnsupported`，作为 WinRT 不可用时的第二层保护。不要改回“所有源
+  统一 seek(0) 探针”——FLAC 的 0 位置可能被当成 no-op，探测并不可靠。
+- **WinRT 的 EOF 必须相对 seek 起点记账**：`seekFrames + queuedFrames >= durationFrames`，
+  否则 seek 后 `queuedFrames` 从 0 重数，尾段会被误判成还有一整首，时钟越过曲尾。seek 时
+  保持 AudioGraph 运行（先停再起会把 MediaSource 拉回 0），并用 `input.position()` 的实际落点
+  校正 `seekFrames`；这几条一起守「拖进度条不回到 0」。
+- **WinRT 对「还没出过声的 MediaSource」做 Seek 会卡 5 秒或 `E_ABORT`**（Windows 上
+  「FLAC → Ogg/Vorbis → 切回 FLAC 不响、拖一下进度条或重启才好」的病根）。每次 load 都带
+  `start_ms`，而换档后新开的 MediaSource 首帧尚未产出：`MediaSourceAudioInputNode::Seek`
+  会阻塞满内部 5 s 超时，或直接回 `E_ABORT`（`0x80004004`），上层随后重建整条解码链，用户
+  听到的就是数秒静音/不出声。修法在 `decode/winrt/session.go:warmUp`：**网络源**在初始 seek
+  前先让 AudioGraph 产出 ≥100ms 音频（上限 2s）再定位，帧节点 reset 掉预热帧；本地文件不动
+  （本地冷 seek 只需毫秒，预热只会白加延迟）。`pump` 一旦真的读到帧也会置 `warm`，所以
+  播放中第一次拖进度条不会再付预热成本。回归：
+  `go test ./decode/winrt -run TestSeekBeforeFirstFrameOverHTTP`。
+- **Windows 默认 WinRT → WMF → ffgo**：`decode/winrt` 的 `Priority()` 为 0，`decode/wmf` 为 1；
+  WinRT 覆盖 Store codec（Ogg/Opus）与远程 FLAC，WMF 是本地常见格式和 WinRT 不可用时的回落。
+  WinRT 的 AudioGraph 是实时路径，每开一首都要建一个未连接的 device output node 打时钟，这是
+  全量 WinRT-first 的固有成本；格式矩阵已覆盖本地/HTTP MP3、FLAC、OGG、5.1 FLAC 的 seek，
+  再加格式时先补矩阵再动优先级。
+- **HTTP Ogg 有 FFmpeg 时优先 ffgo（`native.PriorityFor`）**：WinRT 的默认顺序是为「没有系统
+  FFmpeg」准备的（Web Media Extensions 兜 Ogg Vorbis/Opus）；但 QQ 的 640ogg/320ogg 可能是
+  Ogg FLAC，Store codec 解不了，而且 Ogg 的初始 seek 在 MediaSource 上是实时图里最慢的一条。
+  `decode.OpenAuto` 现在按 `Source.Format` 重排（`SourcePriority` 可选接口），HTTP Ogg 让
+  ffgo 排到 -1；Probe 失败（没装 FFmpeg）时照常走 WinRT/WMF，不改变无 FFmpeg 用户的行为。
+  容器提示由渲染层 `Transport.load({mime, tier})` → engine `decodeFormatHint(mime, tier)`
+  → `player.open({format})` 一路传下去，别只靠 URL 后缀（中继路径没有后缀）。
+- **初始 seek 的落点要如实回报**：WinRT 的 `Seek` 返回请求值会把「MediaSource 还在打开、
+  实际仍在 0」伪装成续播成功（时钟停在断点、声音从头放）。`winrt.seek` 现在返回
+  `input.position()` 的实际落点；两个主进程引擎在 file-loaded 后若发现落点仍比请求点早
+  5s 以上，会补一次普通 `seek`（Liino `loaded` 后看 `clock`；mpv 等 `time-pos` 且只认
+  `loadedGen === loadGen`）。`start=` / `start_ms` 只是提示，不是保证；补 seek 的代码在
+  主进程（`liino-engine.ts:maybeResume` / `engine.ts:maybeResumeMpv`），别放回渲染层
+  首屏（verify-bundle 的 208KiB 预算贴着线）。
+- **Liino 事件按 native load 世代过滤（不是渲染层 epoch）**：`Event.Gen` 是 native 的
+  `gen.curLoad()`；换档后事件队列里可能还躺着上一代 failed/ended。`LiinoEngine.onEvent`
+  **丢弃更小的 gen、跟随更大的 gen**（更大 = native 自己在 seek/read 失败后 `reopenIf`
+  的恢复路径，也必须接住）；`load` 之后立刻用 `snapshot().gen` 对齐当前世代。
+  另外 stop/pause 的淡出回调要带 `epoch + player` 双重校验：250ms 淡出期间已经来了新 load
+  时，旧回调绝不能 `player.stop()` 掉新会话（表现就是「切档后不响，只有换歌才恢复」）。
+  **snapshot 的字段名是 `gen`，不是 `generation`**（native `JSONShape.Gen`）；读错会让
+  `load` 后不更新世代，上一代排队事件被当成当前代。C API 的 `liino_stop` 是 detach 执行的
+  （可能等网络/设备），所以它必须捕获调用时的 `TrackGeneration()` 并走 `StopIf(gen)`：
+  旧 stop 在新 `Open` 之后落地时只能是 no-op，否则会把新流当场 `hardStop`，渲染层永远等不到
+  `loaded`、只看见转圈。native 的异步 `loaded/ended/closed` 也必须用 `publishFrom(gen, …)`
+  按「产生事件的世代」发布，不能等发布时再取 `curLoad()` 冒充新流。
+  **淡出收尾还要二次校验**：`StopIf` 检查世代后到真正的 `hardStop` 之间仍可能插入新 `Open`
+  （淡出、阻塞的 stream.Close 都够长）。`hardStopIf(trackGen)` 在拿 `p.mu` 后重新比
+  `curTrack()`，旧轮次只能退出，不能 reset 新一轮的 pipe/device。宿主侧的 `nextEvent()`
+  也必须包在 try/catch 里：事件通道关闭时它会抛 `LiinoError`，而轮询在 `setInterval`
+  里，逃出去就是主进程未捕获异常；接住后拆会话并让下一条命令重建。
+- **实时解码的 buffering 恢复不能只看管道水位**：`Available()==0` 在 WinRT 实时路径下是常态，
+  旧逻辑要求积到 `PrerollFrames/2` 才回 playing，seek 后会永远卡在 buffering（音频在走、UI
+  转圈、歌词停表）。现在 `onUnderrun` 记录 `bufferAt`，设备实际又拉走一个 period 的帧也算恢复；
+  `StatePlaying` 不再因监视器恰好吃到空管道就切 buffering。渲染层再对 `waiting` 做 180ms 去抖，
+  避免短 seek 闪转圈/歌词一顿。
+- **seek 失败不是曲终**：HTTP 源的 seek 是一串 Range 读（byteSeek 回退时走 demuxer 的
+  二分搜索），一次慢回源就会在 FFmpeg 里变成 `Error reading HTTP response: Connection timed out`
+  + `read_timestamp() failed in the middle` —— 而 seek 失败后的 demuxer 状态是未定义的。
+  原位 seek 失败时 `liino.go:rebuildAfterSeek` 在目标位置**重建解码器**（`reopenIf` 带世代守卫，
+  不会被迟到的旧 seek 顶掉），加载起始 seek 与播放中 Read 失败同样走重建（`rebuildAfterRead`
+  按已听到的位置重开）；每代有 `seekRebuildBudget` 上限，永久损坏的源仍如实报错。
+- **网络源 seek 先走「按平均码率估算字节偏移」（byteSeek）**：`decode/native/native.go` 的
+  `seekByByte` 用 `meta.BitRate/8` 把时间换算成绝对字节位置，`AVSEEK_FLAG_BYTE` 一次跳转，
+  再由 `landAt` 按帧 PTS 前滚到目标（超前 ≤0.5s 才算命中）。FFmpeg 的时间戳二分搜索每一探
+  都是一次 Range 往返（~log2(文件大小) 次），限速回源上点一次歌词要好几秒——字节跳转只有一次往返。
+  **FLAC 是 VBR，按平均码率估的落点会在安静段落/前奏冲过头**，而音频不能向后解码；旧实现在
+  冲过头时回退到时间戳二分搜索（30MB 的曲子 24 次 Range），正是「拖进度/点歌词卡好几秒」。
+  现在用落点 PTS 的偏差修正字节位置**再跳**（`off -= (pos-target) * byteRate`，最多 3 次），
+  实测量产 FLAC 每次 seek 只需 1–2 次 Range，偏差 <0.5s（`TestDecodeByteSeekCorrectsVBROvershoot`
+  用「8s 静音 + 12s 响音」的夹具守住次数）。只有 PTS 不可信/偏差 >2min/三次仍不收敛才回退。
+  字节跳会落在帧中间，FFmpeg 打印 `invalid sync code`/`invalid frame header` 是**解析器重新
+  对齐的正常告警**（不是文件损坏，每次 seek 一组），不要据此判断失败。
+  **只对 seek 后 PTS 仍绝对的 demuxer 开**（`demuxerKeepsAbsolutePTS`：FLAC 帧头带样本号、
+  MP4 读 sample table）；**MP3 不能开**——它没有绝对时间戳，字节 seek 后 demuxer 从头计数，
+  且在这个状态上回退时间戳搜索会直接落到曲尾（有回归测试守着）。
+- **每个 load 拥有上一个解码器**：`Player.Open` 换代时把旧 `p.stream` 摘下、异步 `Close()`
+  （`decWG` 记账，不能同步关——旧 Read 可能正卡在网络读上）。旧解码 goroutine 退休时不负责
+  关闭自己。漏了这一步就是每切一首泄漏一个 decoder 和它的 HTTP 连接（被跳过的源会一直挂着
+  中继下载）；`TestLoadClosesPreviousStream` 守着。
+- **FLAC 有 SEEKTABLE 仍保留 fastseek + 前滚对齐**：byteSeek 不可用（码率未知 / 非网络源）时
+  的回退路径。`decode/native/native.go` 在 open 前嗅探前 8KiB（本地文件直读；HTTP 只对宿主
+  `/stream/` 中继发一次小 Range 请求——第三方插件给的一次性直链不能被多取一次），看到
+  `fLaC` + SEEKTABLE（type 3）才设 `fflags=+fastseek`。索引点之间可差近 10s，所以 seek 之后
+  `discardBefore` 按帧 PTS 前滚到目标时间（最多 512 帧），时钟才不会和声音脱钩。
+  没有 seektable 的 FLAC 不许开 fastseek（`flac_seek` 会直接失败）。
+- **损坏帧只跳过，不判死**：QQ 的 FLAC 文件**结尾常带一个截断帧**（整首能解，最后一帧
+  `invalid sync code`/`decode_frame() failed`；本地文件也一样）。`native.stream.Read` 对
+  `AVERROR_INVALIDDATA` 最多连跳 16 帧；把它当致命错误会让曲末永远到不了 EOF → `ended` 不发
+  → **自动切歌失效**。别把这条容错删掉，也别把上限调成无限。
+- 随包/暂存：`scripts/stage-liino.sh [目标目录]`（默认 `build-res/liino/<os>-<arch>/`）；
+  打包经 `packages/electron-builder-base.yml`（extraResources `liino/` + `asarUnpack`
+  `resources/**` —— koffi 的 dlopen 不认 asar 虚拟路径）。`QUAVER_LIINO` 可显式顶掉库路径
+  （排障口，认文件也认目录）。
+- 诊断口径：Liino 是主进程 FFI 会话，没有独立音频进程；`ps` 里看到的 mpv 进程说明当前实际
+  后端不是 Liino（渲染层应显示「Liino 后端不可用，已回落 MPV」）。电流声先把播放偏好切回
+  MPV 对照；「Liino 模式仍有 mpv 进程」一律按回落态排查，而不是把 mpv 的输出当 Liino 的病。
+- **音量/淡入淡出必须在 ring 之后**：渲染层 `swapTransport`/`setVolume` 只发 `volume`/`mute`
+  命令；主进程 `liinoMasterGain` 把用户音量 × 淡入淡出包络 × EQ 前级折成一个线性值，交给
+  `player.setVolume`。Liino 的 jitter ring 预解码 5 秒，**把增益放在解码侧会让滑杆/淡出滞后
+  整段缓冲**（实测短曲拖到音量 0 也毫无变化）。因此 `Player.SetVolume/SetMuted` 写
+  `dsp.AtomicGain`（原子 target，音频回调里 ramp），`Player.Read` 在把 PCM 交给设备前应用它；
+  解码侧 `dsp.Pipeline` 只跑 EQ/效果并保持 unity。`AtomicGain` 的 target 跨线程原子、`Process`
+  只在回调线程，`TestPlayerReadAppliesVolumeToBufferedFrames` 守着「已缓冲帧也立即受音量影响」。
+- **多声道不靠 swresample 混**：解码端保留源声道数（5.1 / 7.1 / 7.1.4）；QQ「臻品全景声 7.1」
+  是 12ch Opus（mapping family 3，`AVFrame.ch_layout` 未指定），让 swr 做 12→2 会在第一帧就
+  失败、整首无声。native 解码在 resample 前给 frame 套默认布局（`FrameWrapper.SetChannelLayout`），
+  播放器 `Read` 再按端点声道数用 `pcm.MapChannels` 折叠。端点选择在 `outputChannelPlan`：
+  PipeWire 保留源声道（管道自会下混到立体声 sink），Windows/macOS 按设备格式，放不下就 2ch。
+  `output.Pump` 的 scratch 必须按实际声道数分配（别退回 `DefaultChannels`）。
+- **系统混音器里的名字**：PipeWire 的 `application.name` 默认取进程名（开发态 = `electron`，
+  `process.title` 改不到它）。vendor 的 purego-pipewire fork 经 `pw_properties_new_dict` 把
+  `application.name` / `media.name` / `node.name` 传给 `pw_stream_new_simple`，值来自
+  `sessionConfig` 的 `app_name` / `stream_name`（见 `third_party/VENDORED.md`）。
+- 验证：`pnpm run verify:liino`（静态接线）+ `./node_modules/.bin/electron scripts/probe-liino.ts
+  [--device=pipewire/default|--device=null]`（真 dlopen / 真出声 / 真取流：契约、事件、
+  小世代（新页面）被接受、EQ 丢弃数、曲末只发一次 ended、shutdown 收尾）。设置页解析状态按 `status.backend`
+  （`mpv` | `liino`）分列显示；渲染层判定「引擎后端」统一走 `player.engineBacked`。
+
   越界退位、滚轮四态四值一致、拖动跟手与松手回写；活体段需 dev server，`QBASE` 可指别处）。
 
 ## Quark EQ（图形均衡器 · MPV 原生 / 兼容）
@@ -311,12 +550,15 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
 一个**独立的 Electron 窗**（`electron/desktop-lyrics.ts` + 页 `desktop-lyrics.html` / `src/desktop-lyrics.ts`），
 与主窗单向上镜像数据（主窗 player 是唯一事实源，见 `src/lib/desktop-lyrics.ts`）。几条别踩的：
 
-- **未锁定时是纯 CSD；macOS / Windows / X11 有「固定 + 鼠标透穿」档**。拖拽区由页面自己划
+- **未锁定时是纯 CSD；macOS / Windows / X11（含 XWayland）有「固定 + 鼠标透穿」档**。拖拽区由页面自己划
   （`#dl-root{-webkit-app-region:drag}` + 控制条/进度条/缩放手把 `no-drag`），挪窗交给窗口管理器 ——
   Wayland 下 `setPosition()` 会被合成器无视，拖拽区是唯一真能挪窗的路（旧版 move-by IPC 已删）。
   锁定时主进程走 `setIgnoreMouseEvents(true)` + `setMovable(false)`，页面同步加 `.dl-locked` 收起控件；
-  解除入口只留托盘与设置页（锁住的窗收不到点击）。Wayland 不开放该档，平台闸门在
-  `desktop-lyrics-core.ts:supportsDlLock`。`no-drag` 的豁免**只在同一子树内**成立（主窗顶带踩过：
+  解除入口只留托盘与设置页（锁住的窗收不到点击）。原生 Wayland 不开放该档，平台闸门在
+  `desktop-lyrics-core.ts:supportsDlLock`。**闸门看的是 Electron 实际 ozone 后端而不是
+  `XDG_SESSION_TYPE`**：Wayland 会话里跑 XWayland 时后者仍是 `wayland`，只有
+  `app.commandLine.getSwitchValue("ozone-platform") === "x11"` 才说明窗口真的走 X11。
+  `no-drag` 的豁免**只在同一子树内**成立（主窗顶带踩过：
   兄弟子树里的 no-drag 挡不住铺过来的 drag 矩形）——本窗三个控件都是 `#dl-root` 的直接子元素才挖得动洞。
 - **两层不透明度，别混成一个**：`Opacity` = **歌词层**（挂在**内容**两处：`#dl-clip` 与 `#dl-empty`
   的 `opacity: var(--dl-opacity)`）；`Backdrop` = **窗体不透明度**（`#dl-board`，`inset:0` **铺满客户端表面**、
@@ -611,6 +853,12 @@ Electron init 在任何用户代码之前读它并写进 `CHROME_DESKTOP`，X11 
 `verify:icon` 有护栏）。`linux.executableName` 必须与 appId 一致——AppImage 内的二进制名、
 desktop 文件名、`Icon=`、hicolor 图标文件名全部取自它，四方只能同源。
 
+**进程标题**（`process.title`）与窗口身份是两件事：开发态跑的是 `node_modules/electron` 那份
+二进制，`ps` / 任务管理器里显示的是 `electron`，用户会以为启动错了程序。`main.ts` 在任何窗口
+创建前把 `process.title` 钉成 `"Quaver Music"`（打包态二进制本来就叫 `quaver`，这行只是让开发态
+与发布态在进程列表里一致）。注意它管不到 PipeWire 客户端名（`application.name` 由 Audio 服务
+读取，Liino 的 purego-pipewire 目前只暴露固定 stream 名）。
+
 图标链：桌面环境按 app_id 反查 `<ID>.desktop` → `Icon=` → 图标主题。AppImage 裸跑没人代装桌面
 文件/图标，`electron/linux-desktop.ts` 每次启动**在打包态**自装（幂等、失败只记账）。开发态
 （`pnpm app` → `electron .`，即 `!app.isPackaged` 且无 `$APPIMAGE`）**什么都不写**：开发态条目的
@@ -641,8 +889,9 @@ Exec 写死「当前 electron + 仓库 ui/」，落进 `applications/` 就是启
 托盘挂在**外壳**上（Linux 面板 / macOS 菜单栏 / Windows 通知区），不是挂在应用窗口里——两件事都
 按这个前提判：
 
-- **图标明暗**（`electron/tray-icon.ts` + `main.ts:trayAppearance`）：判据必须是「系统给外壳的
-  颜色」，Linux 探测桌面配色、macOS 读 `AppleInterfaceStyle`、Windows 读注册表
+- **图标明暗**（`electron/tray-icon.ts` + `main.ts:trayAppearance`）：**Linux 用彩色应用图标
+  （`build-res/icons/256x256.png`，不分明暗）**；macOS / Windows 按「系统给外壳的颜色」挑单色图，
+  判据是 macOS 读 `AppleInterfaceStyle`、Windows 读注册表
   `HKCU\...\Themes\Personalize\SystemUsesLightTheme`（`systheme.ts:readWindowsShellTheme`）。
   两个**别用**的写法：
   - `nativeTheme.shouldUseDarkColors` —— 它跟着应用自己的 `themeSource` 走，而本应用默认主题是
@@ -653,7 +902,8 @@ Exec 写死「当前 electron + 仓库 ui/」，落进 `applications/` 就是启
     深浅色档位走（实测：浅色配浅色图标、深色配深色图标）—— 外壳判据最忌这个，所以 Windows 自己读
     注册表。刷新触发同理：注册表没有 mtime 可盯，`watchWindowsShellTheme` 定时轮询（2s），
     不能只等 `nativeTheme` 的 `updated`。
-  尺寸统一 16pt 出图（mac 按点画 NSImage，直塞 512² 就是「托盘图标巨大」）。
+  尺寸按平台出图：macOS / Windows 16pt，Linux SNI 32px（mac 按点画 NSImage，直塞 512²
+  就是「托盘图标巨大」；映射见 `electron/tray-icon.ts:trayIconSize`）。
 - **菜单标题行**（`electron/tray-title.ts`）：`electron/tray-title.ts:trayTitleLine` 拼「歌名 -
   歌手」并按**显示列宽**截断（40 列，汉字记 2 列）。原因：Win32 HMENU 与 macOS NSMenu **都不折
   行**，菜单宽度 = 最宽那一项，一首长中文歌名 + 多位歌手就能把托盘菜单撑成横贯屏幕的一条；Linux
@@ -664,6 +914,19 @@ Exec 写死「当前 electron + 仓库 ui/」，落进 `applications/` 就是启
 - **MPRIS 在 Electron 主进程内**（`electron/mpris.ts` + `mpris-service` 生产依赖）：渲染层只推
   状态快照，D-Bus 命令原样回推；没有 daemon、没有 `mpris:build`、没有额外子进程。别再把它搬回
   Typhoeus submodule 或 sidecar —— 前者制造漏构建静默失效，后者把系统媒体控件绑死后端生命周期。
+  **总线断开不会带走应用**：`dbus-next` 0.9.2 在 socket 已关闭时会从库内部抛
+  `Cannot send message, stream is closed`；`createMprisBridge` 只拦这一条发送路径，并把
+  `onFatal` 交给主进程销毁后延迟重建。别把总线错误重新交给 Electron 的未捕获异常。
+- **`xesam:asText`（扩展元数据）由当前歌词派生**：player 在歌词落定时算 `lyricAsText`
+  （`mprisLyricText` → `src/lyric.ts:lyricLinesToLrc` 或 `lyricLinesToText`，不含翻译/音译），
+  快照随 `track.asText` 推送，主进程投影成 D-Bus Metadata。Dank Material Shell / Noctalia 的
+  媒体控件读它做歌词展示。**格式由 `[Lyrics] MprisLrc` 决定**（设置 → 歌词 → 系统媒体控件歌词）：
+  默认 `True` 发带 `[mm:ss.xx]` 的 LRC，供会解析时间戳的控件跟随进度；`False` 发一行一句的纯文本
+  （DMS 把 asText 按行原样显示，LRC 的时间戳会被当正文画出来）。切换只重排内存里的 `lyrics`
+  并 `refreshMprisLyrics()` 补推一帧，不重拉歌词。
+  **来源不限 LRC**：QRC/TTML 经 AMLL 解析后本就是一行一句（`karaokeToLines`），直接派生即可 ——
+  不需要为另一种格式再向服务端拉一份。歌词是异步到的：渲染层指纹含 `lyricAsText`，
+  主进程 Metadata 去重也必须带上它（只看 `mpris:trackid` 会让 asText 永远停在换曲时的空值）。
 
 ## 打包与首屏（Rolldown · 动态加载 · 内存）
 
@@ -733,6 +996,10 @@ Chromium 侧的 `/dev/shm` 合成器缓冲（主进程 ~620MB）与**字体映�
 - 应用侧真正能省的是：不进首屏的代码（解析与常驻都不付）、有上限的缓存、以及用完就丢的对象。
   已落地的上限：`src/lib/songlist-detail.ts` 详情缓存 8 张（一条 = 整单歌曲数组），订阅中/在途的
   歌单不淘汰；`lib/color.ts` 256 条 LRU、`lib/streaminfo.ts` 32 条、`lib/ttml.ts` 未命中表 TTL 10min。
+- 远端封面按槽位降档（`lib/thumbs.ts`）：侧栏 32px → 90 档、首页/歌单/搜索网格 148–168px → 300 档、
+  正在播放页收起态 → 300 档（展开才回 1500）。实测侧栏 32 张 500/600 档解码 ≈37.5MB → ≈1.0MB，
+  NP 收起态大封面 ≈8.6MB → ≈0.34MB。`thumbs.ts` 在 shell 与视图里都必须用**动态 import**：
+  静态 import 会把它的文件名塞进首屏 preload 依赖表，直接顶爆那几十字节余量。
 - 反复进出重页面**不留残留**是硬指标：探针里那 8 轮「首页 ⇄ 设置页」后的堆读数应当回到首轮水位
   （涨 = 有东西没解绑）。AMLL 播放器随视图销毁走 `player.dispose()`（`lyrics/amll.ts`），
   覆盖层换曲走 `disposeRender`。

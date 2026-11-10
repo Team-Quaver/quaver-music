@@ -45,15 +45,47 @@ import { homedir } from "node:os";
 
 export const DESKTOP_ID = "red.0w0.quaver"; // = appId = app_id = WM_CLASS（.desktop 去后缀）
 
+/** desktop 条目正文的输入（与 [Desktop Entry] 键一一对应）。 */
+export interface DesktopEntrySpec {
+  desktopId: string;
+  name: string;
+  comment?: string;
+  exec: string;
+  icon?: string;
+  categories?: string;
+}
+
+/** 安装结果：desktopAction 是「让位/收编/清理」的结论，iconsWritten 是实际写入的尺寸。 */
+export interface IntegrationResult {
+  desktopFile: string | null;
+  desktopAction: "kept" | "written" | "absent" | "system" | "system-cleaned";
+  systemDesktopFile: string | null;
+  iconsWritten: string[];
+}
+
+/** installLinuxDesktopIntegration 的入参（全部可注入，测试不踩宿主机）。 */
+export interface InstallOptions {
+  desktopId?: string;
+  name: string;
+  comment?: string;
+  exec: string;
+  categories?: string;
+  iconSourceDir?: string;
+  dataHome?: string;
+  env?: Record<string, string | undefined>;
+  refreshCache?: boolean;
+  log?: (...args: unknown[]) => void;
+}
+
 /** 用户级 XDG data 根：$XDG_DATA_HOME 优先，默认 ~/.local/share。 */
-export function xdgDataHome(env = process.env, home = homedir()) {
+export function xdgDataHome(env: Record<string, string | undefined> = process.env, home = homedir()) {
   const xdg = String(env.XDG_DATA_HOME ?? "").trim();
 
   return xdg || join(home, ".local", "share");
 }
 
 /** 系统级 XDG data 根：$XDG_DATA_DIRS 优先，默认 /usr/local/share:/usr/share（XDG 规范的默认值）。 */
-export function xdgDataDirs(env = process.env) {
+export function xdgDataDirs(env: Record<string, string | undefined> = process.env) {
   const dirs = String(env.XDG_DATA_DIRS ?? "").trim();
 
   return (dirs || "/usr/local/share:/usr/share").split(":").filter(Boolean);
@@ -66,7 +98,7 @@ export function xdgDataDirs(env = process.env) {
  * 我们连写都不写——这不只是避免重复项，是避免用一个过期的 Exec 顶掉包管理器的真相。
  * 隐藏条目（NoDisplay/Hidden）不算数：Noctalia 会整条丢弃（见模块头 #4626），那种情况照旧由我们收编。
  */
-export function findSystemDesktopEntry(desktopId, env = process.env) {
+export function findSystemDesktopEntry(desktopId: string, env: Record<string, string | undefined> = process.env) {
   for (const root of xdgDataDirs(env)) {
     const file = join(root, "applications", `${desktopId}.desktop`);
 
@@ -83,10 +115,10 @@ export function findSystemDesktopEntry(desktopId, env = process.env) {
 }
 
 // desktop 文件值转义：反斜杠与换行按 spec 转义；本项目自己的字段不会出现这些，防御性兜一下
-const escapeEntryValue = (v) => String(v).replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/\r/g, "");
+const escapeEntryValue = (v: string) => String(v).replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/\r/g, "");
 
 /** Exec 的参数引号（double-quote 规则）：路径带空格（如 ~/Applications/Quaver Music）必须包住。 */
-export function quoteExecPath(p) {
+export function quoteExecPath(p: string) {
   return `"${String(p).replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
 }
 
@@ -95,7 +127,7 @@ export function quoteExecPath(p) {
  * **必须可见**（不带 NoDisplay/Hidden）：Noctalia 整条丢弃隐藏条目，隐藏 = app_id 反查不到 =
  * 窗口/Dock 没图标（noctalia-dev/noctalia#4626）。想从启动器藏应用得用启动器自己的隐藏功能。
  */
-export function desktopEntryContent({ desktopId, name, comment, exec, icon = desktopId, categories = "AudioVideo;Audio;" }) {
+export function desktopEntryContent({ desktopId, name, comment, exec, icon = desktopId, categories = "AudioVideo;Audio;" }: DesktopEntrySpec) {
   const lines = [
     "[Desktop Entry]",
     "Type=Application",
@@ -113,12 +145,12 @@ export function desktopEntryContent({ desktopId, name, comment, exec, icon = des
 }
 
 /** 从现有 desktop 文件抓 [Desktop Entry] 的 Icon= 值；没有/不是 Application 类型返回 null。 */
-export function readDesktopIcon(text) {
+export function readDesktopIcon(text: string) {
   return readDesktopEntryValue(text, "Icon");
 }
 
 /** 抓 [Desktop Entry] 段里任意键的值（大小写不敏感）；没有返回 null。 */
-export function readDesktopEntryValue(text, key) {
+export function readDesktopEntryValue(text: string | null | undefined, key: string): string | null {
   const want = String(key).toLowerCase();
   let inEntry = false;
 
@@ -140,13 +172,13 @@ export function readDesktopEntryValue(text, key) {
   return null;
 }
 
-const parseDesktopBool = (v) => ["true", "1", "yes"].includes(String(v ?? "").trim().toLowerCase());
+const parseDesktopBool = (v: unknown) => ["true", "1", "yes"].includes(String(v ?? "").trim().toLowerCase());
 
 /**
  * 该 desktop 文件是否被藏起来了（NoDisplay 或 Hidden）。两者语义不同但后果一样：
  * Noctalia 解析时整条丢弃，app_id 反查不到就丢图标（noctalia-dev/noctalia#4626），必须改写可见。
  */
-export function readDesktopHidden(text) {
+export function readDesktopHidden(text: string | null | undefined) {
   return parseDesktopBool(readDesktopEntryValue(text, "NoDisplay")) || parseDesktopBool(readDesktopEntryValue(text, "Hidden"));
 }
 
@@ -155,7 +187,7 @@ const SIZE_RE = /^(\d+)x\1\.png$/;
 // GTK 家（GNOME 等）在 hicolor 有 icon-theme.cache 时**不会**因为目录里多了新文件而重扫
 // （实测：新装图标 GtkIconTheme 查不到，gtk-update-icon-cache 之后立刻能查到）。所以图标有实际
 // 写入时刷一次缓存；工具不存在的系统本就没有缓存、走实时扫描，同样不需要它。尽力而为，不等待。
-function refreshIconCache(hicolorDir) {
+function refreshIconCache(hicolorDir: string) {
   try {
     const child = spawn("gtk-update-icon-cache", ["-f", "-t", hicolorDir], { stdio: "ignore", detached: true });
     child.on("error", () => {}); // ENOENT：没装这个工具，忽略
@@ -167,12 +199,13 @@ function refreshIconCache(hicolorDir) {
  * 把 iconSourceDir 下的 <N>x<N>.png 对齐到 <dataHome>/icons/hicolor/<N>x<N>/apps/<desktopId>.png。
  * 内容一致跳过（不碰 mtime，免得反复打掉图标缓存的有效性）。返回实际写入的尺寸列表。
  */
-async function syncHicolorIcons({ iconSourceDir, dataHome, desktopId }) {
-  const written = [];
-  let files = [];
+// iconSourceDir 缺省时第一次 readdir 就抛 → 提前 return，循环里的 join 只见得到字符串。
+async function syncHicolorIcons({ iconSourceDir, dataHome, desktopId }: { iconSourceDir?: string; dataHome: string; desktopId: string }) {
+  const written: string[] = [];
+  let files: string[] = [];
 
   try {
-    files = await readdirAsync(iconSourceDir);
+    files = await readdirAsync(iconSourceDir as string);
   } catch {
     return written; // 素材目录缺失（打包漏配/开发态刚拉仓库）：静默跳过，图标走 fallback
   }
@@ -182,7 +215,7 @@ async function syncHicolorIcons({ iconSourceDir, dataHome, desktopId }) {
 
     if (!m) continue;
     const sizeDir = `${m[1]}x${m[1]}`;
-    const src = join(iconSourceDir, name);
+    const src = join(iconSourceDir as string, name);
     const destDir = join(dataHome, "icons", "hicolor", sizeDir, "apps");
     const dest = join(destDir, `${desktopId}.png`);
 
@@ -218,8 +251,8 @@ export async function installLinuxDesktopIntegration({
   env = process.env, // 系统 XDG_DATA_DIRS 的来源（测试注入，免得踩到宿主机真装了包）
   refreshCache = true, // 测试注入 false：不对外部 gtk-update-icon-cache 产生时序依赖
   log = () => {},
-}) {
-  const result = { desktopFile: null, desktopAction: "absent", systemDesktopFile: null, iconsWritten: [] };
+}: InstallOptions): Promise<IntegrationResult> {
+  const result: IntegrationResult = { desktopFile: null, desktopAction: "absent", systemDesktopFile: null, iconsWritten: [] };
   const appsDir = join(dataHome, "applications");
   const file = join(appsDir, `${desktopId}.desktop`);
   result.desktopFile = file;
@@ -296,7 +329,7 @@ export function removeDevManagedDesktopEntry({
   desktopId = DESKTOP_ID,
   dataHome = xdgDataHome(),
   devMarker,
-}) {
+}: { desktopId?: string; dataHome?: string; devMarker?: string }) {
   const file = join(dataHome, "applications", `${desktopId}.desktop`);
   const result = { desktopFile: file, removed: false };
 

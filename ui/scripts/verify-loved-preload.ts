@@ -20,7 +20,7 @@ mkdirSync(TMP + "/profile", { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({
-  executablePath: "/usr/bin/google-chrome", headless: "new",
+  executablePath: "/usr/bin/google-chrome", headless: true,
   userDataDir: TMP + "/profile",
   env: { ...process.env, TMPDIR: TMP, XDG_CACHE_HOME: TMP + "/cache" },
   args: ["--no-sandbox", "--disable-gpu", "--no-proxy-server",
@@ -93,7 +93,7 @@ const waitUpstream = async (want, ms = 60000) => {
 const rows = () => page.evaluate(() => ({
   n: document.querySelectorAll(".rows .row").length,
   on: document.querySelectorAll(".rows .row .row-love.on").length,
-  firstMid: document.querySelector(".rows .row")?.dataset.songkey ?? "",
+  firstMid: document.querySelector<HTMLElement>(".rows .row")?.dataset.songkey ?? "",
   cnt: document.querySelector(".pl-meta")?.textContent?.trim() ?? "",
 }));
 
@@ -153,7 +153,7 @@ await step("我喜欢页默认全部红心点亮且计数一致", async () => {
   await page.goto(`${BASE}/index.html#/liked`, { waitUntil: "domcontentloaded" });
   await waitRows();
   await sleep(1500);
-  const r = await rows();
+  const r = (await rows())!;
 
   if (r.n !== total0) throw new Error(`行数 ${r.n} != 上游 total ${total0}`);
 
@@ -169,7 +169,7 @@ await step("其它视图红心同为点亮（全局单一真相源）", async ()
   await page.goto(`${BASE}/index.html#/daily`, { waitUntil: "domcontentloaded" });
   await waitRows();
   await sleep(1500);
-  const r = await rows();
+  const r = (await rows())!;
 
   if (!r.n) throw new Error("每日 30 首没有行");
 
@@ -236,7 +236,7 @@ await step("取消后可重新收藏并恢复全亮（复原账号）", async ()
 
   for (const t of [writeType(pick.type), 1]) { // 主用正确值；万一类型特殊再兜一次原值
     if ((await like(t)) !== 0) continue;
-    const r = await waitUpstream((u) => u.total === total0 && u.mids.includes(pick.mid), 45000);
+    const r = (await waitUpstream((u) => u.total === total0 && u.mids.includes(pick.mid), 45000))!;
     lag = r.lag;
 
     if (r.up.ok && r.up.total === total0 && r.up.mids.includes(pick.mid)) { restored = true; break; }
@@ -245,7 +245,7 @@ await step("取消后可重新收藏并恢复全亮（复原账号）", async ()
   if (!restored) throw new Error("补回收藏未生效——账号可能少了一首，需人工确认");
 
   // 重进我喜欢（冷启动路径）：重新预载 → 依然全亮
-  let r = null;
+  let r: Awaited<ReturnType<typeof rows>> | null = null;
 
   for (let i = 0; i < 3; i++) {
     await page.goto(`${BASE}/index.html#/liked`, { waitUntil: "domcontentloaded" });
@@ -255,6 +255,8 @@ await step("取消后可重新收藏并恢复全亮（复原账号）", async ()
     if (r.n === total0 && r.on === r.n) break;
     await sleep(3000);
   }
+
+  if (!r) throw new Error("重进我喜欢没有读到行数据");
 
   if (r.n !== total0) throw new Error(`复原后行数 ${r.n} != ${total0}`);
 

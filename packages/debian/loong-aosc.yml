@@ -1,0 +1,9 @@
+# AOSC OS 等龙芯发行版的 dpkg 架构名是 loongarch64；electron-builder 的 loong64
+# deb 默认按 Debian 口径写 loong64。这里复用同一份 payload，只在 fpm 层覆盖 Architecture。
+# 注意 fpm 数组不能从 loong.yml 继承（父配置没有 fpm，但将来若加了也要在这里同步）。
+extends: file:../packages/debian/loong.yml
+deb:
+  artifactName: Quaver-${version}-loongarch64.deb
+  fpm:
+    - --architecture
+    - loongarch64

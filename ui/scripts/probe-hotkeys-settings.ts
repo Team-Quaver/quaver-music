@@ -9,7 +9,7 @@ const BASE = "http://localhost:5173";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({
-  executablePath: "/usr/bin/google-chrome", headless: "new",
+  executablePath: "/usr/bin/google-chrome", headless: true,
   args: ["--no-sandbox", "--disable-gpu", "--autoplay-policy=no-user-gesture-required"],
 });
 
@@ -42,7 +42,7 @@ await step("热键选项卡存在且在通用左边", async () => {
 });
 
 await step("切到热键页：两组共 11 条", async () => {
-  await page.evaluate(() => document.querySelector('.set-tab[data-tab="hotkeys"]').click());
+  await page.evaluate(() => document.querySelector<HTMLElement>('.set-tab[data-tab="hotkeys"]')!.click());
   await sleep(300);
   const n = await page.$$eval('[data-panel="hotkeys"] .hk-btn', (els) => els.length);
 
@@ -66,7 +66,7 @@ await step("默认绑定文案", async () => {
 });
 
 await step("录制组合键写入配置", async () => {
-  const btn = await page.$('[data-panel="hotkeys"] .hk-btn[data-scope="Global"][data-action="toggle"]');
+  const btn = (await page.$('[data-panel="hotkeys"] .hk-btn[data-scope="Global"][data-action="toggle"]'))!;
   await btn.click();
   await sleep(120);
   const capturing = await page.$eval('[data-panel="hotkeys"] .hk-btn.capturing', (e) => e.textContent);
@@ -85,7 +85,7 @@ await step("录制组合键写入配置", async () => {
 });
 
 await step("Esc 取消录制", async () => {
-  const btn = await page.$('[data-panel="hotkeys"] .hk-btn[data-scope="Focus"][data-action="toggle"]');
+  const btn = (await page.$('[data-panel="hotkeys"] .hk-btn[data-scope="Focus"][data-action="toggle"]'))!;
   await btn.click();
   await sleep(120);
   await page.keyboard.press("Escape");
@@ -97,7 +97,7 @@ await step("Esc 取消录制", async () => {
 });
 
 await step("退格清除 = 停用", async () => {
-  const btn = await page.$('[data-panel="hotkeys"] .hk-btn[data-scope="Focus"][data-action="toggle"]');
+  const btn = (await page.$('[data-panel="hotkeys"] .hk-btn[data-scope="Focus"][data-action="toggle"]'))!;
   await btn.click();
   await sleep(120);
   await page.keyboard.press("Backspace");
@@ -113,7 +113,7 @@ await step("退格清除 = 停用", async () => {
 });
 
 await step("录回默认 Ctrl+P（焦点热键随即恢复）", async () => {
-  const btn = await page.$('[data-panel="hotkeys"] .hk-btn[data-scope="Focus"][data-action="toggle"]');
+  const btn = (await page.$('[data-panel="hotkeys"] .hk-btn[data-scope="Focus"][data-action="toggle"]'))!;
   await btn.click();
   await sleep(120);
   await page.keyboard.down("Control"); await page.keyboard.press("p"); await page.keyboard.up("Control");

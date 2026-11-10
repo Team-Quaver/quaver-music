@@ -50,9 +50,17 @@ section("固定/鼠标透穿");
   eq("Linux X11 开放", supportsDlLock("linux", { XDG_SESSION_TYPE: "x11", DISPLAY: ":0" }), true);
   eq("Linux XDG 缺失时按 DISPLAY 兜底", supportsDlLock("linux", { DISPLAY: ":0" }), true);
   eq("Wayland 关闭", supportsDlLock("linux", { XDG_SESSION_TYPE: "wayland", WAYLAND_DISPLAY: "wayland-0" }), false);
+  eq("XWayland 开放（会话仍是 Wayland，Electron 实际后端是 x11）",
+    supportsDlLock("linux", { XDG_SESSION_TYPE: "wayland", WAYLAND_DISPLAY: "wayland-0", DISPLAY: ":0" }, "x11"), true);
+  eq("原生 Wayland 关闭（实际后端优先于会话变量）",
+    supportsDlLock("linux", { XDG_SESSION_TYPE: "wayland", WAYLAND_DISPLAY: "wayland-0" }, "wayland"), false);
+  eq("会话变量说 X11、实际后端是 Wayland 也关闭",
+    supportsDlLock("linux", { XDG_SESSION_TYPE: "x11", DISPLAY: ":0" }, "wayland"), false);
   eq("Linux 无图形会话关闭", supportsDlLock("linux", {}), false);
   eq("其它 Unix 关闭", supportsDlLock("freebsd", { DISPLAY: ":0" }), false);
   const dl = src("electron/desktop-lyrics.ts");
+  check("主进程把 Electron 实际 ozone 后端喂给闸门（XWayland 不再被会话类型误杀）",
+    /supportsDlLock\(\s*process\.platform,\s*process\.env,\s*app\.commandLine\.getSwitchValue\("ozone-platform"\),\s*\)/.test(dl));
   check("主进程按锁档调用 setIgnoreMouseEvents（锁定 true / 解锁 false 同一入口）",
     /win\.setIgnoreMouseEvents\(locked, locked \? \{ forward: true \} : undefined\)/.test(dl));
   check("锁定同时取消可移动位（Linux no-op，但 X11 的输入穿透已切断拖拽）", /win\.setMovable\(!locked\)/.test(dl));
@@ -402,7 +410,7 @@ const proto = src("src/lib/desktop-lyrics-protocol.ts");
 
 check("时钟补偿按后端下发（native/web 200ms，兼容模式 0）",
   proto.includes("CLOCK_COMP_MS = 200")
-  && /get lyricComp\(\) \{ return this\.backend === "mpv-compat" \? 0 : 0\.2; \}/.test(src("src/player.ts"))
+  && /get lyricComp\(\) \{ return this\.backend === "mpv-compat" \|\| this\.backend === "liino" \? 0 : 0\.2; \}/.test(src("src/player.ts"))
   && /\(player\.time \+ player\.lyricComp\) \* 1000/.test(src("src/components/NowPlaying.ts")));
 
 check("posMs 是裸播放头（不含补偿不含延迟）", /posMs: Math\.max\(0, \(player\.time \|\| 0\) \* 1000\)/.test(bridge));
@@ -446,6 +454,20 @@ check("不调 API（无 fetch / /api：歌词与封面 URL 都随桥镜像来）
 check("恒展开（覆盖层没有收起一档）", /expanded: \(\) => true/.test(page));
 
 check("时钟 = 快照外推 + 后端补偿（延迟扣减在 amll.ts 内做）", /time: \(\) => rawPosMs\(\) \+ \(sync\?\.clockCompMs \?\? CLOCK_COMP_MS\)/.test(page));
+
+check("外推只在后端真出声时进行（暂停/缓冲停在快照，且有窗口上限）",
+  /if \(!sync\.playing \|\| sync\.buffering\) return sync\.posMs/.test(page)
+  && /Math\.min\(performance\.now\(\) - syncAt, EXTRAP_CAP_MS\)/.test(page)
+  && /buffering: player\.buffering/.test(bridge));
+
+check("换曲预置：取流期间播放头钉在目标位置（歌词不吃上一首的进度）",
+  /transport\.prepare\?\.\(startAt\)/.test(src("src/player.ts"))
+  && /prepare\(sec: number\) \{\s*this\.pendingStart = Math\.max\(0, sec\)/.test(src("src/lib/transport.ts"))
+  && /if \(this\.pendingStart !== null\) return this\.pendingStart/.test(src("src/lib/transport.ts")));
+
+check("缓冲中按暂停喂给逐字渲染器（AMLL 逐词遮罩是实时动画，只冻 time() 挡不住）",
+  /paused: \(\) => !\(sync\?\.playing \?\? false\) \|\| !!sync\?\.buffering/.test(page)
+  && /paused: \(\) => player\.paused \|\| player\.buffering/.test(src("src/components/NowPlaying.ts")));
 
 check("歌词延迟取镜像现值（正=延后口径不动）", /lyricDelay: \(\) => sync\?\.delayMs \?\? 0/.test(page));
 
@@ -825,7 +847,7 @@ check("歌词不透明度滑条 10..100%（调的是字）",
   && /setDesktopLyricsOpacity\(Number\(dlOpacity\.value\) \/ 100\)/.test(views));
 
 check("桌面歌词说明只保留固定功能的平台限制",
-  /固定（鼠标透穿）」仅在 macOS \/ Windows \/ X11 会话开放/.test(views)
+  /固定（鼠标透穿）」仅在 macOS \/ Windows \/ X11（含 XWayland）窗口开放/.test(views)
   && !/悬停地板/.test(views) && !/不支持最大化/.test(views) && !/申请浮窗/.test(views));
 
 check("窗体不透明度滑条 0..100%（调背板，默认 0 = 只有字）——与歌词那条分开、命名不混",

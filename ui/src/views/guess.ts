@@ -74,7 +74,7 @@ export default async function guessView(root: HTMLElement) {
       return;
     }
 
-    // 与正在播放页共用 300 档：QQ 封面常用可用尺寸就是 T002R300x300，600 会 404 成灰块。
+    // 电台舞台用 300 档：播放页大图另走 1500 起的降级链，这里不需要跟着放大。
     const pic = coverUrl(s, 300);
 
     if (pic !== lastArt) {

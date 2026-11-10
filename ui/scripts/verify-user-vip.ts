@@ -74,7 +74,7 @@ ok("档位表字段名与模块导出一致",
 // 上游响应的字段按层取键：identity = FIXTURE.identity，root = 响应顶层
 const layerKeys = (where) => new Set(Object.keys(where === "identity" ? FIXTURE.identity : FIXTURE));
 
-const missing = [], wrongLayer = [];
+const missing: string[] = [], wrongLayer: string[] = [];
 
 for (const t of tiers) {
   const own = layerKeys(t.where), other = layerKeys(t.where === "identity" ? "root" : "identity");
@@ -212,14 +212,19 @@ let clock = NOW, scheduled, scheduledDelay, painted = "", visibleRefresh;
 
 Date.now = () => clock;
 
-globalThis.setTimeout = (cb, ms) => { scheduled = cb; scheduledDelay = ms; return 1; };
+// SAFETY: 测试桩只需要 setTimeout 的调度面；Node 的完整签名（含 __promisify__）不参与运行。
+Object.assign(globalThis, {
+  setTimeout: (cb, ms) => { scheduled = cb; scheduledDelay = ms; return 1; },
+});
 
 globalThis.clearTimeout = () => { scheduled = undefined; };
 
-globalThis.document = {
-  addEventListener(_, cb) { visibleRefresh = cb; },
-  removeEventListener() { visibleRefresh = undefined; },
-};
+Object.assign(globalThis, {
+  document: {
+    addEventListener(_, cb) { visibleRefresh = cb; },
+    removeEventListener() { visibleRefresh = undefined; },
+  },
+});
 
 try {
   const brief = { svip: 1, svip_end: "2026-09-19 13:56:12" };
@@ -233,7 +238,7 @@ try {
 } finally {
   Date.now = originalNow; globalThis.setTimeout = originalTimeout; globalThis.clearTimeout = originalClear;
 
-  if (originalDocument === undefined) delete globalThis.document; else globalThis.document = originalDocument;
+  if (originalDocument === undefined) Reflect.deleteProperty(globalThis, "document"); else globalThis.document = originalDocument;
 }
 
 // ============ 4. 动效与接线 ============

@@ -1,0 +1,24 @@
+# RPM：loongarch64。依赖口径与 ARM/x86 一致。
+# 载荷全部是 loongarch64 预编译产物；x86 构建机的 strip/objdump 认不出目标 ELF，
+# 所以关掉 rpmbuild 的 brp-strip，并沿用 _build_id_links none 避免与其它 Electron 包撞文件。
+# 注意不要 extends rpm/arm-x86.yml：electron-builder 合并配置时会把 fpm 数组去重，
+# 多个 --rpm-rpmbuild-define 会被压成一个，后面的定义就变成 fpm 的输入路径了。
+extends:
+  - file:../packages/electron-builder-base.yml
+  - file:../packages/loong64.yml
+rpm:
+  packageName: quaver-music
+  depends:
+    - mpv
+    - ffmpeg
+    - pipewire
+  artifactName: Quaver-${version}-${arch}.rpm
+  fpm:
+    - --rpm-rpmbuild-define
+    - _build_id_links none
+    - --rpm-rpmbuild-define
+    - __brp_strip /bin/true
+    - --rpm-rpmbuild-define
+    - __brp_strip_comment_note /bin/true
+    - --rpm-rpmbuild-define
+    - __brp_strip_static_archive /bin/true

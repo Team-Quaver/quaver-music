@@ -19,8 +19,111 @@
 .home-toplist { margin-top: 30px; padding-top: 22px; border-top: 1px solid var(--line); }
 .home-toplist__head { align-items: flex-start; flex-wrap: wrap; }
 .home-toplist__groups { flex: 1 1 auto; flex-wrap: wrap; justify-content: flex-end; margin: 0; }
+/* 分类页签与搜索页/歌手页共用 .tag/.tag.sel：选中就是实心胶囊，不做滑动墨块。 */
 .home-toplist__groups .tag { padding: 4px 12px; font-size: 12px; }
-.home-toplist__grid { margin-top: 12px; }
+/* .home-cards 在文件后段把 margin-top 归零，同权重会盖掉这条 —— 加一级作用域，
+   保证「分类页签 / 主榜特写 → 其他榜单网格」之间始终有 12px 呼吸位。 */
+.home-toplist .home-toplist__grid { margin-top: 12px; }
+
+/* 四个主榜（飙升/热歌/新歌/流行指数）的 Top5 特写：左封面、右标题 + 五行歌曲。
+   与网格卡片同处一个分类下时先出特写、后出卡片；分类里没有主榜则整块隐藏。 */
+/* 四个主榜固定两列：auto-fit 在中间宽度会排成 3 列，第四张孤零零掉到下一行，
+   右侧留一大块空白；2×2 在宽窄两端都完整。900px 以下收成一列。 */
+.home-toplist { container-type: inline-size; }
+.home-toplist__features {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px; margin-top: 12px;
+}
+@container (max-width: 900px) {
+  .home-toplist__features { grid-template-columns: 1fr; }
+}
+.home-toplist__features[hidden] { display: none; }
+.top-feature {
+  display: grid; grid-template-columns: clamp(150px, 32%, 188px) minmax(0, 1fr); gap: 16px; align-items: start;
+  min-width: 0; padding: 14px; border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--line) 58%, transparent);
+  background: color-mix(in srgb, var(--cvg-accent, var(--acc)) 2%, var(--card));
+  transition: border-color .14s ease, background .14s ease;
+}
+.top-feature:hover {
+  border-color: color-mix(in srgb, var(--cvg-accent, var(--acc)) 22%, transparent);
+  background: color-mix(in srgb, var(--cvg-glow, var(--acc)) 5%, var(--card));
+}
+.top-feature__art {
+  position: relative; display: block; width: 100%; aspect-ratio: 1;
+  border-radius: 12px; overflow: hidden;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .16);
+  transition: transform .16s ease, box-shadow .16s ease;
+}
+.top-feature__art:hover { transform: translateY(-1px); box-shadow: 0 14px 30px rgba(0, 0, 0, .2); }
+.top-feature__art:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--cvg-accent, var(--acc)) 62%, transparent); outline-offset: 2px;
+}
+.top-feature__body { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.top-feature__head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-width: 0; padding: 2px 6px 4px;
+}
+.top-feature__title {
+  min-width: 0; margin: 0; font-size: 15.5px; font-weight: 750; line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.top-feature__title a { color: var(--ink); text-decoration: none; }
+.top-feature__title a:hover { color: var(--cvg-accent, var(--acc)); }
+.top-feature__more {
+  flex: none; display: inline-flex; align-items: center; gap: 1px;
+  margin-right: -4px; padding: 2px 4px; border-radius: 6px;
+  color: var(--ink2); font-size: 12px; text-decoration: none; white-space: nowrap;
+  transition: color .12s ease, background .12s ease;
+}
+.top-feature__more:hover {
+  color: var(--cvg-accent, var(--acc));
+  background: color-mix(in srgb, var(--cvg-glow, var(--acc)) 8%, transparent);
+}
+.top-feature__more svg { display: block; }
+/* 卡片里的 Top5 压成单行「歌名 · 歌手」：封面只有一行高，卡片不会被两行列表拉长，
+   左侧封面与右侧列表也不会出现大块留白。加载/失败态按五行预留高度，切分类不跳动。 */
+.top-feature__rows { min-height: 160px; padding-bottom: 0; gap: 1px; }
+.top-feature__rows .row { padding: 4px 6px; gap: 9px; }
+.top-feature__rows .row .rmeta { flex-direction: row; align-items: baseline; gap: 6px; }
+.top-feature__rows .row .rmeta .rt { flex: 0 1 auto; min-width: 0; }
+.top-feature__rows .row .ra { flex: 0 0 auto; min-width: 0; max-width: 40%; font-size: 11.5px; }
+.top-feature__rows .row .ra::before { content: "·"; margin-right: 5px; color: var(--idx); }
+.top-feature__rows .row .ra:empty::before { content: none; }
+.top-feature__rows .row .dur { width: 34px; font-size: 11.5px; }
+.top-feature__note {
+  flex: 1; display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
+  gap: 8px; padding: 10px 6px 6px; font-size: 12.5px;
+}
+.top-feature__retry { flex: none; padding: 3px 10px; font-size: 12px; }
+
+/* 榜单虚位封面：图标 + 榜单底色。--top-color 只定色相身份，
+   最终两段渐变都与 --cvg-accent 混合，跟随高亮色（含跟随封面/自定义/主题接管），避免撞色。 */
+.toplist-art {
+  position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden;
+  color: #fff;
+  background:
+    radial-gradient(circle at 27% 18%, rgb(255 255 255 / 26%), transparent 44%),
+    radial-gradient(circle at 82% 92%, color-mix(in srgb, var(--cvg-accent, var(--acc)) 22%, transparent), transparent 58%),
+    linear-gradient(145deg,
+      color-mix(in oklab, var(--top-color) 68%, var(--cvg-accent, var(--acc))),
+      color-mix(in oklab, var(--top-color) 56%, #090c12));
+}
+.toplist-art::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(180deg, rgb(255 255 255 / 10%), transparent 38%, rgb(0 0 0 / 16%));
+}
+.toplist-art__icon {
+  position: relative; z-index: 1; display: block; width: 52%;
+  filter: drop-shadow(0 2px 7px rgb(0 0 0 / .24));
+  transition: transform .16s ease;
+}
+.toplist-art__icon svg { display: block; width: 100%; height: auto; }
+.card:hover .toplist-art__icon,
+.top-feature__art:hover .toplist-art__icon { transform: scale(1.06); }
+@media (prefers-reduced-motion: reduce) {
+  .top-feature, .top-feature__art, .toplist-art__icon { transition: none; }
+}
 
 /* 首页布局与领区：只随 home 视图加载，不占主窗首屏 CSS。 */
 /* 领区双栏：内容区够宽时并排，不够则自动堆成一列。

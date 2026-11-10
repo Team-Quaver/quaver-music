@@ -1,21 +1,37 @@
 # Quaver — 全平台打包 CI
 #
 # 后端：vendor/Typhoeus-go（Go sidecar）→ 交叉编译，一个 Linux runner 出全平台二进制
-# 前端：ui (Electron + Vite) → 平台安装包（随包对应架构的 sidecar 与音频运行时 mpv）
+# 音频：vendor/Liino（Go 音频管线）→ c-shared 动态库 + @team-quaver/liino-node 绑定
+# 前端：ui (Electron + Vite) → 平台安装包（随包对应架构的 sidecar、mpv 与 libliino）
 #
 # 目标平台：
 #   linux    x86_64 + aarch64 → AppImage / Flatpak（自包含），另出 deb / rpm / pacman：
-#            不随包 mpv，依赖字段只有 mpv（音源走发行版，bins.ts 三级兜底自动落宿主 PATH）
+#            不随包音频运行时，依赖 mpv + ffmpeg + pipewire（bins.ts 三级兜底自动落宿主 PATH）
 #   windows  x64 + arm64      → NSIS（前端全在 x64 上交叉打包）
 #   macos    arm64 → dmg（x86 构建已裁撤）
 #   linux    loong64 → sidecar 二进制 + 客户端 deb/rpm（Electron 用 darkyzhou/electron-loong64
-#             社区构建，new-world ABI 2.0；音频引擎 mpv 不随包，交给发行版解析；electron-builder
-#             不支持 loong64，deb 手工组装、RPM 用独立 spec）
+#             社区构建，new-world ABI 2.0；mpv 不随包，交给发行版解析；打包走
+#             @loongdotjs/electron-builder 分支，deb/rpm 配置与其它架构同一套模板）
+#
+# Liino 构建（liino-linux / liino-windows / liino-macos）：
+#   每个目标只出两件东西：c-shared 库 + 头文件。Linux amd64/arm64 在原生 runner 上构建；
+#   loong64 交给 OpenListTeam/cgo-actions 的 linux-loong64 目标（ABI2.0 / new-world，
+#   与 darkyzhou/electron-loong64 的客户端 ABI 对齐）；Windows 的 amd64/arm64 在 Linux 上用
+#   llvm-mingw 交叉（capi 的导出层是唯一需要 C 链接器的地方）；macOS 只出 arm64，在
+#   macos-15 上用 Xcode SDK 原生构建。产物按 <goos>-<goarch> 命名上传，
+#   前端 job 下载后落到 ui/build-res/liino/<goos>-<goarch>/，再由 extraResources 随包。
+#   Node 绑定是纯 TS（运行时由 koffi dlopen 库），一次 tsc 构建后作为 liino-node-dist 分发。
+#
+#   为什么只有 loong64 走 cgo-actions：动作里 xgo 引擎（linux / windows-amd64 / darwin）
+#   把产物名按可执行文件后缀硬编码（windows 只认 .exe），而 c-shared 会出 .so/.dll/.dylib，
+#   它随后的 mv 会直接失败；loong64 与 windows-arm64 引擎是直接 go build 到临时名，才吃得了
+#   -buildmode=c-shared。Linux amd64/arm64 与 macOS 本来就有原生 C 工具链（不值得绕 Docker），
+#   Windows amd64 则只剩 xgo 这条路，所以这两个 job 继续用原方案。
 #
 # 打包配置：
 #   electron-builder 的目标/依赖等配置拆在 packages/，按「发行版 + 架构组」命名；
-#   ARM/x86 同一档共用一份配置，loong 目录用 packages/*-loong。Flatpak manifest 与
-#   LoongArch RPM spec 也分别在 packages/flatpak 和 packages/rpm-loong。
+#   ARM/x86 同一档共用 arm-x86.yml，loong64 只额外覆写 Electron 下载源与 RPM strip 设置。
+#   Flatpak manifest 在 packages/flatpak。
 #
 # 口径：
 #   - sidecar 纯 Go（唯一依赖 gorilla/websocket，零 cgo）→ CGO_ENABLED=0 交叉编译即可，
@@ -26,7 +42,7 @@
 #     macOS 版本出 macos-14 / 15 / 26 三份，Mach-O 的 minos 就是那个版本号，装高了在老系统上
 #     一启动就被 dyld 拒（v0.41 的 macos-15 那份在 macOS 14 上直接 SIGABRT），所以取最低档 14。
 #     Linux 的 AppImage 用 pkgforge AppImage（x86_64/aarch64）；同台的 deb/rpm/pacman
-#     不随包音频运行时 —— mpv 作为发行版依赖（Depends: mpv）在安装时解析。
+#     不随包音频运行时 —— mpv/ffmpeg/pipewire 作为发行版依赖在安装时解析。
 #
 # 触发：
 #   - push 到 main / PR：只出 artifact
@@ -66,6 +82,7 @@ jobs:
   # 的交叉编译矩阵（判据与来由见 ui/scripts/verify-bundle.ts 头注）。
   verify:
     name: verify (typecheck + guards + bundle shape)
+    needs: liino-node
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -82,10 +99,20 @@ jobs:
             ui/pnpm-lock.yaml
 
       # Sparkle：插件 SDK（@quaver/sparkle 的 paths 指到 ../vendor/Sparkle/sdk）；
-      # Typhoeus-go：sidecar 的 Go 源码，verify-song-menu 等护栏要读它的 server/*.go
+      # Typhoeus-go：sidecar 的 Go 源码，verify-song-menu 等护栏要读它的 server/*.go；
+      # Liino：ui/package.json 的 @team-quaver/liino-node 是 file: 依赖，目录不在
+      #        pnpm install 直接 ENOENT scandir vendor/Liino/node
       - name: Init submodules
         run: |
-          git submodule update --init --depth 1 vendor/Sparkle vendor/Typhoeus-go
+          git submodule update --init --depth 1 vendor/Sparkle vendor/Typhoeus-go vendor/Liino
+
+      # 绑定是 file: 依赖，package.json 的 types/main 都指向 dist/；dist 不入库，
+      # 必须先把 liino-node 的 tsc 产物铺回来，否则 typecheck 找不到声明文件
+      - name: Fetch Liino Node bindings
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-node-dist
+          path: vendor/Liino/node/dist
 
       - name: pnpm install
         working-directory: ui
@@ -117,7 +144,7 @@ jobs:
   # 纯 Go（唯一依赖 gorilla/websocket，零 cgo）→ 一个 ubuntu runner 交叉编译全部目标。
   # artifact 名与二进制名沿用 PyInstaller 时代的约定（sidecar-linux-x86_64 / quaver-server /
   # quaver-server.exe），前端 job 因此零改动。loong64 = Go 官方支持矩阵内的交叉编译目标，
-  # loong64 客户端包不随包 Electron/mpv，仍走发行版依赖。
+  # loong64 客户端包不随包 mpv，仍走发行版依赖。
   sidecar:
     name: sidecar (${{ matrix.arch_label }})
     needs: verify
@@ -152,7 +179,7 @@ jobs:
             goarch: arm64
             artifact: sidecar-macos-arm64
             bin: quaver-server
-          # ── 龙芯：客户端包不随包 Electron/mpv ──
+          # ── 龙芯：客户端包不随包 mpv ──
           - arch_label: linux-loong64
             goos: linux
             goarch: loong64
@@ -230,19 +257,316 @@ jobs:
           path: dist-bin/${{ matrix.bin }}
           if-no-files-found: error
 
+  # ────────────────────────────── Liino（动态库 + Node 绑定） ──────────────────────────────
+  # 绑定层是纯 TS（libliino.ts 通过 koffi 在运行时 dlopen 库），平台无关，构建一次即可。
+  # 注意 dist/ 不在子模块仓库里（.gitignore），所以所有消费方（verify / 前端打包）都必须
+  # 依赖这个 job 并下载 liino-node-dist，否则 file: 依赖指向的 dist/index.d.ts 不存在。
+  liino-node:
+    name: liino node bindings
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Init submodule vendor/Liino
+        run: git submodule update --init --depth 1 vendor/Liino
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24.22.1"
+          cache: npm
+          cache-dependency-path: vendor/Liino/node/package-lock.json
+
+      - name: Build bindings (tsc) + pack
+        working-directory: vendor/Liino/node
+        # koffi 是 peerDependency，只在运行时用；--ignore-scripts 跳过它的预编译下载
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+          npm pack
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: liino-node-dist
+          path: vendor/Liino/node/dist
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: liino-node-package
+          path: vendor/Liino/node/team-quaver-liino-node-*.tgz
+          if-no-files-found: error
+
+  # Linux：amd64/arm64 在对应原生 runner 上直接构建（宿主 cc，无交叉工具链）。
+  # loong64 交给 OpenListTeam/cgo-actions 的 linux-loong64 目标 —— 它下载 ABI2.0
+  # （new-world）的 GCC/Go 交叉工具链，与 darkyzhou/electron-loong64 的客户端 ABI 一致。
+  # 别写成 linux-loong64-abi1.0：那是 old-world ABI1.0，产物进不了我们的包。
+  liino-linux:
+    name: liino lib (linux-${{ matrix.goarch }})
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            runs_on: ubuntu-24.04
+            builder: native
+          - goarch: arm64
+            runs_on: ubuntu-24.04-arm
+            builder: native
+          - goarch: loong64
+            runs_on: ubuntu-24.04
+            builder: cgo-actions
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Init submodule vendor/Liino
+        run: git submodule update --init --depth 1 vendor/Liino
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: vendor/Liino/go.sum
+
+      - name: Build libliino.so (native)
+        if: matrix.builder == 'native'
+        working-directory: vendor/Liino
+        env:
+          CC: cc
+        run: bash scripts/build-capi.sh linux ${{ matrix.goarch }}
+
+      # 动作的 flags 输入会把整串当成单个 argv（execa 模板表达式不拆空格），所以
+      # buildmode / trimpath 放进 GOFLAGS（go 只取当前命令认识的项，`go version` 会忽略），
+      # ldflags 留在 flags 里 —— 它的值本身含空格，正好作为一个 argv 交给 -ldflags。
+      - name: Build libliino.so (cgo-actions, linux-loong64)
+        if: matrix.builder == 'cgo-actions'
+        uses: OpenListTeam/cgo-actions@v1.3.0
+        env:
+          GOFLAGS: "-buildmode=c-shared -trimpath"
+        with:
+          dir: vendor/Liino
+          packages: ./capi
+          targets: linux-loong64
+          tags: liino_capi
+          flags: "-ldflags=-s -w"
+          out-dir: vendor/Liino/build/linux-loong64
+          output: libliino.so
+          github-token: ${{ github.token }}
+
+      # c-shared 的头文件跟着临时产物名走（go-cross-bin.h），改成发布名
+      - name: Stage cgo-actions header (loong64)
+        if: matrix.builder == 'cgo-actions'
+        run: |
+          set -euo pipefail
+          mv vendor/Liino/go-cross-bin.h vendor/Liino/build/linux-loong64/liino.h
+
+      # 跨架构产物不报错、只会跑不起来 → 核对机器码；三个目标都覆盖
+      - name: Verify target machine
+        run: |
+          set -euo pipefail
+          f="vendor/Liino/build/linux-${{ matrix.goarch }}/libliino.so"
+          [ -s "$f" ] || { echo "::error::产物为空"; exit 1; }
+          case "${{ matrix.goarch }}" in
+            amd64)   file "$f" | grep -q "x86-64" ;;
+            arm64)   file "$f" | grep -q "ARM aarch64" ;;
+            loong64) file "$f" | grep -qi "LoongArch" ;;
+            *) echo "::error::未知目标"; exit 1 ;;
+          esac
+          echo "machine check OK: linux/${{ matrix.goarch }}"
+
+      # amd64/arm64 是原生 runner：真 dlopen + 调一次导出函数（file 只能证明机器码，
+      # 证明不了 c-shared 的依赖/ABI 能加载）。loong64 是交叉档，只能留在机器码检查。
+      - name: Smoke test (native dlopen)
+        if: matrix.goarch != 'loong64'
+        run: |
+          set -euo pipefail
+          python3 - "$PWD/vendor/Liino/build/linux-${{ matrix.goarch }}/libliino.so" <<'PY'
+          import ctypes, sys
+          lib = ctypes.CDLL(sys.argv[1])
+          lib.liino_version.restype = ctypes.c_char_p
+          version = lib.liino_version().decode()
+          assert version, "liino_version returned empty"
+          print(f"liino dlopen OK: {version}")
+          PY
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: liino-linux-${{ matrix.goarch }}
+          path: vendor/Liino/build/linux-${{ matrix.goarch }}
+          if-no-files-found: error
+
+  # Windows：两个架构都在 Ubuntu 上用 llvm-mingw 交叉。不用 windows runner 的 MSYS2，
+  # 是因为这里只需要 C 链接器，而 llvm-mingw 同时提供 aarch64-w64-windows-gnu 目标。
+  # 交叉产物用 file 核对 PE 机器码（Windows runner 上没有 file(1)）。
+  # 这里不能换成 cgo-actions：windows-amd64 走它的 xgo 引擎，该引擎把产物名写死成
+  # <name>-windows-amd64.exe，而 c-shared 出的是 .dll，构建后的 mv 会失败；
+  # windows-arm64 直连 zig 引擎虽可行，但没必要为半个矩阵换一套工具链（zig 还是 beta）。
+  liino-windows:
+    name: liino lib (windows-${{ matrix.goarch }})
+    runs-on: ubuntu-24.04
+    env:
+      LLVM_MINGW_VERSION: "20261104"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            cc: x86_64-w64-mingw32-clang
+          - goarch: arm64
+            cc: aarch64-w64-mingw32-clang
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Init submodule vendor/Liino
+        run: git submodule update --init --depth 1 vendor/Liino
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: vendor/Liino/go.sum
+
+      - name: Install llvm-mingw
+        run: |
+          set -euo pipefail
+          url="https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-x86_64.tar.xz"
+          curl -fsSL --retry 3 "$url" -o "$RUNNER_TEMP/llvm-mingw.tar.xz"
+          mkdir -p "$RUNNER_TEMP/llvm-mingw"
+          tar -xf "$RUNNER_TEMP/llvm-mingw.tar.xz" -C "$RUNNER_TEMP/llvm-mingw" --strip-components=1
+          echo "$RUNNER_TEMP/llvm-mingw/bin" >> "$GITHUB_PATH"
+
+      # 上游 capi.go 的 cgo preamble 只有 stdlib/string.h；mingw 的 stdlib.h 不会
+      # 间接带出 stdint.h，于是 C.int64_t 解析失败。补一行 preamble 再构建。
+      # （glibc/macOS SDK 会间接带出 stdint.h，所以只有 Windows 交叉档需要这一步。）
+      - name: Patch cgo preamble for mingw
+        working-directory: vendor/Liino
+        run: |
+          set -euo pipefail
+          if ! grep -q '#include <stdint.h>' capi/capi.go; then
+            sed -i 's|#include <string.h>|#include <string.h>\n#include <stdint.h>|' capi/capi.go
+          fi
+
+      - name: Build liino.dll
+        working-directory: vendor/Liino
+        env:
+          CC: ${{ matrix.cc }}
+        run: bash scripts/build-capi.sh windows ${{ matrix.goarch }}
+
+      - name: Verify target machine
+        run: |
+          set -euo pipefail
+          f="vendor/Liino/build/windows-${{ matrix.goarch }}/liino.dll"
+          [ -s "$f" ] || { echo "::error::产物为空"; exit 1; }
+          case "${{ matrix.goarch }}" in
+            amd64) file "$f" | grep -q "x86-64" ;;
+            arm64) file "$f" | grep -qiE "ARM64|aarch64" ;;
+            *) echo "::error::未知目标"; exit 1 ;;
+          esac
+          echo "machine check OK: windows/${{ matrix.goarch }}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: liino-windows-${{ matrix.goarch }}
+          path: vendor/Liino/build/windows-${{ matrix.goarch }}
+          if-no-files-found: error
+
+  # macOS：只出 arm64（x64 客户端构建已裁撤）。deployment target 钉 12.0：c-shared 的
+  # minos 会写进 Mach-O，别让 runner 的 macOS 15 把库抬到只有新系统能加载。
+  # cgo-actions 的 darwin 目标走 xgo（Linux 上的 Docker + osxcross），既跑不了 macos runner，
+  # 也拿不到这里需要的 CGO_LDFLAGS（AudioToolbox/CoreAudio 框架），所以保持原生构建。
+  liino-macos:
+    name: liino lib (darwin-arm64)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Init submodule vendor/Liino
+        run: git submodule update --init --depth 1 vendor/Liino
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: vendor/Liino/go.sum
+
+      # darwin 上两个 purego fork 都会展开 dlfcn_stubs.s，各自定义未加包前缀的
+      # TEXT dlopen/dlsym/dlerror/dlclose → 同一个 dylib 里两份同名 STEXT，
+      # Go linker 直接 "duplicated definition of symbol dlopen"。
+      # ffgo 用到的 purego API（Dlopen/RegisterLibFunc/NewCallback/CDecl）与 ebitengine
+      # 同源，macOS 构建时把 ffgo 统一到 ebitengine；purego-pipewire 是 linux-only，
+      # 不参与 darwin 链接，所以不会引入第三份。
+      - name: Unify purego fork for darwin
+        working-directory: vendor/Liino
+        run: |
+          set -euo pipefail
+          # runner 是 BSD sed：原地改必须写成 -i ''
+          files=$(grep -rl '"github.com/bnema/purego"' --include='*.go' third_party/ffgo || true)
+          [ -n "$files" ] || { echo "::error::ffgo 里没找到 bnema/purego 引用"; exit 1; }
+          printf '%s\n' "$files" | while IFS= read -r f; do
+            sed -i '' 's|"github.com/bnema/purego"|"github.com/ebitengine/purego"|g' "$f"
+          done
+          sed -i '' 's|github.com/bnema/purego v0.11.0-bnema.3|github.com/ebitengine/purego v0.11.1|' third_party/ffgo/go.mod
+
+      - name: Build libliino.dylib
+        working-directory: vendor/Liino
+        env:
+          CC: clang
+          MACOSX_DEPLOYMENT_TARGET: "12.0"
+          # audio-go 的 darwin 层用 //go:cgo_import_dynamic 直接引用
+          # AudioToolbox/CoreAudio；-buildmode=c-shared 固定走外部链接，
+          # 这些动态导入由 clang 解析。runtime/cgo 只默认带
+          # CoreFoundation/Security，不补 framework 就是 _AudioQueue*/
+          # _AudioObject* undefined。
+          CGO_LDFLAGS: "-framework CoreFoundation -framework AudioToolbox -framework CoreAudio"
+        run: bash scripts/build-capi.sh darwin arm64
+
+      - name: Verify target machine
+        run: |
+          set -euo pipefail
+          f="vendor/Liino/build/darwin-arm64/libliino.dylib"
+          [ -s "$f" ] || { echo "::error::产物为空"; exit 1; }
+          file "$f" | grep -q "arm64"
+          echo "machine check OK: darwin/arm64"
+
+      # 原生档：真 dlopen + 调一次导出函数（file 只能证明机器码，证明不了能加载）
+      - name: Smoke test (native dlopen)
+        run: |
+          set -euo pipefail
+          python3 - "$PWD/vendor/Liino/build/darwin-arm64/libliino.dylib" <<'PY'
+          import ctypes, sys
+          lib = ctypes.CDLL(sys.argv[1])
+          lib.liino_version.restype = ctypes.c_char_p
+          version = lib.liino_version().decode()
+          assert version, "liino_version returned empty"
+          print(f"liino dlopen OK: {version}")
+          PY
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: liino-darwin-arm64
+          path: vendor/Liino/build/darwin-arm64
+          if-no-files-found: error
+
 # ────────────────────────────── 前端（客户端包） ──────────────────────────────
   frontend-linux:
     name: AppImage (${{ matrix.arch_label }})
-    needs: [verify, sidecar]
+    needs: [verify, sidecar, liino-node, liino-linux]
     runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch_label: x86_64
+            goarch: amd64
             electron_arch: x64
             runs_on: ubuntu-24.04
           - arch_label: aarch64
+            goarch: arm64
             electron_arch: arm64
             runs_on: ubuntu-24.04-arm
     steps:
@@ -267,7 +591,29 @@ jobs:
       #          TS7006/TS2339，构建直接挂
       - name: Init submodules
         run: |
-          git submodule update --init --depth 1 vendor/Sparkle
+          git submodule update --init --depth 1 vendor/Sparkle vendor/Liino
+
+      # 绑定的 dist/ 不入库；pnpm 的 file: 依赖指向它，先铺回来再 install
+      - name: Fetch Liino Node bindings
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-node-dist
+          path: vendor/Liino/node/dist
+
+      - name: Fetch Liino runtime
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-linux-${{ matrix.goarch }}
+          path: dist-liino
+
+      # 打包路径与 liino-runtime.ts 的解析口径一致：resources/liino/<platform>-<goarch>
+      - name: Stage bundled Liino runtime
+        run: |
+          set -euo pipefail
+          dest="ui/build-res/liino/linux-${{ matrix.goarch }}"
+          mkdir -p "$dest"
+          cp -f dist-liino/libliino.so dist-liino/liino.h "$dest/"
+          test -s "$dest/libliino.so"
 
       # sidecar 产物落仓库根 dist-bin/（.gitignore 已覆盖），不再碰 submodule 路径
       - name: Fetch sidecar for this arch
@@ -343,11 +689,13 @@ jobs:
           root=squashfs-root
           [ -d "$root/resources/audio/mpv" ] || root=AppDir   # 解包目录名随 runtime 而异
           node electron/audio/bins.ts --check "$root/resources/audio"
+          # Liino 是可选后端，但「带上了却架构不对」比没带更糟 —— 产物里必须有本机那份
+          test -s "$root/resources/liino/linux-${{ matrix.goarch }}/libliino.so"
 
       # ── 发行版原生包：deb / rpm / pacman ──
-      # 与上面 AppImage 的「自包含」口径相反：这三个包不随包 mpv 运行时，改走发行版依赖
-      # 解析（deb Depends / rpm Requires / pacman depends 都只有 mpv；bins.ts 三级兜底自动
-      # 落宿主 PATH 的系统 mpv）——与 loong64 deb/rpm 同一口径。
+      # 与上面 AppImage 的「自包含」口径相反：这三个包不随包音频运行时，改走发行版依赖
+      # 解析（deb Depends / rpm Requires / pacman depends 都是 mpv + ffmpeg + pipewire；
+      # bins.ts 三级兜底自动落宿主 PATH 的系统 mpv）——与 loong64 deb/rpm 同一口径。
       # electron-builder 的 fpm 后端要 rpmbuild（打 rpm）与 bsdtar（组装 pacman 的
       # .pkg.tar.zst），zstd 供 GNU tar --zstd 用；ubuntu runner 都没预装，先装齐。
       - name: Install fpm backends (rpmbuild / bsdtar / zstd)
@@ -388,17 +736,17 @@ jobs:
             mv "$f" "${f%-x64.pkg.tar.zst}-x86_64.pkg.tar.zst"
           done
 
-      # 硬口径自检：三个包的依赖都必须恰好只有 mpv。
+      # 硬口径自检：三个包的依赖都必须是 mpv + ffmpeg + pipewire。
       # rpm 的 rpmlib(...) / /bin/sh 是 rpm 工具链自带基线，滤掉后比对。
-      - name: Verify distro package metadata (mpv is the only dependency)
+      - name: Verify distro package metadata (mpv/ffmpeg/pipewire dependencies)
         working-directory: ui
         run: |
           set -euo pipefail
 
           deb=$(ls release/Quaver-*.deb)
           ctrl=$(dpkg-deb -f "$deb")
-          if ! grep -qx 'Depends: mpv' <<< "$ctrl"; then
-            echo "::error::deb 依赖不是仅有 mpv"; printf '%s\n' "$ctrl"; exit 1
+          if ! grep -qx 'Depends: mpv, ffmpeg, pipewire' <<< "$ctrl"; then
+            echo "::error::deb 依赖不是 mpv + ffmpeg + pipewire"; printf '%s\n' "$ctrl"; exit 1
           fi
           if grep -q '^Recommends:' <<< "$ctrl"; then
             echo "::error::deb 不该有 Recommends 行"; exit 1
@@ -409,8 +757,8 @@ jobs:
 
           rpm=$(ls release/Quaver-*.rpm)
           req=$(rpm -qp --requires "$rpm" | grep -vE '^(rpmlib\(|/bin/sh$)' | sort | paste -sd, -)
-          if [ "$req" != 'mpv' ]; then
-            echo "::error::rpm 依赖不是仅有 mpv：$req"; exit 1
+          if [ "$req" != 'ffmpeg,mpv,pipewire' ]; then
+            echo "::error::rpm 依赖不是 mpv + ffmpeg + pipewire：$req"; exit 1
           fi
           # /usr/lib/.build-id/* 是 rpmbuild 的 find-debuginfo 后处理塞进来的链接器元数据，
           # 不是我们的载荷。我们随包的是 Electron 官方二进制，任何两个 Electron 包
@@ -426,10 +774,10 @@ jobs:
 
           pac=$(ls release/Quaver-*.pkg.tar.zst)
           pdep=$(bsdtar -xOf "$pac" .PKGINFO | sed -n 's/^depend *= *//p' | sort | paste -sd, -)
-          if [ "$pdep" != 'mpv' ]; then
-            echo "::error::pacman 依赖不是仅有 mpv：$pdep"; exit 1
+          if [ "$pdep" != 'ffmpeg,mpv,pipewire' ]; then
+            echo "::error::pacman 依赖不是 mpv + ffmpeg + pipewire：$pdep"; exit 1
           fi
-          echo "OK: deb/rpm/pacman depends = mpv only"
+          echo "OK: deb/rpm/pacman depends = mpv + ffmpeg + pipewire"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -451,16 +799,18 @@ jobs:
   # 起宿主 PATH 的 mpv，所以这里沿用 AppImage 的自包含口径（pkgforge mpv 解包目录）。
   frontend-linux-flatpak:
     name: Flatpak (${{ matrix.flatpak_arch }})
-    needs: [verify, sidecar]
+    needs: [verify, sidecar, liino-node, liino-linux]
     runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - flatpak_arch: x86_64
+            goarch: amd64
             electron_arch: x64
             runs_on: ubuntu-24.04
           - flatpak_arch: aarch64
+            goarch: arm64
             electron_arch: arm64
             runs_on: ubuntu-24.04-arm
     steps:
@@ -479,7 +829,27 @@ jobs:
 
       - name: Init submodules
         run: |
-          git submodule update --init --depth 1 vendor/Sparkle
+          git submodule update --init --depth 1 vendor/Sparkle vendor/Liino
+
+      - name: Fetch Liino Node bindings
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-node-dist
+          path: vendor/Liino/node/dist
+
+      - name: Fetch Liino runtime
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-linux-${{ matrix.goarch }}
+          path: dist-liino
+
+      - name: Stage bundled Liino runtime
+        run: |
+          set -euo pipefail
+          dest="ui/build-res/liino/linux-${{ matrix.goarch }}"
+          mkdir -p "$dest"
+          cp -f dist-liino/libliino.so dist-liino/liino.h "$dest/"
+          test -s "$dest/libliino.so"
 
       - name: Fetch sidecar for this arch
         uses: actions/download-artifact@v8
@@ -557,16 +927,18 @@ jobs:
           path: release/Quaver-*.flatpak
           if-no-files-found: error
 
-  # 龙芯客户端：Electron 官方 / electron-builder 两方都不支持 loong64 ——
-  #   Electron 用 darkyzhou/electron-loong64 社区构建（版本钉在 packages/debian-loong/electron.env，
+  # 龙芯客户端：Electron 官方 / electron-builder 上游都不支持 loong64 ——
+  #   Electron 用 darkyzhou/electron-loong64 社区构建（版本钉在 packages/loong64.yml，
   #   new-world LoongArch64 / glibc >= 2.38 + LSX）；音频引擎 mpv 不随包捆绑：
-  #   deb Depends / RPM Requires 只声明 mpv。
-  #   electron-builder 无 loong64 目标 → deb 手工 dpkg-deb、RPM 用 packages/rpm-loong/quaver.spec。
-  #   /opt/quaver（electron dist + app.asar + resources 等价物）+ /usr/bin/quaver + 桌面项。
+  #   deb Depends / RPM Requires 声明 mpv + ffmpeg + pipewire。
+  #   打包与其它 Linux 架构同一条 electron-builder 流水线，只在本 job 用 pnpm dlx
+  #   临时运行 @loongdotjs 分支的 electron-builder / app-builder-lib / builder-util；
+  #   deb 配置 extends ARM/x86 的同一份文件（另出一份 loongarch64 的 AOSC 兼容包），
+  #   rpm 复用同一组字段（fpm 数组不能跨配置继承）。
   #   运行环境需 ABI 2.0（new world：Debian sid / loongnix / openKylin 等）。
   frontend-linux-loong64:
     name: loong64 deb + rpm
-    needs: [verify, sidecar]
+    needs: [verify, sidecar, liino-node, liino-linux]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -584,7 +956,27 @@ jobs:
 
       - name: Init submodules
         run: |
-          git submodule update --init --depth 1 vendor/Sparkle
+          git submodule update --init --depth 1 vendor/Sparkle vendor/Liino
+
+      - name: Fetch Liino Node bindings
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-node-dist
+          path: vendor/Liino/node/dist
+
+      - name: Fetch Liino runtime (loong64)
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-linux-loong64
+          path: dist-liino
+
+      - name: Stage bundled Liino runtime
+        run: |
+          set -euo pipefail
+          dest="ui/build-res/liino/linux-loong64"
+          mkdir -p "$dest"
+          cp -f dist-liino/libliino.so dist-liino/liino.h "$dest/"
+          test -s "$dest/libliino.so"
 
       - name: Fetch sidecar (loong64)
         uses: actions/download-artifact@v8
@@ -614,113 +1006,88 @@ jobs:
           QUAVER_VERSION: ${{ steps.version.outputs.version }}
         run: pnpm run build
 
-      - name: Download loong64 Electron
-        working-directory: ui
-        run: |
-          set -euo pipefail
-          source ../packages/debian-loong/electron.env
-          zip_name="electron-v${ELECTRON_VERSION}-linux-loong64.zip"
-          release_url="https://github.com/${ELECTRON_REPO}/releases/download/v${ELECTRON_VERSION}"
-          curl -fsSL --retry 3 "$release_url/$zip_name" -o /tmp/electron-loong64.zip
-          curl -fsSL --retry 3 "$release_url/SHASUMS256.txt" -o /tmp/electron-loong64.SHASUMS256.txt
-          expected=$(awk -v name="$zip_name" '$2 == name || $2 == "*" name { print $1 }' /tmp/electron-loong64.SHASUMS256.txt)
-          test -n "$expected"
-          printf '%s  /tmp/electron-loong64.zip\n' "$expected" | sha256sum -c -
-          printf '%s' "$ELECTRON_VERSION" > /tmp/electron-version
-
-      - name: Install RPM build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends rpm zstd
-
-      - name: Assemble loong64 deb and RPM
+      - name: Check bundle shape (首屏预算 / 懒加载缝 / 体积上限)
         working-directory: ui
         env:
           QUAVER_VERSION: ${{ steps.version.outputs.version }}
+        run: pnpm run verify:bundle
+
+      - name: Install fpm backends (rpmbuild / xz)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends rpm xz-utils
+
+      # deb/rpm 不随包音频运行时；extraResources 的 build-res/audio 源缺失时 builder
+      # 只记警告并跳过（AppImage 才需要自包含的那份）。
+      - name: Drop bundled mpv runtime (distro packages resolve mpv via Depends)
+        working-directory: ui
+        run: rm -rf build-res/audio
+
+      - name: electron-builder deb/rpm (loong64)
+        working-directory: ui
+        env:
+          QUAVER_VERSION: ${{ steps.version.outputs.version }}
+        # 同其它 Linux 档：不给这一步设 GH_TOKEN，避免 builder 自动推导 GitHub publish 配置。
+        # electron-builder 上游没有 loong64 目标，这里用 pnpm dlx 把三个核心包临时切到
+        # @loongdotjs 分支；项目自身的 lockfile / node_modules 不受影响。
+        run: |
+          builder() {
+            pnpm dlx \
+              --package=@loongdotjs/electron-builder@26.15.6 \
+              --package=@loongdotjs/app-builder-lib@26.15.6 \
+              --package=@loongdotjs/builder-util@26.15.3 \
+              electron-builder "$@"
+          }
+          builder --linux deb --loong64 --publish never \
+            --config.extraMetadata.version=${{ steps.version.outputs.version }} \
+            --config ../packages/debian/loong.yml
+          builder --linux deb --loong64 --publish never \
+            --config.extraMetadata.version=${{ steps.version.outputs.version }} \
+            --config ../packages/debian/loong-aosc.yml
+          builder --linux rpm --loong64 --publish never \
+            --config.extraMetadata.version=${{ steps.version.outputs.version }} \
+            --config ../packages/rpm/loong.yml
+
+      # 硬口径自检：deb 的 Architecture 同时有 loong64（Debian 系）与 loongarch64（AOSC），
+      # rpm=loongarch64；依赖都是
+      # mpv + ffmpeg + pipewire；RPM 不能混进 /usr/lib/.build-id（会与其它 Electron 包撞文件）。
+      - name: Verify loong64 package metadata
+        working-directory: ui
         run: |
           set -euo pipefail
-          STAGE=$(mktemp -d)
-          PKG="$STAGE/pkg"
 
-          # 统一 payload：Electron 43 内置 Node 24，支持原生 type-stripping；asar 内容
-          # 与 x64/arm64 的 electron-builder asar 相同口径。resources 由 tar 载入 deb/RPM。
-          APP="$STAGE/app"
-          mkdir -p "$APP"
-          cp -r electron "$APP/electron"
-          cp -r dist "$APP/dist"
-          # MPRIS 随主进程运行，生产依赖也必须进 asar。先只放 dependencies 的临时 manifest，
-          # 绕开 npm 对 dev peer graph 的解析；装完再换回完整 package.json。
-          node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version='${QUAVER_VERSION}'; const prod={name:p.name,version:p.version,type:p.type,main:p.main,dependencies:p.dependencies}; fs.writeFileSync('$APP/package.full.json', JSON.stringify(p,null,2)); fs.writeFileSync('$APP/package.json', JSON.stringify(prod,null,2))"
-          npm install --prefix "$APP" --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund
-          mv "$APP/package.full.json" "$APP/package.json"
-          rm -f "$APP/package-lock.json"
-          test -f "$APP/node_modules/mpris-service/dist/index.js"
-          pnpm dlx @electron/asar pack "$APP" "$STAGE/app.asar"
-          PAYLOAD="$STAGE/payload/resources"
-          mkdir -p "$PAYLOAD/bin" "$PAYLOAD/build-res"
-          mv "$STAGE/app.asar" "$PAYLOAD/app.asar"
-          cp ../dist-bin/quaver-server "$PAYLOAD/bin/"
-          file "$PAYLOAD/bin/quaver-server" | grep -qi LoongArch
-          cp build-res/icon.png "$PAYLOAD/build-res/"
-          cp -r build-res/icons "$PAYLOAD/build-res/"
-          cp -r build-res/tray "$PAYLOAD/build-res/"
-          tar --zstd -cf "$STAGE/quaver-app.tar.zst" -C "$STAGE/payload" .
+          unpacked=release/linux-loong64-unpacked
+          file "$unpacked/red.0w0.quaver" | grep -qi LoongArch
+          file "$unpacked/resources/liino/linux-loong64/libliino.so" | grep -qi LoongArch
+          # 交叉构建不能把宿主的 x86-64 原生模块带进包；koffi 的 loong64 预编译必须在。
+          test ! -e "$unpacked/resources/app.asar.unpacked/node_modules/abstract-socket"
+          file "$unpacked/resources/app.asar.unpacked/node_modules/koffi/build/koffi/linux_loong64/koffi.node" \
+            | grep -qi LoongArch
 
-          # ── deb：Architecture 单值字段；AOSC 用 loongarch64、Debian 系用 loong64 ──
-          mkdir -p "$PKG/DEBIAN" "$PKG/opt/quaver" "$PKG/usr/bin" \
-            "$PKG/usr/share/applications" "$PKG/usr/share/icons/hicolor/512x512/apps"
-          unzip -q /tmp/electron-loong64.zip -d "$PKG/opt/quaver"
-          tar --zstd -xf "$STAGE/quaver-app.tar.zst" -C "$PKG/opt/quaver"
-          mv "$PKG/opt/quaver/electron" "$PKG/opt/quaver/quaver"
-          file "$PKG/opt/quaver/quaver" | grep -qi LoongArch
-          if [ -f "$PKG/opt/quaver/chrome-sandbox" ]; then
-            chmod 4755 "$PKG/opt/quaver/chrome-sandbox"
-          fi
-          install -m 755 ../packages/debian-loong/quaver.sh "$PKG/opt/quaver/quaver.sh"
-          ln -s /opt/quaver/quaver.sh "$PKG/usr/bin/quaver"
-          install -m 644 ../packages/linux/red.0w0.quaver.desktop "$PKG/usr/share/applications/"
-          install -m 644 build-res/icons/512x512.png "$PKG/usr/share/icons/hicolor/512x512/apps/red.0w0.quaver.png"
-
-          # Debian 的 Version 只认 [A-Za-z0-9.+~-]；- 会变成 revision 分隔符，统一映射为 ~。
-          DEB_VERSION=$(printf '%s' "$QUAVER_VERSION" | tr -- '-' '~')
-          mkdir -p release
           for deb_arch in loong64 loongarch64; do
-            sed -e "s/@DEB_VERSION@/${DEB_VERSION}/g" -e "s/@DEB_ARCH@/${deb_arch}/g" \
-              ../packages/debian-loong/control.in > "$PKG/DEBIAN/control"
-            DEB="release/Quaver-${QUAVER_VERSION}-${deb_arch}.deb"
-            dpkg-deb --root-owner-group --build "$PKG" "$DEB"
-            [ "$(dpkg-deb -f "$DEB" Architecture)" = "$deb_arch" ]
-            [ "$(dpkg-deb -f "$DEB" Version)" = "$DEB_VERSION" ]
-            dpkg-deb -f "$DEB" Depends | grep -qE '(^|[ ,])mpv([ ,]|$)'
+            deb=$(find release -maxdepth 1 -type f -name "Quaver-*-${deb_arch}.deb" -print -quit)
+            [ -n "$deb" ] || { echo "::error::没有生成 ${deb_arch} deb"; exit 1; }
+            ctrl=$(dpkg-deb -f "$deb")
+            if ! grep -qx 'Depends: mpv, ffmpeg, pipewire' <<< "$ctrl"; then
+              echo "::error::${deb_arch} deb 依赖不是 mpv + ffmpeg + pipewire"
+              printf '%s\n' "$ctrl"; exit 1
+            fi
+            if ! grep -qx "Architecture: ${deb_arch}" <<< "$ctrl"; then
+              echo "::error::${deb_arch} deb 架构异常"; printf '%s\n' "$ctrl"; exit 1
+            fi
           done
 
-          # ── RPM：上游/发行版架构名是 loongarch64；spec 从 packages/rpm-loong 读取 ──
-          RPM_VERSION=$(printf '%s' "$QUAVER_VERSION" | tr -- '-' '~')
-          RPM_TOP="$STAGE/rpm"
-          mkdir -p "$RPM_TOP/SOURCES" "$RPM_TOP/build"
-          cp /tmp/electron-loong64.zip "$RPM_TOP/SOURCES/electron-loong64.zip"
-          cp "$STAGE/quaver-app.tar.zst" "$RPM_TOP/SOURCES/"
-          cp ../packages/debian-loong/quaver.sh "$RPM_TOP/SOURCES/"
-          cp ../packages/linux/red.0w0.quaver.desktop "$RPM_TOP/SOURCES/quaver.desktop"
-          cp build-res/icons/512x512.png "$RPM_TOP/SOURCES/red.0w0.quaver.png"
-          rpmbuild -bb \
-            --define "_topdir $RPM_TOP" \
-            --define "_sourcedir $RPM_TOP/SOURCES" \
-            --define "_specdir $RPM_TOP/SPECS" \
-            --define "_builddir $RPM_TOP/BUILD" \
-            --define "_rpmdir $(pwd)/release" \
-            --define "_srcrpmdir $(pwd)/release" \
-            --define "_buildrootdir $RPM_TOP/build" \
-            --define "_quaver_version ${RPM_VERSION}" \
-            --target loongarch64 ../packages/rpm-loong/quaver.spec
-          rpm_file=$(find release -type f -name 'quaver-music-*.loongarch64.rpm' | head -n1)
-          [ -n "$rpm_file" ]
-          mv "$rpm_file" "release/Quaver-${RPM_VERSION}-loongarch64.rpm"
-
-          rpm="release/Quaver-${RPM_VERSION}-loongarch64.rpm"
+          rpm=$(ls release/Quaver-*-loongarch64.rpm)
           [ "$(rpm -qp --queryformat '%{ARCH}' "$rpm")" = 'loongarch64' ]
           req=$(rpm -qp --requires "$rpm" | grep -vE '^(rpmlib\(|/bin/sh$)' | sort | paste -sd, -)
-          [ "$req" = 'mpv' ]
+          if [ "$req" != 'ffmpeg,mpv,pipewire' ]; then
+            echo "::error::rpm 依赖不是 mpv + ffmpeg + pipewire：$req"; exit 1
+          fi
+          buildid=$(rpm -qpl "$rpm" | grep -E '^/usr/lib/\.build-id(/|$)' || true)
+          if [ -n "$buildid" ]; then
+            echo "::error::rpm 里混进了 /usr/lib/.build-id"
+            printf '%s\n' "$buildid"
+            exit 1
+          fi
+          echo "OK: loong64 deb/rpm metadata"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -738,14 +1105,16 @@ jobs:
   # arm64 的 mpv 在 x64 机器上跑不了 → 随包校验靠暂存脚本里的 PE 机器码核对。
   frontend-windows:
     name: NSIS (${{ matrix.arch_label }})
-    needs: [verify, sidecar]
+    needs: [verify, sidecar, liino-node, liino-windows]
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch_label: x64
+            goarch: amd64
           - arch_label: arm64
+            goarch: arm64
     steps:
       - uses: actions/checkout@v7
 
@@ -766,7 +1135,29 @@ jobs:
       - name: Init submodules
         shell: bash
         run: |
-          git submodule update --init --depth 1 vendor/Sparkle
+          git submodule update --init --depth 1 vendor/Sparkle vendor/Liino
+
+      - name: Fetch Liino Node bindings
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-node-dist
+          path: vendor/Liino/node/dist
+
+      - name: Fetch Liino runtime
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-windows-${{ matrix.goarch }}
+          path: dist-liino
+
+      # 运行期按 process.platform=win32 解析，不是构建脚本里的 uname —— 目录名必须是 win32-<goarch>
+      - name: Stage bundled Liino runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          dest="ui/build-res/liino/win32-${{ matrix.goarch }}"
+          mkdir -p "$dest"
+          cp -f dist-liino/liino.dll dist-liino/liino.h "$dest/"
+          test -s "$dest/liino.dll"
 
       - name: Fetch sidecar
         uses: actions/download-artifact@v8
@@ -825,7 +1216,7 @@ jobs:
   # macOS arm64：Electron / sidecar / 随包 mpv 全单架构，无 universal 合并。
   frontend-macos:
     name: dmg (arm64)
-    needs: [verify, sidecar]
+    needs: [verify, sidecar, liino-node, liino-macos]
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
@@ -846,7 +1237,27 @@ jobs:
 
       - name: Init submodules
         run: |
-          git submodule update --init --depth 1 vendor/Sparkle
+          git submodule update --init --depth 1 vendor/Sparkle vendor/Liino
+
+      - name: Fetch Liino Node bindings
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-node-dist
+          path: vendor/Liino/node/dist
+
+      - name: Fetch Liino runtime
+        uses: actions/download-artifact@v8
+        with:
+          name: liino-darwin-arm64
+          path: dist-liino
+
+      - name: Stage bundled Liino runtime
+        run: |
+          set -euo pipefail
+          dest="ui/build-res/liino/darwin-arm64"
+          mkdir -p "$dest"
+          cp -f dist-liino/libliino.dylib dist-liino/liino.h "$dest/"
+          test -s "$dest/libliino.dylib"
 
       - name: Fetch sidecar
         uses: actions/download-artifact@v8
@@ -911,6 +1322,7 @@ jobs:
           app=$(ls -d "$mount"/*.app | head -1)
           node electron/audio/bins.ts --check "$app/Contents/Resources/audio"
           [ -x "$app/Contents/Resources/bin/quaver-server" ]
+          test -s "$app/Contents/Resources/liino/darwin-arm64/libliino.dylib"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -984,8 +1396,8 @@ jobs:
             echo "每夜版自动构建于 $(date -u '+%Y-%m-%d %H:%M UTC')，对应 commit \`$GITHUB_SHA\`。"
             echo
             echo "包名里的 \`$sha\` 即 commit id。平台覆盖：Linux AppImage/Flatpak（x86_64/aarch64，自包含）、"
-            echo "Linux deb/rpm/pacman（x86_64/aarch64，依赖只有 mpv，走系统音源）、"
-            echo "Windows NSIS（x64/arm64）、macOS dmg（arm64）、loong64/loongarch64 deb 与 loongarch64 rpm（mpv 走系统依赖）。"
+            echo "Linux deb/rpm/pacman（x86_64/aarch64，依赖 mpv + ffmpeg + pipewire，走系统音源）、"
+            echo "Windows NSIS（x64/arm64）、macOS dmg（arm64）、loong64/loongarch64 deb 与 loongarch64 rpm（同样走系统依赖）。"
             echo
             echo "**非稳定版本**，仅用于验证最新改动。"
           } > "$notes"

@@ -7,7 +7,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const port = process.argv[2] || "9334";
 const secs = Number(process.argv[3] || 70);
 
-const names = () => {
+const names = (): string[] => {
   const out = execFileSync("gdbus", ["call", "--session", "--dest", "org.freedesktop.DBus", "--object-path", "/org/freedesktop/DBus",
     "--method", "org.freedesktop.DBus.ListNames"], { encoding: "utf8" });
 
@@ -19,7 +19,7 @@ const base = names();
 console.log("baseline chromium entries:", base.join(",") || "(none)");
 
 const browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${port}`, defaultViewport: null });
-const page = (await browser.pages()).find((p) => (p.url() || "").includes("index.html"));
+const page = (await browser.pages()).find((p) => (p.url() || "").includes("index.html"))!;
 
 await page.bringToFront();
 
@@ -35,7 +35,7 @@ const playing = await page.evaluate(async () => {
 
 console.log("long tone playing:", playing);
 
-let appeared = [];
+let appeared: string[] = [];
 
 for (let i = 0; i < secs / 5; i++) {
   await sleep(5000);

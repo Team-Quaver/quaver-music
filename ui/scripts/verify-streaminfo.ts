@@ -172,6 +172,9 @@ ok("fmt: 声道布局", si.fmtChannels(2) === "2（立体声）" && si.fmtChanne
 
 // ============ 2. 接线静态断言（正在播放页 ⋮ 旁胶囊 + 锚定浮窗） ============
 
+ok("player: 挂流时把容器提示交给 transport（mime/tier）",
+  re(src.player, /mime: r\.mime, tier: r\.tier/));
+
 ok("np: 胶囊与浮窗都在 ⋮ 容器内（morewrap）",
   re(src.np, /np-morewrap[^>]*>\s*<button class="np-qpill"/));
 

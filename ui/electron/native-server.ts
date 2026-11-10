@@ -1,8 +1,9 @@
 // Quaver — 打包模式下的纯 Node HTTP 服务（不依赖 vite）。
 // 与 dev/preview 的 src/relay.ts 中间件等价：静态 dist/ + /api 中继(sidecar) + 封面取色代理 + 调试日志尾部。
 // Electron 主进程与独立 `node native-server.ts` 都可使用。
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { Readable } from "node:stream";
+import type { AddressInfo } from "node:net";
 import { pipeline } from "node:stream/promises";
 import { createReadStream } from "node:fs";
 import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
@@ -13,8 +14,28 @@ import { handleLocalApi } from "./local/library.ts";
 
 const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
+/** fetch 的 body 是 DOM 那份 ReadableStream，Readable.fromWeb 要 node:stream/web 那份：
+ *  同名不同源，结构等价但 TS 判不相容。只在交给 fromWeb 的边界处转一次。 */
+type NodeReadableStream = Parameters<typeof Readable.fromWeb>[0];
+
+/** startQuaverServer 的入参（dist 必给，其余有默认）。 */
+export interface QuaverServerOptions {
+  dist: string;
+  logFile?: string;
+  host?: string;
+  port?: number;
+  pluginsRoot?: string;
+}
+
+/** startQuaverServer 的产物：调用方持有 server 与 close。 */
+export interface QuaverServer {
+  server: Server;
+  url: string;
+  close: () => void;
+}
+
 /** 已安装插件的静态文件（/api/sparkle/plugin/<id>/<file>）。与 src/relay.ts 的 serveSparkle 同构。 */
-function serveSparkle(sub, res, pluginsRoot) {
+function serveSparkle(sub: string, res: ServerResponse, pluginsRoot?: string) {
   const m = /^\/sparkle\/plugin\/([a-z0-9][a-z0-9-]*)\/(.+)$/.exec(sub);
 
   if (!m || !pluginsRoot) {
@@ -61,7 +82,7 @@ function serveSparkle(sub, res, pluginsRoot) {
   res.end(readFileSync(target));
 }
 
-const MIME = {
+const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript",
   ".mjs": "text/javascript",
@@ -83,7 +104,10 @@ const SIDECAR = process.env.QUAVER_API ?? "http://127.0.0.1:3200";
 // → undici 的 TypeError: terminated / premature close。都不是异常，只是常态。
 const EXPECTED_ABORT_CODES = new Set(["ABORT_ERR", "ERR_STREAM_PREMATURE_CLOSE", "ERR_STREAM_DESTROYED"]);
 
-function isExpectedAbort(e) {
+/** 中继断流的各种「正常」形态：DOM AbortError、Node errno 码、undici 的 terminated。 */
+type Abortish = (Error & { code?: string }) | null | undefined;
+
+function isExpectedAbort(e: Abortish) {
   if (!e) return true;
 
   if (e.name === "AbortError" || (e.code && EXPECTED_ABORT_CODES.has(e.code))) return true;
@@ -96,11 +120,11 @@ function isExpectedAbort(e) {
 // 在上游断流/被 abort 时会 emit error —— 无人接管就是主进程的未捕获异常
 // （弹「A JavaScript error occurred in the main process」，堆栈落在 undici Fetch.onAborted）。
 // pipeline() 把 source/dest/abort 的错误都收敛到 promise，且 abort 会连带销毁两端。
-async function pipeStream(body, res, signal) {
+async function pipeStream(body: NodeReadableStream, res: ServerResponse, signal?: AbortSignal) {
   try {
     await pipeline(Readable.fromWeb(body), res, { signal });
   } catch (e) {
-    if (!isExpectedAbort(e)) console.warn(`[quaver] relay stream aborted: ${e}`);
+    if (!isExpectedAbort(e as Abortish)) console.warn(`[quaver] relay stream aborted: ${e}`);
   }
 }
 
@@ -108,7 +132,7 @@ async function pipeStream(body, res, signal) {
 const IMG_HOSTS = new Set(["y.gtimg.cn", "qpic.y.qq.com", "img.y.gtimg.cn", "pictax.qpic.cn"]);
 const IMG_PATHS = ["/music/photo_new/", "/music_cover/", "/music/a_"];
 
-async function proxyImage(u, res) {
+async function proxyImage(u: string | null, res: ServerResponse) {
   if (!u) {
     res.statusCode = 400;
 
@@ -184,7 +208,7 @@ function readLogTail(logFile: string): string {
   return buf.subarray(0, got).toString("utf8");
 }
 
-function serveLog(res, logFile, tail) {
+function serveLog(res: ServerResponse, logFile: string | undefined, tail: number) {
   if (!logFile || !existsSync(logFile)) {
     res.statusCode = 404;
 
@@ -199,12 +223,12 @@ function serveLog(res, logFile, tail) {
   res.end(lines.slice(-Math.max(1, Math.min(5000, tail))).join("\n"));
 }
 
-function readBody(req) {
+function readBody(req: IncomingMessage) {
   if (req.method === "GET" || req.method === "HEAD") return Promise.resolve(undefined);
 
-  return new Promise((res, rej) => {
-    const chunks = [];
-    req.on("data", (c) => chunks.push(c));
+  return new Promise<Buffer | undefined>((res, rej) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (c: Buffer) => chunks.push(c));
     req.on("end", () => res(Buffer.concat(chunks)));
     req.on("error", rej);
   });
@@ -217,10 +241,10 @@ const MISSING_DIST_PAGE = `<!doctype html><meta charset="utf-8"><body style="fon
  * @param {{dist: string, logFile?: string, host?: string, port?: number, pluginsRoot?: string}} opts
  * @returns {Promise<{server: import("node:http").Server, url: string, close: () => void}>}
  */
-export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", port = 0, pluginsRoot }) {
+export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", port = 0, pluginsRoot }: QuaverServerOptions): Promise<QuaverServer> {
   const DIST = normalize(dist);
 
-  const handler = async (req, res) => {
+  const handler = async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://local");
 
     // —— /api/*：中继 ——
@@ -295,7 +319,9 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
         const upstream = await fetch(target, {
           method: req.method,
           headers,
-          body: await readBody(req),
+          // Buffer 交给 undici 当 body 是运行时合法的，但 DOM 那份 BodyInit 的 ArrayBufferView
+          // 泛型与 Buffer<ArrayBufferLike> 判不相容 —— 只在 fetch 边界上转一次。
+          body: await readBody(req) as unknown as BodyInit,
           redirect: "manual",
           signal: ac.signal,
         });
@@ -307,7 +333,7 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
             if (k === "transfer-encoding" || k === "content-encoding" || k === "connection") return;
             res.appendHeader(k, v);
           });
-          await pipeStream(upstream.body, res, ac.signal);
+          await pipeStream(upstream.body as unknown as NodeReadableStream, res, ac.signal);
 
           return;
         }
@@ -369,7 +395,7 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
   } catch (e) {
     // 首选端口被占（别的实例残留 / 端口冲突）→ 回落系统分配。
     // 固定端口的意义是 origin 稳定，但**起不来比 origin 变严重得多**，所以这里绝不硬失败。
-    if (port === 0 || e?.code !== "EADDRINUSE") throw e;
+    if (port === 0 || (e as NodeJS.ErrnoException)?.code !== "EADDRINUSE") throw e;
     console.warn(`[quaver] 端口 ${port} 被占用，回落随机端口（本次渲染层 origin 会变）`);
 
     try { server.close(); } catch {}
@@ -378,15 +404,15 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
     await listen(server, 0, host);
   }
 
-  const actual = server.address().port;
+  const actual = (server.address() as AddressInfo).port;
 
   return { server, url: `http://${host}:${actual}/`, close: () => server.close() };
 }
 
 /** 监听指定端口；失败时 reject，调用方决定是否回落。 */
-function listen(server, port, host) {
-  return new Promise((resolve, reject) => {
-    const onErr = (e) => { server.off("listening", onOk); reject(e); };
+function listen(server: Server, port: number, host: string) {
+  return new Promise<void>((resolve, reject) => {
+    const onErr = (e: Error) => { server.off("listening", onOk); reject(e); };
     const onOk = () => { server.off("error", onErr); resolve(); };
 
     server.once("error", onErr);

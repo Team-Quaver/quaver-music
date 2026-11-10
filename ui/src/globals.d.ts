@@ -98,6 +98,11 @@ interface Window {
     /** 第二步：渲染层校验插件形状后回传本体（base64）与元数据，主进程落盘 */
     installLocal(msg: { dataBase64: string; meta?: SparklePluginManifest }): Promise<{ ok: boolean; id?: string; error?: string }>;
   };
+  /** CSD 窗口控制桥（electron/preload.cts 暴露；浏览器 dev 下不存在）。
+   *  这里只声明渲染层「判存在」会用到的那一个口子；调用侧仍按需取用完整对象。 */
+  quaverCSD?: {
+    setDecor?: (mode: "csd" | "ssd") => void;
+  };
   /** Sparkle 安全模式（QUAVER_REDFLAG=1）：主进程读环境变量后经 preload 下发。
    *  加载策略见 src/sparkle/policy.ts；浏览器 dev 下不存在 → 恒 false。 */
   quaverRedflag?: boolean;

@@ -4,5 +4,7 @@ pacman:
   packageName: quaver-music
   depends:
     - mpv
+    - ffmpeg
+    - pipewire
   compression: zstd
   artifactName: Quaver-${version}-${arch}.pkg.tar.zst

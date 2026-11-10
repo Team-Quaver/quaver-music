@@ -14,7 +14,7 @@ const BASE = process.env.PROBE_BASE ?? "http://127.0.0.1:5173";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({
-  executablePath: "/usr/bin/google-chrome", headless: "new",
+  executablePath: "/usr/bin/google-chrome", headless: true,
   args: ["--no-sandbox", "--disable-gpu"],
 });
 
@@ -49,8 +49,8 @@ await step("页面就绪：侧栏/设置链接存在", async () => {
 await step("中键点链接：不开新页面、当前页不跳转", async () => {
   const before = await browser.pages();
   const urlBefore = page.url();
-  const el = await page.$(linkSel);
-  const box = await el.boundingBox();
+  const el = (await page.$(linkSel))!;
+  const box = (await el.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: "middle" });
   await sleep(600);
   const after = await browser.pages();
@@ -61,8 +61,8 @@ await step("中键点链接：不开新页面、当前页不跳转", async () =>
 });
 
 await step("左键点链接：导航照常发生，但焦点不落在链接上", async () => {
-  const el = await page.$(linkSel);
-  const box = await el.boundingBox();
+  const el = (await page.$(linkSel))!;
+  const box = (await el.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: "left" });
   await sleep(600);
 
@@ -81,7 +81,7 @@ await step("左键点按钮（设置页里的真 <button>）：焦点不落在�
   const okBtn = await page.$("button");
 
   if (!okBtn) throw new Error("no button on settings page");
-  const box = await okBtn.boundingBox();
+  const box = (await okBtn.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: "left" });
   await sleep(200);
 
@@ -97,7 +97,7 @@ await step("左键点输入框：焦点照常落上去（搜索框要能打字�
   const input = await page.$(".content-top input[type=search], .content-top input#q");
 
   if (!input) throw new Error("search input not found");
-  const box = await input.boundingBox();
+  const box = (await input.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: "left" });
   await sleep(200);
   const r = await page.evaluate(() => document.activeElement?.tagName);

@@ -24,7 +24,7 @@
 // + 深色渐变压暗 + .np 固体底色兜底；进度与控制由常驻播放条承担。
 import { player, type Song } from "../player";
 import { pickAux } from "../lyric";
-import { coverUrl, songTitle, stripEm, QUALITY_SHORT, effectiveQuality, getLastStream } from "../lib/api";
+import { coverUrl, coverUrlCandidates, songTitle, stripEm, QUALITY_SHORT, effectiveQuality, getLastStream } from "../lib/api";
 import type { StreamInfo } from "../lib/streaminfo";
 import { icons } from "../lib/icons";
 import { getLyricScale, setLyricScale, LYRIC_SCALE_MAX, LYRIC_SCALE_MIN, LYRIC_SCALE_STEP, LYRIC_AUX_MODES, npLyricFullHeight, npLyricHidePlayed, getNpBackgroundRenderer, type LyricAuxMode, type BackgroundRenderer } from "../lib/prefs";
@@ -296,9 +296,13 @@ export function NowPlaying(): HTMLElement {
 
   syncLyricLayout();
 
-  /** 隐藏已播放行时的当前行锚位 = 封面顶边相对歌词容器顶边的比例。 */
+  /** 隐藏已播放行时的当前行锚位 = 封面顶边相对歌词容器顶边的比例。
+   *  全高模式容器铺满窗口，封面顶边会被拉得过低，当前行按需求钉在容器上 1/3 处。 */
   const lyricTopAnchor = (): number | null => {
     if (!npLyricHidePlayed()) return null;
+
+    if (npLyricFullHeight()) return 1 / 3;
+
     const host = karaHost.getBoundingClientRect();
 
     if (host.height <= 0) return null;
@@ -363,8 +367,9 @@ export function NowPlaying(): HTMLElement {
   }
 
 /** 「跳转歌手」次级菜单：主列表只留一行入口，歌手名单（可能很长）悬停/聚焦时向左展开。
- *  面板挂在 .np 直下（fixed 定位）：backdrop-filter 元素会成为 backdrop root，
- *  留在父菜单里面时只能采到父菜单自身，采不到页面背景 —— 提层级才能拿到真底图。 */
+ *  面板挂在 .np 直下（fixed 定位）：不留在父菜单里面 —— ① 父菜单有 overflow/圆角裁切；
+ *  ② 面板本身是页面级浮层（位置按视口夹取），提层级才不会跟着菜单一起缩回。
+ *  （它在本页同样不做 backdrop 采样，见 style.css 的 .np-menu-sub-list 覆盖规则。） */
 function singerSubmenu(singers: NonNullable<Song["singer"]>) {
   const row = document.createElement("div");
   row.className = "np-menu-sub";
@@ -504,6 +509,15 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
       moreMenu.append(menuRow("跳转专辑", !hasAlb, () => {
         const base = String(alb!.pmid || alb!.mid).split("_")[0];
         location.hash = `#/album?mid=${encodeURIComponent(alb!.mid ?? base)}&name=${encodeURIComponent(stripEm(alb!.name) || "专辑")}`;
+      }));
+
+      // 跳转至歌单：回到**这一首**的来源页（真实歌单 / 虚拟歌单 / 搜索 / 本地 / 网盘）。
+      // 逐首来源在入队时记录，所以插队进来的外部歌曲不会被送回队列原来的歌单；
+      // 旧存档没有逐首记录时退回队列来源，再没有才置灰。
+      const src = player.currentSource;
+
+      moreMenu.append(menuRow("跳转至歌单", !src, () => {
+        if (src) location.hash = src;
       }));
     } else {
       const empty = document.createElement("div");
@@ -782,7 +796,44 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
   let lastAuxMode = "";    // 翻译选项档位（换档要重挑每行的辅助行文本）
   let lastIdx = -1;        // 高亮行索引（避免每帧改 class）
   let lastCover: string | null = null; // 封面 img 的 src 签名（4Hz notify 里防 <img> 重建/重解码）
+  let npCoverWant = "";    // 当前封面候选链的指纹（首项 URL；换曲/换封面才重置降级游标）
+  let npCoverUrls: string[] = [];
+  let npCoverTry = 0;
   let lineEls: HTMLElement[] = [];
+
+  // 正在播放页大封面从 QQ 音乐最高档 1500 起取；个别专辑没有该档时 <img> 404，
+  // 按候选链逐级下降到 1200/800/500/300/150/90。候选首项兼作指纹：4Hz notify
+  // 不会反复重建 <img>/重解码，只有真的换曲或本地封面版本变化才重置游标。
+  function showNpCover(s: Song | undefined, open: boolean) {
+    // 收起态整页 opacity:0 但仍在 DOM 里：别让一张看不见的 1500×1500 占着解码位图
+    // （实测 ~8.6MB）。收起只留 300 档，展开瞬间再按候选链升到 1500；关回来自动降回。
+    // 候选链按高→低排列，末尾三项就是 300/150/90（本地/微云只有一个 URL，slice 后仍是它）。
+    const urls = open ? coverUrlCandidates(s) : coverUrlCandidates(s).slice(-3);
+    const want = urls[0] ?? "";
+
+    if (want !== npCoverWant) {
+      npCoverWant = want;
+      npCoverUrls = urls;
+      npCoverTry = 0;
+      lastCover = null;
+    }
+
+    const pic = npCoverUrls[npCoverTry] ?? "";
+
+    if (pic === lastCover) return;
+    lastCover = pic;
+    cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : `<div class="np-cover-ph">${icons.disc ?? ""}</div>`;
+
+    const img = cover.querySelector("img");
+
+    if (img) img.onerror = () => {
+      if (npCoverUrls[npCoverTry] !== pic) return; // 期间已换曲/换候选
+
+      npCoverTry++;
+      lastCover = null;
+      showNpCover(s, open);
+    };
+  }
 
   // —— 歌词（提供器接管 .np-kara-host：内置 AMLL 渲染逐字 QRC/TTML 与行级 LRC）——
   // notify 只有 4Hz，逐字扫色要逐帧时间：逐帧时钟/播放态/翻译显隐/收起冻结全部由
@@ -813,7 +864,10 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
     karaProvider = provider;
     karaCleanup = provider.render(karaHost, player.karaoke, {
       time: () => (player.time + player.lyricComp) * 1000, // 补偿按后端区分，见 player.lyricComp
-      paused: () => player.paused,
+      // 缓冲中（起播预缓冲/网络卡顿/seek 到未缓存区）也算「暂停」：AMLL 的逐词
+      // 遮罩是 Web Animations 实时动画，enable 之后按墙钟自己走 —— 只把 time() 冻住
+      // 挡不住它，当前句会一路扫到行尾停住。必须同时 pause，声音回来再 resume。
+      paused: () => player.paused || player.buffering,
       expanded: () => player.expanded,
       showTrans: () => player.showTrans,
       lyricAux: () => player.lyricAux,
@@ -943,9 +997,10 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
     const lr = lyrics.getBoundingClientRect();
     const lineRect = line.getBoundingClientRect();
 
-    // 隐藏已播放行时，当前行顶边与封面顶边同高；其余档位保持原来的居中跟随。
+    // 隐藏已播放行时，当前行顶边与封面顶边同高（全高模式钉在容器上 1/3）；
+    // 其余档位保持原来的居中跟随。
     const anchorTop = npLyricHidePlayed()
-      ? cover.getBoundingClientRect().top - lr.top
+      ? (npLyricFullHeight() ? lyrics.clientHeight / 3 : cover.getBoundingClientRect().top - lr.top)
       : (lyrics.clientHeight - lineRect.height) / 2;
 
     const top = lyrics.scrollTop + lineRect.top - lr.top - anchorTop;
@@ -1233,7 +1288,7 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
     const pic = s ? coverUrl(s, 300) : "";
     syncNpAml(pic, open);
 
-    if (pic !== lastCover) { lastCover = pic; cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : `<div class="np-cover-ph">${icons.disc ?? ""}</div>`; }
+    showNpCover(s, open);
 
     // 换曲 / 歌词内容替换 / 状态迁移 / 接管模式切换（重导入同曲时状态仍是 ok，只靠版本号识别）
     const st: "idle" | "loading" | "ok" | "none" = player.lyrics.length ? "ok" : player.lyricState;

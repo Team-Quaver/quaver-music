@@ -1,0 +1,14 @@
+{
+  // Quaver — 开发态编译 vendor/Liino/node 的 TS 绑定。
+  //
+  // 子模块仓库不提交 dist/；ui 的 file: 依赖又需要在 pnpm install 时就能看到
+  // package.json 指向的 dist/index.js。沿用 vendor 自己的 tsconfig，只把 Node 类型
+  // 与 koffi 的解析指向 UI 已安装的那一份，避免要求开发者再进子模块跑 npm ci。
+  "extends": "../vendor/Liino/node/tsconfig.json",
+  "compilerOptions": {
+    "typeRoots": ["./node_modules/@types"],
+    "paths": {
+      "koffi": ["./node_modules/koffi/index.d.ts"]
+    }
+  }
+}

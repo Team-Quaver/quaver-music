@@ -62,7 +62,6 @@ const src = {
   kana: read("src/lyrics/qrc-kana.ts"),
   lyricsBoot: read("src/lyrics/builtin.ts"),
   lyric: read("src/lyric.ts"),
-  guide: read("../vendor/Sparkle/docs/plugin-author-guide.md"),
 };
 
 let checks = 0;
@@ -663,7 +662,7 @@ ok("flowscape: 底部自绘进度条/音量/音质三件套", has(src.flowIdx, "
 // —— 本地/NAS 曲目适配（音质档位 / 红心 / 同源封面）——
 ok("sdk: 曲目快照带来源标记与本地封面（local/nas 无档位阶梯与红心，接管视图据此收控件）", re(src.types, /src\?: "online" \| "local" \| "nas";/) && re(src.types, /localCover\?: string;/));
 
-ok("np-view: 本地/NAS 曲目档位恒空、胶囊恒用文件标签、快照透传 src/localCover", re(noComments(src.npView), /if \(isLocalSong\(player\.current\)\) return \[\];/) && re(noComments(src.npView), /if \(isLocalSong\(player\.current\)\) return localSongStreamUrl\(player\.current\)\.label;/) && re(noComments(src.npView), /src: local \? \(local\.kind === "webdav" \? "nas" : "local"\) : "online",/) && re(noComments(src.npView), /snap\.localCover = local\.hasCover \? localCoverPath\(local\.id\) : ""/));
+ok("np-view: 本地/NAS 曲目档位恒空、胶囊恒用文件标签、快照透传 src/localCover", re(noComments(src.npView), /if \(isLocalSong\(player\.current\)\) return \[\];/) && re(noComments(src.npView), /if \(isLocalSong\(player\.current\)\) return localSongStreamUrl\(player\.current\)\.label;/) && re(noComments(src.npView), /src: local \? \(local\.kind === "webdav" \? "nas" : "local"\) : "online",/) && re(noComments(src.npView), /if \(local \|\| s\.cloud\?\.hasCover\) snap\.localCover = coverUrl\(s\);/));
 
 ok("flowscape: 本地/NAS 曲目判定（新宿主读 src，旧宿主退 mid 前缀约定）", re(noComments(src.flowIdx), /const isLocalSong = \(s: SparkleSongSnapshot \| null\): boolean =>/) && re(noComments(src.flowIdx), /!!s && \(s\.src \? s\.src !== "online" : s\.mid\.startsWith\("local:"\)\)/));
 

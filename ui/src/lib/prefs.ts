@@ -7,7 +7,7 @@
 // 主题与字体在本模块直接落到 <html>：data-theme 驱动 style.css 的变量组，
 // CSS 变量 --font-ui / --font-lyric 分别作用于界面与歌词。
 
-import { cfg, cfgSet, cfgSetSoon } from "./config";
+import { cfg, cfgSet, cfgSetSoon, defaultBackend } from "./config";
 import { TTML_DB_DEFAULT_URL, isTtmlDatabaseUrl } from "./ttml";
 import { parseHex, toHex } from "./color";
 import { normalizeEqState, type EqState } from "../../electron/audio/eq-config.ts";
@@ -418,24 +418,33 @@ export function getDecor(): DecorMode {
   return cfg("Window.Decor") === "ssd" ? "ssd" : "csd";
 }
 
+/** 是否 macOS 上的 Electron 壳层。浏览器 dev 没有原生红绿灯，仍保留自绘按钮簇做布局占位。 */
+function isMacShell(): boolean {
+  return /Macintosh|Mac OS X/.test(navigator.userAgent) && !!window.quaverCSD;
+}
+
 export function applyDecor() {
   document.body.classList.toggle("ssd", getDecor() === "ssd");
+  // macOS CSD = hiddenInset + 系统红绿灯（见 electron/main.ts）：隐藏自绘三钮，
+  // 侧栏顶部让出一条红绿灯带（style.css 的 body.mac-csd 段）。
+  document.body.classList.toggle("mac-csd", getDecor() === "csd" && isMacShell());
 }
 
 export function setDecor(m: DecorMode) {
   cfgSet({ "Window.Decor": m });
   applyDecor();
-  const bridge = (window as any).quaverCSD;
+  const bridge = window.quaverCSD;
 
   if (bridge?.setDecor) bridge.setDecor(m); // Electron：主进程改 frame 并重建窗口
 }
 
 // —— 播放模式：
-//    MPV        = 原生直出（默认，mpv 自己打开音频设备）
+//    Liino      = 原生直出（Linux/Windows 默认；macOS 实验性，主进程经 FFI 直出，无 PCM 兼容拓扑）
+//    MPV        = 原生直出（mpv 自己打开音频设备）
 //    MPVCompat  = 原生（兼容）：mpv 解码，PCM 交给 renderer WebAudio 出声
 //    Blink      = 浏览器 <audio>（兜底/对照，配置文件里写 Chromium）
 //    偏好只决定启动选择；引擎不可用时播放器自动落 Blink 并在设置页提示。 ——
-export type DecodeBackend = "MPV" | "MPVCompat" | "Blink";
+export type DecodeBackend = "MPV" | "MPVCompat" | "Liino" | "Blink";
 
 export function getDecode(): DecodeBackend {
   const v = cfg("Playing.Backend");
@@ -444,7 +453,9 @@ export function getDecode(): DecodeBackend {
 
   if (v === "MPVCompat") return "MPVCompat";
 
-  return "MPV";
+  if (v === "Liino") return "Liino";
+
+  return defaultBackend();
 }
 
 export function setDecode(v: DecodeBackend) {
@@ -547,7 +558,8 @@ export function setInhibitSleep(v: boolean) {
 }
 
 // 听歌时长上报（[Playing] ReportListenTime，默认开）：只统计真实出声时间，
-// 满 60 秒经 sidecar 提交到 QQ 音乐音响力；关闭立即停止累计并丢弃未发送尾段。
+// 切歌/停止/退出时经 sidecar 一次性提交本曲累计到 QQ 音乐音响力；关闭立即停止累计
+// 并丢弃未发送时长。
 export function getReportListenTime(): boolean {
   return !/^(false|0|no)$/i.test(cfg("Playing.ReportListenTime", "True"));
 }
@@ -663,6 +675,20 @@ export const npLyricHidePlayed = () => {
 // 全部走 quaver.conf；渲染层只读快照（启动一次性装载），写盘即时同步主进程。判据与
 // electron/config.ts 的 schema 值域同规（改一处要改两处）：TTML 地址模板的合法性由 ttml.ts
 // 的 isTtmlDatabaseUrl 把关（与写盘侧 isTtmlDatabaseUrlTemplate 对齐），本地库目录沿用「非控制字符 + 长度」口径。
+export function getLyricTint(): boolean {
+  return !/^(false|0|no)$/i.test(cfg("Lyrics.LyricTint", "False"));
+}
+
+/** 落到 <html data-lyric-tint>：style.css 据此决定播放页歌词用 Tint 还是 AMLL 默认色。 */
+export function applyLyricTint() {
+  document.documentElement.dataset.lyricTint = getLyricTint() ? "on" : "off";
+}
+
+export function setLyricTint(v: boolean) {
+  cfgSet({ "Lyrics.LyricTint": v ? "True" : "False" });
+  applyLyricTint();
+}
+
 export type ChineseConvert = "off" | "simplified" | "traditional";
 
 const CONF_CHINESE: Record<string, ChineseConvert> = { off: "off", simplified: "simplified", traditional: "traditional" };
@@ -707,6 +733,15 @@ export function getTtmlLibrary(): string {
 export function setTtmlLibrary(v: string) {
   const t = String(v ?? "").trim();
   cfgSet({ "Lyrics.TtmlLibrary": /[\r\n\u0000]/.test(t) || t.length > 1024 ? "" : t });
+}
+
+/** 系统媒体控件（MPRIS `xesam:asText`）的歌词格式：true = 带时间戳的 LRC（默认）｜false = 纯文本。 */
+export function getMprisLrc(): boolean {
+  return !/^(false|0|no)$/i.test(cfg("Lyrics.MprisLrc", "True"));
+}
+
+export function setMprisLrc(v: boolean) {
+  cfgSet({ "Lyrics.MprisLrc": v ? "True" : "False" });
 }
 
 

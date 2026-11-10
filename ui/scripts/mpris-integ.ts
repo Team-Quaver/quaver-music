@@ -6,8 +6,8 @@ import { execFile } from "node:child_process";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const sh = (...args) =>
-  new Promise((res) => execFile(args[0], args.slice(1), { timeout: 10000 }, (e, so, se) => res({ code: e ? 1 : 0, out: (so + se).trim() })));
+const sh = (...args: string[]) =>
+  new Promise<{ code: number; out: string }>((res) => execFile(args[0], args.slice(1), { timeout: 10000 }, (e, so, se) => res({ code: e ? 1 : 0, out: (so + se).trim() })));
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => { console.log((ok ? "PASS " : "FAIL ") + name + (detail ? "  | " + detail.slice(0, 140) : "")); ok ? pass++ : fail++; };
@@ -50,6 +50,19 @@ r = await sh("gdbus", "call", "--session", "--dest", "org.mpris.MediaPlayer2.qua
   "--method", "org.freedesktop.DBus.Properties.GetAll", "org.mpris.MediaPlayer2.Player");
 
 check("A3 Metadata trackid 路径正确", r.out.includes("/org/quaver/track/INTEG01"), "");
+
+// 扩展元数据：行级 LRC → xesam:asText（DMS / Noctalia 媒体控件读它）
+await page.evaluate(() => {
+  const p = window.__quaverPlayer;
+  p.lyricAsText = "第一行歌词\n第二行歌词";
+  p.notifyPublic();
+});
+
+await sleep(800);
+
+r = await sh("playerctl", "-p", "quaver", "metadata", "xesam:asText");
+
+check("A3b asText 上总线", r.out === "第一行歌词\n第二行歌词", r.out);
 
 check("A4 Volume 上报（0.8 默认）", /'Volume': <0\.8/.test(r.out), r.out.match(/'Volume': <[^>]*>/)?.[0] || "");
 

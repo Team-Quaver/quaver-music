@@ -14,10 +14,13 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { thumbPic } from "../src/lib/thumbs.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
 const shell = read("src/shell.ts");
+const navItems = read("src/lib/nav-items.ts");
+const navApply = read("src/lib/nav-apply.ts");
 const prefs = read("src/lib/prefs.ts");
 const main = read("src/main.ts");
 const conf = read("electron/config.ts");
@@ -63,19 +66,21 @@ ok("缩回/展开按钮是 <button> 且带 id=side-collapse（不是 <a>，它�
 ok("按钮初始 title/aria 是「缩回侧栏」（默认展开态）",
   /id="side-collapse"[^>]*title="缩回侧栏"[^>]*aria-label="缩回侧栏"/.test(shell));
 
+// 默认布局由 shell 的模板串直接写出；自定义布局由 nav-apply 重画。两条路都得带 title。
 ok("导航项带 title（缩态只剩图标时靠它认字）",
-  /data-route="\$\{n\.path\.slice\(1\) \|\| "\/"\}" title="\$\{n\.label\}"/.test(shell));
+  /data-nav-id="\$\{n\.id\}" title="\$\{esc\(n\.label\)\}"/.test(shell)
+  && /a\.dataset\.route = navPathOf\(item\)[\s\S]{0,200}a\.title = item\.label/.test(navApply));
 
 ok("歌单项带 title（同上；收藏的歌单把创建者也缀上）",
   /const title = String\(x\.title \?\? "歌单"\);[\s\S]{0,120}a\.title = sub \? `\$\{title\} · \$\{sub\}` : title;/.test(shell));
 
 // ============ ②.b 歌单集合页入口：导航项 + 集合页态布局 ============
 ok("侧栏新增「歌单」导航项，且排在「本地音乐」之前",
-  /label: "歌单", icon: "list"/.test(shell)
-  && shell.indexOf('label: "歌单"') > 0
-  && shell.indexOf('label: "歌单"') < shell.indexOf('label: "本地音乐"'));
+  /id: "playlists",[\s\S]{0,80}label: "歌单"/.test(navItems)
+  && navItems.indexOf('label: "歌单"') > 0
+  && navItems.indexOf('label: "歌单"') < navItems.indexOf('label: "本地音乐"'));
 
-const listIco = shell.match(/^\s*list:\s*\n?\s*'([^']+)'/m)?.[1] ?? "";
+const listIco = navItems.match(/iconSvg: '(<svg[^']*M9 6h11[^']*)'/)?.[1] ?? "";
 
 ok("歌单图标存在且沿用同一套线性图标口径（24 网格 / currentColor / fill:none）",
   listIco.includes('viewBox="0 0 24 24"') && listIco.includes("currentColor") && listIco.includes('fill="none"'));
@@ -252,6 +257,66 @@ ok("减弱动效下侧栏成员禁用过渡（直接跳终态）",
 
 ok("减弱动效下切换形态的两拍动画也停掉（animation: none，节点回落到自然不透明度）",
   /body\.pl-mode-out \.nav/.test(prm) && /body\.pl-mode-in \.nav/.test(prm) && /animation: none/.test(prm));
+
+// ============ ⑥ 头像行高度恒定：登录前后 / 缩态都不漂 ============
+// 登录后多出的昵称 + 徽章行若撑高 .user，头像会随行高居中下移；缩态里被 max-width:0
+// 隐藏的 .user-meta 同样会保留纵向高度（实测把悬浮卡撑得很高、头像吊在中间）。
+const userDecl2 = ruleBody(/\.user \{([^}]*)\}/);
+const metaDecl = ruleBody(/\.user-meta \{([^}]*)\}/);
+const colMeta = ruleBody(/body\.side-collapsed \.user-meta \{([^}]*)\}/);
+
+ok("头像行高度钉死（.user min-height，登录态不把头往下推）", /min-height: 48px/.test(userDecl2));
+ok(".user-meta 有纵向抓手初值（max-height，none→0 不参与插值）", /max-height: 44px/.test(metaDecl));
+ok("缩态把 .user-meta 的高度一起收到 0（只收宽度仍会占纵向版面）", /max-height: 0/.test(colMeta));
+ok("max-height 进合并过渡块（与 max-width 同一拍）", /max-height \.24s/.test(mergeBlock));
+
+// ============ ⑦ macOS CSD：原生红绿灯让位 ============
+const electronMain = read("electron/main.ts");
+
+ok("macOS CSD 用 hiddenInset + 自定义红绿灯位置（HIG，不画自绘三钮）",
+  /titleBarStyle: "hiddenInset"/.test(electronMain) && /trafficLightPosition/.test(electronMain));
+ok("macOS CSD 的 frame 必须为 true（frame:false 会把红绿灯一起摘掉）",
+  /frame: macHIG \? true : decorMode === "ssd"/.test(electronMain));
+ok("macOS 的 CSD 仍保留应用菜单（系统菜单栏，不是窗口菜单条）",
+  /process\.platform === "darwin" \|\| decorMode === "ssd"/.test(electronMain));
+ok("mac-csd 收起自绘按钮簇", /body\.mac-csd \.winbtns \{ display: none; \}/.test(cssFlat));
+ok("mac-csd 侧栏顶部让出红绿灯带（.user margin，主题改 padding 顶不掉）",
+  /body\.mac-csd \.user \{ margin-top: \d+px; \}/.test(cssFlat));
+ok("mac-csd 让位带是可拖拽区（-webkit-app-region: drag）",
+  /body\.mac-csd \.side-dragtop \{[^}]*app-region: drag/.test(cssFlat));
+ok("只有壳层桥存在时才挂 mac-csd（浏览器 dev 保留自绘占位钮）",
+  /quaverCSD/.test(prefs) && /classList\.toggle\("mac-csd"/.test(prefs));
+ok("壳层注入侧栏让位带节点", /class="side-dragtop"/.test(shell));
+
+// ============ ⑧ 小图标降档：32px 歌单封面不许拉 500/600 原图 ============
+// 侧栏歌单封面是 32px、头像 44px；浏览器按 URL 返回的原图解码成位图常驻内存，
+// 500/600 档一张就是 1–1.4MB。这里既钉住纯函数的三条上游形态，也钉住接线。
+ok("thumbPic：QQ 专辑/歌手图降到 90 档（保留域名与查询串）",
+  thumbPic("https://y.gtimg.cn/music/photo_new/T002R500x500M000004fGHuo31YOxu.jpg?n=1") ===
+    "https://y.gtimg.cn/music/photo_new/T002R90x90M000004fGHuo31YOxu.jpg?n=1"
+  && thumbPic("http://y.gtimg.cn/music/photo_new/T001R500x500M0000026y2vm2J1K6Q_12.jpg") ===
+    "https://y.gtimg.cn/music/photo_new/T001R90x90M0000026y2vm2J1K6Q_12.jpg");
+
+ok("thumbPic：music_cover/<key>/<size> 形态只换末段尺寸",
+  thumbPic("https://p.qpic.cn/music_cover/2pm5Nb2cMaPlwgenzP7GKuAohoyTVg9ticbd4qFHbACaEeaSCJZZk9g/300") ===
+    "https://p.qpic.cn/music_cover/2pm5Nb2cMaPlwgenzP7GKuAohoyTVg9ticbd4qFHbACaEeaSCJZZk9g/90"
+  && thumbPic("https://qpic.y.qq.com/music_cover/hKFribMhwH4ClwNWJxicuCxkibh2Mnulrvicb2w3Rv9vnpvjlXMsiaw4vmw/600?n=1") ===
+    "https://qpic.y.qq.com/music_cover/hKFribMhwH4ClwNWJxicuCxkibh2Mnulrvicb2w3Rv9vnpvjlXMsiaw4vmw/90?n=1");
+
+ok("thumbPic：imageView2 w/h 成对改，认不出的图床原样返回",
+  thumbPic("https://music-file.y.qq.com/songlist/u/oK6kowEAoK4z7K6z7w-ioins7z/7d8b/x.jpg?imageView2/4/w/600/h/600") ===
+    "https://music-file.y.qq.com/songlist/u/oK6kowEAoK4z7K6z7w-ioins7z/7d8b/x.jpg?imageView2/4/w/90/h/90"
+  && thumbPic("https://example.com/cover.jpg") === "https://example.com/cover.jpg");
+
+ok("thumbPic 顺带把 http 升级成 https；侧栏按需加载，不占首屏静态闭包",
+  thumbPic("http://y.gtimg.cn/a.jpg") === "https://y.gtimg.cn/a.jpg"
+  && /await import\("\.\/lib\/thumbs"\)/.test(shell)
+  && !/from "\.\/lib\/thumbs/.test(shell));
+
+ok("侧栏歌单/插件歌单/头像三处都走 thumbPic(…, 90)",
+  /const pic = thumbPic\(fav\.picurl \|\| fav\.bigpic_url, 90\)/.test(shell)
+  && /const pic = thumbPic\(item\.picurl, 90\)/.test(shell)
+  && /thumbPic\(base\.avatar, 90\)/.test(shell));
 
 console.log(`\n${checks - fails}/${checks} passed${fails ? ` — ${fails} FAILED` : ""}`);
 

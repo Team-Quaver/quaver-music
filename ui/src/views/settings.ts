@@ -17,7 +17,7 @@ import { desktopLyricsStateSync } from "../lib/desktop-lyrics";
 import { syncInhibit } from "../lib/inhibit";
 import { applyMenuGlass } from "../lib/menu-glass";
 import { BG_BLUR_MAX, BG_BLUR_MIN, BG_FLOW_MAX, BG_FLOW_MIN, FONT_CUSTOM, FONT_LABELS, FONT_PRESETS, TINT_DEFAULT_COLOR, fontKeyOf, getAutoCheck, getBackgroundBlur, getBackgroundFlow, getBackgroundImage, getBackgroundMode, getBackgroundRenderer, getNpBackgroundRenderer, getChineseConvert, getCloseAction, getControlBarMode, getDecode, getPlaylistMode,
-  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsLocked, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getDesktopLyricsWeight, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMusicCacheLimitMB, getMenuBlur, getNpLyricLayout, getOnlineTtml, getPrevBehavior, getReportListenTime, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundBlur, setBackgroundFlow, setBackgroundImage, setBackgroundMode, setBackgroundRenderer, setNpBackgroundRenderer, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setMusicCacheLimitMB, setPlaylistMode, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsBorder, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsFontList, setDesktopLyricsFontPreset, setDesktopLyricsLocked, setDesktopLyricsShadow, setDesktopLyricsShadowBlur, setDesktopLyricsShadowOpacity, setDesktopLyricsShadowX, setDesktopLyricsShadowY, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setDesktopLyricsWeight, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricFontPreset, setMenuBlur, setNpLyricLayout, setOnlineTtml, setPrevBehavior, setReportListenTime, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel, MUSIC_CACHE_MAX_MB } from "../lib/prefs";
+  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsLocked, getLyricTint, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getDesktopLyricsWeight, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMusicCacheLimitMB, getMenuBlur, getMprisLrc, getNpLyricLayout, getOnlineTtml, getPrevBehavior, getReportListenTime, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundBlur, setBackgroundFlow, setBackgroundImage, setBackgroundMode, setBackgroundRenderer, setNpBackgroundRenderer, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setMusicCacheLimitMB, setPlaylistMode, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsBorder, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsFontList, setDesktopLyricsFontPreset, setDesktopLyricsLocked, setDesktopLyricsShadow, setDesktopLyricsShadowBlur, setDesktopLyricsShadowOpacity, setDesktopLyricsShadowX, setDesktopLyricsShadowY, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setDesktopLyricsWeight, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricTint, setLyricFontPreset, setMenuBlur, setMprisLrc, setNpLyricLayout, setOnlineTtml, setPrevBehavior, setReportListenTime, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel, MUSIC_CACHE_MAX_MB } from "../lib/prefs";
 import type { BackgroundMode, BackgroundRenderer, ChineseConvert, CloseAction, ControlBarMode, DecorMode, PlaylistMode, DlColorMode, DlMode, FadePreset, FallbackSort, NpLyricLayout, PrevBehavior, ThemeMode, TintMode, UpdateChannel } from "../lib/prefs";
 import { applyTint } from "../lib/tint";
 import { TTML_DB_DEFAULT_URL, isTtmlDatabaseUrl } from "../lib/ttml";
@@ -38,7 +38,19 @@ import {
   pickPreset,
 } from "../sparkle/theme-tint";
 import type { SparkleTintPreset } from "@quaver/sparkle";
-import { errText, h, watchBackendChange } from "./_shared";
+import { icons as sharedIcons } from "../lib/icons";
+import { navItemOf } from "../lib/nav-items";
+import { getNavHidden, getNavOrder, setNavLayout } from "../lib/nav-apply";
+import { errText, h, mountStickyBar, watchBackendChange } from "./_shared";
+
+// 设置页的「封面」位：虚拟歌单拿封面做视觉锚点，设置没有封面，用与侧栏同一套外形的齿轮
+// （shell.ts 的 icons.settings 是壳层私有常量，这里抄一份，避免把壳层图标表拖进视图）。
+const SETTINGS_GEAR = `
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+    stroke-width="1.6" stroke-linejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="3.1"/>
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+  </svg>`;
 
 // —— 设置页（对齐设计稿：外观设置 / 播放设置 / 调试 三区；不触碰侧栏与播放条） ——
 export default async function settingsView(root: HTMLElement) {
@@ -50,8 +62,25 @@ export default async function settingsView(root: HTMLElement) {
   const decodeRow = (name: string, label: string, disabled = false) =>
     `<label><input type="radio" name="decode" value="${name}"${disabled ? " disabled" : ""}/>${label}${disabled ? ` <span class="muted soon">敬请期待</span>` : ""}</label>`;
 
-  root.classList.add("settings-page"); // 让设置页内部自己滚动（见 style.css 的 .settings-page）
-  root.append(h("h1", "page-title", "设置"));
+  const backendNote = isMac ? "- 默认 MPV，可选原生直出 / 兼容" : "- 默认 Liino，可选原生直出 / 兼容";
+  const mpvLabel = isMac ? "原生直出（MPV，默认）" : "原生直出（MPV）";
+  const liinoLabel = isMac ? "Liino（实验性原生模式）" : "Liino（原生直出，默认）";
+
+  const backendRows = isMac
+    ? decodeRow("MPV", mpvLabel) + decodeRow("MPVCompat", "原生兼容（MPV 仅解码模式，实验性支持）") + decodeRow("Liino", liinoLabel) + decodeRow("Blink", "兼容模式（Blink）")
+    : decodeRow("Liino", liinoLabel) + decodeRow("MPV", mpvLabel) + decodeRow("MPVCompat", "原生兼容（MPV 仅解码模式，实验性支持）") + decodeRow("Blink", "兼容模式（Blink）");
+
+  root.classList.add("settings-page"); // 整页滚动 + 吸顶标签条，见 style.css 的 .settings-page
+
+  // 页头：图标（当「封面」用）+ 大标题，随整页滚出。吸顶条里再放一份迷你图标。
+  root.append(h("div", "set-head", `
+    <div class="set-head__art" aria-hidden="true">${SETTINGS_GEAR}</div>
+    <h1 class="page-title">设置</h1>`));
+
+  // 与「我喜欢 / 所有歌曲」同一套标题行为：大标题随内容滚出，分类标签住进吸顶条，
+  // 下翻后固定在内容区顶部。条本身是常驻占位，未吸顶时左侧缩略信息隐藏（不掉版式）。
+  const sticky = mountStickyBar(root, { artHtml: SETTINGS_GEAR, name: "设置" });
+  const scroller = root.closest<HTMLElement>(".route") ?? root;
 
   // 分区标签：只切显隐，不重渲染（各面板绑定一次常驻有效）
   const tabs = h("div", "set-tabs", `
@@ -62,7 +91,7 @@ export default async function settingsView(root: HTMLElement) {
     <button class="set-tab" data-tab="general" type="button">通用</button>
     <button class="set-tab" data-tab="plugins" type="button">花火插件</button>`);
 
-  root.append(tabs);
+  sticky.right.append(tabs);
   const wrap = h("div", "set-view");
   wrap.innerHTML = `
     <section class="set-panel" data-panel="appearance">
@@ -185,16 +214,25 @@ export default async function settingsView(root: HTMLElement) {
         <p class="muted set-hint" id="control-bar-hint" hidden></p>
       </div>
 
-      <!-- 歌单显示模式：菜单栏（侧栏列歌单，默认）/ 歌单集合页（侧栏不列歌单、导航垂直居中，
-           歌单改到 #/playlists 以 grid 分区）。主题声明 theme.playlistMode 时整组禁用，
-           呈现形态与让位一律由 style.css 按 body[data-playlist-mode] 接管。 -->
+      <!-- 菜单栏：显示模式（原独立的「菜单栏模式」）+ 项目编辑（显隐 / 拖拽排序）。
+           模式：menu=侧栏列歌单（默认）/ collection=歌单集合页；主题声明 theme.playlistMode 时
+           模式整组禁用，呈现形态由 style.css 按 body[data-playlist-mode] 接管。
+           项目编辑落 [Style] NavOrder / NavHidden，侧栏底部的「更多」浮窗由 shell 按同一份配置渲染。 -->
       <div class="set-group">
-        <div class="set-label">菜单栏模式</div>
+        <div class="set-label">菜单栏</div>
         <div class="opt-cards" id="playlist-mode-cards">
           <button class="opt-card" data-opt="menu" type="button">高效模式</button>
           <button class="opt-card" data-opt="collection" type="button">简洁模式</button>
         </div>
         <p class="muted set-hint" id="playlist-mode-hint" hidden></p>
+
+        <div class="nav-edit">
+          <div class="nav-edit__head">
+            <span class="nav-edit__title">显示项目</span>
+            <span class="nav-edit__hint">拖拽调整顺序；关闭的项目收进侧栏「更多」</span>
+          </div>
+          <ul class="nav-edit-list" id="nav-edit-list"></ul>
+        </div>
       </div>
 
       <!-- 花火面具：卡片由下方 renderSparkleThemes 动态填充（无插件主题时整组隐藏） -->
@@ -252,11 +290,10 @@ export default async function settingsView(root: HTMLElement) {
       </div>
 
       <div class="set-group">
-        <div class="set-label">播放引擎 <span class="set-note-inline" id="engine-note">- 默认 MPV，可选原生兼容 / 浏览器</span></div>
+        <div class="set-label">播放引擎 <span class="set-note-inline" id="engine-note">${backendNote}</span></div>
         <div class="opt-radios" id="decode-radios">
-          ${decodeRow("MPV", "原生直出（MPV）")}${decodeRow("MPVCompat", "原生兼容（MPV 仅解码模式，实验性支持）")}${decodeRow("Blink", "兼容模式（Blink）")}
+          ${backendRows}
         </div>
-        <p class="muted set-hint" id="engine-hint" hidden></p>
       </div>
 
       <div class="set-group">
@@ -303,7 +340,7 @@ export default async function settingsView(root: HTMLElement) {
           <button class="opt-card" data-opt="on" type="button">开启</button>
           <button class="opt-card" data-opt="off" type="button">关闭</button>
         </div>
-        <p class="muted set-hint">登录后每满 60 秒向 QQ 音乐上报一次真实播放时长；暂停、缓冲、系统休眠与本地曲目不计入。</p>
+        <p class="muted set-hint">登录后在本曲切歌、停止或退出时，向 QQ 音乐一次性上报真实播放时长；暂停、缓冲、系统休眠与本地曲目不计入。</p>
       </div>
 
       <div class="set-group">
@@ -323,8 +360,16 @@ export default async function settingsView(root: HTMLElement) {
         <p class="muted set-hint">仅限 QQ 音乐超级会员生效。</p>
       </div>
     </section>
-    <!-- 歌词面板：繁简转换 / 在线 TTML 逐字库 / 本地 TTML 歌词库目录（[Lyrics] 段，见 electron/config.ts） -->
+    <!-- 歌词面板：歌词染色 / 繁简转换 / 在线 TTML 逐字库 / 本地 TTML 歌词库目录（[Lyrics] 段，见 electron/config.ts） -->
     <section class="set-panel" data-panel="lyrics" hidden>
+      <div class="set-group">
+        <div class="set-label">歌词染色</div>
+        <div class="opt-cards" id="lyric-tint-cards">
+          <button class="opt-card" data-opt="on" type="button">开启</button>
+          <button class="opt-card" data-opt="off" type="button">关闭</button>
+        </div>
+      </div>
+
       <div class="set-group">
         <div class="set-label">歌词列模式</div>
         <div class="opt-cards" id="np-lyric-layout-cards">
@@ -341,6 +386,14 @@ export default async function settingsView(root: HTMLElement) {
           <button class="opt-card" data-opt="off" type="button">不转换</button>
           <button class="opt-card" data-opt="simplified" type="button">转为简体</button>
           <button class="opt-card" data-opt="traditional" type="button">转为繁体</button>
+        </div>
+      </div>
+
+      <div class="set-group">
+        <div class="set-label">系统媒体控件歌词</div>
+        <div class="opt-cards" id="mpris-lrc-cards">
+          <button class="opt-card" data-opt="lrc" type="button">LRC（带时间戳）</button>
+          <button class="opt-card" data-opt="plain" type="button">纯文本</button>
         </div>
       </div>
 
@@ -482,7 +535,7 @@ export default async function settingsView(root: HTMLElement) {
             <input id="dl-color-hex" type="text" spellcheck="false" autocomplete="off" size="9" maxlength="7" aria-label="桌面歌词颜色 HEX" />
           </div>
         </div>
-        <p class="muted set-hint">「固定（鼠标透穿）」仅在 macOS / Windows / X11 会话开放。</p>
+        <p class="muted set-hint">「固定（鼠标透穿）」仅在 macOS / Windows / X11（含 XWayland）窗口开放。</p>
       </div>
     </section>
 
@@ -567,10 +620,41 @@ export default async function settingsView(root: HTMLElement) {
   tabs.querySelectorAll<HTMLButtonElement>(".set-tab").forEach((t) => {
     t.onclick = () => {
       if (t.classList.contains("is-active")) return;
+      const wasStuck = sticky.bar.classList.contains("stuck");
       wrap.classList.add("tab-anim");
       tabs.querySelectorAll(".set-tab").forEach((x) => x.classList.toggle("is-active", x === t));
       wrap.querySelectorAll<HTMLElement>(".set-panel").forEach((p) => { p.hidden = p.dataset.panel !== t.dataset.tab; });
-      wrap.scrollTop = 0; // 每个分区都从顶部开始，别沿用上一分区在滚动容器里的位置
+
+      // 每个分区都从内容区顶部开始（滚动容器是 .route，不再由 .set-view 内部滚）。
+      // 但吸顶中不回页面顶端：滚到 0 会让条脱顶、大标题重新展开，正好和 tab 切换动画
+      // （条内迷你信息淡入 + 面板入场）撞在同一段里，看上去就是闪一下。
+      // 改为滚到「新面板刚好贴在吸顶条下缘」——分区仍然从头看起，条保持吸住。
+      const panel = wrap.querySelector<HTMLElement>(`.set-panel[data-panel="${t.dataset.tab}"]`);
+
+      if (wasStuck && panel) {
+        // 量未受入场动画影响的位置：面板入场时挂着 translateY(6px)，动画期间它自己还会
+        // 成为 offsetParent —— 直接读 rect 或 offsetTop 与 .set-view 相减都会把 transform 算进去。
+        // offsetTop 是布局值、不含 transform：沿 offsetParent 链累加到文档，与 .set-view 的
+        // 同一份结果相减，就是面板在正常流里的布局顶（不受入场动画那一帧影响）。
+        const layoutTop = (el: HTMLElement) => {
+          let top = 0;
+
+          // SAFETY: offsetParent 的静态类型是 Element | null；这条链只在页面内的 HTMLElement
+          // 之间走（.set-panel / .set-view / .content-body），不会经过 SVG 等无 offsetTop 的元素。
+          for (let cur: HTMLElement | null = el; cur; cur = cur.offsetParent as HTMLElement | null) top += cur.offsetTop;
+
+          return top;
+        };
+
+        const panelContentTop = wrap.getBoundingClientRect().top + layoutTop(panel) - layoutTop(wrap);
+
+        const target = scroller.scrollTop + panelContentTop
+          - scroller.getBoundingClientRect().top - sticky.bar.getBoundingClientRect().height;
+
+        scroller.scrollTo({ top: target });
+      } else {
+        scroller.scrollTo({ top: 0 });
+      }
     };
   });
 
@@ -1183,6 +1267,139 @@ export default async function settingsView(root: HTMLElement) {
   // 并显示实际生效值；宿主态由 setPlaylistMode + applyPlaylistModeKind 即时同步。
   const playlistModeCards = wrap.querySelector<HTMLElement>("#playlist-mode-cards")!;
   const playlistModeHint = wrap.querySelector<HTMLElement>("#playlist-mode-hint")!;
+  const navEditList = wrap.querySelector<HTMLUListElement>("#nav-edit-list")!;
+
+  /** 当前真正生效的歌单模式（主题接管时以主题为准）。 */
+  const effectivePlaylistMode = (): PlaylistMode => {
+    const policy = playlistModePolicyOf(activeSparkTheme());
+
+    return policy.mode === "host" ? getPlaylistMode() : policy.mode;
+  };
+
+  /** 拖拽结束后把 DOM 顺序落盘；模式/显隐不动。 */
+  const persistNavOrder = () => {
+    const order = [...navEditList.querySelectorAll<HTMLElement>(".nav-edit-row")]
+      .flatMap((r) => (r.dataset.id ? [r.dataset.id] : []));
+
+    setNavLayout(order, getNavHidden());
+  };
+
+  /** 重建「显示项目」列表：顺序 = NavOrder；开关 = NavHidden；歌单项在高效模式下随模式隐藏。 */
+  const paintNavEditor = () => {
+    const hidden = new Set(getNavHidden());
+    const mode = effectivePlaylistMode();
+    navEditList.replaceChildren();
+
+    for (const id of getNavOrder()) {
+      const item = navItemOf(id);
+
+      if (!item) continue;
+
+      // 歌单入口在高效模式下由 CSS 自动隐藏（歌单已在侧栏列出），这里把开关锁成「随模式」；
+      // 切到简洁模式后它才交还给用户。
+      const modeLocked = id === "playlists" && mode === "menu";
+      const row = document.createElement("li");
+      row.className = "nav-edit-row";
+      row.dataset.id = id;
+
+      if (hidden.has(id)) row.classList.add("is-hidden");
+
+      if (modeLocked) row.classList.add("is-locked");
+
+      const grip = document.createElement("span");
+      grip.className = "nav-edit-grip";
+      grip.draggable = true;
+      grip.title = "拖拽排序";
+      grip.setAttribute("aria-hidden", "true");
+      grip.innerHTML = sharedIcons.grip;
+
+      const ico = document.createElement("span");
+      ico.className = "nav-edit-ico";
+      ico.innerHTML = item.iconSvg;
+
+      const name = document.createElement("span");
+      name.className = "nav-edit-name";
+      name.textContent = item.label;
+
+      const sw = document.createElement("label");
+      sw.className = "nav-edit-switch";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = !hidden.has(id) && !modeLocked;
+      cb.disabled = modeLocked;
+      cb.setAttribute("aria-label", `${item.label}：在侧栏显示`);
+      const flag = document.createElement("span");
+      flag.className = "nav-edit-flag";
+      flag.textContent = modeLocked ? "随模式" : cb.checked ? "显示" : "隐藏";
+
+      if (modeLocked) sw.title = "高效模式下自动隐藏；切到简洁模式后可设置";
+
+      cb.addEventListener("change", () => {
+        const next = new Set(getNavHidden());
+
+        if (cb.checked) next.delete(id); else next.add(id);
+
+        setNavLayout(getNavOrder(), [...next]);
+        row.classList.toggle("is-hidden", !cb.checked);
+        flag.textContent = cb.checked ? "显示" : "隐藏";
+      });
+      sw.append(cb, flag);
+
+      row.append(grip, ico, name, sw);
+      navEditList.append(row);
+    }
+  };
+
+  // 拖拽排序只从把手起：整行可拖会把「点开关」误识别成拖拽。落点按行的中线判定，
+  // 拖过中线就把它插到那一侧 —— 与队列面板的 dropSlot 同一套直觉。
+  let navDragId: string | null = null;
+
+  navEditList.addEventListener("dragstart", (e) => {
+    const target = e.target;
+    const grip = target instanceof Element ? target.closest(".nav-edit-grip") : null;
+    const row = grip?.closest<HTMLElement>(".nav-edit-row");
+
+    if (!row) { e.preventDefault(); return; }
+
+    navDragId = row.dataset.id ?? null;
+    row.classList.add("dragging");
+
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", navDragId ?? "");
+      e.dataTransfer.setDragImage(row, 12, row.offsetHeight / 2);
+    }
+  });
+
+  navEditList.addEventListener("dragover", (e) => {
+    if (!navDragId) return;
+    e.preventDefault();
+
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+
+    const target = e.target;
+    const dragging = navEditList.querySelector<HTMLElement>(".nav-edit-row.dragging");
+    const over = target instanceof Element ? target.closest<HTMLElement>(".nav-edit-row") : null;
+
+    if (!dragging || !over || over === dragging) return;
+
+    const r = over.getBoundingClientRect();
+    navEditList.insertBefore(dragging, e.clientY > r.top + r.height / 2 ? over.nextSibling : over);
+  });
+
+  navEditList.addEventListener("drop", (e) => {
+    if (!navDragId) return;
+    e.preventDefault();
+    persistNavOrder();
+  });
+
+  navEditList.addEventListener("dragend", () => {
+    navEditList.querySelector(".dragging")?.classList.remove("dragging");
+
+    if (navDragId) persistNavOrder();
+
+    navDragId = null;
+  });
 
   const paintPlaylistModePolicy = () => {
     const policy = playlistModePolicyOf(activeSparkTheme());
@@ -1193,6 +1410,7 @@ export default async function settingsView(root: HTMLElement) {
     setHint(playlistModeHint, locked
       ? `由花火面具「${activeSparkTheme()?.name ?? ""}」接管菜单栏模式。`
       : "");
+    paintNavEditor(); // 歌单项的「随模式」锁随生效模式变化
   };
 
   playlistModeCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
@@ -1413,7 +1631,13 @@ export default async function settingsView(root: HTMLElement) {
     setLyricFontList, setLyricFontPreset, getLyricFontList(),
   );
 
-  // —— 歌词面板（[Lyrics]）：歌词列布局 / 繁简转换 / 在线 TTML 开关 / 数据库地址 / 本地 TTML 歌词库目录 ——
+  // —— 歌词面板（[Lyrics]）：歌词染色 / 歌词列布局 / 繁简转换 / 在线 TTML 开关 / 数据库地址 / 本地 TTML 歌词库目录 ——
+  // 歌词染色：只切 <html data-lyric-tint>，CSS 侧决定 AMLL 高亮色（Tint 或默认 white）。
+  bindOptCards<"on" | "off">(
+    wrap.querySelector<HTMLElement>("#lyric-tint-cards")!,
+    () => (getLyricTint() ? "on" : "off"),
+    (v) => setLyricTint(v === "on"),
+  );
   // 歌词列布局只切正在播放页的 DOM class；notifyPublic 让已展开的页面立即读到新档。
   bindOptCards<NpLyricLayout>(
     wrap.querySelector<HTMLElement>("#np-lyric-layout-cards")!,
@@ -1426,6 +1650,12 @@ export default async function settingsView(root: HTMLElement) {
     wrap.querySelector<HTMLElement>("#cjk-cards")!,
     getChineseConvert,
     (v) => { setChineseConvert(v); resetCjkConverter(); player.reloadLyric(); },
+  );
+  // asText 格式只影响「已经解析好的行」如何序列化：重排本地内存即可，不重拉歌词。
+  bindOptCards<"lrc" | "plain">(
+    wrap.querySelector<HTMLElement>("#mpris-lrc-cards")!,
+    () => (getMprisLrc() ? "lrc" : "plain"),
+    (v) => { setMprisLrc(v === "lrc"); player.refreshMprisLyrics(); },
   );
   bindOptCards<"on" | "off">(
     wrap.querySelector<HTMLElement>("#ttml-online-cards")!,
@@ -1517,7 +1747,7 @@ export default async function settingsView(root: HTMLElement) {
     () => (getDesktopLyrics() ? "on" : "off"),
     (v) => setDesktopLyrics(v === "on"),
   );
-  // 固定/鼠标透穿：平台能力从主进程现读（macOS / Windows / X11 才有）。Wayland 隐藏整行，
+  // 固定/鼠标透穿：平台能力从主进程现读（macOS / Windows / X11，含 XWayland）。原生 Wayland 隐藏整行，
   // 不在 UI 里给一个按下去也不会生效的开关。锁定后的解除入口同时留在托盘。
   const dlLockRow = wrap.querySelector<HTMLElement>("#dl-lock-row")!;
   dlLockRow.hidden = !desktopLyricsStateSync()?.canLock;
@@ -1735,26 +1965,28 @@ export default async function settingsView(root: HTMLElement) {
   const engNote = wrap.querySelector<HTMLElement>("#engine-note")!;
 
   /** mpv 来源标签：随包运行时 / 系统 mpv / QUAVER_MPV 指定（排障时一眼看出跑的哪一份） */
-  const MPV_SOURCE_LABEL: Record<string, string> = { bundled: "随包运行时", path: "系统 mpv", env: "QUAVER_MPV 指定" };
+  const MPV_SOURCE_LABEL: Record<string, string> = { bundled: "随包运行时", path: "系统 mpv", env: "QUAVER_MPV/QUAVER_LIINO 指定", vendor: "vendor/Liino 构建", packaged: "随包 libliino" };
 
   async function paintBackend() {
     const st = await player.probeEngine();
     radios.forEach((r) => {
-      r.disabled = (r.value === "MPV" || r.value === "MPVCompat") && !st.available;
+      r.disabled = (r.value === "MPV" || r.value === "MPVCompat" || r.value === "Liino") && !st.available;
       r.checked = r.value === getDecode();
       r.onchange = () => {
         const v = r.value;
 
-        if (!r.checked || (v !== "MPV" && v !== "MPVCompat" && v !== "Blink")) return;
+        if (!r.checked || (v !== "MPV" && v !== "MPVCompat" && v !== "Liino" && v !== "Blink")) return;
         void player.setBackend(v).then(paintAll);
       };
     });
     const src = MPV_SOURCE_LABEL[st.source] ?? "";
-    engNote.textContent = player.backend === "mpv"
-      ? `- 原生直出运行中${src ? "（" + src + "）" : ""}`
-      : player.backend === "mpv-compat"
+    engNote.textContent = player.backend === "liino"
+      ? `- Liino 原生直出运行中${src ? "（" + src + "）" : ""}${isMac ? "（实验性）" : ""}`
+      : player.backend === "mpv"
+        ? `- 原生直出运行中${src ? "（" + src + "）" : ""}`
+        : player.backend === "mpv-compat"
         ? `- 原生（兼容）运行中${src ? "（" + src + "）" : ""}`
-        : st.available ? `- 默认 MPV（${src}），当前浏览器兜底` : "- " + (st.reason || "mpv 不可用，已回退浏览器音频");
+        : st.available ? `- 默认 ${isMac ? "MPV" : "Liino"}（${src}），当前浏览器兜底` : "- " + (st.reason || "mpv 不可用，已回退浏览器音频");
   }
 
   async function paintDevices() {
@@ -1847,7 +2079,7 @@ export default async function settingsView(root: HTMLElement) {
   const hotkeysPanel = wrap.querySelector<HTMLElement>('[data-panel="hotkeys"]')!;
   const offHotkeys = mountHotkeysPanel(hotkeysPanel);
 
-  return () => { offSparkle(); offSparkleThemes(); offHotkeys(); };
+  return () => { sticky.off(); offSparkle(); offSparkleThemes(); offHotkeys(); };
 }
 
 // —— 调试：日志页面（壳层 electron-dev.log 尾部；由 relay.ts /api/log 提供） ——

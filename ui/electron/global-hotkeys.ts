@@ -12,7 +12,7 @@
 // GNOME 上授权框会重弹一次，属门户语义。
 // Wayland 的全局键位归桌面门户所有：应用内 [Hotkeys.Global] 不参与绑定的选择/修改，
 // 门户按动作 ID 展示并让用户在桌面侧配置；应用内只保留仅窗口聚焦时生效的 [Hotkeys.Focus]。
-import { PortalShortcuts } from "./xdg-portal.ts";
+import { PortalShortcuts, type ShortcutSpec } from "./xdg-portal.ts";
 import { isHotkey } from "./config.ts";
 
 /** Global 段有份的动作（quit 只作为焦点内热键，不进系统级）。 */
@@ -28,7 +28,7 @@ export const GLOBAL_CONF_KEYS = {
   voldown: "Hotkeys.Global.VolDown",
 };
 
-const ACTION_LABELS = {
+const ACTION_LABELS: Record<string, string> = {
   toggle: "暂停 / 播放",
   prev: "上一曲",
   next: "下一曲",
@@ -38,12 +38,45 @@ const ACTION_LABELS = {
 
 // 规范 accelerator（Ctrl+Alt+F5）→ XDG 快捷键串（CTRL+ALT+F5；字母小写 = XKB 基础层
 // 的那个键，大写字母是 Shift 层的另一个 keysym，不能混用）。
-const TRIGGER_KEYS = {
+const TRIGGER_KEYS: Record<string, string> = {
   Space: "space", Enter: "Return", Backspace: "BackSpace", PageUp: "Page_Up", PageDown: "Page_Down",
   Minus: "minus", Equal: "equal", Comma: "comma", Period: "period",
 };
 
-const TRIGGER_MODS = { Ctrl: "CTRL", Alt: "ALT", Shift: "SHIFT", Super: "LOGO" };
+const TRIGGER_MODS: Record<string, string> = { Ctrl: "CTRL", Alt: "ALT", Shift: "SHIFT", Super: "LOGO" };
+
+/** 动作 → 键位表（缺失的动作 = 停用）。 */
+type HotkeyBindings = Record<string, string | undefined>;
+
+/** 注入用的 Electron globalShortcut 子集（win/mac 模式；单测给假对象）。 */
+interface GlobalShortcutLike {
+  register(accelerator: string, callback: () => void): boolean;
+  unregister(accelerator: string): void;
+  unregisterAll(): void;
+}
+
+/** 转发给渲染层 quaver:hotkey 通道的负载。 */
+export interface HotkeyPayload {
+  t: string;
+  [key: string]: unknown;
+}
+
+/** 门户状态 + 本地「还没起会话」的 idle 初值，比 xdg-portal 的 PortalState 宽一档。 */
+interface HotkeyStatus {
+  state: string;
+  reason?: string;
+  missing?: string[];
+}
+
+/** createGlobalHotkeys 的参数（全部可注入，便于脱离 Electron 跑单测）。 */
+interface GlobalHotkeysOptions {
+  log?: (...args: unknown[]) => void;
+  readBindings?: () => HotkeyBindings | null;
+  sendToRenderer?: (payload: HotkeyPayload) => void;
+  globalShortcut?: GlobalShortcutLike | null;
+  platform?: string;
+  env?: Record<string, string | undefined>;
+}
 
 /** 当前是否 Wayland 会话。Linux 上 XDG_SESSION_TYPE 优先，缺失时用 WAYLAND_DISPLAY 兜底。 */
 export function isWaylandSession(
@@ -60,11 +93,11 @@ export function isWaylandSession(
   return !!String(env.WAYLAND_DISPLAY ?? "").trim();
 }
 
-export function acceleratorToPortalTrigger(accel) {
+export function acceleratorToPortalTrigger(accel: string | null | undefined) {
   const parts = String(accel ?? "").trim().split("+").filter(Boolean);
 
   if (!parts.length) return "";
-  const key = parts.pop();
+  const key = parts.pop() as string; // parts 非空，pop 必有值
   const mods = parts.map((m) => TRIGGER_MODS[m] ?? "");
 
   if (mods.some((m) => !m)) return "";
@@ -76,8 +109,8 @@ export function acceleratorToPortalTrigger(accel) {
 }
 
 /** 门户 BindShortcuts 的动作清单。Wayland 下忽略应用内键位，全部动作交给桌面门户绑定。 */
-export function portalShortcutsFor(bindings, wayland, onInvalidTrigger = () => {}) {
-  const shortcuts = [];
+export function portalShortcutsFor(bindings: HotkeyBindings | null | undefined, wayland: boolean, onInvalidTrigger: (accel: string) => void = () => {}) {
+  const shortcuts: ShortcutSpec[] = [];
 
   for (const action of GLOBAL_ACTIONS) {
     if (wayland) {
@@ -112,21 +145,21 @@ export function createGlobalHotkeys({
   globalShortcut = null,
   platform = process.platform,
   env = process.env,
-} = {}) {
+}: GlobalHotkeysOptions = {}) {
   const mode = platform === "linux" ? "portal" : "shortcut";
   const wayland = mode === "portal" && isWaylandSession(platform, env);
-  let registered = new Map(); // accel → action（shortcut 模式的当前登记）
-  let portal = null;
-  let portalStatus = { state: "idle", reason: "" };
+  let registered = new Map<string, string>(); // accel → action（shortcut 模式的当前登记）
+  let portal: PortalShortcuts | null = null;
+  let portalStatus: HotkeyStatus = { state: "idle", reason: "" };
   let portalApplied = false;
 
-  const notify = (payload) => {
+  const notify = (payload: HotkeyPayload) => {
     try { sendToRenderer(payload); } catch (e) { log("[hotkeys] send failed:", String(e)); }
   };
 
-  function applyShortcut(bindings) {
+  function applyShortcut(bindings: HotkeyBindings) {
     if (!globalShortcut) return;
-    const want = new Map(); // accel → action
+    const want = new Map<string, string>(); // accel → action
 
     for (const action of GLOBAL_ACTIONS) {
       const accel = String(bindings[action] ?? "").trim();
@@ -134,7 +167,7 @@ export function createGlobalHotkeys({
       if (accel) want.set(accel, action);
     }
 
-    const failed = [];
+    const failed: { action: string; accel: string; why: string }[] = [];
 
     // 先退掉不再要的 / 换了动作的
     for (const [accel, action] of registered) {
@@ -168,7 +201,7 @@ export function createGlobalHotkeys({
     }
   }
 
-  function applyPortal(bindings) {
+  function applyPortal(bindings: HotkeyBindings) {
     // Wayland：不把应用内配置当首选触发串。把动作全部交给门户展示/绑定，
     // 用户在桌面环境的 GlobalShortcuts 门户设置里决定实际键位。
     const shortcuts = portalShortcutsFor(bindings, wayland, (accel) => {
@@ -179,7 +212,7 @@ export function createGlobalHotkeys({
       portal = new PortalShortcuts({
         log,
         onAction: (id) => notify({ t: "action", action: id }),
-        onStatus: (st) => {
+        onStatus: (st: HotkeyStatus) => {
           portalStatus = st;
           log(`[hotkeys] portal status: ${st.state}${st.reason ? ` — ${st.reason}` : ""}`);
 
@@ -214,7 +247,7 @@ export function createGlobalHotkeys({
     apply() {
       // Wayland 的绑定归门户；配置里 [Hotkeys.Global] 的手改不应拆会话/重弹授权框。
       if (wayland && portalApplied) return;
-      let bindings = {};
+      let bindings: HotkeyBindings = {};
 
       try { bindings = readBindings() ?? {}; } catch (e) { log("[hotkeys] readBindings failed:", String(e)); return; }
 

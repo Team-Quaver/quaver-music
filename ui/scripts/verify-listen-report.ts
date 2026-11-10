@@ -51,33 +51,61 @@ advance(65_000);
 
 await settle();
 
-eq("满 60 秒先切一整段", sends.length, 1);
-
-eq("分片时长固定 60 秒", sends[0]?.play_duration_seconds, 60);
-
-eq("歌曲与流 token 原样传给后端", [sends[0]?.song_id, sends[0]?.stream_token], [1, "token-1"]);
-
-advance(70_000);
-
-reporter.setPlaying(false);
-
-reporter.setTarget(target(2));
-
-await settle();
-
-eq("切歌补报上一首尾段", [sends.length, sends[1]?.play_duration_seconds], [2, 10]);
-
-eq("尾段归属上一首", sends[1]?.song_id, 1);
-
-reporter.setPlaying(true);
+eq("播放中不按 60 秒分片上报", sends.length, 0);
 
 advance(130_000);
 
 await settle();
 
-eq("暂停期间不累计", sends.length, 3); // 恢复后只累计 60s，恰好又满一段
+eq("持续播放也不中途上报", sends.length, 0);
 
-advance(140_000);
+reporter.setPlaying(false);
+
+advance(160_000);
+
+reporter.setPlaying(true);
+
+advance(190_000);
+
+reporter.setTarget(target(2));
+
+await settle();
+
+eq("切歌时只上报一次", sends.length, 1);
+
+eq("一次性上报累计真实播放时长（暂停不累计）", sends[0]?.play_duration_seconds, 160);
+
+eq("歌曲与流 token 原样传给后端", [sends[0]?.song_id, sends[0]?.stream_token], [1, "token-1"]);
+
+reporter.setPlaying(true);
+
+advance(230_000);
+
+reporter.setPlaying(false);
+
+advance(280_000);
+
+reporter.setPlaying(true);
+
+advance(310_000);
+
+reporter.flush();
+
+await settle();
+
+eq("曲末 flush 上报本曲累计", [sends.length, sends[1]?.play_duration_seconds], [2, 70]);
+
+eq("flush 归属当前曲", sends[1]?.song_id, 2);
+
+reporter.setTarget(target(3));
+
+await settle();
+
+eq("flush 后切歌不重复上报", sends.length, 2);
+
+reporter.setPlaying(true);
+
+advance(340_000);
 
 enabled = false;
 
@@ -85,7 +113,9 @@ reporter.pulse();
 
 await settle();
 
-eq("关闭时不发送", sends.length, 3);
+eq("关闭时不发送", sends.length, 2);
+
+advance(370_000);
 
 enabled = true;
 
@@ -95,24 +125,34 @@ reporter.flush();
 
 await settle();
 
-eq("关闭期间的时间不补发", sends.length, 3);
+eq("关闭期间的时间不补发", sends.length, 2);
 
 // 很短的手动切歌不单独发流水，避免上游被碎片请求淹没。
-now = 145_000;
+now = 375_000;
+
+reporter.setTarget(target(4));
 
 reporter.setPlaying(true);
 
-now = 147_000;
-
-reporter.pulse();
+advance(377_000);
 
 reporter.setPlaying(false);
 
-reporter.setTarget(target(3));
+reporter.setTarget(target(5));
 
 await settle();
 
-eq("不足 5 秒的碎片不单独上报", sends.length, 3);
+eq("不足 5 秒的碎片不单独上报", sends.length, 2);
+
+reporter.setPlaying(true);
+
+advance(385_000);
+
+reporter.stopTarget();
+
+await settle();
+
+eq("停止时一次性上报并清空目标", [sends.length, sends[2]?.play_duration_seconds, sends[2]?.song_id], [3, 8, 5]);
 
 reporter.dispose();
 

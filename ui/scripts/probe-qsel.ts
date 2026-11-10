@@ -5,7 +5,7 @@ const BASE = "http://127.0.0.1:5173";
 
 const browser = await puppeteer.launch({
   executablePath: "/usr/bin/google-chrome",
-  headless: "new",
+  headless: true,
   args: ["--no-sandbox", "--disable-gpu", "--autoplay-policy=no-user-gesture-required"],
 });
 
@@ -49,7 +49,7 @@ async function playMid(mid) {
 }
 
 async function popupItems() {
-  await page.evaluate(() => document.querySelector("#pb-quality").click());
+  await page.evaluate(() => document.querySelector<HTMLElement>("#pb-quality")!.click());
   await sleep(150);
 
   const items = await page.evaluate(() =>
@@ -58,7 +58,7 @@ async function popupItems() {
       note: x.querySelector(".muted")?.textContent ?? "",
     })));
 
-  await page.evaluate(() => document.querySelector("#pb-quality").click()); // 收起
+  await page.evaluate(() => document.querySelector<HTMLElement>("#pb-quality")!.click()); // 收起
   await sleep(100);
 
   return items;
@@ -111,10 +111,10 @@ ok("无FLAC：母带/全景声照常（不受回退全景声开关影响）",
 
 // —— case 4：选档仍走协商（切母带，降级机制不动）——
 const sw = await page.evaluate(() => {
-  const master = [...document.querySelectorAll("#pb-qpop .qp-q")]
+  const master = [...document.querySelectorAll<HTMLElement>("#pb-qpop .qp-q")]
     .find((x) => x.querySelector("span")?.textContent === "臻品母带");
 
-  master.click();
+  master!.click();
 
   return true;
 });

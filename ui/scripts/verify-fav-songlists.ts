@@ -17,7 +17,7 @@ mkdirSync(TMP + "/profile", { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({
-  executablePath: "/usr/bin/google-chrome", headless: "new",
+  executablePath: "/usr/bin/google-chrome", headless: true,
   userDataDir: TMP + "/profile",
   env: { ...process.env, TMPDIR: TMP, XDG_CACHE_HOME: TMP + "/cache" },
   args: ["--no-sandbox", "--disable-gpu", "--no-proxy-server",
@@ -55,10 +55,13 @@ const step = async (name, fn) => {
 };
 
 // 侧栏歌单分组解析：#playlists 直系子节点里 .pl-group 开团，后续 .pl 归属该团
+/** sidebarGroups() 的解析结果形状（浏览器侧聚合，回传到 Node 侧断言）。 */
+type Group = { label: string; count: number; titles: string[]; subs: string[]; hrefs: string[] };
+
 const sidebarGroups = () => page.evaluate(() => {
   const box = document.querySelector("#playlists");
-  const out = [];
-  let cur = null;
+  const out: Group[] = [];
+  let cur: Group | null = null;
 
   for (const el of box ? box.children : []) {
     if (el.classList.contains("pl-group")) {
@@ -75,7 +78,7 @@ const sidebarGroups = () => page.evaluate(() => {
   return out;
 });
 
-const favGroup = async () => (await sidebarGroups()).find((g) => g.label.includes("收藏的歌单"));
+const favGroup = async (): Promise<Group | undefined> => (await sidebarGroups()).find((g) => g.label.includes("收藏的歌单"));
 const api = (path) => page.evaluate(async (p) => (await fetch("/api" + p)).json(), path);
 
 await page.goto(`${BASE}/index.html#/`, { waitUntil: "domcontentloaded" });
@@ -97,7 +100,7 @@ await step("中继与登录态可用", async () => {
 let favCount0 = 0;
 
 await step("侧栏出现「收藏的歌单」分组", async () => {
-  let g = null;
+  let g: Group | undefined;
 
   for (let i = 0; i < 60 && !g; i++) { g = await favGroup(); if (!g) await sleep(500); }
 
@@ -112,7 +115,7 @@ await step("侧栏出现「收藏的歌单」分组", async () => {
 });
 
 // 2) 歌单页收藏按钮：拿一个「未收藏」的推荐歌单做 like → unlike 来回
-let target = null;
+let target: { id: string; title: string } | null = null;
 
 await step("歌单页收藏按钮（在线写接口 like/unlike 来回）", async () => {
   const favs = await api("/user/fav-songlists?page=1&num=500");
@@ -129,7 +132,7 @@ await step("歌单页收藏按钮（在线写接口 like/unlike 来回）", asyn
     () => [...document.querySelectorAll("#playlists .pl-group")].some((g) => g.textContent.includes("收藏的歌单")),
     { timeout: 30000 },
   );
-  const before = await page.$eval(".fav-btn", (b) => ({ txt: b.textContent.trim(), on: b.classList.contains("on"), id: b.dataset.plid }));
+  const before = await page.$eval(".fav-btn", (b) => ({ txt: b.textContent.trim(), on: b.classList.contains("on"), id: (b as HTMLElement).dataset.plid }));
 
   if (before.on) throw new Error("初始状态应为未收藏：" + JSON.stringify(before));
 
@@ -140,9 +143,9 @@ await step("歌单页收藏按钮（在线写接口 like/unlike 来回）", asyn
   const afterLike = await page.$eval(".fav-btn", (b) => b.textContent.trim());
   // 侧栏同帧出现该歌单（收藏态与侧栏同源的证据）
   const g1 = await favGroup();
-  const inSidebar = g1?.hrefs.some((h) => h.includes(`id=${target.id}`));
+  const inSidebar = g1?.hrefs.some((h) => h.includes(`id=${target!.id}`));
   const upstream1 = await api("/user/fav-songlists?page=1&num=500");
-  const upstreamHas = (upstream1?.data?.playlists ?? []).some((x) => String(x.id) === String(target.id));
+  const upstreamHas = (upstream1?.data?.playlists ?? []).some((x) => String(x.id) === String(target!.id));
 
   await page.click(".fav-btn");
   await page.waitForFunction(() => !document.querySelector(".fav-btn")?.classList.contains("on"), { timeout: 15000 });
@@ -150,8 +153,8 @@ await step("歌单页收藏按钮（在线写接口 like/unlike 来回）", asyn
   await sleep(1200); // 回源校准
   const g2 = await favGroup();
   const upstream2 = await api("/user/fav-songlists?page=1&num=500");
-  const upstreamBack = !(upstream2?.data?.playlists ?? []).some((x) => String(x.id) === String(target.id));
-  const sidebarBack = !(g2?.hrefs ?? []).some((h) => h.includes(`id=${target.id}`));
+  const upstreamBack = !(upstream2?.data?.playlists ?? []).some((x) => String(x.id) === String(target!.id));
+  const sidebarBack = !(g2?.hrefs ?? []).some((h) => h.includes(`id=${target!.id}`));
 
   if (!upstreamHas) throw new Error("收藏后上游列表里没有该歌单（写接口未生效）");
 

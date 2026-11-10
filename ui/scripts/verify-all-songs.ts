@@ -81,6 +81,21 @@ try {
   }
 
   {
+    // 第三个来源：微云网盘。优先级 本地 > 我喜欢 > 微云；未匹配原文件（weiyun:<fileId>）照常补进
+    const localMatch = song({ mid: "local:l1", localId: "l1", qqMid: "q1", artist: "A", album: "Local" });
+    const liked = song({ mid: "q2", artist: "B", album: "Online" });
+    const cloudSameAsLocal = song({ mid: "q1", artist: "A", album: "Cloud" });
+    const cloudSameAsLiked = song({ mid: "q2", artist: "B", album: "Cloud" });
+    const cloudOriginal = song({ mid: "weiyun:f3", artist: "C", album: "Cloud" });
+    const merged = mergeAllSongs([localMatch], [liked], [cloudSameAsLocal, cloudSameAsLiked, cloudOriginal]);
+
+    eq("微云与本地/收藏同 mid 的去重，只补云端独有 = 3 首",
+      merged.map((x) => x.mid), ["local:l1", "q2", "weiyun:f3"]);
+    check("同 mid 保留优先级更高的来源（本地 > 喜欢 > 微云）",
+      merged[0]?.local?.id === "l1" && merged[1]?.album?.name === "Online");
+  }
+
+  {
     const one = song({ mid: "q1", artist: "周杰倫", album: "十一月的蕭邦", albumMid: "alb-1" });
     const two = song({ mid: "q2", artist: "周杰伦", album: "十一月的萧邦", albumMid: "alb-1" });
     const three = song({ mid: "q3", artist: "周杰倫 / 五月天", album: "十一月的蕭邦", albumMid: "alb-1" });
@@ -168,17 +183,17 @@ export * from ${JSON.stringify(join(UI, "src/lib/artist-key.ts"))};
 
   section("源码接线：菜单 · 路由 · 三视图 · 数据刷新");
 
-  const shell = read("src/shell.ts");
+  const navItems = read("src/lib/nav-items.ts");
   const view = read("src/views/all.ts");
   const css = read("src/views/all.css");
   const views = viewsSource();
 
-  check("侧栏有「所有歌曲」且使用 CD 图标", /\{ path: "#\/all", label: "所有歌曲", icon: "disc" \}/.test(shell));
+  check("侧栏有「所有歌曲」且使用 CD 图标", /id: "all",[\s\S]{0,80}label: "所有歌曲"/.test(navItems));
   check("所有歌曲排在歌单与本地音乐之间",
-    shell.indexOf('label: "所有歌曲"') > shell.indexOf('label: "歌单"')
-    && shell.indexOf('label: "所有歌曲"') < shell.indexOf('label: "本地音乐"'));
+    navItems.indexOf('label: "所有歌曲"') > navItems.indexOf('label: "歌单"')
+    && navItems.indexOf('label: "所有歌曲"') < navItems.indexOf('label: "本地音乐"'));
   check("CD 图标是碟面 + 轴孔（不是文件夹）",
-    /disc:\s*\n?\s*'<svg[^']*circle cx="12" cy="12" r="8\.4"[^']*circle cx="12" cy="12" r="1\.55"/.test(shell));
+    /iconSvg: '<svg[^']*circle cx="12" cy="12" r="8\.4"[^']*circle cx="12" cy="12" r="1\.55"/.test(navItems));
 
   check("/all 走懒加载注册表", /"\/all": \(\) => import\("\.\/all"\)/.test(views));
   check("页面标题/信息头为「所有歌曲」", view.includes('name: "所有歌曲"') && view.includes('"所有歌曲"'));
@@ -212,10 +227,13 @@ export * from ${JSON.stringify(join(UI, "src/lib/artist-key.ts"))};
   check("合唱曲不把首位歌手 mid 复制给所有人",
     read("src/lib/local.ts").includes("const matchedSingerMid = artists.length === 1"));
   check("专辑分类走专辑分组函数", view.includes("groupSongsByAlbum("));
-  check("本地库与我喜欢都有实时订阅",
-    view.includes("onLocalLibraryChange(") && view.includes("player.onLovedListChange("));
-  check("本地音乐沿用虚拟歌单的吸顶结构（标题/源管理先滚，吸顶条固定）",
-    read("src/views/local.ts").includes("mountStickyBar(root, { name: \"本地音乐\" })")
+  check("本地库 / 我喜欢 / 微云网盘都有实时订阅",
+    view.includes("onLocalLibraryChange(") && view.includes("player.onLovedListChange(")
+    && view.includes("quaver:cloud-changed") && view.includes("loadCloudLibrary("));
+  check("本地音乐沿用虚拟歌单的信息头/吸顶结构（封面 + 标题，源管理进浮窗）",
+    /mountHead\(root, \{\s*\n\s*artHtml: LOCAL_COVER,[\s\S]{0,80}name: "本地音乐"/.test(read("src/views/local.ts"))
+    && /mountStickyBar\(root, \{ artHtml: LOCAL_COVER, name: "本地音乐" \}\)/.test(read("src/views/local.ts"))
+    && read("src/views/local.ts").includes("showLocalSourcesDialog()")
     && read("src/views/local.ts").includes("sticky.off()")
     && read("src/views/local.ts").includes('classList.add("local-page")'));
   check("分类刷新时释放旧归并任务槽位", view.includes("artistFlight = null;"));

@@ -99,7 +99,7 @@ function ensureEl(): HTMLAudioElement {
 /** 幂等同步：want 三条件缺一不可。每次 player notify 都跑（4Hz 级，两次布尔比较，
  *  开销可忽略）。只有 web 后端有真实 <audio>，其余模式都停——防止循环假音频抢走媒体会话。 */
 function sync(): void {
-  const want = (player.backend === "mpv" || player.backend === "mpv-compat") && !!player.current && !player.paused;
+  const want = player.engineBacked && !!player.current && !player.paused;
 
   if (!want) {
     if (el && !el.paused) el.pause();

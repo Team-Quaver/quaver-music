@@ -1,11 +1,14 @@
 // Quaver — 路由视图：search（由 src/views/index.ts 按需动态 import，不在首屏解析）
 import { pushHistory } from "../components/SearchBox";
 import { playNowWithToast } from "../components/SongMenu";
-import { api, escHtml, stripEm, upPic } from "../lib/api";
+import { api, escHtml, stripEm } from "../lib/api";
 import { renderSongRows } from "../lib/songs";
 import type { Song } from "../player";
 import type { HotkeyResp, SearchAlbum, SearchResp, SearchSinger, SearchSonglist } from "./_shared";
 import { errText, h } from "./_shared";
+
+// 与 home.ts 同口径：动态 import 只拉 0.3KB 的降档函数，不占首屏 preload 表。
+const thumbs = import("../lib/thumbs");
 
 // —— 搜索页（顶部常驻搜索框的落点视图）：热搜词 + 分类标签（歌曲/歌手/专辑/歌单） ——
 const SEARCH_TABS = [
@@ -16,6 +19,8 @@ const SEARCH_TABS = [
 ] as const;
 
 export default async function searchView(root: HTMLElement, q: URLSearchParams) {
+  const { thumbPic } = await thumbs;
+
   const kw = (q.get("keyword") || "").trim();
   const tab = SEARCH_TABS.find((t) => t.type === (q.get("type") ?? "0")) ?? SEARCH_TABS[0];
   const head = h("div", "search-head");
@@ -92,18 +97,18 @@ export default async function searchView(root: HTMLElement, q: URLSearchParams) 
       if (tab.type === "1") {
         box.classList.add("grid");
         box.innerHTML = (list as SearchSinger[]).map((x) => `<a class="card" href="#/singer?mid=${encodeURIComponent(x.mid ?? "")}&name=${encodeURIComponent(stripEm(x.name) || "歌手")}">
-          <div class="art round">${x.pic ? `<img src="${upPic(x.pic)}" alt="" loading="lazy"/>` : ""}</div>
+          <div class="art round">${x.pic ? `<img src="${thumbPic(x.pic, 300)}" alt="" loading="lazy"/>` : ""}</div>
           <div class="name">${stripEm(x.name) || "歌手"}</div><div class="sub">${x.song_num ? `${x.song_num} 首` : ""}</div></a>`).join("");
       } else if (tab.type === "2") {
         box.classList.add("grid");
         box.innerHTML = (list as SearchAlbum[]).map((x) => `<a class="card" href="#/album?mid=${encodeURIComponent(x.mid ?? "")}">
-          <div class="art">${x.pic ? `<img src="${upPic(x.pic)}" alt="" loading="lazy"/>` : ""}</div>
+          <div class="art">${x.pic ? `<img src="${thumbPic(x.pic, 300)}" alt="" loading="lazy"/>` : ""}</div>
           <div class="name">${stripEm(x.name) || "专辑"}</div>
           <div class="sub">${stripEm(x.singer)}${x.time_public ? ` · ${x.time_public}` : ""}</div></a>`).join("");
       } else {
         box.className = "grid playlist-grid";
         box.innerHTML = (list as SearchSonglist[]).map((x) => `<a class="card" href="#/playlist?id=${encodeURIComponent(x.id ?? x.dirid ?? "")}&name=${encodeURIComponent(stripEm(x.title) || "歌单")}">
-          <div class="art">${x.picurl ? `<img src="${upPic(x.picurl)}" alt="" loading="lazy"/>` : ""}</div>
+          <div class="art">${x.picurl ? `<img src="${thumbPic(x.picurl, 300)}" alt="" loading="lazy"/>` : ""}</div>
           <div class="name">${stripEm(x.title) || "歌单"}</div>
           <div class="sub">${x.nickname ? stripEm(x.nickname) + " 创建" : ""}${x.songnum ? ` · ${x.songnum} 首` : ""}</div></a>`).join("");
       }

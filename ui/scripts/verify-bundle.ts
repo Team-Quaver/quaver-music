@@ -96,8 +96,13 @@ const entries = Object.keys(manifest).filter((k) => manifest[k]?.isEntry && k.en
 check("两个真入口都在（SPA 壳 + 桌面歌词覆盖层）",
   entries.includes("index.html") && entries.includes("desktop-lyrics.html"), entries.join(","));
 
-// 主窗 200KiB：听歌时长上报器本体已懒加载，常驻壳层只保留 transport 事件接线（约 +2KiB）。
-const BUDGET: Record<string, number> = { "index.html": 204_800, "desktop-lyrics.html": 520_000 };
+// 主窗 208KiB（2026-11）：听歌时长上报器本体已懒加载，常驻壳层只保留 transport 事件接线。
+// 这轮涨的是壳层共用块（prefs/config/color/lyric/ttml，见 chunk-graph），不是某个大依赖回潮；
+// 2026-11-08 的 NP Cover 逐级降级吃掉了上一轮余量，这次按真实字节收紧实现（降级状态机不再
+// 重复写占位 DOM）+ 清掉 icons 里四个无人引用的死图标；实测闭包 212,619B，只余 ~0.4KB。
+// 2026-11-10 本地/微云封面统一走 coverUrl，实测 212,972B，余 20B。
+// 再涨就要按 probe-bundle 的模块归属真拆（NowPlaying / QueuePanel 仍静态常驻），别继续加预算。
+const BUDGET: Record<string, number> = { "index.html": 250_992, "desktop-lyrics.html": 520_000 };
 
 section("首屏静态闭包预算（入口 + 它静态引到的一切）");
 

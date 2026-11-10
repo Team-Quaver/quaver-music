@@ -5,7 +5,7 @@ const BASE = "http://127.0.0.1:5173";
 
 const browser = await puppeteer.launch({
   executablePath: "/usr/bin/google-chrome",
-  headless: "new",
+  headless: true,
   args: ["--no-sandbox", "--disable-gpu", "--autoplay-policy=no-user-gesture-required"],
 });
 
@@ -26,7 +26,7 @@ await sleep(1500);
 // 设置默认音质 = flac（会员档位）
 await page.evaluate(() => window.__cfg.set({ "Quality.DefaultQuality": "flac" }));
 
-async function playTier(tier, label) {
+async function playTier(tier) {
   const r = await page.evaluate(async (tier) => {
     const j = await (await fetch("/api/song/001qhwq62Urz06/detail")).json();
     const d = j.data.track ?? j.data;
@@ -79,7 +79,7 @@ await page.goto(`${BASE}/index.html#/settings`, { waitUntil: "networkidle2" });
 await sleep(2000);
 
 const cards = await page.$$eval("#quality-grid .opt-card", (els) => els.map((e) => ({
-  q: e.dataset.q, text: e.textContent.trim(), disabled: e.disabled, sel: e.classList.contains("sel"),
+  q: e.getAttribute("data-q"), text: e.textContent!.trim(), disabled: e.matches(":disabled"), sel: e.classList.contains("sel"),
 })));
 
 console.log("quality-grid:", JSON.stringify(cards));

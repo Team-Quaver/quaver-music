@@ -6,7 +6,7 @@ const BASE = "http://localhost:5173";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({
-  executablePath: "/usr/bin/google-chrome", headless: "new",
+  executablePath: "/usr/bin/google-chrome", headless: true,
   args: ["--no-sandbox", "--disable-gpu", "--autoplay-policy=no-user-gesture-required"],
 });
 
@@ -14,7 +14,7 @@ const page = await browser.newPage();
 
 await page.setViewport({ width: 1280, height: 840 });
 
-const errors = [];
+const errors: string[] = [];
 
 page.on("pageerror", (e) => errors.push(String(e))); // 双击路径不允许未处理拒绝（取歌失败须被 toast 兜住）
 
@@ -29,7 +29,7 @@ const centerOf = async (sel) => {
   const el = await page.$(sel);
 
   if (!el) throw new Error("找不到 " + sel);
-  const b = await el.boundingBox();
+  const b = (await el.boundingBox())!;
 
   return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
 };

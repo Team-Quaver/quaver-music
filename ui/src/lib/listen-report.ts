@@ -1,8 +1,9 @@
 // Quaver — QQ 音乐听歌时长（音响力）上报。
 //
 // 只累计「真实出声」的时间：playing 开始计时，pause/waiting/ended 停止。播放器按
-// transport 事件持续调用 pulse()，这里每满 60 秒切一段交给 sidecar；切歌/停止时把
-// 不足一分钟的尾段一起交出。上报走 /sound-power/report，vkey 与凭证只在后端。
+// transport 事件持续调用 pulse()，本曲播放期间只累计不上报；切歌/停止/页面退出时
+// 把本曲累计时长一次性交给 sidecar，避免上游把同一首的多个分片记成多条听歌记录。
+// 上报走 /sound-power/report，vkey 与凭证只在后端。
 export type ListenReportTarget = {
   mid: string;
   mediaMid: string;
@@ -22,8 +23,7 @@ type Clock = () => number;
 
 type Job = { target: ListenReportTarget; seconds: number };
 
-const CHUNK_SECONDS = 60;
-const MIN_TAIL_SECONDS = 5; // 连点切歌时别把 1-4 秒碎片打成上报洪水
+const MIN_REPORT_SECONDS = 5; // 连点切歌时别把 1-4 秒碎片打成上报洪水
 
 // 事件循环被短暂挂起时不把整段空白算成听歌；正常 time 事件远密于此。
 const MAX_SAMPLE_SECONDS = 5;
@@ -66,7 +66,7 @@ export class ListenTimeReporter {
     if (sameTarget(this.target, target)) return;
     this.deactivate();
 
-    if (this.target && this.pending >= MIN_TAIL_SECONDS) {
+    if (this.target && this.pending >= MIN_REPORT_SECONDS) {
       this.enqueue(this.target, this.pending);
     }
 
@@ -106,11 +106,11 @@ export class ListenTimeReporter {
     this.drain();
   }
 
-  /** 切歌、停止、页面退出前调用；keepalive=true 用于 pagehide。 */
+  /** 切歌、停止、页面退出前调用，交出本曲累计时长；keepalive=true 用于 pagehide。 */
   flush(keepalive = false): void {
     this.sample();
 
-    if (this.target && this.pending >= MIN_TAIL_SECONDS) {
+    if (this.target && this.pending >= MIN_REPORT_SECONDS) {
       this.enqueue(this.target, Math.floor(this.pending));
     }
 
@@ -160,17 +160,12 @@ export class ListenTimeReporter {
     const elapsed = Math.min(MAX_SAMPLE_SECONDS, Math.max(0, now - this.lastAt) / 1_000);
     this.lastAt = now;
     this.pending += elapsed;
-
-    while (this.pending >= CHUNK_SECONDS) {
-      this.pending -= CHUNK_SECONDS;
-      this.enqueue(this.target, CHUNK_SECONDS);
-    }
   }
 
   private enqueue(target: ListenReportTarget, seconds: number): void {
     const whole = Math.floor(seconds);
 
-    if (whole < MIN_TAIL_SECONDS || !this.enabled()) return;
+    if (whole < MIN_REPORT_SECONDS || !this.enabled()) return;
     this.queue.push({ target, seconds: whole });
   }
 

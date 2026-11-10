@@ -2,7 +2,7 @@
 //
 // 数据层只负责「把两路都挂上」，不负责选路：显示哪一路由「翻译选项」决定，
 // 规则集中在 pickAux()：行级视图与**内置歌词引擎**（src/lyrics/amll.ts）共用这一份实现。
-import type { LyricAuxMode } from "./lib/prefs";
+import type { LyricAuxMode } from "./lib/prefs.ts";
 
 export interface LyricLine {
   t: number; // 秒
@@ -124,6 +124,46 @@ export function pickAux(line: Pick<LyricLine, "text" | "trans" | "roma">, mode: 
 
   // 上游偶尔把原文回填进 trans/roma；与主行相同就不是辅助文本，直接不显示。
   return aux && aux !== original ? aux : "";
+}
+
+/** 解析后的歌词 → `xesam:asText` 的纯文本载荷：只留主歌词，一行一句，不带时间戳。
+ *
+ *  MPRIS 规范里 asText 是 plain text，客户端（Dank Material Shell / Noctalia）按原文逐行
+ *  展示；把 `[00:12.34]` 一起塞进去只会变成可见噪音。翻译/音译属于辅助行，也不进这个字段。
+ *  来源不限 LRC：QRC/TTML 经 AMLL 解析后同样有一行一句的文本，直接用，不必再拉一份 LRC。 */
+export function lyricLinesToText(lines: LyricLine[]): string {
+  const out: string[] = [];
+
+  for (const line of lines) {
+    const text = line.text.trim();
+
+    if (text) out.push(text);
+  }
+
+  return out.join("\n");
+}
+
+/** 解析后的歌词 → LRC 文本（`[mm:ss.xx]一行`）。给会解析时间戳的媒体控件用。
+ *
+ *  来源不限：QRC/TTML 的行时间轴已经在 `LyricLine.t` 里，序列化时只保留行级时间戳
+ *  （词级时间轴不回写，LRC 装不下）。用「先取整到厘秒再拆分」避免 59.999 秒进位成 60.00。
+ *  空行跳过；翻译/音译不进正文。 */
+export function lyricLinesToLrc(lines: LyricLine[]): string {
+  const out: string[] = [];
+
+  for (const line of lines) {
+    const text = line.text.trim();
+
+    if (!text) continue;
+    const cs = Math.max(0, Math.round(line.t * 100));
+    const m = Math.floor(cs / 6000);
+    const s = Math.floor((cs % 6000) / 100);
+    const frac = cs % 100;
+
+    out.push(`[${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(frac).padStart(2, "0")}]${text}`);
+  }
+
+  return out.join("\n");
 }
 
 export const fmtDur = (sec: number) => {

@@ -51,7 +51,7 @@ const magicCrypto = {
 };
 
 const cryptoWith = (over = {}) => ({ ...magicCrypto, ...over });
-const TMP_DIRS = [];
+const TMP_DIRS: string[] = [];
 const tempDir = () => { const d = mkdtempSync(join(tmpdir(), "quaver-keyring-")); TMP_DIRS.push(d); return d; };
 const planOf = (over = {}) => ({ persist: "keyring", backend: "kwallet6", reason: "test", ...over });
 
@@ -64,7 +64,9 @@ const legacyOf = (dir) => join(dir, "credential.json");
 // ——— 一、后端选择：ready 之前钉哪个 --password-store ———
 section("后端选择（--password-store）");
 
-const pick = (env, probe, backend = "auto") => pickPasswordStore({ platform: "linux", env, backend, probe: probe ?? {} });
+type Probe = Partial<ReturnType<typeof probeKeyrings>>;
+
+const pick = (env: Record<string, string | undefined>, probe?: Probe, backend = "auto") => pickPasswordStore({ platform: "linux", env, backend, probe: probe ?? {} });
 
 eq("KDE + KDE_SESSION_VERSION=5 → kwallet5", pick({ XDG_CURRENT_DESKTOP: "KDE", KDE_SESSION_VERSION: "5" }).switchValue, "kwallet5");
 
@@ -289,7 +291,7 @@ utimesSync(legacyOf(d6), new Date(Date.now() - 60_000), new Date(Date.now() - 60
 
 eq("明文更旧 → stale（不覆盖）", s6.migrateLegacy(), "stale");
 
-eq("存档里仍是新的那份", s6.read().musicid, 333);
+eq("存档里仍是新的那份", s6.read()!.musicid, 333);
 
 check("…旧明文被留着（交给下次判断，不擅自删）", existsSync(legacyOf(d6)));
 
@@ -305,7 +307,7 @@ writeFileSync(legacyOf(d7), JSON.stringify({ ...CRED, musicid: 222 }));
 
 eq("明文更新 → 迁移", s7.migrateLegacy(), "migrated");
 
-eq("迁进来的是明文那份（新的）", s7.read().musicid, 222);
+eq("迁进来的是明文那份（新的）", s7.read()!.musicid, 222);
 
 // ——— 五、交接信封 ———
 section("交接信封与日志卫生");

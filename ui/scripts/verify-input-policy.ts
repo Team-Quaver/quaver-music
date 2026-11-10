@@ -113,6 +113,46 @@ ok("NativeDrop: 桌面歌词独立页也启动同一套 Tooltip（不再只有�
   /bootNativeOverlays\(\)/.test(read("src/desktop-lyrics.ts"))
   && /from "\.\/components\/NativeDrop"/.test(read("src/desktop-lyrics.ts")));
 
+// 插件的整页接管视图画在 shadow root 里（Folia 等），指针事件到 document 时 target
+// 已被重定向成宿主，document.elementFromPoint 也只返回宿主 —— 两条命中路径都得穿影子
+// 边界，否则插件里的按钮只能退化成 Chromium 原生 title 提示。
+ok("NativeDrop: Tooltip 命中穿透 shadow root（组合路径 + 逐层 elementFromPoint）",
+  /function composedTarget\(e: Event\): Element \| null/.test(nativeDrop)
+  && /e\.composedPath\(\)\[0\]/.test(nativeDrop)
+  && /function deepElementFromPoint\(x: number, y: number\): Element \| null/.test(nativeDrop)
+  && /el\.shadowRoot\.elementFromPoint\(x, y\)/.test(nativeDrop)
+  && /tooltipTarget\(composedTarget\(e\)\)/.test(nativeDrop)
+  && /const raw = deepElementFromPoint\(pointerX, pointerY\)/.test(nativeDrop));
+
+// contains() 不跨影子边界：在同一个按钮内部从 <svg> 移到 <path> 时会被误判成离开，
+// 提示随每次子元素切换闪一下。
+ok("NativeDrop: 「仍在同一提示宿主内」按组合树判断（跨 shadow 边界）",
+  /function composedContains\(container: Node, node: Node \| null\): boolean/.test(nativeDrop)
+  && /cur instanceof ShadowRoot \? cur\.host/.test(nativeDrop)
+  && /composedContains\(tipFor, related\)/.test(nativeDrop));
+
+// 插件 shadow root 里的 title 不在 document.body 的 MutationObserver 范围内，
+// 只能等指针真落上去时就地归一；否则原生提示仍然会弹。
+ok("NativeDrop: 影子树里遗留的 title 在命中时就地归一成 data-tooltip",
+  /function adoptTitleTooltip\(el: Element \| null\): HTMLElement \| null/.test(nativeDrop)
+  && /el\.removeAttribute\("title"\)/.test(nativeDrop)
+  && /el\?\.closest\("\[title\]"\)/.test(nativeDrop));
+
+// Folia 顶部工具条是这套机制的第一个消费方：必须写 data-tooltip（title 只会走原生提示）。
+{
+  const foliaView = read("../vendor/Sparkle/marketplace/folia-visualizer/runtime/view.tsx");
+
+  ok("Folia: 顶部工具条用 data-tooltip（不再用原生 title）",
+    /data-tooltip="上一个歌词动效"/.test(foliaView)
+    && /data-tooltip="下一个歌词动效"/.test(foliaView)
+    && /data-tooltip="收回正在播放页"/.test(foliaView)
+    && !/title="(上一个歌词动效|下一个歌词动效|收回正在播放页)"/.test(foliaView));
+
+  // 悬停时工具条不能自己消失：宿主 .qtip 挂在 body 上，锚点不可见后会留在原位。
+  ok("Folia: 指针停在工具条上时不自动收起",
+    /toolbarHovered/.test(foliaView) && /pickerOpen \|\| toolbarHovered\.current/.test(foliaView));
+}
+
 ok("Playback controls: 画廊/桌面歌词/队列/上一首都有自绘提示源",
   /id="pb-gallery" title="画廊模式"/.test(read("src/components/PlayerBar.ts"))
   && /const galleryTip = galleryOn \? "退出画廊模式"/.test(read("src/components/PlayerBar.ts"))

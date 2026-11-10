@@ -3,7 +3,7 @@
 // window/document/localStorage 桩，验证「配置文件取值 ⇄ 内部枚举」的双向映射与写盘键名
 // —— 这层写错了最难从界面上看出来。
 // 跑： node scripts/verify-prefs-map.ts
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,48 +35,57 @@ const chunk = res[0].output.find((o) => o.type === "chunk");
 
 writeFileSync(OUT, chunk.code);
 
+// 后续 import(?query) 会复用同一文件路径的 ESM 缓存：改完源码重新打包后，覆写后再复制一份带版本号的副本
+for (let i = 0; i < 4; i++) copyFileSync(OUT, OUT + '.' + i + '.mjs');
+
 // —— 最小 DOM 桩 ——
-const ls = new Map();
-const cssVars = new Map();
-const htmlDataset = {};
-const htmlClasses = new Set();
-const bodyClasses = new Set();
+const ls = new Map<string, string>();
+const cssVars = new Map<string, string>();
+const htmlDataset: Record<string, string> = {};
+const htmlClasses = new Set<string>();
+const bodyClasses = new Set<string>();
 const bodyDataset: Record<string, string> = {};
-const mkClassList = (set) => ({ toggle: (n, on) => (on ? set.add(n) : set.delete(n)), contains: (n) => set.has(n) });
+const mkClassList = (set: Set<string>) => ({ toggle: (n: string, on: boolean) => (on ? set.add(n) : set.delete(n)), contains: (n: string) => set.has(n) });
 
-globalThis.localStorage = {
-  getItem: (k) => (ls.has(k) ? ls.get(k) : null),
-  setItem: (k, v) => void ls.set(k, String(v)),
-  removeItem: (k) => void ls.delete(k),
-};
-
-globalThis.document = {
-  documentElement: {
-    dataset: htmlDataset,
-    classList: mkClassList(htmlClasses),
-    style: {
-      setProperty: (k, v) => void cssVars.set(k, v),
-      removeProperty: (k) => void cssVars.delete(k),
-      getPropertyValue: (k) => cssVars.get(k) ?? "",
-    },
+Object.assign(globalThis, {
+  localStorage: {
+    getItem: (k: string) => (ls.has(k) ? ls.get(k) : null),
+    setItem: (k: string, v: string) => void ls.set(k, String(v)),
+    removeItem: (k: string) => void ls.delete(k),
   },
-  body: { classList: mkClassList(bodyClasses), dataset: bodyDataset },
-  addEventListener: () => {},
-  visibilityState: "visible",
-};
+});
 
-globalThis.window = {
-  matchMedia: () => ({ matches: false, addEventListener: () => {} }),
-  addEventListener: () => {},
-  setTimeout,
-  clearTimeout,
-  // 故意不给 quaverCSD / quaverConfig：浏览器 dev 的形态
-};
+Object.assign(globalThis, {
+  document: {
+    documentElement: {
+      dataset: htmlDataset,
+      classList: mkClassList(htmlClasses),
+      style: {
+        setProperty: (k: string, v: string) => void cssVars.set(k, v),
+        removeProperty: (k: string) => void cssVars.delete(k),
+        getPropertyValue: (k: string) => cssVars.get(k) ?? "",
+      },
+    },
+    body: { classList: mkClassList(bodyClasses), dataset: bodyDataset },
+    addEventListener: () => {},
+    visibilityState: "visible",
+  },
+});
+
+Object.assign(globalThis, {
+  window: {
+    matchMedia: () => ({ matches: false, addEventListener: () => {} }),
+    addEventListener: () => {},
+    setTimeout,
+    clearTimeout,
+    // 故意不给 quaverCSD / quaverConfig：浏览器 dev 的形态
+  },
+});
 
 const P = await import(OUT);
 
 let pass = 0, fail = 0;
-const section = (t) => console.log(`\n=== ${t} ===`);
+const section = (title: string) => console.log(`\n=== ${title} ===`);
 
 const check = (name, cond, detail = "") => {
   if (cond) { pass++; console.log(`  ✅ ${name}`); }
@@ -99,7 +108,7 @@ eq("装饰默认 csd", P.getDecor(), "csd");
 
 eq("关闭行为默认 tray", P.getCloseAction(), "tray");
 
-eq("后端默认 MPV", P.getDecode(), "MPV");
+eq("后端默认 Liino", P.getDecode(), "Liino");
 
 eq("音质 fallback 默认 no-atmos", P.getFallbackSort(), "no-atmos");
 
@@ -167,6 +176,8 @@ P.setDecode("Blink");   eq("Blink → Chromium", conf()["Playing.Backend"], "Chr
 P.setDecode("MPV");     eq("MPV → MPV", conf()["Playing.Backend"], "MPV");
 
 P.setDecode("MPVCompat"); eq("MPVCompat → 原生兼容", conf()["Playing.Backend"], "MPVCompat");
+
+P.setDecode("Liino");     eq("Liino → 实验性原生模式", conf()["Playing.Backend"], "Liino");
 
 P.setFallbackSort("rank");  eq("rank → FallbackToQMAtmos=True", conf()["Quality.FallbackToQMAtmos"], "True");
 
@@ -396,6 +407,14 @@ P.setTtmlLibrary("");
 
 eq("本地库清空 = 关", P.getTtmlLibrary(), "");
 
+P.setMprisLrc(false);
+
+eq("asText 纯文本档 → MprisLrc=False", [P.getMprisLrc(), conf()["Lyrics.MprisLrc"]], [false, "False"]);
+
+P.setMprisLrc(true);
+
+eq("asText LRC 档 → MprisLrc=True", [P.getMprisLrc(), conf()["Lyrics.MprisLrc"]], [true, "True"]);
+
 // 浏览器兜底模式存的是整份内存快照（键名应与 conf 的 Section.Key 完全一致，不能混进旧的 localStorage 键）
 const keys = Object.keys(conf());
 
@@ -576,9 +595,13 @@ await reload({ "Playing.Backend": "MPVCompat" });
 
 eq("MPVCompat → 原生兼容", P.getDecode(), "MPVCompat");
 
+await reload({ "Playing.Backend": "Liino" });
+
+eq("Liino → 实验性原生模式", P.getDecode(), "Liino");
+
 await reload({ "Playing.Backend": "mpv" });
 
-eq("大小写不符的取值回落 MPV", P.getDecode(), "MPV");
+eq("大小写不符的取值回落 Liino", P.getDecode(), "Liino");
 
 await reload({ "Quality.FallbackToQMAtmos": "True" });
 
@@ -736,7 +759,7 @@ section("重置");
 
 await P.resetConfig();
 
-eq("重置回到默认", [P.getTheme(), P.getDecode(), P.getFade()], ["dark", "MPV", "normal"]);
+eq("重置回到默认", [P.getTheme(), P.getDecode(), P.getFade()], ["dark", "Liino", "normal"]);
 
 eq("背景一并回到默认（FALLBACK 里也得有这些键）",
   [P.getBackgroundMode(), P.getBackgroundImage(), P.getBackgroundFlow(), P.getBackgroundBlur(), P.getBackgroundRenderer(), P.getNpBackgroundRenderer()], ["off", "", 1, 70, "quaver", "quaver"]);
@@ -783,13 +806,13 @@ section("桌面端启动快照（quaverConfig.boot）");
 {
   ls.clear();
   ls.set("quaver.conf.v1", JSON.stringify({ "Style.Style": "light" })); // 应被 boot 快照盖过
-  let setCalls = [];
+  let setCalls: Record<string, string>[] = [];
   globalThis.window.quaverConfig = {
     boot: { ok: true, dir: "/x/Quaver Music", path: "/x/Quaver Music/quaver.conf", writable: true, values: { "Style.Style": "dark", "Playing.Volume": "0.42" } },
     set: (p) => { setCalls.push(p); return Promise.resolve({ ok: true }); },
     reveal: () => Promise.resolve({ ok: true }),
   };
-  const D = await import(`${OUT}?desktop=1`); // 新实例：模块顶层的同步装载会再跑一次
+  const D = await import(`${OUT}.0.mjs?desktop=1`); // 新实例：模块顶层的同步装载会再跑一次
   eq("boot 快照优先于 localStorage", D.getTheme(), "dark");
   eq("音量来自 boot 快照", D.getVolume(), 0.42);
   const inf = D.configInfo();
@@ -797,7 +820,7 @@ section("桌面端启动快照（quaverConfig.boot）");
   D.setTheme("light");
   eq("有桥时写走 IPC（不再碰 localStorage）", setCalls.length, 1);
   eq("IPC patch 是 Section.Key", Object.keys(setCalls[0]), ["Style.Style"]);
-  eq("写桥后 localStorage 未被改写成全量", JSON.parse(ls.get("quaver.conf.v1"))["Style.Style"], "light");
+  eq("写桥后 localStorage 未被改写成全量", JSON.parse(ls.get("quaver.conf.v1")!)["Style.Style"], "light");
   delete globalThis.window.quaverConfig;
 }
 
@@ -806,9 +829,9 @@ section("高频项（音量）合并落盘");
 
 {
   ls.clear(); seed({});
-  let calls = [];
+  let calls: Record<string, string>[] = [];
   globalThis.window.quaverConfig = { boot: { ok: false }, set: (p) => { calls.push(p); return Promise.resolve({ ok: true }); } };
-  const V = await import(`${OUT}?debounce=1`);
+  const V = await import(`${OUT}.1.mjs?debounce=1`);
 
   for (const v of [0.1, 0.2, 0.3, 0.4, 0.5]) V.setVolume(v);
   eq("拖拽期间内存即时反映", V.getVolume(), 0.5);
@@ -817,11 +840,11 @@ section("高频项（音量）合并落盘");
   eq("窗口到期只写一次", calls.length, 1);
   eq("写的是最后一个值", calls[0]["Playing.Volume"], "0.5");
   check("相同值不产生写入", (V.setVolume(0.5), await new Promise((r) => setTimeout(r, 400)), calls.length === 1), `calls=${calls.length}`);
-  eq("静音写入 Muted", (V.setMuted(true), await new Promise((r) => setTimeout(r, 50)), calls.at(-1)["Playing.Muted"]), "True");
+  eq("静音写入 Muted", (V.setMuted(true), await new Promise((r) => setTimeout(r, 50)), calls.at(-1)!["Playing.Muted"]), "True");
   delete globalThis.window.quaverConfig;
 }
 
-// ——— macOS 浏览器兜底：没有主进程快照时按 UA 认 Darwin ———
+// ——— macOS 浏览器兜底：三平台统一 CSD（真正红绿灯走主进程 hiddenInset） ———
 section("macOS 浏览器兜底");
 
 {
@@ -834,9 +857,15 @@ section("macOS 浏览器兜底");
   });
 
   try {
-    const M = await import(`${OUT}?mac=1`);
+    const M = await import(`${OUT}.2.mjs?mac=1`);
     await M.loadConfig();
-    eq("浏览器 dev 在 macOS 默认 ssd", M.getDecor(), "ssd");
+    eq("浏览器 dev 在 macOS 默认 MPV（Liino 为实验性）", M.getDecode(), "MPV");
+    eq("浏览器 dev 在 macOS 也默认 csd", M.getDecor(), "csd");
+    check("浏览器 dev 没有壳层桥 → 不挂 mac-csd（保留自绘占位钮）", !bodyClasses.has("mac-csd"));
+
+    seed({ "Playing.Backend": "mpv" });
+    await M.loadConfig();
+    eq("macOS 非法后端值回落 MPV", M.getDecode(), "MPV");
   } finally {
     if (realNavigator) Object.defineProperty(globalThis, "navigator", realNavigator);
   }

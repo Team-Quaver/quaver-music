@@ -172,7 +172,7 @@ eq("拿不到 gsettings 时返回 null（不猜）",
 eq("有输出就解析（含结尾换行）", gsettingsColorScheme({ run: () => ({ stdout: "'prefer-dark'\n" }) }), "dark");
 
 check("确实问的是 org.gnome.desktop.interface color-scheme", (() => {
-  let argv = null;
+  let argv: string[] = []; // 由 run 替身在调用时回填（初值空数组 = 「没问到」）
   gsettingsColorScheme({ run: (bin, args) => { argv = [bin, ...args]; return { stdout: "" }; } });
 
   return argv?.[0] === "gsettings" && argv.includes("get") && argv.includes("org.gnome.desktop.interface") && argv.includes("color-scheme");
@@ -180,14 +180,14 @@ check("确实问的是 org.gnome.desktop.interface color-scheme", (() => {
 
 // spawnSync 挂住 = 主进程假死（会话总线半死时真会这样），两层外部命令都必须钉 timeout
 check("gsettings 调用带 timeout", (() => {
-  let o = null;
+  let o: { encoding?: string; timeout?: number } = {};
   gsettingsColorScheme({ run: (_b, _a, opts) => { o = opts; return { stdout: "" }; } });
 
   return typeof o?.timeout === "number" && o.timeout > 0;
 })());
 
 check("macOS defaults 调用也带 timeout，且非 mac 平台直接不试", (() => {
-  let o = null;
+  let o: { encoding?: string; timeout?: number } = {};
   const got = readMacShellTheme({ platform: "darwin", run: (_b, _a, opts) => { o = opts; return { stdout: "Dark" }; } });
 
   return got === "dark" && typeof o?.timeout === "number" && readMacShellTheme({ platform: "linux" }) === null;
@@ -227,7 +227,7 @@ eq("非 Windows 直接不问 reg.exe（run 一旦被调用就会抛）",
   readWindowsShellTheme({ platform: "linux", run: () => { throw new Error("不该被调用"); } }), null);
 
 {
-  let argv = null, o = null;
+  let argv: string[] = [], o: { encoding?: string; timeout?: number } = {};
 
   const got = readWindowsShellTheme({
     platform: "win32",
@@ -254,7 +254,7 @@ eq("键/值不存在不算错误：系统模式的出厂档就是浅色 → ligh
 // 监听：注册表没有 mtime 可盯，只能轮询 —— 抓变化、值没变不回调、停得掉
 {
   let out = WIN_LIGHT;
-  const seen = [];
+  const seen: ("dark" | "light")[] = [];
 
   const stop = watchWindowsShellTheme((t) => seen.push(t), {
     platform: "win32", pollMs: 150, run: () => ({ stdout: out }),
@@ -333,7 +333,7 @@ section("变化监听");
 
 {
   const p = write("watch-kdeglobals", KDE_LIGHT);
-  const seen = [];
+  const seen: ("dark" | "light" | null)[] = [];
   const stop = watchSystemTheme((t) => seen.push(t), { ...base, kdeGlobals: p, gtkInis: [join(ROOT, "none-gtk")], desktop: "KDE" });
   writeFileSync(p, KDE_DARK);
   await sleep(2200);
@@ -355,7 +355,7 @@ section("变化监听");
   mkdirSync(dir, { recursive: true });
   const css = join(dir, "noctalia.css");
   writeFileSync(css, "@define-color window_bg_color #211d20;\n");
-  const seen = [];
+  const seen: ("dark" | "light" | null)[] = [];
   const stop = watchSystemTheme((t) => seen.push(t), { ...base, gtkCssDirs: [dir] });
   writeFileSync(css, "@define-color window_bg_color #fafaf9;\n"); // 深 → 浅
   await sleep(2200);
@@ -366,7 +366,7 @@ section("变化监听");
 // 只走 gsettings 的变化：文件 mtime 完全不动，只能靠兜底轮询抓
 {
   let scheme = "'prefer-dark'";
-  const seen = [];
+  const seen: ("dark" | "light" | null)[] = [];
 
   const stop = watchSystemTheme((t) => seen.push(t), {
     ...base, run: () => ({ stdout: scheme }), pollMs: 250,

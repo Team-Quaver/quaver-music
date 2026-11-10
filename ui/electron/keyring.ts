@@ -46,8 +46,54 @@ export const STORE_MODES = ["auto", "keyring", "memory"];
 /** [Security] KeyringBackend 的取值（basic = 显式要求 Chromium 那套假加密，会被校验环节否决）。 */
 export const BACKENDS = ["auto", "gnome-libsecret", "kwallet6", "kwallet5", "kwallet", "basic"];
 
-export const normalizeStoreMode = (v) => (STORE_MODES.includes(v) ? v : "auto");
-export const normalizeBackend = (v) => (BACKENDS.includes(v) ? v : "auto");
+export const normalizeStoreMode = (v: string | null | undefined): string => (STORE_MODES.includes(v as string) ? v as string : "auto");
+export const normalizeBackend = (v: string | null | undefined): string => (BACKENDS.includes(v as string) ? v as string : "auto");
+
+// —— 注入面类型 ——
+
+/** Electron safeStorage 的子集（单测注入假对象，零 Electron 也能跑）。 */
+export interface SafeStorageLike {
+  isEncryptionAvailable(): boolean;
+  getSelectedStorageBackend?(): string;
+  encryptString(plain: string): Buffer;
+  decryptString(cipher: Buffer): string;
+}
+
+/** 能力探测子集：evaluateKeyring 只读这两项，加解密归 CredentialStore。 */
+type SafeStorageProbe = Pick<SafeStorageLike, "isEncryptionAvailable"> & Partial<Pick<SafeStorageLike, "getSelectedStorageBackend">>;
+
+/** pickPasswordStore / evaluateKeyring 的结论：persist 决定落不落盘，backend 记账用。 */
+export interface KeyringPlan {
+  persist: string;
+  backend: string;
+  reason: string;
+}
+
+/** probeKeyrings 的可注入 IO。 */
+interface ProbeIo {
+  procDir?: string;
+  exists?: (p: string) => boolean;
+  readDir?: (p: string) => string[];
+  readFile?: (p: string) => string;
+  home?: string;
+}
+
+/** pickPasswordStore 的入参。 */
+interface PickIo {
+  platform?: NodeJS.Platform;
+  env?: Record<string, string | undefined>;
+  backend?: string;
+  // 注入的探测结果允许只给关心的几项（其余按 false 处理）
+  probe?: Partial<ReturnType<typeof probeKeyrings>>;
+}
+
+/** evaluateKeyring 的入参。 */
+interface EvaluateIo {
+  platform?: NodeJS.Platform;
+  safeStorage?: SafeStorageProbe | null;
+  requested?: string;
+  mode?: string;
+}
 
 // —— 一、钉开关：ready 之前决定 Chromium 用哪个密钥后端 ——
 
@@ -55,16 +101,16 @@ export const normalizeBackend = (v) => (BACKENDS.includes(v) ? v : "auto");
  * 从进程表 / 用户数据目录做**保守探测**：有没有在跑的密钥环守护进程、有没有用过钱包。
  * 读不到 /proc 的平台（Windows/macOS）或权限不足时全部返回 false，不抛。
  */
-export function probeKeyrings(io = {}) {
+export function probeKeyrings(io: ProbeIo = {}) {
   const {
     procDir = "/proc",
     exists = existsSync,
     readDir = readdirSync,
-    readFile = (p) => readFileSync(p, "utf8"),
+    readFile = (p: string) => readFileSync(p, "utf8"),
     home = homedir(),
   } = io;
 
-  const names = new Set();
+  const names = new Set<string>();
 
   try {
     for (const entry of readDir(procDir)) {
@@ -78,7 +124,7 @@ export function probeKeyrings(io = {}) {
 
   // KWallet 的钱包库（~/.local/share/kwalletd/*.kwl）/ gnome-keyring 的 keyring 目录：
   // 有目录 = 这台机器真用过这套，比「有没有装包」更接近事实。
-  const has = (p) => { try { return exists(p); } catch { return false; } };
+  const has = (p: string) => { try { return exists(p); } catch { return false; } };
 
   return {
     kwallet6: names.has("kwalletd6"),
@@ -100,7 +146,7 @@ const LIBSECRET_DESKTOPS = [
  * 决定 --password-store 的取值（拿不定注意就返回 null 交给 Chromium 自己认）。
  * 注意：**只在 Linux 有意义**；Windows（DPAPI）/macOS（钥匙串）没有这个开关。
  */
-export function pickPasswordStore({ platform = process.platform, env = process.env, backend = "auto", probe } = {}) {
+export function pickPasswordStore({ platform = process.platform, env = process.env, backend = "auto", probe }: PickIo = {}) {
   const want = normalizeBackend(backend);
 
   if (platform !== "linux") {
@@ -148,10 +194,10 @@ export function pickPasswordStore({ platform = process.platform, env = process.e
  *   persist = keyring（真密钥环）/ memory（拿不到就只在内存里，绝不退明文）
  * sidecar 永远走「父进程交接、自己不落盘」那套 —— 与 persist 无关，所以这里不用再说一遍。
  */
-export function evaluateKeyring({ platform = process.platform, safeStorage, requested = "auto", mode = "auto" } = {}) {
+export function evaluateKeyring({ platform = process.platform, safeStorage, requested = "auto", mode = "auto" }: EvaluateIo = {}) {
   const want = normalizeStoreMode(mode);
   const ask = normalizeBackend(requested);
-  const memory = (reason, backend = "none") => ({ persist: "memory", backend, reason });
+  const memory = (reason: string, backend = "none") => ({ persist: "memory", backend, reason });
 
   if (want === "memory") return memory("配置指定 CredentialStore=memory（凭证只驻内存，不落盘）");
 
@@ -189,9 +235,9 @@ export function evaluateKeyring({ platform = process.platform, safeStorage, requ
 // —— 二、密文存档 ——
 
 /** 凭证必须是普通对象（数组/字符串/null 都不算）。 */
-const isPlainObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+const isPlainObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
-function writeAtomic(file, data) {
+function writeAtomic(file: string, data: Buffer | string) {
   const dir = dirname(file);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = join(dir, `.${basename(file)}.${process.pid}.tmp`);
@@ -211,7 +257,13 @@ function writeAtomic(file, data) {
  * （凭证只在进程内存里活着，关掉即丢）。
  */
 export class CredentialStore {
-  constructor({ dir, safeStorage, plan, log = () => {}, storeName = STORE_NAME }) {
+  declare dir: string;
+  declare safeStorage: SafeStorageLike;
+  declare plan: KeyringPlan;
+  declare log: (...args: unknown[]) => void;
+  declare file: string;
+  declare legacy: string;
+  constructor({ dir, safeStorage, plan, log = () => {}, storeName = STORE_NAME }: { dir: string; safeStorage: SafeStorageLike; plan: KeyringPlan; log?: (...args: unknown[]) => void; storeName?: string }) {
     this.dir = dir;
     this.safeStorage = safeStorage;
     this.plan = plan;
@@ -237,7 +289,7 @@ export class CredentialStore {
   /** 读回凭证。解不开/解析失败都返回 null（**不删存档**：可能只是这次没拿到钥匙）。 */
   read() {
     if (!this.usable) return null;
-    let blob;
+    let blob: Buffer;
 
     try {
       blob = readFileSync(this.file);
@@ -260,7 +312,7 @@ export class CredentialStore {
   }
 
   /** 写凭证（原子写 + 0600）。失败返回 false 并记账，不抛。 */
-  write(cred) {
+  write(cred: unknown) {
     if (!this.usable) return false;
 
     if (!isPlainObject(cred)) return false;
@@ -284,7 +336,7 @@ export class CredentialStore {
 
       return true;
     } catch (e) {
-      if (e?.code === "ENOENT") return true;
+      if ((e as NodeJS.ErrnoException)?.code === "ENOENT") return true;
       this.log("[quaver] 凭证存档删除失败:", String(e));
 
       return false;
@@ -293,7 +345,7 @@ export class CredentialStore {
 
   /** 明文 mtime / 存档 mtime（都不存在则 0）。 */
   _mtimes() {
-    const at = (p) => { try { return statSync(p).mtimeMs; } catch { return 0; } };
+    const at = (p: string) => { try { return statSync(p).mtimeMs; } catch { return 0; } };
 
     return { legacyAt: at(this.legacy), storeAt: at(this.file) };
   }
@@ -311,9 +363,9 @@ export class CredentialStore {
   }
 
   /** 兼容不同历史文件名的迁移实现；读取、校验、删除始终只作用于传入路径。 */
-  migrateLegacyNamed(legacy, label) {
+  migrateLegacyNamed(legacy: string, label: string) {
     if (!this.usable) return "skipped";
-    let raw;
+    let raw: string;
 
     try {
       raw = readFileSync(legacy, "utf8");
@@ -321,12 +373,12 @@ export class CredentialStore {
       return "none";
     }
 
-    const at = (p) => { try { return statSync(p).mtimeMs; } catch { return 0; } };
+    const at = (p: string) => { try { return statSync(p).mtimeMs; } catch { return 0; } };
     const legacyAt = at(legacy);
     const storeAt = at(this.file);
 
     if (storeAt && legacyAt <= storeAt) return "stale";
-    let cred;
+    let cred: Record<string, unknown>;
 
     try {
       cred = JSON.parse(raw.trim() || "null");
@@ -362,12 +414,12 @@ export class CredentialStore {
 // —— 三、与 sidecar 的交接信封 ——
 
 /** 主进程 → sidecar stdin 的一行。credential 为 null 表示「本次没有已存凭证」。 */
-export function encodeHandoff(credential) {
+export function encodeHandoff(credential: unknown) {
   return HANDOFF_PREFIX + (isPlainObject(credential) ? JSON.stringify(credential) : "null") + "\n";
 }
 
 /** 主进程 → sidecar stdin 的微云授权行；auth 为 null 表示未配置。 */
-export function encodeWeiyunHandoff(auth) {
+export function encodeWeiyunHandoff(auth: unknown) {
   const normalized = isPlainObject(auth) && typeof auth.token === "string" && auth.token.trim()
     ? { token: auth.token.trim(), mcpUrl: typeof auth.mcpUrl === "string" ? auth.mcpUrl.trim() : "" }
     : null;
@@ -376,7 +428,7 @@ export function encodeWeiyunHandoff(auth) {
 }
 
 /** sidecar stdout 的一行 → { credential } 或 null（不是交接行的就当普通日志）。 */
-export function decodeHandoff(line) {
+export function decodeHandoff(line: unknown) {
   const text = String(line ?? "");
 
   if (!text.startsWith(HANDOFF_PREFIX)) return null;
@@ -385,7 +437,7 @@ export function decodeHandoff(line) {
   if (body === "null") return { credential: null };
 
   try {
-    const cred = JSON.parse(body);
+    const cred: unknown = JSON.parse(body);
 
     return isPlainObject(cred) ? { credential: cred } : null;
   } catch {
@@ -394,7 +446,7 @@ export function decodeHandoff(line) {
 }
 
 /** sidecar stdout 的一行 → 微云授权（或 null）；普通日志返回 null。 */
-export function decodeWeiyunHandoff(line) {
+export function decodeWeiyunHandoff(line: unknown) {
   const text = String(line ?? "");
 
   if (!text.startsWith(WEIYUN_HANDOFF_PREFIX)) return null;
@@ -403,7 +455,7 @@ export function decodeWeiyunHandoff(line) {
   if (body === "null") return { auth: null };
 
   try {
-    const auth = JSON.parse(body);
+    const auth: unknown = JSON.parse(body);
 
     return isPlainObject(auth) && typeof auth.token === "string" && auth.token.trim()
       ? { auth: { token: auth.token.trim(), mcpUrl: typeof auth.mcpUrl === "string" ? auth.mcpUrl.trim() : "" } }
@@ -414,15 +466,15 @@ export function decodeWeiyunHandoff(line) {
 }
 
 /** 记账用的凭证摘要 —— 日志里只允许出现这个：**一个字符都不暴露**，只报长度。 */
-export function credentialSummary(cred) {
+export function credentialSummary(cred: unknown) {
   if (!isPlainObject(cred)) return "无凭证";
-  const len = (v) => (v ? String(v).length : 0);
+  const len = (v: unknown) => (v ? String(v).length : 0);
 
   return `musicid=${cred.musicid || "-"} musickey(${len(cred.musickey)}字符) refresh_token(${len(cred.refresh_token)}字符)`;
 }
 
 /** 按行切分 stdout 缓冲：返回 { lines, rest }。sidecar 输出可能被任意切断，必须自己攒行。 */
-export function drainLines(buf, chunk) {
+export function drainLines(buf: string, chunk: unknown) {
   const text = buf + String(chunk ?? "");
   const parts = text.split("\n");
   const rest = parts.pop() ?? "";

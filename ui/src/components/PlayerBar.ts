@@ -82,6 +82,17 @@ export function PlayerBar(): HTMLElement {
   };
 
   cover.onclick = toggleExpand;
+  // 右键封面 = 当前曲的快捷菜单（跳转歌手/专辑/来源歌单、复制、同名搜索）。
+  // 菜单实现留在 SongMenu（与歌曲行右键共用同一套自绘面板），这里动态 import ——
+  // 那一块带着本地/微云导入等重依赖，不该为一次右键把它钉进首屏闭包。
+  cover.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const song = player.current;
+
+    if (!song) return;
+    void import("./SongMenu").then((m) => m.openPlayerCoverMenu(e.clientX, e.clientY, song, cover));
+  });
 
   prev.onclick = () => player.prev();
   // replay 档：单击重放当前曲（click 已处理），双击跳到队列里的上一首 —— 双击的头一击已 seek(0)，跳走前听不出痕迹；

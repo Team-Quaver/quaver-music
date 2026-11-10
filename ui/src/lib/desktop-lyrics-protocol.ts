@@ -49,6 +49,8 @@ export interface DlSyncPayload {
   /** 当前后端对应的歌词时钟补偿（毫秒）；缺省时覆盖层回落 CLOCK_COMP_MS。 */
   clockCompMs?: number;
   playing: boolean;
+  /** 播放中但还没真出声（预缓冲/网络卡顿）：覆盖层只许停在快照位置，不许外推。 */
+  buffering?: boolean;
   /** 当前曲「歌词延迟」（毫秒，正=歌词延后）；覆盖层的 −/+ 遥控最终也回这里取数 */
   delayMs: number;
   durationSec: number;
@@ -61,7 +63,7 @@ export interface DlStateSnapshot {
   enabled: boolean;
   /** 当前是否已经固定并让鼠标透穿 */
   locked: boolean;
-  /** 当前会话是否开放该档（macOS / Windows / X11）；Wayland 为 false */
+  /** 当前窗口后端是否开放该档（macOS / Windows / X11，含 XWayland）；原生 Wayland 为 false */
   canLock: boolean;
 }
 
