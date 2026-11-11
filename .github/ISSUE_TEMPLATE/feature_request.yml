@@ -1,0 +1,62 @@
+name: 功能请求
+description: 提出新功能或改进建议
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你的建议！请描述你希望解决的问题，以及期望的功能表现。
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 需求简述
+      description: 用一两句话概括你希望增加或改进的功能。
+      placeholder: 例如：希望播放页支持自定义背景模糊强度。
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 使用场景 / 痛点
+      description: 这个功能能解决什么问题？请描述你的使用场景。
+      placeholder: 例如：当前背景模糊强度固定，夜间使用时觉得画面太亮。
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: 期望方案
+      description: 你希望这个功能如何工作？
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 替代方案
+      description: 你考虑过的其他做法或临时解决方案。
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: 备注
+      description: 其他补充信息，例如参考应用、截图、草图等。
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: duplicate_check
+    attributes:
+      label: 重复检查
+      options:
+        - label: 我已搜索现有 Issue，确认该功能请求未被重复提出。
+          required: true
+    validations:
+      required: true

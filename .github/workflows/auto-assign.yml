@@ -1,0 +1,39 @@
+# Quaver — 新建 Issue / PR 时自动指派给维护者
+#
+# Issue 模板的 assignees 只对「通过模板创建」的 Issue 生效，blank issue 管不到；
+# PR 模板本身也没有指派能力。这里统一用 issues / pull_request_target 事件处理。
+# 安全前提：不 checkout 任何代码，只按事件里的编号调用 gh 添加 assignee。
+name: Auto assign
+
+on:
+  issues:
+    types: [opened]
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  assign:
+    name: 自动指派
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Assign to maintainer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          ASSIGNEE: Ne0W0r1d
+        run: |
+          set -euo pipefail
+          if [ -z "$NUMBER" ]; then
+            echo "无法确定 Issue/PR 编号，跳过。" >&2
+            exit 0
+          fi
+          if [ "$GITHUB_EVENT_NAME" = "issues" ]; then
+            gh issue edit "$NUMBER" -R "$REPO" --add-assignee "$ASSIGNEE"
+          else
+            gh pr edit "$NUMBER" -R "$REPO" --add-assignee "$ASSIGNEE"
+          fi
