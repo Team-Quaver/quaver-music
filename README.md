@@ -109,16 +109,16 @@ z：修补版本号
 | --- | --- | --- | --- |
 | v0.x.x | Neon |  | Prototype |
 | v1.0.0 | Ellen | Chisa | Stable |
-| v1.0.x | Ellen | Chisa | Stable |
-| v1.1.0 | Ellen | Cyrene | Stable |
-| v1.2.0 | Ellen | Phoebe | Stable |
-| v1.2.0 |  Evanescia|   **自该版本开始，不存在副开发代号**| Stable |
-| v1.4.0 |  Aemeath|  | Stable |
-| v1.5.0 |  Herta|  | Stable |
-| v1.6.0 |  Denia|  | Stable |
-| v1.7.0 |  FireFly|  |  Stable|
-| v1.8.0 |  Jinhsi|  |  Stable|
-|  v2.0.0|  Acheron|  |  Next|
+| v1.0.z | Ellen | Chisa | Stable |
+| v1.1.z | Ellen | Cyrene | Stable |
+| v1.2.z | Ellen | Phoebe | Stable |
+| v1.3.z |  Evanescia|   **自该版本开始，不存在副开发代号**| Stable |
+| v1.4.z |  Aemeath|  | Stable |
+| v1.5.z |  Herta|  | Stable |
+| v1.6.z |  Denia|  | Stable |
+| v1.7.z |  FireFly|  |  Stable|
+| v1.8.z |  Jinhsi|  |  Stable|
+|  v2.0.z|  Acheron|  |  Next|
 
 
 > PatchX：修复包版本 
