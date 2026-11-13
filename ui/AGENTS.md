@@ -332,6 +332,23 @@ cd ui && pnpm run app                              # 真出声跑一圈（Linux/
   electron 值导入，verify 直接跑）。Quark EQ 映射：bell/lowShelf/highShelf 直落 Liino 双二阶，
   **LP/HP 目前没有对应实现**，如实报 `dropped` 数并写进回包 note，不许悄悄冒充；bypass =
   `setBypass(true)`，与 mpv 的 `af=""` 同语义（Open 会 Reset DSP 链，load 之后必须重新套 EQ+增益）。
+- **EQ 与音量一样必须在环形缓冲之后**（`vendor/Liino`，重建库才生效）：`DefaultRingFrames`
+  是 **5s**，而 decodeLoop 无节流、全速把 ring 跑满 —— 稳态下缓冲里常年积压约 5 秒**已加工**的
+  音频。EQ 原先跑在生产者侧（`dsp.Pipeline` 内），于是拖推子 / 开关 EQ 只影响新解码的部分，
+  要等这 5 秒放完才听得到，用户报的就是「调 EQ 卡个几秒」。现在 EQ 是消费者侧的
+  `dsp.EQ`（`outEQ`），在 `Player.Read` 里紧挨 `outGain` 之前跑：**音量早先因完全相同的原因
+  搬过一次**（`dsp/gain.go` 里 `AtomicGain` 的注释就是那次修复的记录），别再把它挪回解码路径。
+  参数用**原子指针发布**（`atomic.Pointer[eqBands]` + `atomic.Bool` 旁通 + 计数器请求 Reset），
+  `SetEQ` 因此**不抢 `p.mu`**：那把锁会被设备开关 / 网络 seek 持有，抢它就是让 UI 线程的 FFI
+  同步阻塞（与上一条「FFI 不许把主线程卡住」同源）。滤波记忆由音频线程自己按 Reset 请求清，
+  UI 线程不碰滤波器状态；换曲 / seek / 换设备 / hardStop / reopen 五处都要 `outEQ.Reset()`。
+  `SetBypass` 必须**两侧同时**旁通（生产链 + `outEQ`），否则「真旁通」名不副实。
+  **已知取舍**：`dsp.Meter` 仍在生产链尾，所以 `cmd:"level"` 现在给的是 **EQ 之前**的信号电平
+  （它本来就在 `outGain` 之前、不含音量，是「信号探针」不是「出口表」）。唯一消费方是排障脚本
+  `scripts/probe-liino-level.ts`；EQ 浮窗的频谱走渲染层 WebAudio FFT，不受影响。要做真正的
+  post-EQ 出口表得再搬一个消费者侧 meter，别顺手把这个当 bug 改。
+  验证：`TestPlayerReadAppliesEQToBufferedFrames`（对**已缓冲**帧断言，修复前必红）+
+  `dsp/eq_test.go`（含 `-race` 并发改参）+ `node scripts/verify-liino.ts` 的四条接线断言。
 - Liino 只有原生直出，**没有 mpv 的 PCM 兼容拓扑**（`--ao=pcm` 那条「音频过一遍渲染层」的管道
   在它这里不存在）。**这不等于不能按应用捕获**：Liino 自己开同进程 shared-mode 输出会话，
   正是 OBS/Oopz 那类按应用捕获需要的形态；`captureCompatible` 只表示「无 PCM 兼容拓扑」。

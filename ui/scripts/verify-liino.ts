@@ -113,6 +113,24 @@ ok("实时解码 buffering 按实际拉流恢复，短 seek 不闪转圈",
   /framesPulledSince/.test(src("../vendor/Liino/pipeline.go"))
     && /WAIT_DEBOUNCE_MS/.test(src("src/lib/transport.ts")));
 
+// EQ 与音量同属「消费者侧」：环形缓冲能存 5s 已解码音频，放在它之前的参数改动
+// 要等这段积压放完才听得到 —— 拖推子/开关 EQ 表现为「卡个几秒」。
+ok("EQ 跑在环形缓冲之后（改 EQ / 开关即时生效，不等 5s 积压）",
+  /p\.outEQ\.Process\(dst\[:n\*outCh\], outCh\)\s*\n\s*p\.outGain\.Process/.test(src("../vendor/Liino/pipeline.go"))
+    && !/bq\.Process/.test(src("../vendor/Liino/dsp/pipeline.go"))
+    && /TestPlayerReadAppliesEQToBufferedFrames/.test(src("../vendor/Liino/player_test.go")));
+
+ok("EQ 改参数走原子发布，不抢 p.mu（音频回调与 UI 线程都不互相等）",
+  /target atomic\.Pointer\[eqBands\]/.test(src("../vendor/Liino/dsp/eq.go"))
+    && /func \(p \*Player\) SetEQ\(bands \[\]dsp\.Config\) error \{\s*\n\treturn p\.outEQ\.SetBands\(bands\)/.test(src("../vendor/Liino/liino.go")));
+
+ok("真旁通两侧同时生效（EQ 搬走后 SetBypass 不能只旁通生产链）",
+  /p\.outEQ\.SetBypass\(bypass\)/.test(src("../vendor/Liino/liino.go")));
+
+ok("换曲 / seek / 换设备同时清 EQ 滤波记忆",
+  (src("../vendor/Liino/liino.go").match(/p\.outEQ\.Reset\(\)/g) ?? []).length >= 5,
+  `${(src("../vendor/Liino/liino.go").match(/p\.outEQ\.Reset\(\)/g) ?? []).length} 处`);
+
 ok("初始 start_ms 未落地时 Liino 引擎补一次普通 seek（切档不回到 0）",
   /private maybeResume\(player: LiinoPlayer\)/.test(engine)
     && /this\.resumeAt = startAt > 1 \? startAt : 0/.test(engine)
