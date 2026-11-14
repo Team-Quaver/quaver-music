@@ -10,6 +10,7 @@ import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQu
 // getLastStream 仍由 paintQ 使用（胶囊显示实际已应用档位）
 import { fmtDur } from "../lyric";
 import { icons } from "../lib/icons";
+import { mountSparkleTransportControls } from "../sparkle/transport";
 
 const clamp01 = (f: number) => Math.max(0, Math.min(1, f));
 
@@ -54,6 +55,9 @@ export function PlayerBar(): HTMLElement {
       <button class="pb-btn pb-ghost" id="pb-love" title="收藏" aria-label="收藏">${icons.heart}</button>
       <button class="pb-btn pb-ghost" id="pb-gallery" title="画廊模式" aria-label="画廊模式"></button>
       <button class="pb-btn pb-ghost" id="pb-dl" title="桌面歌词" aria-label="桌面歌词"></button>
+      <!-- Sparkle 走带控件槽：插件注册的控件（一颗按钮 + 浮窗）按 order 插在这里，
+           排在「队列」之前、桌面歌词之后 —— 与音量/音质/收藏同一排工具按钮。 -->
+      <span class="pb-plugins" id="pb-plugins"></span>
       <button class="pb-btn pb-ghost" id="pb-queue" title="播放队列" aria-label="播放队列">${icons.queue}</button>
     </div>
     <!-- 播放模式浮窗：循环三档 + 随机播放（每日一套顺序） -->
@@ -594,6 +598,10 @@ export function PlayerBar(): HTMLElement {
     // 音质浮窗同刻重建：列表只含新歌有源的档位（见 buildQPop）
     if (s?.mid !== lastMarkKey) { lastMarkKey = s?.mid; player.markActive(); buildQPop(); }
   });
+
+  // Sparkle 走带控件：把插件注册的「按钮 + 浮窗」挂进右侧控制簇（订阅注册表变化，
+  // 插件启停即时补挂/摘除）。挂载层自己管按钮/浮窗/越界夹取，播放条只负责给一个槽。
+  mountSparkleTransportControls(el, $("pb-plugins"));
 
   return el;
 }

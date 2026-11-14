@@ -24,6 +24,7 @@ const src = {
   loader: read("src/sparkle/loader.ts"),
   init: read("src/sparkle/init.ts"),
   settings: read("src/sparkle/settings.ts"),
+  settingsView: read("src/views/settings.ts"),
   main: read("src/main.ts"),
   shell: read("src/shell.ts"),
   views: viewsSource(),
@@ -62,6 +63,19 @@ const src = {
   kana: read("src/lyrics/qrc-kana.ts"),
   lyricsBoot: read("src/lyrics/builtin.ts"),
   lyric: read("src/lyric.ts"),
+  playerFacade: read("src/sparkle/player-facade.ts"),
+  transport: read("src/sparkle/transport.ts"),
+  menubar: read("src/sparkle/menubar.ts"),
+  themeTransparent: read("src/sparkle/theme-transparent.ts"),
+  playerBar: read("src/components/PlayerBar.ts"),
+  foliaIdx: read("../vendor/Sparkle/marketplace/folia-visualizer/index.ts"),
+  foliaControl: read("../vendor/Sparkle/marketplace/folia-visualizer/runtime/control.tsx"),
+  foliaLattice: read("../vendor/Sparkle/marketplace/folia-visualizer/runtime/lattice.tsx"),
+  foliaWall: read("../vendor/Sparkle/marketplace/folia-visualizer/runtime/wall.ts"),
+  foliaWallTemplates: read("../vendor/Sparkle/marketplace/folia-visualizer/runtime/wallTemplates.ts"),
+  foliaView: read("../vendor/Sparkle/marketplace/folia-visualizer/runtime/view.tsx"),
+  foliaCss: read("../vendor/Sparkle/marketplace/folia-visualizer/runtime/plugin.css"),
+  foliaMeta: read("../vendor/Sparkle/marketplace/folia-visualizer/plugin.json"),
 };
 
 let checks = 0;
@@ -412,7 +426,7 @@ ok("spectrum: 挂载在播放条上方、跟随窗口缩放且整页接管时让
 
 ok("spectrum: 矮窗收缩封面列，频谱与音质胶囊不相交", re(noComments(src.spectrumCss), /@media \(max-height: 640px\)\s*\{\s*\.np\.spectrum-on \.np-cover-wrap\s*\{\s*width: min\(240px, 28vh\);/));
 
-ok("host: 频谱模式注册接到 registry，播放器门面透传数据", has(src.host, "registerNowPlayingSpectrumMode") && has(src.host, "sparkRegisterNpSpectrumMode") && has(src.host, "spectrum: () => spectrumFacade.frame()"));
+ok("host: 频谱模式注册接到 registry，播放器门面透传数据", has(src.host, "registerNowPlayingSpectrumMode") && has(src.host, "sparkRegisterNpSpectrumMode") && has(src.playerFacade, "spectrum: () => spectrumFacade.frame()") && has(src.host, 'from "./player-facade"'));
 
 ok("guide: 作者指南写明频谱数据透传 + 插件注册新形态", has(src.guide, "registerNowPlayingSpectrumMode") && has(src.guide, "ctx.spectrum?.()") && has(src.guide, "bars` / `mirror` / `wave"));
 
@@ -687,6 +701,125 @@ ok("flowscape: storage 走 setup 捕获的模块级引用 + dispose 置 null", r
 ok("flowscape: prefers-reduced-motion 关掉全部动效", re(src.flowIdx, /@media \(prefers-reduced-motion: reduce\)/) && re(src.flowIdx, /\.fs-card, \.fs-card \.fs-art\{ transition:none; \}/));
 
 ok("flowscape: 禁选中 + 纵向溢出裁剪", re(src.flowIdx, /\.fs-root, \.fs-root \*\{[^}]*user-select:none/) && re(noComments(src.flowIdx), /\.fs-root\{[\s\S]{0,400}?min-height:0; overflow:hidden;/));
+
+// ============ 9. 走带控件 / 菜单栏 / 主题透明模式 ============
+//
+// 这三条是「把控制面从正在播放页搬到播放条、把插件项放进菜单栏、让主题能透明」的契约。
+// 动机（实测）：整页接管视图拿不到传输控制，插件要么自绘一条压在播放条上的控制带（与
+// 宿主控件抢位置），要么把控制塞进设置页（用户找不到）；菜单栏此前只有内置项能参与
+// 排序/显隐，插件项无处安放；透明主题没有宿主配合就只能自己伪造背景。
+
+ok("sdk: 走带控件契约（控件形状 + 浮窗上下文 + ctx 注册点）",
+  has(src.types, "export interface SparkleTransportControl")
+  && has(src.types, "export interface SparkleTransportCtx")
+  && has(src.types, "registerTransportControl(control: SparkleTransportControl)")
+  && has(src.types, "expand(): void")
+  && has(src.types, "collapse(): void"));
+
+ok("sdk: 菜单栏项契约（slot / checked / run + ctx 注册点）",
+  has(src.types, "export interface SparkleMenuBarItem")
+  && has(src.types, 'slot?: "main" | "foot"')
+  && has(src.types, "checked?(): boolean")
+  && has(src.types, "registerMenuBarItem(item: SparkleMenuBarItem)"));
+
+ok("sdk: 主题透明模式声明（transparent + 文档说清宿主只摘画布实底）",
+  has(src.types, "export interface SparkleThemeTransparent")
+  && has(src.types, "transparent?: SparkleThemeTransparent")
+  && has(src.types, 'data-sparkle-transparent="on"'));
+
+ok("registry: 走带控件/菜单栏项各有登记、反注册、读取与 themeOnly 口径",
+  has(src.registry, "export function sparkRegisterTransportControl(")
+  && has(src.registry, "export const sparkleTransportControls")
+  && has(src.registry, "export function sparkRegisterMenuBarItem(")
+  && has(src.registry, "export const sparkleMenuBarItems")
+  && has(src.registry, "!owns(transportControls) && !owns(menuBarItems)"));
+
+ok("host: ctx 暴露 registerTransportControl / registerMenuBarItem",
+  has(src.host, "registerTransportControl: (control) => sparkRegisterTransportControl")
+  && has(src.host, "registerMenuBarItem: (item) => sparkRegisterMenuBarItem"));
+
+ok("transport: 按钮挂右侧控制簇、浮窗挂 body 且首次打开才 render、开合与 Esc",
+  has(src.transport, "export function mountSparkleTransportControls")
+  && has(src.transport, "首次打开才 render")
+  && has(src.transport, "document.body.append(pop)")
+  && has(src.transport, "function place(")
+  && has(src.transport, 'pop.className = "pb-ppop"')
+  && has(src.transport, 'e.key === "Escape"')
+  && has(src.transport, "mounted.rendered")
+  && has(src.transport, "syncBodyFlag"));
+
+ok("transport: ctx 的展开/收起走宿主 player.expanded（不另造一套状态）",
+  has(src.transport, "expanded: () => player.expanded")
+  && has(src.transport, "player.expanded = true;")
+  && has(src.transport, "player.expanded = false;"));
+
+ok("player-bar: 有走带控件槽并真的挂载（排在队列钮之前）",
+  has(src.playerBar, 'id="pb-plugins"')
+  && has(src.playerBar, 'mountSparkleTransportControls(el, $("pb-plugins"))')
+  && src.playerBar.indexOf('id="pb-plugins"') < src.playerBar.indexOf('id="pb-queue"'));
+
+ok("menubar: 主菜单/底部调整区两档 + 用户显隐落 localStorage + 跟随注册表重画",
+  has(src.menubar, "export function paintSparkleMenuBar(")
+  && has(src.menubar, "export function initSparkleMenuBar(")
+  && has(src.menubar, 'entry.item.slot ?? "main"')
+  && has(src.menubar, "setSparkleMenuBarItemHidden")
+  && has(src.menubar, "sparkleMenuBarItemHidden")
+  && has(src.shell, "initSparkleMenuBar()"));
+
+ok("settings: 菜单栏调整区列出插件项（显隐开关）",
+  has(src.settingsView, 'id="sparkle-menubar-edit"')
+  && has(src.settingsView, "sparkleMenuBarEntries()")
+  && has(src.settingsView, "setSparkleMenuBarItemHidden(entry.pluginId, entry.item.id, !cb.checked)"));
+
+ok("theme-transparent: 宿主写 data 属性 + 摘画布实底 + 主题切换时重算",
+  has(src.themeTransparent, 'html[data-sparkle-transparent="on"]')
+  && has(src.themeTransparent, "root.dataset.sparkleTransparent")
+  && has(src.host, "applyThemeTransparent();"));
+
+ok("folia: 正在播放页不再自绘控制条（控制条整条搬去走带控制）",
+  !has(noComments(src.foliaView), "fvr-toolbar")
+  && !has(noComments(src.foliaCss), ".fvr-toolbar")
+  && !has(noComments(src.foliaView), "fvr-picker")
+  && !has(noComments(src.foliaCss), ".fvr-picker"));
+
+ok("folia: 注册走带控件 + 菜单栏入口（舞台 / Lattice / 总开关）",
+  has(src.foliaIdx, "registerTransportControl")
+  && has(src.foliaIdx, "mountFoliaControl")
+  && has(src.foliaIdx, "registerMenuBarItem")
+  && has(src.foliaIdx, 'id: "folia-lattice"')
+  && has(src.foliaIdx, 'id: "folia-stage"')
+  && has(src.foliaIdx, 'id: "folia-toggle"'));
+
+ok("folia: 控制面板按 Folia 选项组织（播放页 / 样式 / 背景 / 字幕 / 静态 / 自动隐藏）",
+  has(src.foliaControl, "FoliaControl")
+  && has(src.foliaControl, "歌词样式")
+  && has(src.foliaControl, "自动隐藏播放条")
+  && has(src.foliaControl, "静态模式")
+  && has(src.foliaControl, "Lattice"));
+
+ok("folia: Lattice 照 Folia 原版（12×8 世界格 + 展开让位 + 卡片就是墙内海报）",
+  has(src.foliaLattice, "LatticeWall")
+  && has(src.foliaLattice, "np.songAt(offset)")
+  && has(src.foliaLattice, "np.jumpTo(queueIndex)")
+  && has(src.foliaLattice, "layoutExpandedBlock")
+  && has(src.foliaWall, "getBlockReflow")
+  && has(src.foliaWall, "getBlockTemplate")
+  && has(src.foliaWallTemplates, "BLOCK_REFLOWS")
+  && has(src.foliaCss, ".fvr-lat-world")
+  && has(src.foliaCss, ".fvr-lat-poster.is-expanded")
+  && has(src.foliaCss, ".fvr-lat-chrome")
+  && has(src.foliaCss, ".fvr-lat-lyrics"));
+
+ok("folia: 交互对齐 Folia（点行跳转 / 空格暂停 / ←→ ±5s / H 隐藏播放条 / 自动隐藏）",
+  has(noComments(src.foliaView), "onLyricLineSeek={onSeek}")
+  && has(noComments(src.foliaView), "np.toggle()")
+  && has(noComments(src.foliaView), "seekBy(-5)")
+  && has(noComments(src.foliaView), "key === 'h'")
+  && has(noComments(src.foliaView), "autoHideChrome")
+  && has(src.foliaCss, "is-idle"));
+
+ok("folia: 插件元数据随新能力升级（1.1.0 / 宿主 2.0.0）",
+  has(src.foliaMeta, '"version": "1.1.0"') && has(src.foliaMeta, '"minHostVersion": "2.0.0"'));
 
 console.log(`\n${checks - fails}/${checks} passed`);
 
