@@ -96,6 +96,27 @@ eq("辅助文本等于原文时不上屏", pickAux({ text: "Same", trans: "Same"
 
 eq("所选一路缺失但另一路存在时仍按行回落", pickAux({ text: "B", trans: "", roma: "Bee" }, "translation"), "Bee");
 
+// 上游翻译源里既有 `//`（真正的「本行无翻译」标记），也有成片的空行（时间戳取自另一版
+// 歌词的行尾，常落在下一行前 0.5s 左右）。空行只该在「确实落在主行上」时占位，否则会
+// 抢走下一行的位置，让真正落在那行的译文无处可去。
+const scaredAux = parseLrc(
+  "[00:38.66]Take me where your monsters hide\n[00:42.28]They don't dance in the daylight\n[00:46.05]Look down you've got me so high",
+  "[00:38.66]带我前往心魔藏匿的角落\n[00:41.59]\n[00:42.28]他们不会在白天四处招摇\n[00:45.35]\n[00:46.05]往下看 你让我兴奋不已",
+);
+
+eq("空行不抢下一行的位置（Scared / SABAI 回归）",
+  scaredAux.map((l) => pickAux(l, "translation")),
+  ["带我前往心魔藏匿的角落", "他们不会在白天四处招摇", "往下看 你让我兴奋不已"]);
+
+const runningAux = parseLrc(
+  "[00:00.30]音乐监制\n[00:00.33]Run and hide",
+  "[00:00.30]//\n[00:00.30]逃吧 躲吧",
+);
+
+eq("同秒占位仍占住名单行、译文落到首句（RUNNING 回归）",
+  runningAux.map((l) => pickAux(l, "translation")),
+  ["", "逃吧 躲吧"]);
+
 // ——— MPRIS asText 序列化（纯文本 / LRC 两档） ———
 section("asText 序列化");
 

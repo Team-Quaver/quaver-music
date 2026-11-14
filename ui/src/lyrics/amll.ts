@@ -163,7 +163,8 @@ function auxLines(src: string): KaraLine[] {
 
 /** 翻译 / 音译各自一对一挂到主歌词行。占位（空串）也参与匹配并占住自己那一行，
  *  匹配规则与行级视图共用 src/lyric.ts:matchAuxLines —— 上游粗粒度时间戳会把名单行与
- *  首句挤在同一秒，顺序分配才能让 `//` 占住名单行、译文落到首句。 */
+ *  首句挤在同一秒，顺序分配才能让 `//` 占住名单行、译文落到首句。空占位只在时间戳
+ *  确实落在主行上时才参与（见 matchAuxLines 里的容差收紧），成片空行不会抢下一行。 */
 function alignAuxField(
   lines: Array<{ startTime: number; translatedLyric?: string; romanLyric?: string }>,
   aux: RawLine[],

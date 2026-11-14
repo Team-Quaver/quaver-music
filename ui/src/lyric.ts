@@ -55,9 +55,15 @@ export function parseTimedAux(src: string): LyricLine[] {
   return parseTimedBlock(src ?? "", true);
 }
 
-/** 辅助行（翻译 / 音译同一套路）一对一挂到主歌词行：按时间就近分配，
- *  **已被占用的主行不再接收下一条辅助行**。显式空占位也参与匹配并占住自己那一行，
- *  所以上一行的翻译不会被借给没有翻译的下一行。
+/** 空占位的容差比例：占位只有在自己的时间戳**确实落在某一主行上**时才参与匹配。
+ *
+ *  上游翻译源里有两类空文本：`//`（明确的「本行没有译文」标记）与成片的空行
+ *  （时间戳取自另一版歌词的行尾，常落在下一行前 0.5s 左右）。若两类都按 1.5s 容差
+ *  抢最近的未占用主行，空行会把**下一行**占走，真正落在那行的译文反而无处可去 ——
+ *  实测 Scared (SABAI)：`[00:41.59]` 空行抢走 `[00:42.28]They don't dance in the daylight`
+ *  的译文，之后 `[00:42.28]他们不会在白天四处招摇` 找不到未占用主行被丢弃。
+ *  占位只需要「同一行」的判定，不该跨行借位，所以收紧到正常容差的 1/10
+ *  （默认容差下即 150ms，秒制与毫秒制同一物理窗口）；非空译文仍用完整容差。
  *
  *  必须是真正的一对一：上游粗粒度时间戳会把名单行与首句挤在同一秒（例：翻译源的
  *  `[00:00.30]//` 与 `[00:00.30]逃吧 躲吧` 对应主歌词的「音乐监制」300ms 与首句 303ms）。
@@ -74,8 +80,9 @@ export function matchAuxLines(
   const hits = new Map<number, string>();
 
   for (const line of aux) {
+    const limit = line.text ? tolerance : tolerance * 0.1;
     let best = -1;
-    let bd = tolerance;
+    let bd = limit;
 
     for (let i = 0; i < baseTimes.length; i++) {
       if (used.has(i)) continue;
