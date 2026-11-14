@@ -42,7 +42,11 @@ export const APP_CSP_DIRECTIVES: string[] = [
   // **插件**那两条口子（GitHub  releases 探测、第三方音源的取头字节探测 streaminfo）。
   // 与 media-src 同宽（音源直链可能是 http）：探测被拦只会降级成「未知采样率」，
   // 但既然播放本身允许这个 URL，没道理让探测差别待。
-  "connect-src 'self' blob: https: http: ws://127.0.0.1:* ws://localhost:*",
+  // data: 是给插件的图片纹理管线留的：Folia 把 lucide 图标 renderToStaticMarkup 成
+  // `data:image/svg+xml,…` 再交给 pixi.Assets.load()，Pixi 内部用 fetch 取它（不是 <img>），
+  // 与 img/media 已放开的 data: 同一类东西 —— 读的是代码自己手里的字符串，没有网络来源，
+  // 也不会把 data: 变成可执行脚本（script-src 仍只有 'self' blob:）。
+  "connect-src 'self' data: blob: https: http: ws://127.0.0.1:* ws://localhost:*",
   // media：<audio> 的播放流。官方链路是同源 /api/stream/…，但 SDK 明确允许插件交出
   // 可直接挂给播放器的绝对 URL（SparkleStreamResult.url），开发态的 fake-audio 还用 data: 占位
   "media-src 'self' blob: data: https: http:",

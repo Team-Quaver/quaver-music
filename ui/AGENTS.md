@@ -713,6 +713,10 @@ WebDAV 客户端在 `electron/local/webdav.ts`（PROPFIND + Range；NAS 走挂�
   同一张页面上，所以 `img/media/connect` 允许远端；但 `script-src` 只有 `'self' blob:` ——
   不开 `unsafe-inline`、绝不开 `unsafe-eval`（`blob:` 只服务于装本地插件前先执行一遍读元数据）。
   于是 innerHTML 里混进来的 `<script>` / `onclick=` / `eval()` 一律失效。
+- `connect-src` 额外放行 `data:`：Folia 把 lucide 图标 `renderToStaticMarkup` 成
+  `data:image/svg+xml,…` 交给 `pixi.Assets.load()`，Pixi 内部走的是 `fetch`（不是 `<img>`），
+  只放开 `img-src` 的 `data:` 救不了它。data: 读的是代码自己手里的字符串、没有网络来源，
+  也不会变成可执行脚本（`script-src` 依旧只有 `'self' blob:`）。
 - **因为 script-src 不开内联，页面里不许有内联 `<script>`**：八个入口的薄跳转层已挪成
   `public/redirect.js`（路由名走标签上的 `data-route`）。往 html 里加内联脚本 = 那段代码静默失效。
 - `app.session` 在 Electron 44 已经不存在（实测是 undefined，钩子被守卫静默吞掉、警告照旧），

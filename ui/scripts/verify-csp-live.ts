@@ -94,6 +94,23 @@ try {
     await page.evaluate(() => !!document.querySelector("#now-playing, .np, .content-top")));
   check("首屏没有 CSP 违规", violations().length === 0, violations().join(" | "));
 
+  section("数据纹理：SVG data URL 的 fetch 不被 connect-src 拦（Folia · Pixi 图标路径）");
+
+  // Folia 把 lucide 图标拼成 data:image/svg+xml 交给 pixi.Assets.load()，Pixi 内部是 fetch
+  // 而不是 <img> —— img-src 放开 data: 救不了它，connect-src 也必须放行。
+  const dataFetch = await page.evaluate(async () => {
+    try {
+      const res = await fetch("data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E");
+
+      return res.ok && (await res.text()).startsWith("<svg");
+    } catch {
+      return false;
+    }
+  });
+
+  check("fetch(data:image/svg+xml,…) 成功", dataFetch);
+  check("data: fetch 没有留下违规记录", violations().length === 0, violations().join(" | "));
+
   section("官方插件 chunk：运行期动态 import 走的是同源 script-src 'self'");
   await page.waitForFunction(() => (window as any).__quaverSparkleProbe !== undefined || document.title !== "", { timeout: 2000 }).catch(() => {});
   await new Promise((r) => setTimeout(r, 2500)); // 插件注册是异步的，给它一点时间

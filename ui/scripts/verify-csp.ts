@@ -75,6 +75,9 @@ check("img/media 放开远端（封面外链与插件音源直链都在这张页
 check("connect 覆盖同源 /api 中继与远端 https（更新检查、插件源探测）",
   directives["connect-src"].includes("'self'") && directives["connect-src"].includes("https:"));
 
+check("connect 允许 data:（Folia 的 Pixi 图标纹理是 fetch(data:image/svg+xml,…)，不是 <img>）",
+  directives["connect-src"].includes("data:"));
+
 eq("object-src 关死", directives["object-src"], ["'none'"]);
 
 eq("frame-ancestors 关死（本窗不许被别人嵌走当钓鱼画布）", directives["frame-ancestors"], ["'none'"]);
