@@ -14,6 +14,7 @@ import { cfg } from "./lib/config";
 import { NAV_ITEMS, NAV_DEFAULT_ORDER } from "./lib/nav-items";
 import { bindHResizer } from "./lib/resizer";
 import { sparkleSonglistGroups } from "./sparkle/registry";
+import { initSparkleMenuBar } from "./sparkle/menubar";
 import type { SparkleNavItem } from "@quaver/sparkle";
 import { player, type Song } from "./player";
 import { PlayerBar } from "./components/PlayerBar";
@@ -226,6 +227,9 @@ export function bootShell() {
   state.content = frame.querySelector<HTMLElement>(".content")!;
   state.route = frame.querySelector<HTMLElement>("#route")!;
   bootNavLayout(); // 侧栏主菜单按用户布局（顺序 / 显隐）注入，必须在首轮 renderRoute 之前
+  // 插件注册的菜单栏选项/动作（Sparkle registerMenuBarItem）：侧栏 DOM 就位后开始订阅，
+  // 之后插件 enable 注册即补挂；设置页的「菜单栏调整区」按同一份注册表列项。
+  initSparkleMenuBar();
 
   // —— 侧栏宽度：可拖拽（侧栏与内容区接缝处的分隔条），持久化在 Window.SidebarWidth。
   //    宽度走 <body> 上的 --side-w 变量驱动 .sidebar 的 flex-basis（缩态 64px 由

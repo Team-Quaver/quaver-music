@@ -284,6 +284,43 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
   全都回不到滑杆上 —— 条与读数冻在聚焦那一刻的值，声音明明在变。松手立刻回写播放器真值，
   别留「拖中滚过轮」的那一截差（94 vs 98 那种假读数）。
 - 验证：`pnpm run verify:volume-bar`（源码接线 + 反向自证 + 活体：两种形态 × 六档尺寸的锚点与
+## Sparkle 插件接入点（走带控件 / 菜单栏项 / 主题透明）
+
+三条宿主扩展点，契约在 `vendor/Sparkle/sdk/types.ts`，作者文档在
+`vendor/Sparkle/docs/plugin-author-guide.md`（第 9 节由 `verify:sparkle` 钉住）：
+
+- **走带控件**（`registerTransportControl`）：插件在播放条右侧控制簇（`.pb-right` 里的 `#pb-plugins` 槽）
+  挂一颗按钮 + 浮窗。挂载层 `src/sparkle/transport.ts` 负责按钮、锚点、开合、点外关闭、Esc 与
+  越界夹取；浮窗**首次打开才 render**，之后常驻（开合不重建 DOM）。浮窗 CSS 由该模块运行时注入
+  （`#sparkle-transport-css`）—— PlayerBar 在首屏静态闭包里，style.css 的 84KB 预算只剩几 KB，
+  不给「没人注册控件」的用户付这份字节。
+  **浮窗挂 `document.body`，不挂播放条**（与 `.ctx-menu` / `.qtip` / `.nav-more-pop` 同一套路）：
+  播放条整条是拖拽 seek 热区、又会随 np 接管/自动隐藏做 opacity/transform，浮窗留在里面会被
+  当进度拖动、被裁切、跟条一起消失。坐标在打开时按按钮矩形算一次（`left/bottom/maxHeight`），
+  窗口 resize 时重算；开合状态用 `body.sparkle-pop-open` 广播，插件的自动隐藏据此避让。
+- **菜单栏项**（`registerMenuBarItem`）：`slot: "main"` 进 `.nav`（排在内置项与插件路由项之后、
+  「更多」之前），`slot: "foot"` 进 `.side-foot`（设置齿轮之前）。渲染层 `src/sparkle/menubar.ts`
+  复用 `.nav a` / `.side-btn` 的既有样式（缩态收字、竖排、按压反馈都自动一致），`checked()` 决定
+  勾选态；用户逐项显隐记在 localStorage 的隐藏名单里，设置页 外观 → 菜单栏 的「插件选项」调整区
+  读写同一份（`settings.ts` 的 `sparkle-menubar-edit`），停用插件即项与那一行一起消失。
+- **主题透明模式**（`SparkleTheme.transparent`）：`mode: "on"` 时 `src/sparkle/theme-transparent.ts`
+  写 `html[data-sparkle-transparent="on"]` 并注入基础规则（摘掉 `html` / `body` / `.frame` 等画布实底），
+  让环境背景层（`lib/ambient.ts`）成为可见下层；面板透明度全由主题自己的 CSS 决定。**这只是页面画布
+  透明**，不是 Electron 窗口透明（窗口创建参数不在这个扩展点范围）。切换主题 / 停用插件时
+  `host.ts:applySparkleTheme` 末尾重算，与 tint / background / menus / controlBar / playlistMode 同一口径。
+
+plugin 侧参考实现是 `vendor/Sparkle/marketplace/folia-visualizer`：正在播放页不再自绘控制条，
+控制面板挂走带浮窗（`runtime/control.tsx`），Lattice 队列海报墙是同一接管视图的第二面
+（`runtime/lattice.tsx`）—— 世界格、让位表与几何直接取自 Folia（`runtime/wallTemplates.ts`
+= blockTemplates.ts + blockReflows.ts，`runtime/wall.ts` = layout.ts 的队列墙部分）：
+4 套 block template × 4 镜像（`CELL=128 / GAP=8`）、相机 `scale` 0.52/0.64/0.76、队列不够长时
+整格循环重复；**正在播放的那张在墙内原地放大成 6×6 的卡片，同块其余 11 张按 `BLOCK_REFLOWS`
+重新齿轮让位**（不是另浮一张卡），卡片内容是封面铺底 + 左上角标/标题/歌手 + 中间当前歌词行与
+进度点 + 底部播放/进度/打开播放页，其余海报压暗（lights-out）。键盘
+（空格 / ←→ / H / Ctrl+B）与自动隐藏照 Folia 本体。
+`src/sparkle/player-facade.ts` 是播放器只读门面的落点（host 与 transport 共用，避免 transport →
+host → shell → PlayerBar 成环）。
+
 ## Liino 后端（Linux/Windows 默认 · macOS 实验性 · 纯 Go 音频管线）
 
 主进程音频后端有两个：「liino」（Linux/Windows 默认，纯 Go 管线；macOS 为实验性、默认走 MPV）

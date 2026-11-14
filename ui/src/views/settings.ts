@@ -26,6 +26,7 @@ import { checkAndPrompt, getPlatformInfo } from "../lib/updater";
 import { player } from "../player";
 import { sparkActivateTheme, sparkActiveThemeId } from "../sparkle/host";
 import { onSparkleChange, sparkleActiveTheme, sparkleThemes } from "../sparkle/registry";
+import { setSparkleMenuBarItemHidden, sparkleMenuBarEntries, sparkleMenuBarItemHidden } from "../sparkle/menubar";
 import { mountSparklePanel } from "../sparkle/settings";
 import { backgroundPolicyOf, backgroundRendererOf } from "../sparkle/theme-background";
 import { menuGlassPolicyOf } from "../sparkle/theme-menus";
@@ -232,6 +233,16 @@ export default async function settingsView(root: HTMLElement) {
             <span class="nav-edit__hint">拖拽调整顺序；关闭的项目收进侧栏「更多」</span>
           </div>
           <ul class="nav-edit-list" id="nav-edit-list"></ul>
+        </div>
+
+        <!-- 菜单栏调整区 · 插件选项：Sparkle registerMenuBarItem 注册的项（开关/动作）。
+             没有插件注册时整块收掉；显隐记在宿主 localStorage，与侧栏渲染共用一份判定。 -->
+        <div class="nav-edit" id="sparkle-menubar-edit" hidden>
+          <div class="nav-edit__head">
+            <span class="nav-edit__title">插件选项</span>
+            <span class="nav-edit__hint">插件注册到菜单栏的开关/动作；关闭后从侧栏隐藏</span>
+          </div>
+          <ul class="nav-edit-list" id="sparkle-menubar-list"></ul>
         </div>
       </div>
 
@@ -1401,6 +1412,59 @@ export default async function settingsView(root: HTMLElement) {
     navDragId = null;
   });
 
+  // —— 菜单栏调整区 · 插件选项（Sparkle registerMenuBarItem） ——
+  // 列表 = 当前注册的插件项；开关 = 宿主 localStorage 里的显隐名单（与侧栏渲染共用一份判定）。
+  // 插件项自己的勾选/开关状态由插件维护（checked()），这里只给用户「显不显示」的控制权。
+  const sbEditBox = wrap.querySelector<HTMLElement>("#sparkle-menubar-edit")!;
+  const sbEditList = wrap.querySelector<HTMLUListElement>("#sparkle-menubar-list")!;
+
+  const paintSparkleMenuBarEditor = () => {
+    const entries = sparkleMenuBarEntries();
+
+    sbEditBox.hidden = entries.length === 0;
+    sbEditList.replaceChildren();
+
+    for (const entry of entries) {
+      const hidden = sparkleMenuBarItemHidden(entry.pluginId, entry.item.id);
+      const row = document.createElement("li");
+      row.className = "nav-edit-row";
+      row.dataset.sbId = `${entry.pluginId}:${entry.item.id}`;
+
+      if (hidden) row.classList.add("is-hidden");
+
+      const ico = document.createElement("span");
+      ico.className = "nav-edit-ico";
+      ico.innerHTML = entry.item.iconSvg ?? sharedIcons.sparkles;
+
+      const name = document.createElement("span");
+      name.className = "nav-edit-name";
+      name.textContent = entry.item.label + (entry.item.slot === "foot" ? "（侧栏底部）" : "");
+      name.title = entry.item.hint ?? entry.item.label;
+
+      const sw = document.createElement("label");
+      sw.className = "nav-edit-switch";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = !hidden;
+      cb.setAttribute("aria-label", `${entry.item.label}：在菜单栏显示`);
+      const flag = document.createElement("span");
+      flag.className = "nav-edit-flag";
+      flag.textContent = cb.checked ? "显示" : "隐藏";
+      cb.addEventListener("change", () => {
+        setSparkleMenuBarItemHidden(entry.pluginId, entry.item.id, !cb.checked);
+        row.classList.toggle("is-hidden", !cb.checked);
+        flag.textContent = cb.checked ? "显示" : "隐藏";
+      });
+      sw.append(cb, flag);
+
+      row.append(ico, name, sw);
+      sbEditList.append(row);
+    }
+  };
+
+  paintSparkleMenuBarEditor();
+  const offMenuBar = onSparkleChange(paintSparkleMenuBarEditor);
+
   const paintPlaylistModePolicy = () => {
     const policy = playlistModePolicyOf(activeSparkTheme());
     const locked = policy.mode !== "host";
@@ -2079,7 +2143,7 @@ export default async function settingsView(root: HTMLElement) {
   const hotkeysPanel = wrap.querySelector<HTMLElement>('[data-panel="hotkeys"]')!;
   const offHotkeys = mountHotkeysPanel(hotkeysPanel);
 
-  return () => { sticky.off(); offSparkle(); offSparkleThemes(); offHotkeys(); };
+  return () => { sticky.off(); offSparkle(); offSparkleThemes(); offMenuBar(); offHotkeys(); };
 }
 
 // —— 调试：日志页面（壳层 electron-dev.log 尾部；由 relay.ts /api/log 提供） ——

@@ -237,6 +237,10 @@ export function applyNavLayout() {
   syncNavMore(order.filter((id) => hidden.has(id)));
   syncNavMoreActive();
 
+  // 插件菜单栏项（Sparkle registerMenuBarItem）也住在 .nav 里：内置项刚被重插过，
+  // 让挂着的那一层重画一次，保证插件项仍在「更多」之前、顺序稳定。
+  window.dispatchEvent(new Event("quaver:nav-repaint"));
+
   if (!listenersBound) {
     listenersBound = true;
     window.addEventListener("hashchange", () => {
