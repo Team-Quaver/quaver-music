@@ -455,6 +455,11 @@ export function getDecode(): DecodeBackend {
 
   if (v === "Liino") return "Liino";
 
+  // "MPV" 必须显式认识：它是原生直出的配置取值，漏掉这条会落进 defaultBackend()，
+  // 在 Linux/Windows 上直接变回 Liino —— 用户切到 MPV 成功后，设置页的单选和下次
+  // 启动的偏好读回都会弹回 Liino（引擎其实已经切过去了，界面在说反话）。
+  if (v === "MPV") return "MPV";
+
   return defaultBackend();
 }
 

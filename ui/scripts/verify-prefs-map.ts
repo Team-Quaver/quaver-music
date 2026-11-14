@@ -599,6 +599,10 @@ await reload({ "Playing.Backend": "Liino" });
 
 eq("Liino → 实验性原生模式", P.getDecode(), "Liino");
 
+await reload({ "Playing.Backend": "MPV" });
+
+eq("MPV → 原生直出（不被默认后端顶成 Liino）", P.getDecode(), "MPV");
+
 await reload({ "Playing.Backend": "mpv" });
 
 eq("大小写不符的取值回落 Liino", P.getDecode(), "Liino");

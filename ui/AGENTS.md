@@ -370,6 +370,13 @@ cd ui && pnpm run app                              # 真出声跑一圈（Linux/
   （`decode/native/native.go:networkAVOptions`，`avopt:*` 仍可逐项顶掉）。任何一处持锁做
   I/O，都会让 Electron 主线程的 `clock()/nextEvent()` 一起冻住：窗口还在画、没声、切后端也像死了。
   输出设备 ID 的 `FindDevice` 同时接受带/不带驱动前缀的写法（`pipewire/default`）。
+- **输出周期是 1024 帧（21ms），别退回 5ms**：Liino 的 `PeriodFrames` 不是「驱动建议粒度」，
+  而是**每次 callback 往 PipeWire 队列里放的帧数**。实测 240 帧（5ms）时图在一个 21ms 周期里
+  要回调四次，客户端队列只有 5ms 余量：宿主进程（Electron + Go 同进程）任何一次调度延迟都会
+  让图断粮，听感就是高负载下「播几秒卡一下 / 电流声」。1024 帧与系统默认 quantum 对齐，一次
+  回调填满一个周期（21ms 余量）；经 rate conversion 的系统（44.1k 输出）按周期时长换算后仍是
+  一个周期。低延迟图给的小 buffer 由 `pwBufferView.refresh` **夹到容量**，不许再硬报
+  `ErrFrameOverflow`（旧实现会直接判死整条流）。
 - 「播放中 seek 到贴尾」是 native 上游的独立问题（重排缓冲后 underrun 不恢复），归
   vendor/Liino；引擎只用 `load(startAt)` 语义换镜头位置。
 - **断点续播要「声音和时钟一起到」**：WMF 以前把「时长未知」当成不可 seek（HTTP 源刚 open 时

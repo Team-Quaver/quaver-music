@@ -86,9 +86,11 @@ function sessionConfig(device: string, eq: LiinoEqPlan) {
     // 安全限幅会把 F32 软削成非零底噪；正常流交给 0dBFS 防爆音，不开它。
     limiter: false,
     eq: eq.bands,
-    // PipeWire 的 quantum 会跟随会话设置；显式 5ms period 仍交给驱动建议值，
-    // 但 ring/preroll 提高到 ≥200ms，避免 Easy Effects 这类复杂图里 1 quantum(21ms)
-    // 的瞬时消耗把 50ms preroll 打穿，造成“状态在走但输出全是静音”。
+    // 输出周期不在这里指定：vendor 默认 1024 帧（21ms，一个 PipeWire quantum）。
+    // 别再显式写回 5ms —— 那会把客户端队列压到只有一个 5ms chunk 的余量，宿主进程
+    // 一忙就断粮（高负载下的卡顿/电流声）。ring/preroll 也提高到 ≥200ms，避免
+    // Easy Effects 这类复杂图里一个 quantum 的瞬时消耗把 preroll 打穿，造成
+    // “状态在走但输出全是静音”。
     preroll_ms: 200,
   };
 }
