@@ -37,6 +37,7 @@ body:
       description: 选择你实际使用的版本（Tag）。如果列表中没有对应版本，请选择「其他（手动填写）」，并在下一项补充。
       options:
         # >>> auto-generated-options (refresh-issue-versions 维护，勿手改) >>>
+        - v2.0.1
         - v2.0.0-beta.3
         - v2.0.0-beta.2
         - v2.0.0-beta.1
@@ -86,7 +87,6 @@ body:
         - v1.2.2
         - v1.2.1
         - v1.2.0
-        - v1.1.2
         # <<< auto-generated-options <<<
         - 其他（手动填写）
     validations:
