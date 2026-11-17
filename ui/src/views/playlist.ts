@@ -2,8 +2,11 @@
 import { songListTools } from "../components/ListTools";
 import { upPic } from "../lib/api";
 import { getMyMusicid, loadFavSonglists } from "../lib/favs";
-import { getCachedSonglist, loadSonglistDetail, noteSonglistWrite, onSonglistChange, syncSonglistSoon } from "../lib/songlist-detail";
+import { icons } from "../lib/icons";
+import { getCachedSonglist, loadSonglistDetail, noteSonglistOrder, noteSonglistWrite, onSonglistChange, syncSonglistSoon } from "../lib/songlist-detail";
 import type { SonglistDetail } from "../lib/songlist-detail";
+import { reorderSonglist } from "../lib/playlists";
+import { bindSonglistReorder, songlistReorderActive } from "../lib/songlist-reorder";
 import { renderSongRows, renumberRows } from "../lib/songs";
 import type { RowHooks } from "../lib/songs";
 import { player } from "../player";
@@ -76,6 +79,10 @@ export default async function playlistView(root: HTMLElement, q: URLSearchParams
 
   // 工具条（本地搜索 + 排序）：控件靠右。实现见 components/ListTools.ts
   // all 恒为服务端原序（orderlist = 加入歌单的时间），工具条只读它，排序作用在副本上。
+  // 重排把手只在「自有歌单 + 默认序 + 无搜索」出现（own 在下方异步判定，画行时现问）。
+  let own = false;
+  const reorderOn = () => own && tools.plain();
+
   const tools = songListTools({
     source: () => all,
     hint: "在歌单内搜索",
@@ -100,7 +107,44 @@ export default async function playlistView(root: HTMLElement, q: URLSearchParams
   // 右键菜单的「从歌单删除」只给自有歌单（写接口要 dirid，读详情用 disstid —— 两者不同源）
   const metaEl = head.querySelector<HTMLElement>(".pl-meta");
   const myId = await getMyMusicid().catch(() => null);
-  const own = !!myId && Number(info?.creator?.musicid) === myId && Number(info?.dirid) > 0;
+  own = !!myId && Number(info?.creator?.musicid) === myId && Number(info?.dirid) > 0;
+
+  // —— 拖拽重排（仅自有歌单；机制见 lib/songlist-reorder.ts）——
+  // 提交 = 整单新顺序写上游（SeqSonglist）；成功乐观改序 + 庇护回源，失败按旧序整表回滚。
+  const offReorder = bindSonglistReorder({
+    box: rows,
+    scroller: rows.closest<HTMLElement>(".route") ?? rows,
+    enabled: reorderOn,
+    source: () => all,
+    submit: async (ordered) => {
+      await reorderSonglist({ dirid: Number(info?.dirid ?? 0), tid: Number(info?.id ?? 0) }, ordered);
+      noteSonglistOrder(id, ordered);
+    },
+    onOrdered: (ordered) => {
+      all = ordered;
+      painted = ordered.slice(); // 默认序态上屏的就是整单：跟进逻辑据此判定已自洽
+      player.markActive();
+    },
+    onAbort: () => tools.repaint(),
+    onRollback: () => tools.repaint(),
+  });
+
+  cleanups.push(offReorder);
+  // 筛排态切换 → 把手显隐即时跟随（进搜索/排序摘把手，回默认序装回来；不整表重画）
+  const gripHtml = `<span class="row-grip" title="拖动调整歌单顺序" aria-hidden="true">${icons.grip}</span>`;
+
+  const syncGrips = () => {
+    const on = reorderOn();
+
+    for (const row of rows.querySelectorAll<HTMLElement>(".row[data-songkey]")) {
+      const grip = row.querySelector<HTMLElement>(".row-grip");
+
+      if (on && !grip) row.insertAdjacentHTML("afterbegin", gripHtml);
+      else if (!on && grip) grip.remove();
+    }
+  };
+
+  cleanups.push(tools.onState(syncGrips));
 
   // —— 打开中的本页跟着数据走（与 likedView 同一套） ——
   let painted: Song[] = []; // 最近一次上屏的序列（筛排后的副本）：列表级重画只在与缓存不一致时发生
@@ -148,10 +192,13 @@ export default async function playlistView(root: HTMLElement, q: URLSearchParams
     const cur = getCachedSonglist(id);
 
     if (!cur || sameMids(painted, cur.songs)) return;
+
+    if (songlistReorderActive(rows)) return; // 拖拽中不整表重画（被拖行会连节点被换掉）；松手提交后自然对上
+
     setTimeout(() => {
       const now = getCachedSonglist(id);
 
-      if (!now || sameMids(painted, now.songs) || rows.querySelector(".row.leaving")) return;
+      if (!now || sameMids(painted, now.songs) || rows.querySelector(".row.leaving") || songlistReorderActive(rows)) return;
       const nowKeys = new Set(now.songs.map(keyOf));
       const paintKeys = new Set(painted.map(keyOf));
       const gone = painted.filter((s) => !nowKeys.has(keyOf(s)));
@@ -166,6 +213,7 @@ export default async function playlistView(root: HTMLElement, q: URLSearchParams
   function hooksFor(): RowHooks {
     return {
       showAlbum: true,
+      reorder: reorderOn(),
       // 双击播的是**当前看到的那一列**（排过序/筛过），不是服务端原序 —— 与眼睛一致
       onPlay: (_s, i, all2) => player.playList(all2, i),
       playlist: {

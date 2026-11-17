@@ -3,6 +3,7 @@
 import { api, coverUrl, escHtml as esc, fmtTime, songSubtitle, songTitle } from "./api";
 import { player } from "../player";
 import { bindSongMenu } from "../components/SongMenu";
+import { icons } from "./icons";
 
 export interface RowHooks {
   onPlay?: (song: any, index: number, all: any[]) => void;
@@ -20,6 +21,9 @@ export interface RowHooks {
   onRemoved?: (song: any) => void;
   /** 隐藏行内红心（本地音乐页：红心是 QQ 侧概念，本地曲目无在线收藏） */
   hideLove?: boolean;
+  /** 歌单重排：给出时行首出现拖拽把手（仅自有歌单 + 默认序 + 无搜索时由视图传入）。
+   *  拖拽机制本体在 lib/songlist-reorder.ts（容器级委托，行上不挂监听）。 */
+  reorder?: boolean;
 }
 
 // —— 行内红心：与 player.loved（单一真相源）同步 ——
@@ -94,6 +98,15 @@ type ListState = {
 
 const listState = new WeakMap<HTMLElement, ListState>();
 
+/** 拖拽刚结束的那一发 click 要吞掉（pointerup 之后浏览器补发；不吞就是「拖完顺手选中/预载」）。
+ *  由 songlist-reorder.ts 在松手时置位、下一拍清零 —— 行交互全走容器委托，这里统一拦。 */
+let suppressRowClick = false;
+
+export function suppressNextRowClick(): void {
+  suppressRowClick = true;
+  setTimeout(() => { suppressRowClick = false; }, 0);
+}
+
 /** 红心点击：先乐观改态并广播，再等在线写接口落定（失败由 player 侧回滚）。 */
 async function loveFromRow(btn: HTMLElement, s: any, hooks: RowHooks) {
   const done = player.toggleLove(s);
@@ -119,6 +132,7 @@ function ensureListState(box: HTMLElement): ListState {
   };
 
   box.addEventListener("click", (e) => {
+    if (suppressRowClick) return;
     // SAFETY: 监听挂在容器上，事件目标必然是 Element（DOM 点击事件的不变量）
     const target = e.target as HTMLElement;
     const hit = hitRow(target);
@@ -157,6 +171,7 @@ function ensureListState(box: HTMLElement): ListState {
   });
 
   box.addEventListener("dblclick", (e) => {
+    if (suppressRowClick) return;
     // SAFETY: 同上，委托到容器的双击事件目标必然是 Element
     const t = e.target as HTMLElement;
 
@@ -215,7 +230,12 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
     const durText = isLocal && !(s.interval > 0) ? "–" : fmtTime(s.interval);
     // 标题 = title（主名 + 版本后缀）；subtitle 是独立的一句话说明，跟在标题后做次级文本
     const sub = songSubtitle(s);
-    row.innerHTML = `<span class="idx">${i + 1}</span>
+
+    const grip = hooks.reorder
+      ? `<span class="row-grip" title="拖动调整歌单顺序" aria-hidden="true">${icons.grip}</span>`
+      : "";
+
+    row.innerHTML = `${grip}<span class="idx">${i + 1}</span>
       ${showCover ? `<span class="rthumb">${pic ? `<img src="${pic}" alt="" loading="lazy"/>` : ""}</span>` : ""}
       <span class="rmeta"><span class="rt" style="display:block">${esc(songTitle(s))}${sub ? `<span class="rt-sub">${esc(sub)}</span>` : ""}</span>${artistLine}${albumLine}</span>
       ${loveBtn}

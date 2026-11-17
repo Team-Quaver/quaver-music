@@ -3,7 +3,7 @@
 // 音频走 Transport 抽象（src/lib/transport.ts）：Linux/Windows 默认 Liino 原生引擎（Electron 壳层），
 // macOS 默认 MPV（Liino 标为实验性），
 // 可选浏览器 <audio> 兜底；曲目/队列/循环/歌词归本层，位置/时长/播放态真相在传输层。
-import { api, postJson, coverUrl, resolveStreamUrl, effectiveQuality, getSessionQuality, setSessionQuality, getLastStream, setLastStream, writeSongType, type StreamResult } from "./lib/api";
+import { api, postJson, coverUrl, resolveStreamUrl, effectiveQuality, getSessionQuality, setSessionQuality, getLastStream, setLastStream, type StreamResult } from "./lib/api";
 import {
   getDecode, setDecode, getAudioDevice, setAudioDevice, setFade, FADE_PRESETS,
   getFadeMs,
@@ -31,6 +31,8 @@ import { PlaybackEndGate } from "./lib/playback-end";
 import type { CloudSongFingerprint } from "./lib/cloud";
 import { findPlaybackFallback, hasPlayableTier, warmPlaybackFallbackSources } from "./lib/playback-fallback";
 import { toast } from "./lib/toast";
+import { applyOrderMark, type OrderMark } from "./lib/order-shelter";
+import { reorderSonglist } from "./lib/playlists";
 
 /** OGG 档位（Vorbis/Opus）：Liino 不捆绑解码器，Windows/macOS 上要靠系统能力。 */
 const OGG_TIERS = new Set(["96ogg", "192ogg", "320ogg", "640ogg", "atmos71"]);
@@ -88,6 +90,10 @@ const LS_KEY = "quaver.loved.v1";
 // 而上游读侧缓存不保证单调（不同分页参数各缓存各的），整单预载可能拿到写之前的旧快照。
 const LS_WRITES_KEY = "quaver.loved.writes.v1";
 
+// 重排庇护（「我喜欢」= dirid 201 的歌单，SeqSonglist 同样适用）：写确认后的整单新顺序
+// 在读侧滞后期内校正所有读路径；跨重载存活，过期同 LOVED_PENDING_TTL。纯逻辑在 order-shelter.ts。
+const LS_LOVED_ORDER_KEY = "{{SECRET_zhrljzxt}}";
+
 // 「我喜欢」(dirid=201) 预载：每页条数 + 总上限（防超大歌单一口气拉爆首屏），
 // 以及预载结果的新鲜期——期内视图直接吃缓存，过期才回源对账。
 // 页尽量大：上游分页读带缓存，跨页拼接偶发「页码错位少一首」，单请求拿全最稳（500 首 ≈ 700KB）。
@@ -96,7 +102,7 @@ const LOVED_MAX = 1000;
 const LOVED_TTL = 60_000;
 
 // 写后增量回源：红心写确认后不做整单分页重载，只拉「最近收藏」一小窗与远端对账。
-// 上游读侧有 1-2s 滞后（见 api.ts writeSongType），故延迟触发；滞后期间的已确认写入
+// 上游读侧有 1-2s 滞后（见 api.ts 歌单写接口注释），故延迟触发；滞后期间的已确认写入
 // 以本地乐观态为准（reconcilePending），别让回源把用户刚点的红心冲掉。
 const LOVED_SYNC_DELAY = 2_000;    // 距最后一次写入/进页的静默期（去抖合并连点）
 const LOVED_SYNC_PAGE = 100;       // 增量窗口：单请求，覆盖最近收藏段
@@ -181,6 +187,17 @@ class Player {
 
       return new Map(Object.entries(raw ?? {}).filter(([, w]) => w && now - Number(w.at) <= LOVED_PENDING_TTL));
     } catch { return new Map(); }
+  })();
+  /** 重排庇护名单（「我喜欢」整单新顺序；localStorage 跨重载，过期同写入庇护） */
+  private lovedOrderMark: OrderMark | null = (() => {
+    try {
+      // SAFETY: 写入端只有 noteLovedOrder（OrderMark 形状）；下方校验 mids 数组与时间戳，畸形直接丢
+      const raw = JSON.parse(localStorage.getItem(LS_LOVED_ORDER_KEY) ?? "null") as OrderMark | null;
+
+      if (raw && Array.isArray(raw.mids) && Date.now() - Number(raw.at) <= LOVED_PENDING_TTL) return raw;
+
+      return null;
+    } catch { return null; }
   })();
   lyrics: LyricLine[] = [];
   lyricState: "idle" | "loading" | "ok" | "none" = "idle";
@@ -2334,6 +2351,46 @@ class Player {
 
     for (const [mid, w] of this.recentWrites) if (now - w.at <= LOVED_PENDING_TTL) writes[mid] = w;
     localStorage.setItem(LS_WRITES_KEY, JSON.stringify(writes));
+
+    if (this.lovedOrderMark && now - this.lovedOrderMark.at <= LOVED_PENDING_TTL) {
+      localStorage.setItem(LS_LOVED_ORDER_KEY, JSON.stringify(this.lovedOrderMark));
+    } else {
+      localStorage.removeItem(LS_LOVED_ORDER_KEY);
+    }
+  }
+
+  /** 当前有效的重排庇护（过期即清）。读路径（loadLoved/syncLoved）用它校正读侧旧顺序。 */
+  private lovedOrderOf(): OrderMark | null {
+    if (!this.lovedOrderMark) return null;
+
+    if (Date.now() - this.lovedOrderMark.at > LOVED_PENDING_TTL) {
+      this.lovedOrderMark = null;
+      this.persistLoved();
+
+      return null;
+    }
+
+    return this.lovedOrderMark;
+  }
+
+  /** 「我喜欢」拖拽重排提交（dirid=201，与自建歌单同一条 SeqSonglist 路由）。
+   *  ordered 必须是**整单**新顺序：预载被 LOVED_MAX 截断时视图不该开放拖拽
+   *  （orderComplete 守卫），这里再兜一道。写确认 → 记庇护 + 乐观改序 + 广播 + 排回源；
+   *  失败抛给视图回滚。tid 传 0：我喜欢是系统虚拟歌单，上游按 dirid=201 认。 */
+  async reorderLoved(ordered: Song[]): Promise<void> {
+    if (!this.likedCache) throw new Error("「我喜欢」还没加载，无法重排");
+
+    if (this.likedCache.length < this.likedTotal) {
+      throw new Error("「我喜欢」未加载完整（超过预载上限），不能重排 —— 部分提交会打乱未提交歌曲");
+    }
+
+    await reorderSonglist({ dirid: 201, tid: 0 }, ordered);
+    this.lovedOrderMark = { mids: ordered.map((s) => String(s?.mid ?? "")), at: Date.now() };
+    this.likedCache = applyOrderMark(this.lovedOrderMark, this.likedCache);
+    this.lovedSyncTries = 0;
+    this.persistLoved();
+    this.emitLovedListChange();
+    this.syncLovedSoon();
   }
 
   /** 红心态唯一写入口（渲染读 this.loved，落盘走这里） */
@@ -2382,9 +2439,13 @@ class Player {
         if (row) all.unshift(row); // 本地乐观行插回头部（收藏顺序 = 最近在前）
       }
 
+      // 重排庇护：读侧可能还回旧顺序，按已确认顺序校正（增删庇护之后 —— 先对齐成员再对齐顺序）
+      const orderMark = this.lovedOrderOf();
+      const ordered = orderMark ? applyOrderMark(orderMark, all) : all;
+
       const mids = new Set<string>();
 
-      for (const s of all) {
+      for (const s of ordered) {
         if (!s?.mid) continue;
         mids.add(s.mid);
 
@@ -2393,10 +2454,10 @@ class Player {
 
       for (const mid of rec.laggingOn) mids.add(mid); // 无行可插的滞后 like 至少保住红心
 
-      if (all.length >= total) this.loved = mids;
+      if (ordered.length >= total) this.loved = mids;
       else for (const m of mids) this.loved.add(m);
-      this.likedCache = all;
-      this.likedTotal = total || all.length;
+      this.likedCache = ordered;
+      this.likedTotal = total || ordered.length;
       this.likedAt = Date.now();
       this.loveVersion++;
       this.persistLoved();
@@ -2428,8 +2489,13 @@ class Player {
       const head: Song[] = ((r?.songs ?? []) as Song[]).filter((s) => s?.mid);
       const probeLen = Math.min(this.likedCache.length, LOVED_PROBE_PAGE);
 
+      // 重排庇护期内读侧头部可能还是旧顺序：按已确认顺序校正后再比，
+      // 否则自己刚拖完的顺序会被探针判成「他端改序」触发整单回源
+      const orderMark = this.lovedOrderOf();
+      const probeBase = orderMark ? applyOrderMark(orderMark, this.likedCache) : this.likedCache;
+
       const sameHead = head.length === probeLen
-        && head.every((s, i) => s.mid === this.likedCache![i]?.mid);
+        && head.every((s, i) => s.mid === probeBase[i]?.mid);
 
       if (sameHead && Number(r?.total ?? 0) === this.likedTotal) {
         this.likedAt = Date.now(); // 确认远端没变：整单缓存重新算新鲜，避免进页白拉
@@ -2528,7 +2594,11 @@ class Player {
         }
 
         const tail = old.filter((s) => s?.mid && !seen.has(s.mid));
-        this.likedCache = [...head, ...tail];
+        // 重排庇护：窗口对账后整表按已确认顺序校正（窗口只有头部一段，tail 也要归位）
+        const orderMark = this.lovedOrderOf();
+        const merged = [...head, ...tail];
+
+        this.likedCache = orderMark ? applyOrderMark(orderMark, merged) : merged;
 
         for (const s of head) {
           if (!s.mid) continue;
@@ -2585,7 +2655,7 @@ class Player {
 
     try {
       const r = await postJson<boolean>(on ? "/song/like" : "/song/unlike",
-        { song_id: ref.id, song_type: writeSongType(ref.type) });
+        { song_id: ref.id, song_type: Number(ref.type ?? 1) });
 
       // 上游把 retCode≠0（含 80092）压成 false 且不抛错 —— 不拦就是「看着收藏了、其实没有」
       if (r === false) throw new Error("上游未接受本次收藏写入");

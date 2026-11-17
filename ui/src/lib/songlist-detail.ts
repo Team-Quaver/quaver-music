@@ -11,6 +11,8 @@
 //   - 近期写入庇护期内所有读路径按本地校正，**只增不灭** —— 不能凭一次可能过期的拉取
 //     把用户看得到的行删掉；他端删除的收敛交给整单回源（TTL 过期/进页）。
 import { api } from "./api";
+import { applyOrderMark } from "./order-shelter";
+import type { OrderMark } from "./order-shelter";
 
 export interface SonglistDetail {
   info: any;
@@ -27,6 +29,7 @@ const SYNC_PAGE = 100;       // 增量窗口：单请求取「最近写入」的
 // 同一写入可能被更旧的快照再次冲掉）。实测过期快照能活 20s+，取 2 分钟。
 const PENDING_TTL = 120_000;
 const LS_WRITES_KEY = "quaver.songlist.writes.v1";
+const LS_ORDERS_KEY = "{{SECRET_ybztjohp}}";
 
 interface Entry { detail: SonglistDetail; at: number }
 
@@ -87,6 +90,43 @@ const writesOf = (key: string): Map<string, WriteMark> => {
 
   return m;
 };
+
+// 重排庇护与增删庇护同款持久化：写确认后立刻重载页面，内存名单丢了会让 TTL 内的
+// 整单缓存直接回读侧旧顺序（用户看着「白拖了」）。localStorage 跨重载存活，过期同 PENDING_TTL。
+const orderMarks = (() => {
+  try {
+    // SAFETY: 写入端只有 persistOrders（OrderMark 形状）；下方逐项校验 mids 数组与时间戳，畸形条目直接丢弃
+    const raw = JSON.parse(localStorage.getItem(LS_ORDERS_KEY) ?? "{}") as Record<string, OrderMark>;
+    const now = Date.now();
+    const map = new Map<string, OrderMark>();
+
+    for (const [id, mark] of Object.entries(raw ?? {})) {
+      if (mark && Array.isArray(mark.mids) && now - Number(mark.at) <= PENDING_TTL) map.set(id, mark);
+    }
+
+    return map;
+  } catch { return new Map<string, OrderMark>(); }
+})();
+
+function persistOrders() {
+  const now = Date.now();
+  const out: Record<string, OrderMark> = {};
+
+  for (const [id, mark] of orderMarks) if (now - mark.at <= PENDING_TTL) out[id] = mark;
+
+  try { localStorage.setItem(LS_ORDERS_KEY, JSON.stringify(out)); } catch { /* 配额满：庇护丢就丢，整单回源兜底 */ }
+}
+
+/** 当前有效的重排庇护（过期即删）。 */
+function orderOf(key: string): OrderMark | null {
+  const mark = orderMarks.get(key);
+
+  if (!mark) return null;
+
+  if (Date.now() - mark.at > PENDING_TTL) { orderMarks.delete(key); return null; }
+
+  return mark;
+}
 
 function persistWrites() {
   const now = Date.now();
@@ -179,7 +219,10 @@ export async function loadSonglistDetail(id: string | number): Promise<SonglistD
         if (row) songs.unshift(row); // 本地乐观行插回头部（新加入的歌在头部）
       }
 
-      const detail: SonglistDetail = { info: info ?? old?.info ?? null, songs, total: rec.total };
+      // 重排庇护：读侧可能还回旧顺序，按已确认顺序重排（增删庇护之后 —— 先对齐成员再对齐顺序）
+      const mark = orderOf(key);
+      const ordered = mark ? applyOrderMark(mark, songs) : songs;
+      const detail: SonglistDetail = { info: info ?? old?.info ?? null, songs: ordered, total: rec.total };
       cacheTouch(key, { detail, at: Date.now() });
       cacheTrim();
       emit(key);
@@ -264,6 +307,28 @@ export function noteSonglistWrite(id: string | number, mid: string, on: boolean,
   syncSonglistSoon(key);
 }
 
+/** 重排写确认后的乐观跟进（playlists.ts:reorderSonglist 成功后调用）。
+ *  ordered = 该歌单全部歌曲的新顺序（与写接口提交的同一份）：
+ *  - 记重排庇护（期内整单/增量回源都按它校正读侧的旧顺序）；
+ *  - 缓存立即改序 + 广播（打开中的歌单页即时上屏）；
+ *  - 排一次增量回源对账。缓存不在（歌单没打开过）只记庇护。 */
+export function noteSonglistOrder(id: string | number, ordered: any[]): void {
+  const key = String(id);
+
+  if (!ordered.length) return;
+  orderMarks.set(key, { mids: ordered.map((s) => String(s?.mid ?? "")), at: Date.now() });
+  persistOrders();
+  syncTries.set(key, 0);
+  const hit = cache.get(key);
+
+  if (hit) {
+    hit.detail = { ...hit.detail, songs: applyOrderMark(orderMarks.get(key)!, hit.detail.songs) };
+    emit(key);
+  }
+
+  syncSonglistSoon(key);
+}
+
 /** 安排一次写后增量回源（去抖：连点合并成最后一击后的一次）。 */
 export function syncSonglistSoon(id: string | number): void {
   const key = String(id);
@@ -305,7 +370,16 @@ async function syncSonglist(key: string): Promise<void> {
       }
 
       const tail = old.songs.filter((s) => s?.mid && !seen.has(s.mid));
-      const detail: SonglistDetail = { info: old.info, songs: [...head, ...tail], total: Math.max(rec.total, prevTotal) };
+      // 重排庇护：窗口对账后整表按已确认顺序校正（窗口只有头部一段，tail 也要归位）
+      const mark = orderOf(key);
+      const merged = [...head, ...tail];
+
+      const detail: SonglistDetail = {
+        info: old.info,
+        songs: mark ? applyOrderMark(mark, merged) : merged,
+        total: Math.max(rec.total, prevTotal),
+      };
+
       cacheTouch(key, { detail, at: prevAt }); // 不刷新 TTL 时刻：窗口外没重拉，整单新鲜度不变
       cacheTrim();
 

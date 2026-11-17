@@ -690,6 +690,42 @@ cd ui && pnpm run app                              # 真出声跑一圈（Linux/
 验证：`node scripts/verify-desktop-lyrics.ts`（纯逻辑 + 几何真单测 + 尺寸贴合/尺寸提示（浮窗轴，高度 min==max）/
 悬停地板 + 固定/鼠标透穿的平台闸门与原生接线 + 「无最大化档」红线 + 源码接线；已进 `verify:static`）。
 
+## 歌单写接口（songType 口径）· 拖拽重排（SeqSonglist）
+
+**song_type 一律发读侧 `Song.type` 原值**：写侧枚举转换收口在 Go SDK 参数构造处
+（`vendor/Typhoeus-go/qqmusic/modules/songlist.go:ToSonglistWriteType`，对齐上游 QQMusicApi
+PR 306 的两阶段映射：0/1→0；5/111/112/113 原样；其余→1）。渲染层旧口径「读侧 −1」只是
+普通歌 1→0 碰巧对，特殊类型全错（上游 retCode=0 但歌单不动 = 静默空操作）。
+`/song/like|unlike`、`/songlist/{dirid}/songs`、`/songlist/{dirid}/order` 同一口径；
+80092 由 Go 侧压成 `ok:false`（与上游 SDK 一致），`assertAccepted`/`toggleLove` 把 false
+当确凿失败 —— 别在 Go 侧把它吞回 true。
+
+拖拽重排（**自有歌单 + 「我喜欢」**，均要求**默认序 + 无搜索**；「我喜欢」还要求预载完整
+—— `orderComplete(items.length, player.likedTotal)`，截断列表拿可见前缀当整单提交会打乱
+未提交歌曲，视图收把手、`player.reorderLoved` 再兜一道）：
+
+- 机制在 `src/lib/songlist-reorder.ts`：与 QueuePanel 同一套指针纪律（监听挂 window、
+  量流位置先清 transform、`.row.dragging` 的 transition 不带 transform），几何/序列纯逻辑
+  共用 `lib/reorder.ts`（`dropSlot`/`edgeSpeed`/`applyVisibleOrder`——回映射按**对象引用**
+  不按 mid，歌单允许同曲出现两次）。把手由 `hooks.reorder` 渲染（`songs.ts`），筛排态切换
+  经 `tools.onState(syncGrips)` 原地增删，不整表重画。把手贴行左缘（负 margin 抵消行内边距
+  与 flex 间隙，落在序号左侧边槽）。提交/取消/失败三条回调分开：`submit`（写接口+庇护，
+  视图注入）/ `onAbort`（Esc/节点被摘，按**当前数据**重画）/ `onRollback`（写失败回旧序）。
+- 提交 = **整单**新顺序 `POST /songlist/{dirid}/order`（SeqSonglist；「我喜欢」dirid=201、
+  tid=0，上游 PR 307 明确支持）：部分提交上游照样回成功但打乱未提交歌曲 ——
+  `playlists.ts:reorderSonglist` 只收整单，Go handler 拦空列表。写确认前乐观改序
+  （DOM 已就位），失败整表回滚 + toast。**重排庇护**纯逻辑在 `lib/order-shelter.ts`
+  （`applyOrderMark`，重复 mid 保序配对），两边各自持久化（localStorage、TTL 同增删庇护）：
+  歌单 = `songlist-detail.ts:noteSonglistOrder`；我喜欢 = `player.ts:reorderLoved`
+  （`lovedOrderMark`），整单预载/增量回源/**远端探针**三条读路径都按它校正读侧旧序
+  （探针不校正会把自己刚拖完的顺序判成「他端改序」触发整单回源）。
+- 拖拽期间跟进重画被 `songlistReorderActive(rows)` 挡住（整表重画会把被拖行连节点换掉）；
+  行在阈值窗口期被摘出文档则 `finish(false)` 作废。写接口在途（`.order-busy`）不接受第二次起拖。
+- 验证：`node scripts/verify-songlist-reorder.ts`（applyVisibleOrder/applyOrderMark/
+  orderComplete 真单测 + 两页接线/样式/Go 路由静态断言；已进 `verify:static`）+
+  `go test ./qqmusic/modules/ ./server/`
+  （映射表 / SeqSonglist 参数形状 / 80092·80095 口径 / 路由守卫）。
+
 ## 本地音乐 / NAS（扫描 · 播放 · 刮削 · QRC 逐字）
 
 读盘侧真相在 `electron/local/library.ts`（零 electron、纯 Node）：**两处同构挂载** ——
