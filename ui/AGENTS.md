@@ -841,6 +841,13 @@ WebDAV 客户端在 `electron/local/webdav.ts`（PROPFIND + Range；NAS 走挂�
 - 目录：Linux `~/.config/quaver-music`｜Windows `%AppData%\Quaver Music`｜macOS `Application Support/Quaver Music`；
   `QUAVER_CONFIG_DIR` 可整体顶掉（主进程也用它下发给 sidecar，两边规则必须一致：
   `ui/electron/config.ts:configDir` ↔ `vendor/Typhoeus-go/server/session.go:ConfigDir`）。
+- **缓存目录与配置目录分家**（音乐缓存这类可再生的大字节）：Linux `$XDG_CACHE_HOME/quaver-music`
+  （默认 `~/.cache/quaver-music`）｜Windows `%LocalAppData%\Quaver Music\Quaver Cache`｜
+  macOS `~/Library/Caches/Quaver Music`。`QUAVER_CACHE_DIR` 整体顶掉，用户自定义位置走
+  `[Playing] MusicCacheDir`（绝对路径，空 = 平台默认）。规则两侧同规：
+  `config.ts:cacheDir/defaultCacheDir` ↔ `session.go:CacheDir`。
+  Windows 之所以叫 `Quaver Cache` 而不是 `cache`：Electron 的 userData 里已经有 Chromium 自己的
+  `Cache`，两个只差大小写的目录在 Windows/macOS（大小写不敏感文件系统）上人眼分不清、脚本也容易误伤。
 - 加新设置项：改 `electron/config.ts` 的 `SCHEMA` + `src/lib/config.ts` 的 `FALLBACK`
   + `src/lib/prefs.ts` 的类型化 getter/setter（三处都要动）。**例外**：只有主进程消费的项
   （`[Security]` 三项）只需前两处，渲染层不加 getter。
@@ -854,6 +861,37 @@ WebDAV 客户端在 `electron/local/webdav.ts`（PROPFIND + Range；NAS 走挂�
 - 跨页导航一律 `.html` 后缀绝对路径（Vite dev 对 `/foo.html` 与 `/foo` 都可解析；
   壳层直接加载 dist 文件时只有 `.html` 形式可用）。
 - 播放全局对象 `window.QuaverPlayer` 由 `PlayerBar()` 挂载。
+
+### 音乐缓存（弱网复播 · 位置可自定义）
+
+执行端全在 Go sidecar（`vendor/Typhoeus-go/server/music_cache.go`）：索引与音频均加密落盘
+（`*.quaverlocalcache`），密钥 = 磁盘种子 + 前端半种（`src/lib/music-cache.ts`，只驻
+localStorage 且与账号绑定）。**这不是下载功能**，播放流闸门对缓存流与在线流同权。
+
+- **落点** = `CacheDir()/music`（不是配置目录）。Linux `$XDG_CACHE_HOME/quaver-music`、
+  Windows `%LocalAppData%\Quaver Music\Quaver Cache`、macOS `~/Library/Caches/Quaver Music`；
+  用户自定义位置 = `[Playing] MusicCacheDir`（绝对路径，空 = 平台默认）。
+  旧版在配置目录 `cache/music` 下，**首次打开默认缓存目录时自动搬家**（`adoptLegacyDirLocked`：
+  跨盘 EXDEV 退回复制 + 删源，只认本缓存的命名，别人的文件不碰）；自定义位置不触发搬家 ——
+  那是用户显式指定的空目录。磁盘种子随索引一起搬，前端半种仍在 localStorage，两半都没变
+  → **升级后旧缓存照旧命中并解密播放**，不必重新登录或重新缓冲（`TestCacheUpgradeKeepsOldEntriesPlayable`）。
+- **搬家按文件确认，绝不「尽力而为后清场」**：只有真的落到新目录的文件才删源，索引最后搬；
+  任何一个搬不动（目标只读 / 配额满 / 单文件权限）就整份留在旧目录 —— 自动搬家记 warn 后
+  继续用旧目录，手动换位置直接报错并保持原位置可用。反面教训：先搬完再无条件 `sweepCacheDir`
+  会把没搬成功的分片删掉 = 升级白删用户几个 GiB（`TestCacheUpgradeKeepsUnmovedTracks`、
+  `TestCacheSetDirFailureKeepsSourceIntact` 钉住）。
+- **改位置即时生效**：设置页选目录（`quaverLocal.pickFolder("cache-dir")`）→ 写 `quaver.conf`
+  → `POST /cache/music/dir`。两条路都要走：配置是重启后的真相，HTTP 让本次立刻换目录。
+  主进程 `applyMusicCacheDir()` 在 `config set` 命中该键与 `reset` 时也补发一次（托盘/手改同源）。
+- **换位置会搬走已有缓存并作废播放令牌**（令牌里存的是绝对路径）：不搬 = 界面显示「0 首」而
+  旧盘还压着几个 GiB，用户无从察觉也清不掉。搬完 `sweepCacheDir` 把旧目录收干净。
+  **例外**：目标目录已经有自己的一份缓存（切回之前用过的目录）时**两份都留**——
+  覆盖或清扫都会删掉用户另一处的真实缓存，那是数据丢失。
+- `syncMusicCacheSeed` 里**位置先于半种**下发：seed 会在目标目录建索引，顺序反了会在旧目录
+  留一份空索引。状态响应带 `dir`，设置页据此回显真正生效的位置（自定义为空时显示平台默认）。
+- 验证：`node scripts/verify-config.ts`（三平台目录规则 / 自定义值域 / 与配置目录分家）、
+  `node scripts/verify-prefs-map.ts`（渲染层绝对路径判据）、`go test ./server/ -run Cache`
+  （搬家、换位置、令牌作废、handler 值域）。
 
 ## 默认主题的背景（关闭 / 封面 / 自定义图 + 模糊强度）
 

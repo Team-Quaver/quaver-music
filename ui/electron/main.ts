@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 // 窗口 URL 确定后 init（两边都需要 baseUrl 绝对化 /api/stream 中继地址）。
 import { audioExternalPids, bootAudioEngine, getAudioEngine, shutdownAudioEngine } from "./audio/backend.ts";
 // 配置文件（quaver.conf）与跨平台目录规则：路径单一真相，渲染层与 sidecar 都对齐这一份
-import { configDir, configFile, defaultBackend, defaultDecor, ensureConfigDir, logFile, readValues, resetConfig, WEIYUN_LEGACY_NAME, WEIYUN_STORE_NAME, writeValues } from "./config.ts";
+import { cacheDir, configDir, configFile, defaultBackend, defaultDecor, ensureConfigDir, logFile, musicCacheDir, readValues, resetConfig, WEIYUN_LEGACY_NAME, WEIYUN_STORE_NAME, writeValues } from "./config.ts";
 // 自定义背景图（默认主题）：路径只认 quaver.conf 里那一条，图片本体由 /api/bg 交给界面
 // （dev/preview 走 src/relay.ts、打包态走 native-server.ts，同一个 backgroundResponse）
 import { BG_DIALOG_EXTENSIONS, backgroundInfo, backgroundMime } from "./background.ts";
@@ -678,10 +678,13 @@ function spawnSidecar() {
     cwd: command.cwd,
     // QUAVER_CONFIG_DIR 显式下发：让 sidecar 的设备指纹与 Electron 落在同一目录，
     // 两边各有一套平台规则做兜底。QUAVER_CREDENTIAL_MODE=external 声明「凭证不在你手上」。
+    // QUAVER_CACHE_DIR 同理：音乐缓存这类可再生字节走缓存目录（Linux XDG_CACHE_HOME /
+    // Windows·macOS Quaver Cache），含用户在设置页自定义的位置。
     env: {
       ...process.env,
       QUAVER_PORT: String(port),
       QUAVER_CONFIG_DIR: CONFIG_DIR,
+      QUAVER_CACHE_DIR: cacheDir(),
       QUAVER_CREDENTIAL_MODE: "external",
     },
     stdio: ["pipe", "pipe", "pipe"],
@@ -978,7 +981,63 @@ function broadcastConfigChanged(written: string[] | null, patch?: Record<string,
   }
 }
 
-ipcMain.handle("quaver:config", (_e, msg) => {
+/** 缓存位置下发后 sidecar 的回执（统一信封 {code,msg,data}，data 是搬完的现状）。 */
+interface CacheDirReply {
+  code?: number;
+  msg?: string;
+  data?: { dir?: string; items?: number; bytes?: number };
+}
+
+/** 音乐缓存位置下发结果（设置页据此回显；失败必须带得出原因）。 */
+interface CacheDirApplied {
+  ok: boolean;
+  dir?: string;
+  items?: number;
+  bytes?: number;
+  error?: string;
+}
+
+/** 音乐缓存位置（[Playing] MusicCacheDir）落盘后即时下发给 sidecar：
+ *  sidecar 只在启动时读一次 QUAVER_CACHE_DIR，不推这一下就要等重启才换目录。
+ *  真相仍是 quaver.conf —— 这里传的是主进程按配置解析出的绝对路径（空 = 平台默认），
+ *  与 /api/bg 同一条「请求参数不参与拼路径」口径（sidecar 对该端点拒绝带 Sec-Fetch-Dest
+ *  的请求，渲染层无法自行指定路径）。已有缓存由 sidecar 一并搬过去。
+ *  返回搬完的现状供设置页回显；失败返回 error 让界面说清楚，而不是假装成功。 */
+async function applyMusicCacheDir(): Promise<CacheDirApplied> {
+  const base = String(process.env.QUAVER_API ?? "").trim();
+
+  if (!base) return { ok: false, error: "缓存服务未就绪" };
+  const dir = cacheDir();
+
+  try {
+    const r = await fetch(`${base}/cache/music/dir`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ dir }),
+      signal: AbortSignal.timeout(120000), // 跨盘搬家是复制，几 GiB 要留出时间
+    });
+
+    const body: CacheDirReply | null = await r.json().catch(() => null);
+
+    if (!r.ok || (body?.code !== undefined && body.code !== 0)) {
+      const error = body?.msg ?? `HTTP ${r.status}`;
+
+      log("[quaver] 音乐缓存位置下发失败:", dir, error);
+
+      return { ok: false, error };
+    }
+
+    log("[quaver] 音乐缓存位置 ->", musicCacheDir());
+
+    return { ok: true, dir: body?.data?.dir ?? musicCacheDir(), items: body?.data?.items ?? 0, bytes: body?.data?.bytes ?? 0 };
+  } catch (e) {
+    log("[quaver] 音乐缓存位置下发失败:", dir, String(e));
+
+    return { ok: false, error: String(e) };
+  }
+}
+
+ipcMain.handle("quaver:config", async (_e, msg) => {
   const op = msg?.op;
 
   try {
@@ -1008,10 +1067,18 @@ ipcMain.handle("quaver:config", (_e, msg) => {
       // [DesktopLyrics] 开关可能刚被改：控制器按磁盘现值对齐窗口（幂等 —— 设置页的 cfgSet
       // 与 control() 双写同值时，syncFromConf 只是空转一次）
       if (written.some((k) => k.startsWith("DesktopLyrics."))) desktopLyrics?.syncFromConf();
+
+      // 音乐缓存位置刚变：让 sidecar 立刻换目录（并搬走已有缓存），不必等重启。
+      // apply:false = 只落盘不搬家（设置页换位置失败后的回滚走这条：sidecar 本来就没换成，
+      // 再搬一次只是把几个 GiB 白复制两趟）。渲染层拿这次的结果回显，await 是有意的。
+      const cacheApplied = written.includes("Playing.MusicCacheDir") && msg?.apply !== false
+        ? await applyMusicCacheDir()
+        : null;
+
       // 广播给其余窗口：配置真相是同一份文件，桌面歌词窗靠这条实时跟随字体/字号/翻译档位
       broadcastConfigChanged(written, msg?.patch ?? {});
 
-      return { ok: true, written };
+      return { ok: true, written, cache: cacheApplied };
     }
 
     if (op === "reset") {
@@ -1021,6 +1088,7 @@ ipcMain.handle("quaver:config", (_e, msg) => {
       themePref = values["Style.Style"] ?? "dark";
       applyThemeSource();
       hotkeys.apply(); // 绑定整体回到默认
+      void applyMusicCacheDir(); // 模板里 MusicCacheDir 为空：缓存位置回到平台默认
 
       return { ok: true, values };
     }
@@ -1213,9 +1281,14 @@ ipcMain.handle("quaver:local", async (_e, msg) => {
 
   try {
     if (op === "pick-folder") {
+      // purpose=cache-dir：音乐缓存位置（设置→通用→音乐缓存）。标题与初值不同，
+      // 其余与曲库选目录同一套（只回路径字符串，落盘与下发由调用方各自负责）。
+      const forCache = String(msg?.purpose ?? "") === "cache-dir";
+
       const r = await dialog.showOpenDialog((win ?? undefined) as BrowserWindow, {
-        title: "选择音乐文件夹（NAS 已挂载的目录同样适用）",
-        properties: ["openDirectory"],
+        title: forCache ? "选择音乐缓存位置（已有缓存会搬到新位置）" : "选择音乐文件夹（NAS 已挂载的目录同样适用）",
+        properties: forCache ? ["openDirectory", "createDirectory"] : ["openDirectory"],
+        defaultPath: forCache ? cacheDir() : undefined,
       });
 
       const picked = r.canceled ? "" : String(r.filePaths[0] ?? "");

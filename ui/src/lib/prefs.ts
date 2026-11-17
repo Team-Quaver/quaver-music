@@ -590,6 +590,34 @@ export function setMusicCacheLimitMB(v: number) {
   cfgSet({ "Playing.MusicCacheLimitMB": String(n) });
 }
 
+/** 音乐缓存位置（[Playing] MusicCacheDir）：留空 = 平台默认缓存目录
+ *  （Linux XDG_CACHE_HOME/quaver-music ｜ Windows %LocalAppData%\Quaver Music\Quaver Cache ｜
+ *  macOS ~/Library/Caches/Quaver Music）。判据与 electron/config.ts 的 isCacheDirValue 同规：
+ *  只认绝对路径，控制字符/超长一律当作未设置 —— 相对路径会跟着进程 cwd 漂。 */
+export function getMusicCacheDir(): string {
+  const raw = cfg("Playing.MusicCacheDir", "").trim();
+
+  return isAbsCacheDir(raw) ? raw : "";
+}
+
+export function setMusicCacheDir(v: string) {
+  const t = String(v ?? "").trim();
+  cfgSet({ "Playing.MusicCacheDir": isAbsCacheDir(t) ? t : "" });
+}
+
+/** 绝对路径判据（渲染层没有 node:path）：POSIX 的 / 开头、Windows 的盘符或 UNC。 */
+function isAbsCacheDir(v: string): boolean {
+  if (v === "" || v.length > 1024) return false;
+
+  for (const ch of v) {
+    const code = ch.codePointAt(0) ?? 0;
+
+    if (code === 0 || code === 10 || code === 13) return false;
+  }
+
+  return v.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(v) || v.startsWith("\\\\");
+}
+
 // —— 歌词辅助行：关闭 / 翻译 / 音译。翻译与音译是替换关系，且都在歌词**下方**那一行 ——
 //    翻译档：优先翻译，本行没翻译则回落音译；音译档：优先音译，本行没音译则回落翻译。
 //    规则只有 src/lyric.ts 的 pickAux 一份：行级视图与内置歌词引擎（src/lyrics/amll.ts）都

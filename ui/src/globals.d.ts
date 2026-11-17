@@ -113,7 +113,8 @@ interface Window {
   };
   /** 本地/NAS 曲库（「本地音乐」页）：选目录与文件定位。音频/封面/歌词走同源 /api/local/*。 */
   quaverLocal?: {
-    pickFolder(): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
+    /** purpose="cache-dir" = 音乐缓存位置（标题/初值不同，同样只回路径字符串）。 */
+    pickFolder(purpose?: string): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
     reveal(id: string): Promise<{ ok: boolean; error?: string }>;
   };
 }
