@@ -444,7 +444,7 @@ check("写盘键名齐全（Section.Key 风格）", [
   "Style.Style", "Style.DefaultUIFonts", "Style.DefaultLyricsFonts",
   "Style.Background", "Style.BackgroundImage", "Style.BackgroundFlow", "Style.BackgroundBlur", "Style.BackgroundRenderer", "Style.NpBackgroundRenderer", "Style.MenuBlur",
   "Window.Decor", "Window.CloseAction",
-  "Playing.Backend", "Playing.AudioDevice", "Playing.Fade", "Playing.PrevReplay", "Playing.InhibitSleep", "Playing.ReportListenTime",
+  "Playing.Backend", "Playing.AudioDevice", "Playing.AdaptiveRate", "Playing.AlsaExclusive", "Playing.Fade", "Playing.PrevReplay", "Playing.InhibitSleep", "Playing.ReportListenTime",
   "Quality.DefaultQuality", "Quality.FallbackToQMAtmos",
   "Update.AutoCheck", "Update.Channel", "Update.LastNotified",
 ].every((k) => keys.includes(k)), keys.join(","));

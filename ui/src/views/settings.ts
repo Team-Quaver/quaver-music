@@ -16,8 +16,8 @@ import { clearMusicCache, musicCacheStatus, setMusicCacheLimit } from "../lib/mu
 import { desktopLyricsStateSync } from "../lib/desktop-lyrics";
 import { syncInhibit } from "../lib/inhibit";
 import { applyMenuGlass } from "../lib/menu-glass";
-import { BG_BLUR_MAX, BG_BLUR_MIN, BG_FLOW_MAX, BG_FLOW_MIN, FONT_CUSTOM, FONT_LABELS, FONT_PRESETS, TINT_DEFAULT_COLOR, fontKeyOf, getAutoCheck, getBackgroundBlur, getBackgroundFlow, getBackgroundImage, getBackgroundMode, getBackgroundRenderer, getNpBackgroundRenderer, getChineseConvert, getCloseAction, getControlBarMode, getDecode, getPlaylistMode,
-  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsLocked, getLyricTint, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getDesktopLyricsWeight, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMusicCacheDir, getMusicCacheLimitMB, getMenuBlur, getMprisLrc, getNpLyricLayout, getOnlineTtml, getPrevBehavior, getReportListenTime, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundBlur, setBackgroundFlow, setBackgroundImage, setBackgroundMode, setBackgroundRenderer, setNpBackgroundRenderer, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setMusicCacheLimitMB, setPlaylistMode, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsBorder, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsFontList, setDesktopLyricsFontPreset, setDesktopLyricsLocked, setDesktopLyricsShadow, setDesktopLyricsShadowBlur, setDesktopLyricsShadowOpacity, setDesktopLyricsShadowX, setDesktopLyricsShadowY, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setDesktopLyricsWeight, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricTint, setLyricFontPreset, setMenuBlur, setMprisLrc, setNpLyricLayout, setOnlineTtml, setPrevBehavior, setReportListenTime, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel, MUSIC_CACHE_MAX_MB } from "../lib/prefs";
+import { BG_BLUR_MAX, BG_BLUR_MIN, BG_FLOW_MAX, BG_FLOW_MIN, FONT_CUSTOM, FONT_LABELS, FONT_PRESETS, TINT_DEFAULT_COLOR, fontKeyOf, getAdaptiveRate, getAlsaExclusive, getAutoCheck, getBackgroundBlur, getBackgroundFlow, getBackgroundImage, getBackgroundMode, getBackgroundRenderer, getNpBackgroundRenderer, getChineseConvert, getCloseAction, getControlBarMode, getDecode, getPlaylistMode,
+  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsLocked, getLyricTint, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getDesktopLyricsWeight, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMusicCacheDir, getMusicCacheLimitMB, getMenuBlur, getMprisLrc, getNpLyricLayout, getOnlineTtml, getPrevBehavior, getReportListenTime, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAdaptiveRate, setAlsaExclusive, setAutoCheck, setBackgroundBlur, setBackgroundFlow, setBackgroundImage, setBackgroundMode, setBackgroundRenderer, setNpBackgroundRenderer, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setMusicCacheLimitMB, setPlaylistMode, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsBorder, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsFontList, setDesktopLyricsFontPreset, setDesktopLyricsLocked, setDesktopLyricsShadow, setDesktopLyricsShadowBlur, setDesktopLyricsShadowOpacity, setDesktopLyricsShadowX, setDesktopLyricsShadowY, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setDesktopLyricsWeight, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricTint, setLyricFontPreset, setMenuBlur, setMprisLrc, setNpLyricLayout, setOnlineTtml, setPrevBehavior, setReportListenTime, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel, MUSIC_CACHE_MAX_MB } from "../lib/prefs";
 import type { BackgroundMode, BackgroundRenderer, ChineseConvert, CloseAction, ControlBarMode, DecorMode, PlaylistMode, DlColorMode, DlMode, FadePreset, FallbackSort, NpLyricLayout, PrevBehavior, ThemeMode, TintMode, UpdateChannel } from "../lib/prefs";
 import { applyTint } from "../lib/tint";
 import { TTML_DB_DEFAULT_URL, isTtmlDatabaseUrl } from "../lib/ttml";
@@ -297,7 +297,20 @@ export default async function settingsView(root: HTMLElement) {
         <div class="set-row"><span class="set-row__label">输出设备</span>
           <div class="set-row__ctrl"><select id="audio-backend" disabled><option>系统默认</option></select></div>
         </div>
+        <div class="set-row"><span class="set-row__label">采样率</span>
+          <div class="opt-cards" id="liino-adaptive-rate-cards">
+            <button class="opt-card" data-opt="on" type="button">跟随音源</button>
+            <button class="opt-card" data-opt="off" type="button">固定 48 kHz</button>
+          </div>
+        </div>
+        <div class="set-row"><span class="set-row__label">ALSA 模式</span>
+          <div class="opt-cards" id="liino-alsa-exclusive-cards">
+            <button class="opt-card" data-opt="shared" type="button">共享（plughw）</button>
+            <button class="opt-card" data-opt="exclusive" type="button">独占（hw）</button>
+          </div>
+        </div>
         <p class="muted set-hint" id="audio-device-hint">原生播放引擎下，</p>
+        <p class="muted set-hint" id="liino-output-hint">采样率跟随与 ALSA 模式仅 Liino 生效，下一次创建播放会话时应用；ALSA 模式仅在选中 ALSA 设备时可调。</p>
       </div>
 
       <div class="set-group">
@@ -2119,6 +2132,9 @@ export default async function settingsView(root: HTMLElement) {
   const radios = wrap.querySelectorAll<HTMLInputElement>("#decode-radios input");
   const devSel = wrap.querySelector<HTMLSelectElement>("#audio-backend")!;
   const devHint = wrap.querySelector<HTMLElement>("#audio-device-hint")!;
+  const adaptiveCards = wrap.querySelector<HTMLElement>("#liino-adaptive-rate-cards")!;
+  const exclusiveCards = wrap.querySelector<HTMLElement>("#liino-alsa-exclusive-cards")!;
+  const outputHint = wrap.querySelector<HTMLElement>("#liino-output-hint")!;
   const engNote = wrap.querySelector<HTMLElement>("#engine-note")!;
 
   /** mpv 来源标签：随包运行时 / 系统 mpv / QUAVER_MPV 指定（排障时一眼看出跑的哪一份） */
@@ -2165,6 +2181,15 @@ export default async function settingsView(root: HTMLElement) {
     devSel.disabled = false;
     devHint.textContent = "切换即时生效，无需重启。";
     devSel.onchange = () => { void player.selectAudioDevice(devSel.value); };
+    const alsaSelected = devSel.value.startsWith("alsa/");
+    const liinoActive = player.backend === "liino";
+    outputHint.hidden = !liinoActive;
+    adaptiveCards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = !liinoActive; });
+    exclusiveCards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = !liinoActive || !alsaSelected; });
+    syncSel(adaptiveCards, "opt", getAdaptiveRate() ? "on" : "off");
+    syncSel(exclusiveCards, "opt", getAlsaExclusive() ? "exclusive" : "shared");
+    bindOptCards<"on" | "off">(adaptiveCards, () => getAdaptiveRate() ? "on" : "off", (v) => setAdaptiveRate(v === "on"));
+    bindOptCards<"shared" | "exclusive">(exclusiveCards, () => getAlsaExclusive() ? "exclusive" : "shared", (v) => setAlsaExclusive(v === "exclusive"));
   }
 
   // EQ 浮窗按需加载（settings 本身已是动态路由；曲线渲染/APO 解析不必跟着设置页常驻）。

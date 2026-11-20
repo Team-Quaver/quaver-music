@@ -649,8 +649,20 @@ export const SCHEMA: SectionSpec[] = [
       {
         key: "AudioDevice",
         def: "auto",
-        doc: ["音频输出设备（仅原生直出）：auto=系统默认；其余填 mpv audio-device 名（pipewire/pulse/alsa/…）"],
+        doc: ["音频输出设备（仅原生直出）：auto=系统默认；其余填各后端自己的设备 ID（pipewire/alsa/…）"],
         valid: (v: string) => v.length > 0,
+      },
+      {
+        key: "AdaptiveRate",
+        def: "False",
+        doc: ["Liino 是否跟随音源采样率输出（PipeWire 优先协商源采样率）；关闭则统一 48 kHz"],
+        valid: isBoolValue,
+      },
+      {
+        key: "AlsaExclusive",
+        def: "False",
+        doc: ["Liino 的 ALSA hw 设备输出模式：False=plughw 共享混音；True=hw 独占直出"],
+        valid: isBoolValue,
       },
       {
         key: "Fade",

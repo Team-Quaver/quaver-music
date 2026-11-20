@@ -78,11 +78,13 @@ interface CommandFailure {
 }
 
 /** Liino 的 create() 配置：应用名进 PipeWire/WASAPI 的媒体角色，设备/音量/EQ 随后由命令覆盖。 */
-function sessionConfig(device: string, eq: LiinoEqPlan) {
+function sessionConfig(device: string, eq: LiinoEqPlan, adaptiveRate: boolean, alsaExclusive: boolean) {
   return {
     app_name: "Quaver Music",
     stream_name: "Quaver Music",
     device_id: device === "auto" ? "" : device,
+    adaptive_rate: adaptiveRate,
+    exclusive: alsaExclusive,
     // 安全限幅会把 F32 软削成非零底噪；正常流交给 0dBFS 防爆音，不开它。
     limiter: false,
     eq: eq.bands,
@@ -196,6 +198,8 @@ export class LiinoEngine {
   pollTimer: NodeJS.Timeout | null;
   dead: boolean;                     // native 会话硬错：下一条命令重建
   note: string;                      // 最近一次失败的人话原因（进 status.reason）
+  adaptiveRate: boolean;             // Liino：跟随音源采样率（create 时生效）
+  alsaExclusive: boolean;            // Liino：ALSA hw 独占（create 时生效）
 
   constructor() {
     this.baseUrl = "";
@@ -229,6 +233,8 @@ export class LiinoEngine {
     this.pollTimer = null;
     this.dead = false;
     this.note = "";
+    this.adaptiveRate = false;
+    this.alsaExclusive = false;
   }
 
   /** 解析随包/开发态的 libliino（幂等：init 与 probe 都走这一条）。 */
@@ -250,12 +256,16 @@ export class LiinoEngine {
   }
 
   /** 与 AudioEngine.init 同签名：main.ts 在窗口 URL 定下后调用（幂等，二选一 init）。 */
-  init({ baseUrl, getWin, log }: { baseUrl?: string; getWin?: () => BrowserWindow | null; log?: EngineLog }): void {
+  init({ baseUrl, getWin, log, adaptiveRate, alsaExclusive }: { baseUrl?: string; getWin?: () => BrowserWindow | null; log?: EngineLog; adaptiveRate?: boolean; alsaExclusive?: boolean }): void {
     if (baseUrl) this.baseUrl = baseUrl;
 
     if (getWin) this.getWin = getWin;
 
     if (log) this.log = log;
+
+    if (adaptiveRate !== undefined) this.adaptiveRate = adaptiveRate;
+
+    if (alsaExclusive !== undefined) this.alsaExclusive = alsaExclusive;
 
     // `quaver:audio` 的 handler 归 backend.ts 门面所有（一个通道只能有一个主人）；
     // 这样设置页运行时切 Liino/MPV 才能真正换掉在答话的引擎。
@@ -328,7 +338,7 @@ export class LiinoEngine {
       if (!lib) return null;
 
       try {
-        const player = lib.create(sessionConfig(this.device, this.eqPlan));
+        const player = lib.create(sessionConfig(this.device, this.eqPlan, this.adaptiveRate, this.alsaExclusive));
 
         // create 期间会话被 shutdown/hardFail 拆掉：这个结果已经过时，自己关掉。
         if (gen !== this.playerGen) {
