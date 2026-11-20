@@ -5,5 +5,9 @@ win:
     - nsis
   icon: build-res/icon.png
 nsis:
-  oneClick: true
+  # assisted（非 oneClick）才会显示安装目录页；oneClick 模式没有这个选项，
+  # electron-builder 也会直接拒绝 allowToChangeInstallationDirectory。
+  # 应用内更新仍走 /S 静默安装，安装器会从旧 InstallLocation 读回自定义目录。
+  oneClick: false
+  allowToChangeInstallationDirectory: true
   runAfterFinish: true

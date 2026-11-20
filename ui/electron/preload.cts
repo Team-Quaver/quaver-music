@@ -179,6 +179,11 @@ contextBridge.exposeInMainWorld("quaverUpdate", {
     ipcRenderer.on("quaver:update-progress", (_e: Electron.IpcRendererEvent, p: unknown) => {
       try { cb(p); } catch (err) { console.warn("update progress failed", err); }
     }),
+  // 包管理器安装结束（deb/rpm/pacman/flatpak 在终端里跑完）：渲染层据此问是否退出应用
+  onInstallDone: (cb: (p: unknown) => void) =>
+    ipcRenderer.on("quaver:update-install-done", (_e: Electron.IpcRendererEvent, p: unknown) => {
+      try { cb(p); } catch (err) { console.warn("update install-done failed", err); }
+    }),
 });
 
 // 音频引擎（MPV 直出 / MPV 解码 + renderer 兼容输出）：invoke 走请求/应答，事件由主进程主动推。

@@ -1072,6 +1072,39 @@ Exec 写死「当前 electron + 仓库 ui/」，落进 `applications/` 就是启
   不需要为另一种格式再向服务端拉一份。歌词是异步到的：渲染层指纹含 `lyricAsText`，
   主进程 Metadata 去重也必须带上它（只看 `mpris:trackid` 会让 asText 永远停在换曲时的空值）。
 
+## 应用自更新（渠道 · 下载 · 各平台安装口径）
+
+链路拆三块：纯逻辑 `src/lib/update-core.ts`（版本判定 / 挑包 / 更新日志渲染 / 包管理器命令构造，
+`scripts/verify-update.ts` 直接跑它）、编排 `src/lib/updater.ts`、执行端 `electron/update.ts`。
+**只有 AppImage 是原子更新**（同目录临时文件 → `rename` 原位替换，文件名不变，桌面项照旧有效，
+重启把 `execPath` 指到 `$APPIMAGE` 本体）。其余 Linux 形态一律「下载 → 终端里跑包管理器」：
+
+| 形态 | 命令（路径为绝对路径，单引号转义） |
+| --- | --- |
+| deb 系 | `pkexec apt install <包>`（备选 `pkexec oma install <包>`） |
+| RPM 系 | `pkexec zypper install <包>`（备选 `pkexec dnf install <包>`） |
+| pacman | `pkexec pacman -U <包>`（已是 root 时去掉 `pkexec`） |
+| Flatpak | `flatpak install <包>`（polkit 由 flatpak 自己弹，**不要**再包 pkexec） |
+
+- **Windows 首装可自选目录**：打包配置是 assisted NSIS（`packages/windows/x86-arm.yml` 的
+  `oneClick: false` + `allowToChangeInstallationDirectory: true`）。应用内更新仍走 `/S` 静默安装；
+  `initMultiUser` 会从 HKCU/HKLM 的 `InstallLocation` 读回旧路径，所以自定义目录在升级时保持不变。
+  不要手拼 `/D=`：NSIS 要求它裸写且放最后，路径含空格时经 spawn 传参会被引号弄坏。
+
+- 包型由 `electron/update.ts` 的 `linuxPkgKind()` 判定：`/.flatpak-info` → flatpak（必须先于
+  os-release，沙箱里的那份是 runtime 的），否则按 `/etc/os-release` 的 ID/ID_LIKE 过
+  Arch 系 → deb 系 → RPM 系。渲染层把这个值当 `pickAsset` 的 `prefer`，缺档宁可返回 null
+  走「打开发布页」，也不回退 AppImage（跑在 deb 安装里的进程换不了 AppImage 本体）。
+- 命令只由 `update-core.installCommandFor()` 构造，主进程不许手拼；安装工具按 `LINUX_PKG_TOOLS`
+  探 PATH，工具与终端都缺席时把命令原样交给弹窗，让用户自己开终端执行。
+- 终端脚本（`buildInstallScript`）负责：跑命令 → 成功即 `rm -f` 安装包 → 写退出码到状态文件 →
+  失败时 `read` 停住（报错别一闪而过）。**删包必须留在脚本里**：用户装完就退出应用时主进程的
+  watcher 已经没了，只有终端里这条 shell 还活着。
+- 主进程 `watchInstall` 盯状态文件，推 `quaver:update-install-done`（ok / completed / removed）。
+  前台型终端（`--wait`/`--nofork` 一类）的 child 退出才等于「用户关窗放弃」；客户端/服务器型
+  （gnome-terminal 等）开窗就返回，只认状态文件，别把 child exit 当失败。
+  「下载」目录）。弹窗关掉后结果仍在 `updater.ts` 里以 toast 兜底，不静默吞掉。
+
 ## 打包与首屏（Rolldown · 动态加载 · 内存）
 
 Vite 8 的打包内核就是 **Rolldown**（`node_modules/rolldown` 1.2.x），配置写在 `build.rolldownOptions`
@@ -1097,6 +1130,7 @@ Vite 8 的打包内核就是 **Rolldown**（`node_modules/rolldown` 1.2.x），�
   加字段改协议那份，别把重依赖带回契约里。
 - 更新链路（`lib/updater` + `lib/update-core` + `UpdateDialog` ≈ 22KB）不在首屏：`main.ts` 把
   「启动 3s 后检查」的延时留在调用侧，到点才 `import()`。延时口径没变，只是把加载缝隙钉在了那里。
+  安装口径见上文「应用自更新」：AppImage 原位替换，deb/rpm/pacman/flatpak 在终端里跑包管理器。
 - MPV 兼容模式（pcm 出声）整条渲染侧状态机住在 `src/lib/pcm-sink.ts`：`PcmController`
   （进度上报 / 暂停淡出 / EQ / 跨曲淡出 / 世代校验）+ `PcmEngineTransport` 子类，由
   `createEngineTransport` 按 mode **动态 import**；native 版 `EngineTransport` 里只有空钩子
