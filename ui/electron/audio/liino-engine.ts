@@ -68,6 +68,7 @@ interface EventFields {
   name?: string;
   gen?: number;
   seek_gen?: number;
+  error?: string;
   snapshot?: SnapshotFields;
 }
 
@@ -272,6 +273,17 @@ export class LiinoEngine {
     if (!this.wired) {
       this.wired = true;
       this.resolveRuntime();
+    }
+  }
+
+  /** 输出策略改变后：跟随采样率等下一次会话创建；ALSA 独占可立即重建当前输出。 */
+  setOutputPolicy(adaptiveRate: boolean, alsaExclusive: boolean): void {
+    this.adaptiveRate = adaptiveRate;
+    this.alsaExclusive = alsaExclusive;
+    const device = this.currentDeviceId();
+
+    if (this.player && !this.dead && alsaExclusive && device.startsWith("alsa/")) {
+      try { this.player.setDevice(device); } catch (e) { this.log("[liino] ALSA 独占重建失败:", String(caught(e))); }
     }
   }
 
@@ -511,6 +523,15 @@ export class LiinoEngine {
       case "device-lost":
       case "device-changed":
         this.log("[liino] device event:", ev.kind, snap?.device ?? "", snap?.driver ?? "");
+        this.pushState(true);
+
+        return;
+      case "device-failed":
+        this.log("[liino] device switch failed:", String(ev.error ?? snap?.error ?? "unknown"));
+        if (this.device !== "auto" && !this.device.startsWith("pipewire/")) {
+          this.device = "auto";
+        }
+        this.send({ t: "error", epoch: this.epoch, message: `Liino 设备切换失败：${String(ev.error ?? snap?.error ?? "unknown")}` });
         this.pushState(true);
 
         return;
