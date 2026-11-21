@@ -407,6 +407,28 @@ P.setTtmlLibrary("");
 
 eq("本地库清空 = 关", P.getTtmlLibrary(), "");
 
+// 音乐缓存位置（[Playing] MusicCacheDir）：留空 = 平台默认缓存目录（Linux XDG_CACHE_HOME /
+// Windows·macOS Quaver Cache），只认绝对路径 —— 相对路径会跟着进程 cwd 漂。
+eq("缓存位置默认空（= 平台默认）", P.getMusicCacheDir(), "");
+
+P.setMusicCacheDir("/home/me/quaver-cache");
+
+eq("缓存位置写盘", conf()["Playing.MusicCacheDir"], "/home/me/quaver-cache");
+
+eq("缓存位置读回", P.getMusicCacheDir(), "/home/me/quaver-cache");
+
+P.setMusicCacheDir("D:\\QuaverCache");
+
+eq("Windows 盘符路径也认", P.getMusicCacheDir(), "D:\\QuaverCache");
+
+P.setMusicCacheDir("relative/cache");
+
+eq("相对路径回落空（走平台默认）", [P.getMusicCacheDir(), conf()["Playing.MusicCacheDir"]], ["", ""]);
+
+P.setMusicCacheDir("/tmp/bad\nname");
+
+eq("换行路径回落空", P.getMusicCacheDir(), "");
+
 P.setMprisLrc(false);
 
 eq("asText 纯文本档 → MprisLrc=False", [P.getMprisLrc(), conf()["Lyrics.MprisLrc"]], [false, "False"]);
@@ -422,7 +444,7 @@ check("写盘键名齐全（Section.Key 风格）", [
   "Style.Style", "Style.DefaultUIFonts", "Style.DefaultLyricsFonts",
   "Style.Background", "Style.BackgroundImage", "Style.BackgroundFlow", "Style.BackgroundBlur", "Style.BackgroundRenderer", "Style.NpBackgroundRenderer", "Style.MenuBlur",
   "Window.Decor", "Window.CloseAction",
-  "Playing.Backend", "Playing.AudioDevice", "Playing.Fade", "Playing.PrevReplay", "Playing.InhibitSleep", "Playing.ReportListenTime",
+  "Playing.Backend", "Playing.AudioDevice", "Playing.AdaptiveRate", "Playing.AlsaExclusive", "Playing.Fade", "Playing.PrevReplay", "Playing.InhibitSleep", "Playing.ReportListenTime",
   "Quality.DefaultQuality", "Quality.FallbackToQMAtmos",
   "Update.AutoCheck", "Update.Channel", "Update.LastNotified",
 ].every((k) => keys.includes(k)), keys.join(","));

@@ -57,6 +57,8 @@ const FALLBACK: ConfigSnapshot = {
   "Window.QueueWidth": "",
   "Playing.Backend": defaultBackend(),
   "Playing.AudioDevice": "auto",
+  "Playing.AdaptiveRate": "False",
+  "Playing.AlsaExclusive": "False",
   "Playing.Fade": "normal",
   "Playing.Volume": "0.8",
   "Playing.Equalizer": JSON.stringify(defaultEqState()),
@@ -65,6 +67,7 @@ const FALLBACK: ConfigSnapshot = {
   "Playing.InhibitSleep": "True",
   "Playing.ReportListenTime": "True",
   "Playing.MusicCacheLimitMB": "2048",
+  "Playing.MusicCacheDir": "",
   "Hotkeys.Global.Toggle": "Ctrl+Alt+P",
   "Hotkeys.Global.Prev": "Ctrl+Alt+Left",
   "Hotkeys.Global.Next": "Ctrl+Alt+Right",
@@ -236,6 +239,34 @@ export function cfgSet(patch: ConfigSnapshot): void {
   const changed = applyPatch(patch);
 
   if (changed) flush(changed);
+}
+
+/** 写盘并等主进程回执（需要拿「应用结果」的项用，例：音乐缓存位置——主进程要把新位置
+ *  下发给 sidecar 并搬走已有缓存，界面得显示搬完的现状或失败原因）。
+ *  普通设置仍走 cfgSet：不等磁盘。
+ *  apply=false 只落盘不下发（换位置失败后的回滚用：sidecar 那边压根没换成，别再搬一趟）。 */
+export async function cfgSetAwait(patch: ConfigSnapshot, apply = true): Promise<ConfigApplyResult> {
+  const changed = applyPatch(patch);
+  const b = bridge();
+
+  if (!changed) return { ok: true };
+
+  if (!b?.set) { saveLocal(); return { ok: true }; }
+
+  try {
+    const r = await b.set(changed, apply);
+
+    return { ok: r?.ok !== false, cache: r?.cache ?? null, error: r?.error };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/** cfgSetAwait 的回执：cache = 主进程下发缓存位置后的现状（其余键为 null）。 */
+export interface ConfigApplyResult {
+  ok: boolean;
+  error?: string;
+  cache?: { ok: boolean; dir?: string; items?: number; bytes?: number; error?: string } | null;
 }
 
 // 高频项（音量拖拽等）：内存立即生效，落盘合并成一次。关页面时补一次，别把最后一格滚轮吃掉。

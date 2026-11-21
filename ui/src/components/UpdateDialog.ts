@@ -5,19 +5,25 @@
 // 两种意图共用本弹窗，措辞由 info.switching / info.decision.relation 决定：
 //   同渠道升级 = 「发现新版本」+「立即更新」；换渠道 = 「切换到 …」+「立即切换」，
 //   回退还要多一句版本号会变小的提示（配置/凭证/缓存不受影响）。
-// 阶段机：confirm → downloading → ready（重启 / 退出安装 / 已下载待打开 / 已打开安装包）。安装口径：
-//   AppImage = 原位替换文件后提示重启；Windows = 退出并静默安装；deb/rpm/flatpak = 下载到「下载」目录
-//   后**不自动**打开，弹窗里给「打开安装包」（xdg-open）与「打开所在目录」两个选择；dmg = 交给系统挂载。
-//   下载由主进程做 sha256 完整性校验，本地已有校验通过的包不会重复下载（文案改为指出现成文件）。
+// 阶段机：confirm → downloading → installing（deb/rpm/pacman/flatpak 在终端里装）→ done（问是否退出）
+//   或 ready（AppImage 重启 / Windows 退出安装 / dmg 已挂载）。安装口径：
+//   AppImage = 唯一支持原子更新的形态，原位替换文件后提示重启；
+//   Windows = 退出并静默安装；
+//   deb/rpm/pacman/flatpak = 下载到「下载」目录后**在用户终端里**跑发行版包管理器
+//     （pkexec apt/oma install、pkexec zypper/dnf install、pkexec pacman -U、flatpak install），
+//     终端进程退出码 = 成败；成功即自动删掉安装包，然后问用户「现在退出 Quaver 完成更新吗」；
+//   dmg = 交给系统挂载。下载由主进程做 sha256 完整性校验，本地已有校验通过的包不会重复下载。
 //   商店托管（APM/星火、如意玲珑容器）：不提供应用内下载 —— picked 为空，弹窗只提醒「等待商店推送新版」。
 //
-// 关闭语义：Esc / 点遮罩 = 「以后再说」，下载中先取消下载（AppImage 临时文件由主进程清理）。
+// 关闭语义：Esc / 点遮罩 = 「以后再说」，下载中先取消下载（AppImage 临时文件由主进程清理）；
+// 安装已开始后关窗只关界面，终端里的安装照常进行（结果由主进程落盘、下次启动仍能看到新版本）。
 import "./dialog.css";
 import { toast } from "../lib/toast";
 import { channelLabel, describeBuild, renderNotes } from "../lib/update-core";
 import {
-  type UpdateInfo, type DownloadHandle, STORE_NAMES, downloadUpdate, finalizeInstall,
-  quitAndInstallWindows, relaunchApp, openReleases, openPath,
+  type UpdateInfo, type DownloadHandle, type InstallDone, type InstallWaiter,
+  STORE_NAMES, downloadUpdate, finalizeInstall,
+  isPackageKind, quitAndInstallWindows, quitApp, relaunchApp, openReleases, waitInstallDone,
 } from "../lib/updater";
 import { setLastNotified } from "../lib/prefs";
 
@@ -30,6 +36,9 @@ const fmtSize = (n: number) => (n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB
 
 let layer: HTMLElement | null = null;
 let handle: DownloadHandle | null = null;
+
+/** 包管理器安装的等待句柄（关窗时解除登记；终端里的安装不受影响）。 */
+let installWaiter: InstallWaiter | null = null;
 
 /** 打开更新弹窗。已有弹窗在开时忽略（启动检查与手动检查不会叠加）。 */
 export function showUpdateDialog(info: UpdateInfo): void {
@@ -94,7 +103,6 @@ export function showUpdateDialog(info: UpdateInfo): void {
         <button class="ghost-btn" data-act="skip" type="button">${skipLabel}</button>
         <button class="ghost-btn" data-act="later" type="button">以后再说</button>
         <span class="upd-spacer"></span>
-        <button class="ghost-btn" data-act="open-dir" type="button" hidden>打开所在目录</button>
         <button class="upd-primary" data-act="main" type="button">${mainLabel}</button>
       </div>
     </div>`;
@@ -106,7 +114,6 @@ export function showUpdateDialog(info: UpdateInfo): void {
   const skipBtn = layer.querySelector<HTMLButtonElement>('[data-act="skip"]')!;
   const laterBtn = layer.querySelector<HTMLButtonElement>('[data-act="later"]')!;
   const mainBtn = layer.querySelector<HTMLButtonElement>('[data-act="main"]')!;
-  const openDirBtn = layer.querySelector<HTMLButtonElement>('[data-act="open-dir"]')!;
   const warnBox = layer.querySelectorAll<HTMLElement>(".upd-warn");
 
   // 覆盖层与 Esc 都是「以后再说」；下载中先取消下载。
@@ -119,6 +126,8 @@ export function showUpdateDialog(info: UpdateInfo): void {
     closing = true;
 
     if (handle) { handle.cancel(); handle = null; }
+
+    if (installWaiter) { installWaiter.cancel(); installWaiter = null; }
 
     window.removeEventListener("keydown", onKey);
     const el = layer;
@@ -144,6 +153,7 @@ export function showUpdateDialog(info: UpdateInfo): void {
   const setMain = (label: string, primary: boolean, onclick: () => void) => {
     mainBtn.textContent = label;
     mainBtn.className = primary ? "upd-primary" : "ghost-btn";
+    mainBtn.disabled = false;
     mainBtn.onclick = () => { onclick(); };
   };
 
@@ -163,7 +173,6 @@ export function showUpdateDialog(info: UpdateInfo): void {
     warnBox.forEach((w) => (w.hidden = true));
     skipBtn.hidden = true;
     laterBtn.hidden = true;
-    openDirBtn.hidden = true;
     handle = downloadUpdate(info, (received, total) => {
       const pct = total ? Math.min(100, Math.floor((received / total) * 100)) : 0;
       barFill.style.setProperty("--w", `${pct}%`);
@@ -172,9 +181,14 @@ export function showUpdateDialog(info: UpdateInfo): void {
     setMain("取消", false, () => { handle?.cancel(); });
 
     try {
-      const { path, deduped } = await handle.promise;
+      const h = handle;
+      const { path } = await h.promise;
       handle = null;
-      const step = await finalizeInstall(info, path, deduped);
+
+      // 包管理器安装的结果事件可能来得很快（命令秒退）—— 必须在起安装**之前**登记等待
+      if (kind && isPackageKind(kind)) installWaiter = waitInstallDone(h.id);
+
+      const step = await finalizeInstall(info, path, h.id);
       bar.hidden = true;
 
       if (step.type === "appimage-replaced") {
@@ -190,27 +204,22 @@ export function showUpdateDialog(info: UpdateInfo): void {
           void quitAndInstallWindows(path).catch((e: unknown) => toast(`更新失败：${errText(e)}`, "err"));
           close();
         });
-      } else if (step.type === "installer-downloaded") {
-        // deb/rpm/flatpak：只落盘到「下载」目录 —— 不自动拉起安装器。用户点「打开安装包」才交系统（xdg-open），
-        // 旁边的「打开所在目录」则在文件管理器里定位它。sha256 校验通过的现成文件不重复下载，直接指出来。
-        const dir = step.path.replace(/[\\/][^\\/]*$/, "");
+      } else if (step.type === "package-installing") {
+        showInstalling(step.path, step.command);
+      } else if (step.type === "package-manual") {
+        // 起不了终端（极简 WM / 无候选程序 / Flatpak 沙箱里没有 flatpak CLI）：把命令原样交给用户
+        installWaiter?.cancel();
+        installWaiter = null;
         notes.hidden = false;
-        notes.innerHTML = `<p class="muted">${step.deduped
-          ? `「下载」目录里已有 sha256 校验通过的安装包 <code>${esc(step.path)}</code>，未重复下载。`
-          : `安装包已下载到 <code>${esc(dir)}</code>（sha256 校验通过）。`
-        }点「打开安装包」交给系统安装器，或先打开所在目录。${kind === "flatpak"
-          ? `<br/>若「打开安装包」没有可用程序，在终端执行 <code>flatpak install -y &quot;${esc(step.path)}&quot;</code> 完成更新。` : ""}</p>`;
+        notes.innerHTML = `<p class="muted">安装包已下载并通过校验，但没能在这里自动安装。请在终端执行：</p>
+          <pre><code>${esc(step.command)}</code></pre>
+          <p class="muted">${kind === "flatpak"
+            ? "Flatpak 沙箱里不能执行 flatpak install —— 请在<strong>宿主机的终端</strong>里跑上面这条命令，"
+            : "装完后手动删掉安装包，"}然后退出应用重新打开即可使用新版本。</p>`;
         skipBtn.hidden = true;
         laterBtn.hidden = false;
         laterBtn.textContent = "稍后";
-        openDirBtn.hidden = false;
-        openDirBtn.onclick = () => { void openPath(dir).catch((e: unknown) => toast(`无法打开目录：${errText(e)}`, "err")); };
-
-        setMain("打开安装包", true, () => {
-          void openPath(step.path)
-            .then(() => close())
-            .catch((e: unknown) => toast(`无法打开安装包：${errText(e)}`, "err"));
-        });
+        setMain("知道了", true, close);
       } else {
         // dmg：主进程已交给系统挂载
         notes.hidden = false;
@@ -221,6 +230,8 @@ export function showUpdateDialog(info: UpdateInfo): void {
       }
     } catch (e) {
       handle = null;
+      installWaiter?.cancel();
+      installWaiter = null;
 
       // 主动取消是用户操作，不是失败：静默回到确认态
       if (!/已取消/.test(errText(e))) toast(`更新失败：${errText(e)}`, "err");
@@ -230,11 +241,58 @@ export function showUpdateDialog(info: UpdateInfo): void {
       skipBtn.hidden = false;
       laterBtn.hidden = false;
       laterBtn.textContent = "以后再说";
-      openDirBtn.hidden = true;
-      openDirBtn.onclick = null;
       warnBox.forEach((w) => (w.hidden = false));
       setMain(selfInstallable ? mainLabel : "打开发布页", true, selfInstallable ? startInstall : () => close());
     }
+  }
+
+  /** 安装中态：终端里在跑包管理器，弹窗只留「在后台继续」+ 命令回显。结果来了再换按钮。 */
+  function showInstalling(path: string, command: string) {
+    const dir = path.replace(/[\\/][^\\/]*$/, "");
+
+    notes.hidden = false;
+    notes.innerHTML = `<p class="muted">已打开终端，正在执行：</p>
+      <pre><code>${esc(command)}</code></pre>
+      <p class="muted">按终端里的提示操作（可能需要输入管理员密码）。安装成功后会删除安装包 <code>${esc(path)}</code>，并在此询问是否退出应用。</p>`;
+    skipBtn.hidden = true;
+    laterBtn.hidden = false;
+    laterBtn.textContent = "在后台继续";
+    setMain("安装中…", false, () => close());
+    mainBtn.disabled = true;
+
+    const waiter = installWaiter!;
+
+    void waiter.promise.then((r: InstallDone) => {
+      if (layer == null) return;   // 弹窗已关：不打扰
+      installWaiter = null;
+      bar.hidden = true;
+      mainBtn.disabled = false;
+
+      if (r.ok) {
+        // 装完了：主进程已删包 → 问是否现在退出（用户装的是发行版包，退出后重开即新版）
+        notes.innerHTML = `<p class="muted">安装成功，安装包已自动删除（<code>${esc(path)}</code>）。</p>
+          <p class="muted">现在退出 Quaver Music 完成更新吗？重新打开即可使用新版本。</p>`;
+        skipBtn.hidden = true;
+        laterBtn.hidden = false;
+        laterBtn.textContent = "稍后自己退出";
+        laterBtn.onclick = close;
+        setMain("退出应用", true, () => { void quitApp(); });
+        mainBtn.focus();
+
+        return;
+      }
+
+      // 失败 / 用户关了终端：包留着（可能是权限失败、依赖冲突），指出去向与手动命令
+      notes.innerHTML = `<p class="muted">${r.completed
+        ? `安装没有成功（${esc(r.error)}）。安装包仍在 <code>${esc(dir)}</code>，可在终端手动执行下面的命令重试：`
+        : `没有等到安装结束（${esc(r.error)}）。安装包仍在 <code>${esc(dir)}</code>；如需重试，在终端执行：`}</p>
+        <pre><code>${esc(command)}</code></pre>`;
+      skipBtn.hidden = true;
+      laterBtn.hidden = false;
+      laterBtn.textContent = "稍后";
+      laterBtn.onclick = close;
+      setMain("知道了", true, close);
+    });
   }
 
   document.body.append(layer);

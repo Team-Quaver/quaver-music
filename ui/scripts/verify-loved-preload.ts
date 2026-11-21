@@ -219,9 +219,8 @@ await step("取消红心即在线取消单曲收藏（行移出 + 本地落盘 +
 
 // 4) 复原：重新收藏（在线 like）→ 上游与视图回到全亮
 await step("取消后可重新收藏并恢复全亮（复原账号）", async () => {
-  // 写接口 songType 语义：读接口 type=1（普通歌曲）在写接口要传 0，否则 QQ 静默丢弃
-  //（retCode=0 但歌单没动）——见 ui/src/lib/api.ts writeSongType
-  const writeType = (t) => (Number(t ?? 1) === 1 ? 0 : Number(t ?? 0));
+  // song_type 发读侧原值：写侧枚举转换收口在 Go SDK（ToSonglistWriteType，上游 PR 306）
+  const writeType = (t) => Number(t ?? 1);
 
   const like = (t) => page.evaluate(async (p) => {
     const r = await fetch("/api/song/like", {
@@ -234,7 +233,7 @@ await step("取消后可重新收藏并恢复全亮（复原账号）", async ()
 
   let restored = false, lag = 0;
 
-  for (const t of [writeType(pick.type), 1]) { // 主用正确值；万一类型特殊再兜一次原值
+  for (const t of [writeType(pick.type)]) { // 读侧原值直发；写侧映射由 Go SDK 完成
     if ((await like(t)) !== 0) continue;
     const r = (await waitUpstream((u) => u.total === total0 && u.mids.includes(pick.mid), 45000))!;
     lag = r.lag;

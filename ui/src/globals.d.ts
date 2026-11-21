@@ -10,6 +10,7 @@ type UpdateInvokeMsg =
   | { op: "cancel-download"; id: string }
   | { op: "apply-appimage"; path: string }
   | { op: "install-windows"; path: string }
+  | { op: "install-linux-package"; id: string; kind: "deb" | "rpm" | "pacman" | "flatpak"; path: string }
   | { op: "open-path"; path: string }
   | { op: "open-releases"; channel: "stable" | "beta" | "nightly" }
   | { op: "relaunch" }
@@ -19,6 +20,17 @@ interface UpdateProgressPayload {
   id: string;
   received: number;
   total: number;
+}
+
+/** Linux 包管理器安装结束（主进程在终端里的命令退出后推）。 */
+interface UpdateInstallDonePayload {
+  id: string;
+  ok: boolean;
+  /** 拿到了退出码（false = 终端被关 / 超时） */
+  completed: boolean;
+  /** 安装成功、安装包已自动删除 */
+  removed: boolean;
+  error: string;
 }
 
 // Sparkle 已安装插件与 Marketplace 索引的最小清单（主进程读盘/读远端 JSON 的原样投影；
@@ -87,6 +99,7 @@ interface Window {
   quaverUpdate?: {
     invoke(msg: UpdateInvokeMsg): Promise<any>;
     onProgress(cb: (p: UpdateProgressPayload) => void): void;
+    onInstallDone?(cb: (p: UpdateInstallDonePayload) => void): void;
   };
   quaverSparkle?: {
     list(): Promise<{ ok: boolean; plugins?: SparkleInstalledPlugin[] }>;
@@ -113,7 +126,8 @@ interface Window {
   };
   /** 本地/NAS 曲库（「本地音乐」页）：选目录与文件定位。音频/封面/歌词走同源 /api/local/*。 */
   quaverLocal?: {
-    pickFolder(): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
+    /** purpose="cache-dir" = 音乐缓存位置（标题/初值不同，同样只回路径字符串）。 */
+    pickFolder(purpose?: string): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
     reveal(id: string): Promise<{ ok: boolean; error?: string }>;
   };
 }

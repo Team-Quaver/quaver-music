@@ -230,9 +230,9 @@ ok("菜单: 排队插队与搜索页立即插队分开（各自入口 + 回执�
 ok("playlists: 自建歌单缓存 + 排除「我喜欢」(dirid=201)",
   has(src.playlists, "loadMySonglists") && has(src.playlists, "LOVED_DIRID = 201") && has(src.playlists, "Number(p?.dirid) !== LOVED_DIRID"));
 
-ok("playlists: 写接口用 dirid 路径 + 带 tid + writeSongType 转换",
+ok("playlists: 写接口用 dirid 路径 + 带 tid + song_type 发读侧原值（转换收口在 Go SDK）",
   re(src.playlists, /postJson<\{ ok: boolean \}>\(`\/songlist\/\$\{target\.dirid\}\/songs`, \{ \.\.\.ref, tid: target\.id \|\| 0 \}\)/)
-  && re(src.playlists, /song_type: writeSongType\(song\.type\)/));
+  && re(src.playlists, /song_type: Number\(song\.type \?\? 1\)/));
 
 ok("playlists: 缺 song_id 时不静默失败", has(src.playlists, "缺少 song_id"));
 

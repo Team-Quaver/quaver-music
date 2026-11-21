@@ -15,10 +15,11 @@
 // 点「暂不切换」即记进 Update.LastNotified，不再打扰。
 import {
   GITHUB_REPO, buildChannel, decideUpdate, normalizeRelease, parseVersion, pickAsset, pickBetaRelease,
-  type AssetKind, type ReleaseAsset, type ReleaseInfo, type UpdateDecision,
+  type AssetKind, type LinuxPkgKind, type ReleaseAsset, type ReleaseInfo, type UpdateDecision,
 } from "./update-core";
 import { getAutoCheck, getUpdateChannel, getLastNotified, type UpdateChannel } from "./prefs";
 import { showUpdateDialog } from "../components/UpdateDialog";
+import { toast } from "./toast";
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const bridge = () => (window as any).quaverUpdate;
@@ -39,8 +40,8 @@ export interface PlatformInfo {
   arch: string;
   /** $APPIMAGE 在位 = AppImage 运行态（应用内原位替换更新）；否则是发行版包安装（deb/rpm/flatpak 下载后交系统打开） */
   appimage: string | null;
-  /** Linux 原生包偏好（deb / rpm / flatpak，flatpak 沙箱认 /.flatpak-info）；非 Linux、认不出或商店托管时为 null */
-  pkg: "deb" | "rpm" | "flatpak" | null;
+  /** Linux 原生包偏好（deb / rpm / pacman / flatpak，flatpak 沙箱认 /.flatpak-info）；非 Linux、认不出或商店托管时为 null */
+  pkg: LinuxPkgKind | null;
   /** 商店托管（spark=星火/APM，linglong=如意玲珑）：不挑包、不下载，弹窗改为「等待商店推送」 */
   store: StoreManaged;
   packaged: boolean;
@@ -180,6 +181,46 @@ export async function checkUpdate(channel: UpdateChannel = getUpdateChannel()): 
 
 // ——— 下载 / 安装 ———
 
+/** Linux 包管理器安装的进度回报（主进程在终端里的命令结束后推）。
+ *  completed=false = 没等到退出码（终端被关 / 超时）；removed=true = 安装包已被自动删除。 */
+export interface InstallDone {
+  id: string;
+  ok: boolean;
+  completed: boolean;
+  removed: boolean;
+  error: string;
+}
+
+const installDoneCbs = new Map<string, (r: InstallDone) => void>();
+
+if (typeof window !== "undefined") {
+  window.quaverUpdate?.onInstallDone?.((p) => {
+    const cb = installDoneCbs.get(p.id);
+
+    // 一次性：安装结束只回报一次
+    if (cb) { installDoneCbs.delete(p.id); cb(p); return; }
+
+    // 弹窗已关（用户选了「在后台继续」）：结果没处展示，至少 toast 告诉一句，
+    // 成功时提醒退出应用才生效 —— 安装包已由主进程删掉，这里不再提它。
+    if (p.ok) toast("更新安装完成，退出 Quaver Music 后重新打开即可使用新版本", "ok");
+    else toast(`更新安装失败：${p.error}`, "err");
+  });
+}
+
+/** 一次包管理器安装的等待句柄。 */
+export interface InstallWaiter {
+  promise: Promise<InstallDone>;
+  /** 解除登记（弹窗关掉、不再关心结果时） */
+  cancel: () => void;
+}
+
+/** 等某次包管理器安装的结局。**必须在起安装前**登记 —— 命令可能秒退，结果事件不会等人。 */
+export function waitInstallDone(id: string): InstallWaiter {
+  const promise = new Promise<InstallDone>((resolve) => { installDoneCbs.set(id, resolve); });
+
+  return { promise, cancel: () => { installDoneCbs.delete(id); } };
+}
+
 /** 进度按整百分比从主进程推上来，这里按下载 id 分发给当前订阅者（弹窗）。 */
 const progressCbs = new Map<string, (received: number, total: number) => void>();
 
@@ -195,12 +236,15 @@ export interface DownloadHandle {
 
 /**
  * 下载更新包。落盘位置三选一：AppImage 原位替换 → $APPIMAGE 同目录（rename 原子替换不可跨文件系统）；
- * deb/rpm/flatpak → 用户「下载」目录（下载完只落盘，等用户在弹窗里点「打开安装包」才交系统安装器）；
+ * deb/rpm/pacman/flatpak → 用户「下载」目录（下载完在终端里跑包管理器，装好自动删包）；
  * 其余（exe/dmg）→ 系统临时目录。resolve 的是落盘路径（不是「安装完成」）。
  * 主进程按 asset.sha256（GitHub digest）校验完整性；已有校验通过的本地包时不重复下载
  * （deduped=true；AppImage 本体已是目标构建时 alreadyReplaced=true，收尾直接进「重启」）。
  */
-export function downloadUpdate(info: UpdateInfo, onProgress: (received: number, total: number) => void): DownloadHandle {
+export function downloadUpdate(
+  info: UpdateInfo,
+  onProgress: (received: number, total: number) => void,
+): DownloadHandle {
   const id = `upd-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
 
   const promise = (async () => {
@@ -211,7 +255,7 @@ export function downloadUpdate(info: UpdateInfo, onProgress: (received: number, 
       const kind = info.picked!.kind;
 
       const mode = kind === "appimage" && pf?.appimage ? "replace-appimage"
-        : kind === "deb" || kind === "rpm" || kind === "flatpak" ? "downloads"
+        : isPackageKind(kind) ? "downloads"
         : "installer";
 
       const r = await bridge().invoke({
@@ -234,16 +278,22 @@ export function downloadUpdate(info: UpdateInfo, onProgress: (received: number, 
   };
 }
 
+/** 走「下载 → 终端包管理器」的包型（AppImage 原位替换、exe/dmg 各有各的路）。 */
+export const isPackageKind = (k: AssetKind): boolean =>
+  k === "deb" || k === "rpm" || k === "pacman" || k === "flatpak";
+
 export type InstallStep =
   | { type: "appimage-replaced" }
   | { type: "installer-ready"; path: string }
-  /** deb/rpm/flatpak：已下载到「下载」目录，交回弹窗由用户点「打开安装包」再拉起安装器 */
-  | { type: "installer-downloaded"; path: string; deduped?: boolean }
+  /** deb/rpm/pacman/flatpak：终端里已在跑安装命令，结果经 onInstallDone 回来 */
+  | { type: "package-installing"; path: string; command: string }
+  /** 起不了终端：把命令给用户手动执行 */
+  | { type: "package-manual"; path: string; command: string }
   | { type: "installer-opened" };
 
-/** 下载完成后的收尾：AppImage 原位替换；exe 等用户点「退出并安装」；deb/rpm/flatpak 落盘待用户确认；
- *  dmg 交给系统挂载。绝不自动拉起安装器 —— 安装包类更新的「打开安装包 / 打开所在目录」由弹窗驱动。 */
-export async function finalizeInstall(info: UpdateInfo, path: string, deduped = false): Promise<InstallStep> {
+/** 下载完成后的收尾：AppImage 原位替换；exe 等用户点「退出并安装」；
+ *  deb/rpm/pacman/flatpak 在用户终端里跑包管理器（装好自动删包）；dmg 交给系统挂载。 */
+export async function finalizeInstall(info: UpdateInfo, path: string, id = ""): Promise<InstallStep> {
   const kind = info.picked!.kind;
 
   if (kind === "appimage") {
@@ -256,19 +306,24 @@ export async function finalizeInstall(info: UpdateInfo, path: string, deduped = 
 
   if (kind === "exe") return { type: "installer-ready", path };
 
-  if (kind === "deb" || kind === "rpm" || kind === "flatpak") return { type: "installer-downloaded", path, deduped };
+  // deb/rpm/pacman/flatpak：起用户终端里的包管理器。安装结果（成功即删包）经 onInstallDone 回来；
+  // 没有可用终端时退化成「手动执行这条命令」。
+  if (isPackageKind(kind)) {
+    const r = await bridge().invoke({ op: "install-linux-package", kind, path, id });
+
+    if (r?.ok) return { type: "package-installing", path, command: String(r.command ?? "") };
+
+    // 起不了终端要能被用户看到命令 —— 用带有 command 的失败态，交给弹窗展示（见 package-manual）
+    if (r?.command) return { type: "package-manual", path, command: String(r.command) };
+
+    throw new Error(r?.error ?? "无法启动安装");
+  }
+
   const r = await bridge().invoke({ op: "open-path", path });
 
   if (!r?.ok) throw new Error(r?.error ?? "无法打开安装包");
 
   return { type: "installer-opened" };
-}
-
-/** 交系统默认应用打开（Linux 走 xdg-open）：deb/rpm 的安装包本体，或它所在的目录。 */
-export async function openPath(path: string): Promise<void> {
-  const r = await bridge().invoke({ op: "open-path", path });
-
-  if (!r?.ok) throw new Error(r?.error ?? "无法打开");
 }
 
 /** Windows：拉起 NSIS 静默安装并退出应用（安装器装完会自行启动新版）。 */
@@ -281,6 +336,11 @@ export async function quitAndInstallWindows(path: string): Promise<void> {
 
 export function relaunchApp(): void {
   void bridge()?.invoke?.({ op: "relaunch" });
+}
+
+/** 真退出（不重启）：包管理器装完包后由用户确认。主进程 app.quit() 走正常退出链路（托盘/会话清理）。 */
+export function quitApp(): void {
+  void bridge()?.invoke?.({ op: "quit" });
 }
 
 /** 打开发布页（找不到对应平台安装包 / 不支持应用内更新时的出口）。 */

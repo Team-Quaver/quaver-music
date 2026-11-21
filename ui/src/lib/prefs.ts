@@ -477,6 +477,25 @@ export function setAudioDevice(id: string) {
   cfgSet({ "Playing.AudioDevice": id || "auto" });
 }
 
+// —— Liino 输出策略：两项都在下一次创建 Liino 会话时生效（不硬拆正在播放的输出）。
+//    AdaptiveRate 让 PipeWire 优先协商源采样率；AlsaExclusive 只对 ALSA hw 设备有意义，
+//    False 走 plughw（系统混音器可用），True 走 hw（独占、避免 daemon 重采样）。 ——
+export function getAdaptiveRate(): boolean {
+  return !/^(false|0|no)$/i.test(cfg("Playing.AdaptiveRate", "True"));
+}
+
+export function setAdaptiveRate(v: boolean) {
+  cfgSet({ "Playing.AdaptiveRate": v ? "True" : "False" });
+}
+
+export function getAlsaExclusive(): boolean {
+  return !/^(false|0|no)$/i.test(cfg("Playing.AlsaExclusive", "False"));
+}
+
+export function setAlsaExclusive(v: boolean) {
+  cfgSet({ "Playing.AlsaExclusive": v ? "True" : "False" });
+}
+
 // —— 淡入淡出（仅原生后端）：起播淡入 / 暂停与切歌淡出。直出走 MPV 包络，兼容走 renderer GainNode。 ——
 export type FadePreset = "off" | "short" | "normal" | "long";
 
@@ -588,6 +607,34 @@ export function setMusicCacheLimitMB(v: number) {
   const n = Math.max(0, Math.min(MUSIC_CACHE_MAX_MB, Math.round(v)));
 
   cfgSet({ "Playing.MusicCacheLimitMB": String(n) });
+}
+
+/** 音乐缓存位置（[Playing] MusicCacheDir）：留空 = 平台默认缓存目录
+ *  （Linux XDG_CACHE_HOME/quaver-music ｜ Windows %LocalAppData%\Quaver Music\Quaver Cache ｜
+ *  macOS ~/Library/Caches/Quaver Music）。判据与 electron/config.ts 的 isCacheDirValue 同规：
+ *  只认绝对路径，控制字符/超长一律当作未设置 —— 相对路径会跟着进程 cwd 漂。 */
+export function getMusicCacheDir(): string {
+  const raw = cfg("Playing.MusicCacheDir", "").trim();
+
+  return isAbsCacheDir(raw) ? raw : "";
+}
+
+export function setMusicCacheDir(v: string) {
+  const t = String(v ?? "").trim();
+  cfgSet({ "Playing.MusicCacheDir": isAbsCacheDir(t) ? t : "" });
+}
+
+/** 绝对路径判据（渲染层没有 node:path）：POSIX 的 / 开头、Windows 的盘符或 UNC。 */
+function isAbsCacheDir(v: string): boolean {
+  if (v === "" || v.length > 1024) return false;
+
+  for (const ch of v) {
+    const code = ch.codePointAt(0) ?? 0;
+
+    if (code === 0 || code === 10 || code === 13) return false;
+  }
+
+  return v.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(v) || v.startsWith("\\\\");
 }
 
 // —— 歌词辅助行：关闭 / 翻译 / 音译。翻译与音译是替换关系，且都在歌词**下方**那一行 ——

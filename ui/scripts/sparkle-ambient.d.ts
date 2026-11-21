@@ -12,6 +12,7 @@ declare module "@quaver/sparkle" {
   export type SparkleKaraokeLine = any;
   export type SparkleKaraokeProvider = any;
   export type SparkleKaraokeRenderCtx = any;
+  export type SparkleMenuBarItem = any;
   export type SparkleMenuItem = any;
   export type SparkleNavItem = any;
   export type SparkleNpMenuCtx = any;
@@ -35,6 +36,9 @@ declare module "@quaver/sparkle" {
   export type SparkleStreamSource = any;
   export type SparkleTheme = any;
   export type SparkleThemePack = any;
+  export type SparkleThemeTransparent = any;
   export type SparkleTintPreset = any;
+  export type SparkleTransportControl = any;
+  export type SparkleTransportCtx = any;
   export type SparkleView = any;
 }

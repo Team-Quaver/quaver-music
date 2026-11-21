@@ -146,7 +146,8 @@ await page.goto(`${BASE}/index.html#/`, { waitUntil: "domcontentloaded" });
 
 await page.waitForFunction(() => !!window.__quaverPlayer?.likedAt && !!window.__quaverSonglists, { timeout: 90000 });
 
-const writeType = (t) => (Number(t ?? 1) === 1 ? 0 : Number(t ?? 0));
+// song_type 发读侧原值：写侧枚举转换收口在 Go SDK（ToSonglistWriteType，上游 PR 306）
+const writeType = (t) => Number(t ?? 1);
 
 // 残留自清理：上次运行若中途挂掉，测试歌可能留在歌单里 —— 直写接口逐个移出并等上游反映
 const leftovers = await page.evaluate(() => JSON.parse(localStorage.getItem("quaver.songlist-sync.test") ?? "[]"));
@@ -210,8 +211,9 @@ await step("加入歌单写确认后触发增量回源（首页窗口，无整�
   p1AtStart = stats.detailP1; p2AtStart = stats.detailP2;
 
   const fin = await page.evaluate(async (x) => {
-    const pl = window.__quaverSonglists.mySonglists().find((p) => p.dirid === x.dirid) ?? x;
-    await window.__quaverSonglists.addSongToSonglist(pl, x.song);
+    const bridge = window.__quaverSonglists!; // 前面 waitForFunction 已确认钩子挂载
+    const pl = bridge.mySonglists().find((p) => p.dirid === x.dirid) ?? x;
+    await bridge.addSongToSonglist(pl, x.song);
 
     return true;
   }, { dirid: pl.dirid, id: pl.id, title: pl.title, song: pick });
@@ -253,8 +255,9 @@ await step("加入歌单 → 打开中的歌单页即时上屏（不等回源）
   if (!(await rowPresent(pick.mid))) throw new Error("歌单页缺刚加入的歌");
   const t0 = Date.now();
   await page.evaluate(async (x) => {
-    const pl = window.__quaverSonglists.mySonglists().find((p) => p.dirid === x.dirid) ?? x;
-    await window.__quaverSonglists.addSongToSonglist(pl, x.song);
+    const bridge = window.__quaverSonglists!;
+    const pl = bridge.mySonglists().find((p) => p.dirid === x.dirid) ?? x;
+    await bridge.addSongToSonglist(pl, x.song);
   }, { dirid: pl.dirid, id: pl.id, title: pl.title, song: pick2 });
   const at = await waitFor(() => rowPresent(pick2.mid), 2500);
 
@@ -269,8 +272,9 @@ await step("加入歌单 → 打开中的歌单页即时上屏（不等回源）
 // 3) 同页删除：行淡出 + 序号重排，双击首行命中自身
 await step("从歌单删除 → 行淡出移除 + 序号重排 + 双击命中当前行", async () => {
   const fin = await page.evaluate(async (x) => {
-    const pl = window.__quaverSonglists.mySonglists().find((p) => p.dirid === x.dirid) ?? x;
-    await window.__quaverSonglists.removeSongFromSonglist(pl, x.song);
+    const bridge = window.__quaverSonglists!;
+    const pl = bridge.mySonglists().find((p) => p.dirid === x.dirid) ?? x;
+    await bridge.removeSongFromSonglist(pl, x.song);
 
     return true;
   }, { dirid: pl.dirid, tid: pl.id, song: pick2 });
@@ -313,8 +317,9 @@ await step("读侧滞后：旧读数不冲掉刚加入的行，重试后收敛",
   if (!stalePayload) throw new Error("拿不到基线页快照，无法回放旧数据");
   staleArm = true; staleUsed = false;
   await page.evaluate(async (x) => {
-    const pl = window.__quaverSonglists.mySonglists().find((p) => p.dirid === x.dirid) ?? x;
-    await window.__quaverSonglists.addSongToSonglist(pl, x.song);
+    const bridge = window.__quaverSonglists!;
+    const pl = bridge.mySonglists().find((p) => p.dirid === x.dirid) ?? x;
+    await bridge.addSongToSonglist(pl, x.song);
   }, { dirid: pl.dirid, id: pl.id, title: pl.title, song: pick2 });
   const used = await waitFor(() => staleUsed, 8000);
 
@@ -354,8 +359,9 @@ await step("读侧滞后：旧读数不冲掉刚加入的行，重试后收敛",
 await step("复原：移出测试歌曲，上游回到初始 total", async () => {
   for (const s of [pick2, pick]) {
     await page.evaluate(async (x) => {
-      const pl = window.__quaverSonglists.mySonglists().find((p) => p.dirid === x.dirid) ?? x;
-      await window.__quaverSonglists.removeSongFromSonglist({ dirid: x.dirid, tid: x.tid }, x.song);
+      const bridge = window.__quaverSonglists!;
+      const pl = bridge.mySonglists().find((p) => p.dirid === x.dirid) ?? x;
+      await bridge.removeSongFromSonglist({ dirid: x.dirid, tid: x.tid }, x.song);
     }, { dirid: pl.dirid, tid: pl.id, song: s });
   }
 

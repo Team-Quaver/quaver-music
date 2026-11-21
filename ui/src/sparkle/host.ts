@@ -3,11 +3,10 @@
 // registry.ts 保持零 ui 依赖；所有会碰 ui 模块的接线都在这里：
 // toast（SongMenu）、player 门面（player.ts）、nav DOM（shell.addNavItem）、
 // 侧栏重画（shell.repaintSidebarPlaylists）、主题 CSS 注入（document.head）。
-import type { SparkleContext, SparkleNpSpectrumMode, SparkleNpWidget, SparklePlugin, SparklePlayerFacade, SparkleTheme } from "@quaver/sparkle";
+import type { SparkleContext, SparkleNpSpectrumMode, SparkleNpWidget, SparklePlugin, SparkleTheme } from "@quaver/sparkle";
 import { toast } from "../lib/toast";
 import { OFFICIAL_META } from "./loader";
-import { player } from "../player";
-import { spectrumFacade } from "../lib/spectrum-controller";
+import { sparklePlayerFacade as playerFacade } from "./player-facade";
 import { addNavItem, repaintSidebarPlaylists } from "../shell";
 // 高亮色（tint）的交接：换主题后要重算宿主让不让位（见 lib/tint.ts / sparkle/theme-tint.ts）。
 // 方向是 host → lib/tint → sparkle/registry，单向，不成环。
@@ -16,16 +15,17 @@ import { applyBackground } from "../lib/ambient";
 import { applyMenuGlass } from "../lib/menu-glass";
 import { applyControlBar } from "../lib/control-bar";
 import { applyPlaylistMode } from "../lib/playlist-mode";
+import { applyThemeTransparent } from "./theme-transparent";
 import { sparkBlockReason } from "./policy";
 import {
   activateStyle, mountStyleLayer, onStyleChange, resetStyle, stylePacks, styleState,
 } from "./style-layer";
 import {
   sparkRecordDrop, sparkRecordInit, sparkRecordOf,
-  sparkRegisterKaraokeProvider, sparkRegisterNav, sparkRegisterNpMenuItem, sparkRegisterNpSpectrumMode, sparkRegisterNpView,
-  sparkRegisterNpWidget, sparkRegisterPlaylistMenuItem,
+  sparkRegisterKaraokeProvider, sparkRegisterMenuBarItem, sparkRegisterNav, sparkRegisterNpMenuItem, sparkRegisterNpSpectrumMode,
+  sparkRegisterNpView, sparkRegisterNpWidget, sparkRegisterPlaylistMenuItem,
   sparkRegisterSettingsSection, sparkRegisterSongMenuItem, sparkRegisterSonglistGroup,
-  sparkRegisterStreamSource, sparkRegisterTheme, sparkRegisterThemePack, sparkRegisterView,
+  sparkRegisterStreamSource, sparkRegisterTheme, sparkRegisterThemePack, sparkRegisterTransportControl, sparkRegisterView,
   sparklePluginRoutes, sparkleThemes,
   type SparklePluginRecord,
 } from "./registry";
@@ -76,13 +76,15 @@ function applySparkleTheme() {
   if (known) root.dataset.sparkleTheme = known;
   else delete root.dataset.sparkleTheme;
   // 主题会决定这些归谁：高亮色（tint）、背景（background）、浮层菜单的外观（menus）、
-  // 播放控制条停靠形态（controlBar）、歌单显示模式（playlistMode）。前三者缺省是主题自带；
-  // 控制条与歌单模式缺省都归宿主偏好。换主题/停用主题后都要重算一次，否则会停在上一套策略上。
+  // 播放控制条停靠形态（controlBar）、歌单显示模式（playlistMode）、透明模式（transparent）。
+  // 前三者缺省是主题自带；控制条与歌单模式缺省都归宿主偏好。换主题/停用主题后都要重算一次，
+  // 否则会停在上一套策略上。
   applyTint();
   applyBackground();
   applyMenuGlass();
   applyControlBar();
   applyPlaylistMode();
+  applyThemeTransparent();
 }
 
 function injectThemeStyle(t: SparkleTheme) {
@@ -94,20 +96,7 @@ function injectThemeStyle(t: SparkleTheme) {
   return () => style.remove();
 }
 
-// —— player 只读门面 ——
-
-const playerFacade: SparklePlayerFacade = {
-  get current() {
-    const s = player.current;
-
-    return s ? { mid: s.mid, name: s.name, singer: s.singer, album: s.album, interval: s.interval } : null;
-  },
-  get time() { return player.time; },
-  get paused() { return player.paused; },
-  on(cb) { return player.on(cb); },
-  spectrum: () => spectrumFacade.frame(),
-  onSpectrum: (cb) => spectrumFacade.onFrame(cb),
-};
+// —— player 只读门面：住在 sparkle/player-facade.ts（transport 也要用，避免成环） ——
 
 // —— SparkleContext 工厂 ——
 
@@ -180,6 +169,11 @@ function makeContext(pluginId: string): SparkleContext {
     // 整页接管：不立即挂载 —— 由 np-view.ts 在正在播放页的 notify 里按 enabled() 决定
     registerNowPlayingView: (view) => sparkRegisterNpView(pluginId, view),
     registerNowPlayingSpectrumMode: (mode: SparkleNpSpectrumMode) => sparkRegisterNpSpectrumMode(pluginId, mode),
+    // 走带控件：登记即可停用插件时 registry 会摘掉登记；PlayerBar 的挂载层订阅 onSparkleChange
+    // 负责把按钮 / 浮窗补上或撤掉（DOM 生命周期不在 host 里，避免和播放条争结构）。
+    registerTransportControl: (control) => sparkRegisterTransportControl(pluginId, control),
+    // 菜单栏项：同上，侧栏渲染层（sparkle/menubar.ts）订阅变化自己重画。
+    registerMenuBarItem: (item) => sparkRegisterMenuBarItem(pluginId, item),
     registerSongMenuItem: (item) => sparkRegisterSongMenuItem(pluginId, item),
     registerPlaylistMenuItem: (item) => sparkRegisterPlaylistMenuItem(pluginId, item),
     registerNowPlayingMenuItem: (item) => sparkRegisterNpMenuItem(pluginId, item),

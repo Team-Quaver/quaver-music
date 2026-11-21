@@ -20,10 +20,15 @@ export interface SongListTools {
   el: HTMLElement;
   /** 当前「筛选 + 排序」后的列表（调用方要用可见顺序时读它） */
   visible(): any[];
+  /** 当前是否在「默认序 + 无搜索」态：歌单重排只在这个态开放
+   *  （筛排副本的拖拽结果映射不回服务端顺序，见 lib/songlist-reorder.ts） */
+  plain(): boolean;
   /** 按当前条件重画（触发 paint 回调）并刷新计数 */
   repaint(): void;
   /** 只刷新派生读数（当前无命中计数显示，保留为稳定对外接口） */
   refreshCount(): void;
+  /** 订阅筛选/排序状态变化（重排把手的显隐据此跟随）；返回退订函数 */
+  onState(fn: () => void): () => void;
 }
 
 export interface SongListToolsOptions {
@@ -64,6 +69,7 @@ export function songListTools(opts: SongListToolsOptions): SongListTools {
   let sortKey: RowSortKey = "default";
   let desc = false;
   let timer = 0;
+  const stateFns = new Set<() => void>();
 
   const nameOf = (s: any) => songTitle(s);
   // 合唱/合作：整串参与排序，别只看第一位歌手
@@ -108,6 +114,8 @@ export function songListTools(opts: SongListToolsOptions): SongListTools {
     clrEl.hidden = !kw;
     refreshCount();
     opts.paint(visible(), { filtering: !!kw.trim() });
+
+    for (const fn of stateFns) { try { fn(); } catch (e) { console.warn(e); } }
   }
 
   const paintSoon = () => {
@@ -136,5 +144,13 @@ export function songListTools(opts: SongListToolsOptions): SongListTools {
     });
   }
 
-  return { el, visible, repaint: paint, refreshCount };
+  const plain = () => sortKey === "default" && !kw.trim();
+
+  const onState = (fn: () => void) => {
+    stateFns.add(fn);
+
+    return () => { stateFns.delete(fn); };
+  };
+
+  return { el, visible, plain, repaint: paint, refreshCount, onState };
 }

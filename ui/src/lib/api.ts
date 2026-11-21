@@ -38,12 +38,14 @@ export const postJson = <T = any>(path: string, body: unknown): Promise<T> =>
 
 export const songArtists = (s: any) => (s.singer ?? []).map((x: any) => x.name).join(" / ");
 
-/** 收藏写接口（PlaylistDetailWrite）的 songType 与读接口 Song.type 不是同一套枚举，
- *  别直接透传：普通歌曲读侧 type=1，写侧必须发 0 —— 发 1 时上游 retCode=0、result.dirId=0，
- *  即「静默成功但什么都没发生」（实测 like/unlike 都会变成空操作，歌单不动、无从察觉）。
- *  写 0 才真正生效（约 1-2s 后即可从 /user/liked 读到）。
- *  其它类型按同一偏移推断（上游没有公开映射表），下限 0。 */
-export const writeSongType = (type?: number) => Math.max(0, Number(type ?? 1) - 1);
+/** 歌单写接口（PlaylistDetailWrite）的 songType 与读接口 Song.type 不是同一套枚举：
+ *  普通歌曲读侧 type=1，写侧是 0 —— 发错枚举时上游 retCode=0、result.dirId=0，
+ *  即「静默成功但什么都没发生」（实测 like/unlike 变成空操作，歌单不动、无从察觉）。
+ *
+ *  自 Typhoeus-go 对齐上游 PR 306 起，**读侧→写侧转换收口在 Go SDK 参数构造处**
+ *  （modules.ToSonglistWriteType：0/1→0；5/111/112/113 原样；其余→1，
+ *  依据 Android 20.9.0.8 parser.d.d / newfolderprotocol.d.c 两阶段映射）。
+ *  渲染层所有 /api 写调用一律发**读侧 Song.type 原值**，别在这里再转一次。 */
 
 // —— 展示名/副标题 ——
 // 上游的 Song.name 只是**主名**，版本后缀（Studio Live / (Half-acoustic Ver.) / Live On MTV…）

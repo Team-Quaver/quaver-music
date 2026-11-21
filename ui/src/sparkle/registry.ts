@@ -8,6 +8,7 @@
 // 停用插件 = 倒序跑完 teardown，宿主的各个接入点就自动回到无插件形态。
 import type {
   SparkleKaraokeProvider,
+  SparkleMenuBarItem,
   SparkleMenuItem,
   SparkleNavItem,
   SparkleNpMenuCtx,
@@ -22,6 +23,7 @@ import type {
   SparkleStyleLayer,
   SparkleTheme,
   SparkleThemePack,
+  SparkleTransportControl,
   SparkleView,
 } from "@quaver/sparkle";
 
@@ -57,6 +59,12 @@ interface NpViewEntry { pluginId: string; view: SparkleNpView }
 
 interface NpSpectrumModeEntry { pluginId: string; mode: SparkleNpSpectrumMode }
 
+/** 走带控制（播放条右侧控制簇）里的插件控件：按钮 + 浮窗。 */
+export interface TransportControlEntry { pluginId: string; control: SparkleTransportControl }
+
+/** 菜单栏选项/动作：主菜单列表或侧栏底部调整区。 */
+export interface MenuBarItemEntry { pluginId: string; item: SparkleMenuBarItem }
+
 interface MenuItemEntry {
   pluginId: string;
   item: SparkleMenuItem | ((ctx: SparkleSongMenuCtx) => SparkleMenuItem);
@@ -88,6 +96,8 @@ const themePacks: ThemePackEntry[] = [];
 const npWidgets: NpWidgetEntry[] = [];
 const npViews: NpViewEntry[] = [];
 const npSpectrumModes: NpSpectrumModeEntry[] = [];
+const transportControls: TransportControlEntry[] = [];
+const menuBarItems: MenuBarItemEntry[] = [];
 const menuItems: MenuItemEntry[] = [];
 const playlistMenuItems: PlaylistMenuItemEntry[] = [];
 const npMenuItems: NpMenuItemEntry[] = [];
@@ -265,6 +275,58 @@ export function sparkRegisterNpSpectrumMode(pluginId: string, mode: SparkleNpSpe
   emitChange();
 }
 
+export function sparkRegisterTransportControl(pluginId: string, control: SparkleTransportControl) {
+  const id = String(control?.id ?? "").trim().toLowerCase();
+
+  if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(id)) throw new Error(`走带控件 id 不合法：${control?.id ?? ""}`);
+
+  if (!control.label?.trim()) throw new Error(`走带控件 ${id} 缺少 label`);
+
+  if (transportControls.some((e) => e.pluginId === pluginId && e.control.id === id)) {
+    throw new Error(`走带控件 id 已被本插件占用：${id}`);
+  }
+
+  const entry: TransportControlEntry = {
+    pluginId,
+    control: { ...control, id, label: control.label.trim(), hint: control.hint?.trim() || undefined },
+  };
+  transportControls.push(entry);
+  teardownOf(pluginId).push(() => {
+    const at = transportControls.indexOf(entry);
+
+    if (at >= 0) transportControls.splice(at, 1);
+    emitChange(); // 停用 = DOM 也要摘：挂载层订阅的就是这条变化
+  });
+  emitChange();
+}
+
+export function sparkRegisterMenuBarItem(pluginId: string, item: SparkleMenuBarItem) {
+  const id = String(item?.id ?? "").trim().toLowerCase();
+
+  if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(id)) throw new Error(`菜单栏项 id 不合法：${item?.id ?? ""}`);
+
+  if (!item.label?.trim()) throw new Error(`菜单栏项 ${id} 缺少 label`);
+
+  if (item.slot && item.slot !== "main" && item.slot !== "foot") throw new Error(`菜单栏项 ${id} 的 slot 不合法：${item.slot}`);
+
+  if (menuBarItems.some((e) => e.pluginId === pluginId && e.item.id === id)) {
+    throw new Error(`菜单栏项 id 已被本插件占用：${id}`);
+  }
+
+  const entry: MenuBarItemEntry = {
+    pluginId,
+    item: { ...item, id, label: item.label.trim(), hint: item.hint?.trim() || undefined },
+  };
+  menuBarItems.push(entry);
+  teardownOf(pluginId).push(() => {
+    const at = menuBarItems.indexOf(entry);
+
+    if (at >= 0) menuBarItems.splice(at, 1);
+    emitChange(); // 侧栏项与设置页那一行都靠这条变化撤掉
+  });
+  emitChange();
+}
+
 export function sparkRegisterSongMenuItem(pluginId: string, item: MenuItemEntry["item"]) {
   const entry: MenuItemEntry = { pluginId, item };
   menuItems.push(entry);
@@ -369,6 +431,7 @@ export const sparkleIsThemeOnly = (pluginId: string): boolean => {
   return !owns(navItems) && !owns(songlistGroups) && !owns(styleLayers)
     && !owns(npWidgets) && !owns(npViews) && !owns(npSpectrumModes)
     && !owns(menuItems) && !owns(playlistMenuItems) && !owns(npMenuItems)
+    && !owns(transportControls) && !owns(menuBarItems)
     && !owns(streamSources) && !owns(karaokeProviders) && ![...pluginViews.values()].some((e) => e.pluginId === pluginId);
 };
 export const sparkleNpWidgets = (): NpWidgetEntry[] => npWidgets;
@@ -379,6 +442,13 @@ export const sparkleNpView = (): SparkleNpView | null => npViews[0]?.view ?? nul
 
 /** 正在播放页频谱形态：内置三种由渲染层提供，这里只列 Sparkle 插件注册的。 */
 export const sparkleNpSpectrumModes = (): SparkleNpSpectrumMode[] => npSpectrumModes.map((e) => e.mode);
+
+/** 走带控制里的插件控件：按 order 升序（缺省 0），同 order 按注册序。PlayerBar 消费。 */
+export const sparkleTransportControls = (): TransportControlEntry[] =>
+  [...transportControls].sort((a, b) => (a.control.order ?? 0) - (b.control.order ?? 0));
+
+/** 菜单栏插件项：按注册序（先注册先显示）。shell / 设置页菜单栏调整区消费。 */
+export const sparkleMenuBarItems = (): MenuBarItemEntry[] => menuBarItems;
 export const sparkleStreamSources = (): SparkleStreamSource[] => streamSources.map((e) => e.source);
 
 /** 宿主内置的歌词引擎（AMLL）作为兜底提供器存在注册表里，而不是「一个摘不掉的插件」：

@@ -1018,6 +1018,20 @@ body[data-control-bar="floating"] .list-fabs {
 .row .row-love.on { color: #e8465a; }
 /* 取消收藏后行淡出移除（我喜欢页：取消红心 = 取消单曲收藏 + 移出本页） */
 .row.leaving { opacity: 0; transform: translateX(-10px); transition: opacity .2s ease, transform .2s ease; pointer-events: none; }
+/* 歌单拖拽重排（lib/songlist-reorder.ts；机制与队列面板同一套，坑见那边注释）：
+   把手只在自有歌单 + 默认序 + 无搜索时由视图插入；.dragging 的 transition 绝不带 transform
+   （rect 量到动画中间值会让「视觉顶边贴指针」的算式残差复利，行越拖越飘）。 */
+.row-grip { width: 14px; height: 24px; flex: 0 0 auto; display: grid; place-items: center;
+  color: var(--idx); opacity: 0; cursor: grab; touch-action: none; transition: opacity .12s;
+  /* 贴住行左缘：抵消 .row 的 10px 左内边距 + 12px flex 间隙，把手落在序号左侧的边槽里 */
+  margin-left: -10px; margin-right: -12px; }
+.row:hover .row-grip { opacity: .8; }
+.row.dragging .row-grip { cursor: grabbing; opacity: .8; }
+.row.dragging { position: relative; z-index: 2; background: var(--row-hover);
+  box-shadow: 0 8px 22px #00000038; opacity: .94; transition: background .14s; }
+.rows.reordering, .rows.reordering .row { cursor: grabbing; }
+.rows.reordering .row:not(.dragging):hover { background: transparent; }
+.rows.order-busy .row-grip { opacity: 0; pointer-events: none; } /* 写在途：不接受第二次起拖 */
 .row .dur { width: 40px; text-align: right; color: var(--idx); font-size: 12px; flex: 0 0 auto; }
 
 /* ===================== 底部播放条（.frame 流内固定行：任何窗口高度都必然可见，

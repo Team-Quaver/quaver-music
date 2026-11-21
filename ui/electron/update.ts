@@ -11,7 +11,8 @@
 //      的 sha256 是否已等于目标，是则直接复用（deduped=true），一个字节都不走网络；
 //   3. 安装收尾：AppImage 原位替换（**文件名保持旧文件原名** —— 桌面项 / 快捷方式的 Exec
 //      都指向旧路径，改名即断链）、Windows NSIS 静默安装（装完自动拉起新版）、
-//      deb/rpm/flatpak 包/mac dmg 交给系统默认应用打开（Linux 走 xdg-open）；
+//      deb/rpm/pacman/flatpak 在终端里交给发行版包管理器（下载完 → 命令安装 → 删包 → 问是否退出），
+//      mac dmg 交给系统默认应用打开；
 //   4. 平台档案：报告运行方式（$APPIMAGE 在位 = AppImage；/.flatpak-info = Flatpak；否则发行版包）
 //      与架构，以及是否商店托管（store=spark/linglong —— APM 琥珀 / 如意玲珑容器里更新由商店
 //      推送，渲染层据此不挑包、不下载），渲染层据此挑安装包。
@@ -19,11 +20,15 @@ import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { access, chmod, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import {
+  installCommandFor, isLinuxPkgKind, LINUX_PKG_SUFFIX, LINUX_PKG_TOOLS,
+  shellQuote, type LinuxPkgKind,
+} from "../src/lib/update-core.ts";
 
 const GITHUB_REPO = "team-quaver/quaver-music";
 const GITHUB_API = `https://api.github.com/repos/${GITHUB_REPO}/releases`;
@@ -70,18 +75,24 @@ async function reuseIfValid(path: string, want: string): Promise<number | null> 
   } catch { return null; }
 }
 
-/** Linux 原生安装方式：Flatpak 沙箱优先，其余读 /etc/os-release 的 ID / ID_LIKE 判 deb / rpm。
- *  认不出来（如 Arch/未知发行版）返回 null —— 渲染层退回旧口径（AppImage 兜底），不硬猜。 */
+/** Linux 原生安装方式：Flatpak 沙箱优先，其余读 /etc/os-release 的 ID / ID_LIKE 判 deb / rpm / pacman。
+ *  认不出来（未知发行版）返回 null —— 渲染层退回旧口径（AppImage 兜底），不硬猜。 */
 const DEB_LIKE = new Set(["debian", "ubuntu", "linuxmint", "lmde", "pop", "elementary", "kali", "raspbian", "devuan", "deepin", "uos", "kylin", "neon", "zorin", "mx", "parrot"]);
 const RPM_LIKE = new Set(["fedora", "rhel", "centos", "rocky", "almalinux", "ol", "oracle", "amzn", "opensuse", "opensuse-leap", "opensuse-tumbleweed", "sles", "suse", "mageia", "nobara", "bazzite"]);
+
+// Arch 系：pacman -U 直装本地包（CI 出 .pkg.tar.zst）。Manjaro/EndeavourOS 等都带 arch 的 ID_LIKE。
+const PACMAN_LIKE = new Set(["arch", "archlinux", "manjaro", "endeavouros", "garuda", "artix", "cachyos", "arcolinux", "parabola", "hyperbola", "blackarch"]);
+
+/** 是否跑在 Flatpak 沙箱里（与 linuxPkgKind 同一判据：根目录 /.flatpak-info）。 */
+const inFlatpakSandbox = () => pathExists("/.flatpak-info");
 
 async function linuxPkgKind(): Promise<string | null> {
   if (process.platform !== "linux") return null;
 
   // Flatpak 沙箱：根目录 /.flatpak-info 在位 = Flatpak 安装。必须先于 os-release —— 沙箱里
   // /etc/os-release 是 runtime 的（freedesktop 基座是 Fedora 系），拿宿主发行版口径判 deb/rpm 是错的。
-  // Flatpak 走与 deb/rpm 相同的方式：挑 .flatpak 离线 bundle → 落「下载」目录 → 交回用户处置。
-  if (await pathExists("/.flatpak-info")) return "flatpak";
+  // Flatpak 走与 deb/rpm 相同的方式：挑 .flatpak 离线 bundle → 落「下载」目录 → 终端里 flatpak install。
+  if (await inFlatpakSandbox()) return "flatpak";
   let text = "";
 
   try { text = await readFile("/etc/os-release", "utf8"); } catch { return null; }
@@ -95,6 +106,10 @@ async function linuxPkgKind(): Promise<string | null> {
 
     for (const t of m[2].replace(/["']/g, "").trim().split(/\s+/)) if (t) toks.add(t.toLowerCase());
   }
+
+  // 顺序有讲究：openSUSE 一类发行版的 ID_LIKE 里也可能出现别的系，先判更专一的 Arch 系。
+  // （系内工具优先级由 LINUX_PKG_TOOLS 决定，例如 deb 优先 apt、备选 oma。）
+  if ([...toks].some((t) => PACMAN_LIKE.has(t))) return "pacman";
 
   if ([...toks].some((t) => DEB_LIKE.has(t))) return "deb";
 
@@ -138,6 +153,156 @@ function xdgOpen(path: string) {
   });
 }
 
+/** 在 PATH 各目录里找一个可执行文件（与 electron/audio/bins.ts 同口径，不引外部依赖）。 */
+async function findOnPath(tool: string): Promise<string | null> {
+  const sep = process.platform === "win32" ? ";" : ":";
+
+  for (const dir of (process.env.PATH ?? "").split(sep)) {
+    if (!dir) continue;
+    const p = join(dir, tool);
+
+    try { await access(p, 1 /* X_OK */); return p; } catch { /* 继续找 */ }
+  }
+
+  return null;
+}
+
+/** 按包型按序探安装工具，返回命中项与绝对路径。全缺 → null（终端里那条命令会以 127 失败）。 */
+async function findPkgTool(kind: LinuxPkgKind): Promise<{ tool: string; path: string } | null> {
+  for (const tool of LINUX_PKG_TOOLS[kind]) {
+    const path = await findOnPath(tool);
+
+    if (path) return { tool, path };
+  }
+
+  return null;
+}
+
+// ——— Linux：在用户终端里跑发行版包管理器 ———
+// 应用自己不提权、不弹 pkexec 的原生框：把命令交给终端，用户看得全过程、也能按提示输密码。
+// waits=true 的终端**前台运行**子命令（按常规窗口关闭即进程退出），于是子进程 exit 可以作为
+// 「用户关窗放弃」的信号；客户端/服务器型终端（gnome-terminal 等）开窗就返回，标 false ——
+// 那种情况下只认脚本写的退出码文件，child exit 只说明「窗口已开」，绝不能当作失败。
+const TERMINALS: ReadonlyArray<{ bin: string; args: readonly string[]; waits: boolean }> = [
+  { bin: "gnome-terminal", args: ["--wait", "--"], waits: true },
+  { bin: "konsole", args: ["--nofork", "-e"], waits: true },
+  { bin: "xfce4-terminal", args: ["--disable-server", "-x"], waits: true },
+  { bin: "mate-terminal", args: ["-x"], waits: false },
+  { bin: "lxterminal", args: ["-e"], waits: false },
+  { bin: "qterminal", args: ["-e"], waits: false },
+  { bin: "tilix", args: ["-e"], waits: false },
+  { bin: "terminator", args: ["-x"], waits: false },
+  { bin: "sakura", args: ["-x"], waits: false },
+  { bin: "kitty", args: [], waits: true },
+  { bin: "alacritty", args: ["-e"], waits: true },
+  { bin: "wezterm", args: ["start", "--"], waits: true },
+  { bin: "foot", args: [], waits: true },
+  { bin: "xterm", args: ["-e"], waits: true },
+  { bin: "x-terminal-emulator", args: ["-e"], waits: false },
+];
+
+/** 终端里那条脚本：执行安装命令 → 成功就删掉安装包 → 把退出码写进状态文件 →
+ *  失败时停住等回车（别让报错一闪而过）。
+ *  删包放在脚本里而不是主进程：用户可能装完立刻退出 / 重启应用，主进程的 watcher 会随之消失，
+ *  而终端里这条 shell 还活着 —— 清理必须由它兜底。主进程随后再 rmQuiet 一次（幂等）。 */
+function buildInstallScript(command: string, stateFile: string, pkgPath: string) {
+  return [
+    "#!/bin/sh",
+    "# Quaver 更新：由应用生成的一次性安装脚本",
+    "printf '\\n\\033[1mQuaver 更新\\033[0m\\n\\n'",
+    command,
+    "rc=$?",
+    `[ "$rc" -eq 0 ] && rm -f -- ${shellQuote(pkgPath)}`,
+    `printf '%s\\n' "$rc" > ${shellQuote(stateFile)}`,
+    `if [ "$rc" -ne 0 ]; then printf '\\n安装失败（退出码 %s），可复制上方输出排查。按回车关闭窗口…\\n' "$rc"; read -r _; fi`,
+    'rm -f -- "$0"',
+    'exit "$rc"',
+    "",
+  ].join("\n");
+}
+
+/** 起终端跑脚本：按候选顺序试，第一个能 spawn 成功的就算数。
+ *  waits=该终端是否前台跟着子命令（决定 child exit 能不能当「关窗放弃」）。
+ *  全部起不来 → null（渲染层转成「手动执行」提示）。 */
+async function startInstaller(
+  script: string,
+): Promise<{ child: ChildProcess; via: string; waits: boolean } | null> {
+  for (const t of TERMINALS) {
+    const bin = await findOnPath(t.bin);
+
+    if (!bin) continue;
+    const child = spawn(bin, [...t.args, "sh", script], { detached: true, stdio: "ignore" });
+
+    const started = await new Promise<boolean>((resolve) => {
+      child.once("error", () => resolve(false));
+      child.once("spawn", () => resolve(true));
+    });
+
+    if (!started) continue;
+
+    return { child, via: t.bin, waits: t.waits };
+  }
+
+  return null;
+}
+
+/** 脚本把退出码写到状态文件；这里等它出现。waits=true 且子进程先退出 = 用户关窗放弃，
+ *  再给 2s 落盘余量后按「未完成」收尾。 */
+async function waitForExitCode(
+  file: string, child: ChildProcess, opts: { waits: boolean; timeoutMs: number },
+): Promise<{ rc: number | null; gone: boolean }> {
+  const deadline = Date.now() + opts.timeoutMs;
+  let exited = false;
+  let exitAt = 0;
+
+  child.once("exit", () => { exited = true; exitAt = Date.now(); });
+
+  while (Date.now() < deadline) {
+    try {
+      const text = (await readFile(file, "utf8")).trim();
+
+      if (/^\d+$/.test(text)) return { rc: Number(text), gone: false };
+    } catch { /* 还没写 */ }
+
+    // 前台终端已退出但状态文件还没出现：给它 2s 落盘余量，仍没有就算用户关窗放弃了
+    if (opts.waits && exited && Date.now() - exitAt > 2000) return { rc: null, gone: true };
+
+    await new Promise((r) => setTimeout(r, 400));
+  }
+
+  return { rc: null, gone: false };
+}
+
+const INSTALL_TIMEOUT_MS = 30 * 60 * 1000;
+
+/** 盯着安装结果：成功 → 删掉安装包；然后无论成败都推一条 quaver:update-install-done 给渲染层，
+ *  由弹窗问「现在退出应用完成更新吗」。 */
+async function watchInstall(o: {
+  id: string; path: string; stateFile: string; script: string; child: ChildProcess; waits: boolean;
+}, log: (...args: unknown[]) => void) {
+  const { rc, gone } = await waitForExitCode(o.stateFile, o.child, { waits: o.waits, timeoutMs: INSTALL_TIMEOUT_MS });
+  const ok = rc === 0;
+
+  if (ok) await rmQuiet(o.path);  // 装好了，安装包没用了 —— 自动清理
+
+  const payload = {
+    id: o.id,
+    ok,
+    completed: rc !== null,
+    removed: ok,
+    error: ok ? "" : rc !== null ? `安装命令以退出码 ${rc} 结束` : gone ? "安装没有完成（终端已关闭）" : "安装超时",
+  };
+
+  log(`[quaver] update: install finished (${ok ? "ok" : payload.error})${ok ? `, removed ${o.path}` : ""}`);
+
+  for (const w of BrowserWindow.getAllWindows()) {
+    try { w.webContents.send("quaver:update-install-done", payload); } catch { /* 窗口已关 */ }
+  }
+
+  await rmQuiet(o.script);
+  await rmQuiet(o.stateFile);
+}
+
 /** 从下载 URL 取落盘文件名（github assets 的 URL 段就是原始文件名）。 */
 function assetBasename(url: string) {
   try {
@@ -149,12 +314,17 @@ function assetBasename(url: string) {
   }
 }
 
+/** 复合后缀（pacman 的 .pkg.tar.zst）：拆名时整体保留，否则 `(1)` 会插到 .tar 与 .zst 之间，
+ *  后续「后缀对得上才允许安装」的校验会直接拒掉这个包。 */
+const COMPOUND_EXT = [".pkg.tar.zst"] as const;
+
 /** 目标目录里挑一个不撞名的落盘路径（已存在 → `名字 (1).ext`、`(2)`…）。 */
 async function uniqueDest(dir: string, name: string) {
   await mkdir(dir, { recursive: true }).catch(() => { /* 目录已存在或建不了，交给写入阶段报错 */ });
-  const dot = name.lastIndexOf(".");
-  const stem = dot > 0 ? name.slice(0, dot) : name;
-  const ext = dot > 0 ? name.slice(dot) : "";
+  const compound = COMPOUND_EXT.find((e) => name.endsWith(e));
+  const dot = compound ? -1 : name.lastIndexOf(".");
+  const stem = compound ? name.slice(0, -compound.length) : dot > 0 ? name.slice(0, dot) : name;
+  const ext = compound ?? (dot > 0 ? name.slice(dot) : "");
   let dest = join(dir, name);
 
   for (let i = 1; i < 100; i++) {
@@ -383,11 +553,14 @@ export function setupUpdaterIPC({ log }: { log: (...args: unknown[]) => void }) 
         return { ok: true };
       }
 
-      // Windows：NSIS 静默安装（electron-builder oneClick 包认 /S）。
-      // 关键：oneClick 安装器默认只在**非静默**时 runAfterFinish（installSection.nsh：
-      // `${ifNot} ${Silent} ${orIf} ${isForceRun}` → StartApp）。更新走 /S 静默，不加 --force-run
-      // 就等于装完什么都不启动 —— 应用自己退出后再没人拉起新版。--force-run 让静默安装同样
-      // 拉起 quaver（更新时安装器会带 --updated 参数），首装与更新都落在这一条指令上。
+      // Windows：NSIS 静默安装（打包配置是 assisted 安装器，oneClick / assisted 都认 /S；
+      // assisted 的首装向导带「选择安装目录」页）。
+      // 关键：assisted 的 installSection.nsh 只在 `${isForceRun} ${andIf} ${Silent}` 时
+      // doStartApp（交互式安装由完成页的 MUI_FINISHPAGE_RUN 负责）。更新走 /S 静默，不加
+      // --force-run 就等于装完什么都不启动 —— 应用自己退出后再没人拉起新版。--force-run 让
+      // 静默安装同样拉起 quaver，不依赖交互式完成页。
+      // 自定义目录不需要 /D：initMultiUser 会从 HKCU/HKLM 的 ...\InstallLocation 读回旧路径；
+      // /D 在 NSIS 里必须裸写且只能放最后，路径含空格时经 spawn 传参很容易被引号弄坏。
       if (op === "install-windows") {
         const path = String(msg?.path ?? "");
 
@@ -396,6 +569,58 @@ export function setupUpdaterIPC({ log }: { log: (...args: unknown[]) => void }) 
         log(`[quaver] update: NSIS installer launched (silent, force-run)`);
 
         return { ok: true };
+      }
+
+      // Linux deb/rpm/pacman/flatpak：下载完的包交给**用户终端里**的发行版包管理器。
+      // 应用自己不提起任何权限 —— 权限提升由命令里的 pkexec（或 flatpak 自带的 polkit）在终端里做，
+      // 用户能看见全部输出、也能按提示输密码。本 op 只负责起终端并立刻返回；安装结果在后台
+      // 盯着脚本写的退出码文件，落地后**删除安装包**并推 quaver:update-install-done 给渲染层，
+      // 由弹窗问用户「现在退出应用完成更新吗」。
+      if (op === "install-linux-package") {
+        if (process.platform !== "linux") return { ok: false, error: "只有 Linux 走包管理器安装" };
+        const kind = msg?.kind;
+
+        if (!isLinuxPkgKind(kind)) return { ok: false, error: `不认识的安装包类型「${String(kind)}」` };
+        const path = String(msg?.path ?? "");
+        const suffix = LINUX_PKG_SUFFIX[kind];
+
+        // 包必须是「下载」目录里的绝对路径且后缀对得上：这条命令会在终端里执行，路径校验别松。
+        if (!isAbsolute(path) || !path.endsWith(suffix)) return { ok: false, error: `安装包路径不合法（应为 ${suffix} 的绝对路径）` };
+        const tool = await findPkgTool(kind);
+
+        if (!tool) {
+          // 工具不在 PATH：把「本该执行的那条命令」给用户（按首选工具写），让他在自己的终端里试
+          const fallback = installCommandFor(kind, LINUX_PKG_TOOLS[kind][0], path, { root: process.getuid?.() === 0 });
+
+          return {
+            ok: false,
+            // Flatpak 沙箱里本来就没有 flatpak CLI（也不该有）—— 那句「找不到工具」会误导人
+            error: kind === "flatpak" && await inFlatpakSandbox()
+              ? "Flatpak 沙箱内无法执行 flatpak install，请在宿主机终端里执行"
+              : `系统里找不到 ${LINUX_PKG_TOOLS[kind].join(" / ")}，无法自动安装`,
+            command: fallback,
+          };
+        }
+
+        const command = installCommandFor(kind, tool.tool, path, { root: process.getuid?.() === 0 });
+        const id = String(msg?.id ?? "") || `inst-${Date.now()}`;
+        const stamp = `${process.pid}-${Date.now()}`;
+        const stateFile = join(tmpdir(), `quaver-install-${stamp}.rc`);
+        const script = join(tmpdir(), `quaver-install-${stamp}.sh`);
+
+        await writeFile(script, buildInstallScript(command, stateFile, path), { mode: 0o700 });
+        const started = await startInstaller(script);
+
+        if (!started) {
+          await rmQuiet(script);
+
+          return { ok: false, error: "没有可用的终端程序，请在终端里手动执行下面的命令", command };
+        }
+
+        log(`[quaver] update: installing ${path} via ${started.via}（${tool.tool}）`);
+        void watchInstall({ id, path, stateFile, script, child: started.child, waits: started.waits }, log);
+
+        return { ok: true, id, command, via: started.via };
       }
 
       // Linux deb/rpm → xdg-open（默认应用，通常是发行版的图形包安装器）；

@@ -284,6 +284,43 @@ localStorage 按曲持久化与钳位、行级挪行与点击补偿、AMLL activ
   全都回不到滑杆上 —— 条与读数冻在聚焦那一刻的值，声音明明在变。松手立刻回写播放器真值，
   别留「拖中滚过轮」的那一截差（94 vs 98 那种假读数）。
 - 验证：`pnpm run verify:volume-bar`（源码接线 + 反向自证 + 活体：两种形态 × 六档尺寸的锚点与
+## Sparkle 插件接入点（走带控件 / 菜单栏项 / 主题透明）
+
+三条宿主扩展点，契约在 `vendor/Sparkle/sdk/types.ts`，作者文档在
+`vendor/Sparkle/docs/plugin-author-guide.md`（第 9 节由 `verify:sparkle` 钉住）：
+
+- **走带控件**（`registerTransportControl`）：插件在播放条右侧控制簇（`.pb-right` 里的 `#pb-plugins` 槽）
+  挂一颗按钮 + 浮窗。挂载层 `src/sparkle/transport.ts` 负责按钮、锚点、开合、点外关闭、Esc 与
+  越界夹取；浮窗**首次打开才 render**，之后常驻（开合不重建 DOM）。浮窗 CSS 由该模块运行时注入
+  （`#sparkle-transport-css`）—— PlayerBar 在首屏静态闭包里，style.css 的 84KB 预算只剩几 KB，
+  不给「没人注册控件」的用户付这份字节。
+  **浮窗挂 `document.body`，不挂播放条**（与 `.ctx-menu` / `.qtip` / `.nav-more-pop` 同一套路）：
+  播放条整条是拖拽 seek 热区、又会随 np 接管/自动隐藏做 opacity/transform，浮窗留在里面会被
+  当进度拖动、被裁切、跟条一起消失。坐标在打开时按按钮矩形算一次（`left/bottom/maxHeight`），
+  窗口 resize 时重算；开合状态用 `body.sparkle-pop-open` 广播，插件的自动隐藏据此避让。
+- **菜单栏项**（`registerMenuBarItem`）：`slot: "main"` 进 `.nav`（排在内置项与插件路由项之后、
+  「更多」之前），`slot: "foot"` 进 `.side-foot`（设置齿轮之前）。渲染层 `src/sparkle/menubar.ts`
+  复用 `.nav a` / `.side-btn` 的既有样式（缩态收字、竖排、按压反馈都自动一致），`checked()` 决定
+  勾选态；用户逐项显隐记在 localStorage 的隐藏名单里，设置页 外观 → 菜单栏 的「插件选项」调整区
+  读写同一份（`settings.ts` 的 `sparkle-menubar-edit`），停用插件即项与那一行一起消失。
+- **主题透明模式**（`SparkleTheme.transparent`）：`mode: "on"` 时 `src/sparkle/theme-transparent.ts`
+  写 `html[data-sparkle-transparent="on"]` 并注入基础规则（摘掉 `html` / `body` / `.frame` 等画布实底），
+  让环境背景层（`lib/ambient.ts`）成为可见下层；面板透明度全由主题自己的 CSS 决定。**这只是页面画布
+  透明**，不是 Electron 窗口透明（窗口创建参数不在这个扩展点范围）。切换主题 / 停用插件时
+  `host.ts:applySparkleTheme` 末尾重算，与 tint / background / menus / controlBar / playlistMode 同一口径。
+
+plugin 侧参考实现是 `vendor/Sparkle/marketplace/folia-visualizer`：正在播放页不再自绘控制条，
+控制面板挂走带浮窗（`runtime/control.tsx`），Lattice 队列海报墙是同一接管视图的第二面
+（`runtime/lattice.tsx`）—— 世界格、让位表与几何直接取自 Folia（`runtime/wallTemplates.ts`
+= blockTemplates.ts + blockReflows.ts，`runtime/wall.ts` = layout.ts 的队列墙部分）：
+4 套 block template × 4 镜像（`CELL=128 / GAP=8`）、相机 `scale` 0.52/0.64/0.76、队列不够长时
+整格循环重复；**正在播放的那张在墙内原地放大成 6×6 的卡片，同块其余 11 张按 `BLOCK_REFLOWS`
+重新齿轮让位**（不是另浮一张卡），卡片内容是封面铺底 + 左上角标/标题/歌手 + 中间当前歌词行与
+进度点 + 底部播放/进度/打开播放页，其余海报压暗（lights-out）。键盘
+（空格 / ←→ / H / Ctrl+B）与自动隐藏照 Folia 本体。
+`src/sparkle/player-facade.ts` 是播放器只读门面的落点（host 与 transport 共用，避免 transport →
+host → shell → PlayerBar 成环）。
+
 ## Liino 后端（Linux/Windows 默认 · macOS 实验性 · 纯 Go 音频管线）
 
 主进程音频后端有两个：「liino」（Linux/Windows 默认，纯 Go 管线；macOS 为实验性、默认走 MPV）
@@ -653,6 +690,42 @@ cd ui && pnpm run app                              # 真出声跑一圈（Linux/
 验证：`node scripts/verify-desktop-lyrics.ts`（纯逻辑 + 几何真单测 + 尺寸贴合/尺寸提示（浮窗轴，高度 min==max）/
 悬停地板 + 固定/鼠标透穿的平台闸门与原生接线 + 「无最大化档」红线 + 源码接线；已进 `verify:static`）。
 
+## 歌单写接口（songType 口径）· 拖拽重排（SeqSonglist）
+
+**song_type 一律发读侧 `Song.type` 原值**：写侧枚举转换收口在 Go SDK 参数构造处
+（`vendor/Typhoeus-go/qqmusic/modules/songlist.go:ToSonglistWriteType`，对齐上游 QQMusicApi
+PR 306 的两阶段映射：0/1→0；5/111/112/113 原样；其余→1）。渲染层旧口径「读侧 −1」只是
+普通歌 1→0 碰巧对，特殊类型全错（上游 retCode=0 但歌单不动 = 静默空操作）。
+`/song/like|unlike`、`/songlist/{dirid}/songs`、`/songlist/{dirid}/order` 同一口径；
+80092 由 Go 侧压成 `ok:false`（与上游 SDK 一致），`assertAccepted`/`toggleLove` 把 false
+当确凿失败 —— 别在 Go 侧把它吞回 true。
+
+拖拽重排（**自有歌单 + 「我喜欢」**，均要求**默认序 + 无搜索**；「我喜欢」还要求预载完整
+—— `orderComplete(items.length, player.likedTotal)`，截断列表拿可见前缀当整单提交会打乱
+未提交歌曲，视图收把手、`player.reorderLoved` 再兜一道）：
+
+- 机制在 `src/lib/songlist-reorder.ts`：与 QueuePanel 同一套指针纪律（监听挂 window、
+  量流位置先清 transform、`.row.dragging` 的 transition 不带 transform），几何/序列纯逻辑
+  共用 `lib/reorder.ts`（`dropSlot`/`edgeSpeed`/`applyVisibleOrder`——回映射按**对象引用**
+  不按 mid，歌单允许同曲出现两次）。把手由 `hooks.reorder` 渲染（`songs.ts`），筛排态切换
+  经 `tools.onState(syncGrips)` 原地增删，不整表重画。把手贴行左缘（负 margin 抵消行内边距
+  与 flex 间隙，落在序号左侧边槽）。提交/取消/失败三条回调分开：`submit`（写接口+庇护，
+  视图注入）/ `onAbort`（Esc/节点被摘，按**当前数据**重画）/ `onRollback`（写失败回旧序）。
+- 提交 = **整单**新顺序 `POST /songlist/{dirid}/order`（SeqSonglist；「我喜欢」dirid=201、
+  tid=0，上游 PR 307 明确支持）：部分提交上游照样回成功但打乱未提交歌曲 ——
+  `playlists.ts:reorderSonglist` 只收整单，Go handler 拦空列表。写确认前乐观改序
+  （DOM 已就位），失败整表回滚 + toast。**重排庇护**纯逻辑在 `lib/order-shelter.ts`
+  （`applyOrderMark`，重复 mid 保序配对），两边各自持久化（localStorage、TTL 同增删庇护）：
+  歌单 = `songlist-detail.ts:noteSonglistOrder`；我喜欢 = `player.ts:reorderLoved`
+  （`lovedOrderMark`），整单预载/增量回源/**远端探针**三条读路径都按它校正读侧旧序
+  （探针不校正会把自己刚拖完的顺序判成「他端改序」触发整单回源）。
+- 拖拽期间跟进重画被 `songlistReorderActive(rows)` 挡住（整表重画会把被拖行连节点换掉）；
+  行在阈值窗口期被摘出文档则 `finish(false)` 作废。写接口在途（`.order-busy`）不接受第二次起拖。
+- 验证：`node scripts/verify-songlist-reorder.ts`（applyVisibleOrder/applyOrderMark/
+  orderComplete 真单测 + 两页接线/样式/Go 路由静态断言；已进 `verify:static`）+
+  `go test ./qqmusic/modules/ ./server/`
+  （映射表 / SeqSonglist 参数形状 / 80092·80095 口径 / 路由守卫）。
+
 ## 本地音乐 / NAS（扫描 · 播放 · 刮削 · QRC 逐字）
 
 读盘侧真相在 `electron/local/library.ts`（零 electron、纯 Node）：**两处同构挂载** ——
@@ -768,6 +841,13 @@ WebDAV 客户端在 `electron/local/webdav.ts`（PROPFIND + Range；NAS 走挂�
 - 目录：Linux `~/.config/quaver-music`｜Windows `%AppData%\Quaver Music`｜macOS `Application Support/Quaver Music`；
   `QUAVER_CONFIG_DIR` 可整体顶掉（主进程也用它下发给 sidecar，两边规则必须一致：
   `ui/electron/config.ts:configDir` ↔ `vendor/Typhoeus-go/server/session.go:ConfigDir`）。
+- **缓存目录与配置目录分家**（音乐缓存这类可再生的大字节）：Linux `$XDG_CACHE_HOME/quaver-music`
+  （默认 `~/.cache/quaver-music`）｜Windows `%LocalAppData%\Quaver Music\Quaver Cache`｜
+  macOS `~/Library/Caches/Quaver Music`。`QUAVER_CACHE_DIR` 整体顶掉，用户自定义位置走
+  `[Playing] MusicCacheDir`（绝对路径，空 = 平台默认）。规则两侧同规：
+  `config.ts:cacheDir/defaultCacheDir` ↔ `session.go:CacheDir`。
+  Windows 之所以叫 `Quaver Cache` 而不是 `cache`：Electron 的 userData 里已经有 Chromium 自己的
+  `Cache`，两个只差大小写的目录在 Windows/macOS（大小写不敏感文件系统）上人眼分不清、脚本也容易误伤。
 - 加新设置项：改 `electron/config.ts` 的 `SCHEMA` + `src/lib/config.ts` 的 `FALLBACK`
   + `src/lib/prefs.ts` 的类型化 getter/setter（三处都要动）。**例外**：只有主进程消费的项
   （`[Security]` 三项）只需前两处，渲染层不加 getter。
@@ -781,6 +861,37 @@ WebDAV 客户端在 `electron/local/webdav.ts`（PROPFIND + Range；NAS 走挂�
 - 跨页导航一律 `.html` 后缀绝对路径（Vite dev 对 `/foo.html` 与 `/foo` 都可解析；
   壳层直接加载 dist 文件时只有 `.html` 形式可用）。
 - 播放全局对象 `window.QuaverPlayer` 由 `PlayerBar()` 挂载。
+
+### 音乐缓存（弱网复播 · 位置可自定义）
+
+执行端全在 Go sidecar（`vendor/Typhoeus-go/server/music_cache.go`）：索引与音频均加密落盘
+（`*.quaverlocalcache`），密钥 = 磁盘种子 + 前端半种（`src/lib/music-cache.ts`，只驻
+localStorage 且与账号绑定）。**这不是下载功能**，播放流闸门对缓存流与在线流同权。
+
+- **落点** = `CacheDir()/music`（不是配置目录）。Linux `$XDG_CACHE_HOME/quaver-music`、
+  Windows `%LocalAppData%\Quaver Music\Quaver Cache`、macOS `~/Library/Caches/Quaver Music`；
+  用户自定义位置 = `[Playing] MusicCacheDir`（绝对路径，空 = 平台默认）。
+  旧版在配置目录 `cache/music` 下，**首次打开默认缓存目录时自动搬家**（`adoptLegacyDirLocked`：
+  跨盘 EXDEV 退回复制 + 删源，只认本缓存的命名，别人的文件不碰）；自定义位置不触发搬家 ——
+  那是用户显式指定的空目录。磁盘种子随索引一起搬，前端半种仍在 localStorage，两半都没变
+  → **升级后旧缓存照旧命中并解密播放**，不必重新登录或重新缓冲（`TestCacheUpgradeKeepsOldEntriesPlayable`）。
+- **搬家按文件确认，绝不「尽力而为后清场」**：只有真的落到新目录的文件才删源，索引最后搬；
+  任何一个搬不动（目标只读 / 配额满 / 单文件权限）就整份留在旧目录 —— 自动搬家记 warn 后
+  继续用旧目录，手动换位置直接报错并保持原位置可用。反面教训：先搬完再无条件 `sweepCacheDir`
+  会把没搬成功的分片删掉 = 升级白删用户几个 GiB（`TestCacheUpgradeKeepsUnmovedTracks`、
+  `TestCacheSetDirFailureKeepsSourceIntact` 钉住）。
+- **改位置即时生效**：设置页选目录（`quaverLocal.pickFolder("cache-dir")`）→ 写 `quaver.conf`
+  → `POST /cache/music/dir`。两条路都要走：配置是重启后的真相，HTTP 让本次立刻换目录。
+  主进程 `applyMusicCacheDir()` 在 `config set` 命中该键与 `reset` 时也补发一次（托盘/手改同源）。
+- **换位置会搬走已有缓存并作废播放令牌**（令牌里存的是绝对路径）：不搬 = 界面显示「0 首」而
+  旧盘还压着几个 GiB，用户无从察觉也清不掉。搬完 `sweepCacheDir` 把旧目录收干净。
+  **例外**：目标目录已经有自己的一份缓存（切回之前用过的目录）时**两份都留**——
+  覆盖或清扫都会删掉用户另一处的真实缓存，那是数据丢失。
+- `syncMusicCacheSeed` 里**位置先于半种**下发：seed 会在目标目录建索引，顺序反了会在旧目录
+  留一份空索引。状态响应带 `dir`，设置页据此回显真正生效的位置（自定义为空时显示平台默认）。
+- 验证：`node scripts/verify-config.ts`（三平台目录规则 / 自定义值域 / 与配置目录分家）、
+  `node scripts/verify-prefs-map.ts`（渲染层绝对路径判据）、`go test ./server/ -run Cache`
+  （搬家、换位置、令牌作废、handler 值域）。
 
 ## 默认主题的背景（关闭 / 封面 / 自定义图 + 模糊强度）
 
@@ -961,6 +1072,39 @@ Exec 写死「当前 electron + 仓库 ui/」，落进 `applications/` 就是启
   不需要为另一种格式再向服务端拉一份。歌词是异步到的：渲染层指纹含 `lyricAsText`，
   主进程 Metadata 去重也必须带上它（只看 `mpris:trackid` 会让 asText 永远停在换曲时的空值）。
 
+## 应用自更新（渠道 · 下载 · 各平台安装口径）
+
+链路拆三块：纯逻辑 `src/lib/update-core.ts`（版本判定 / 挑包 / 更新日志渲染 / 包管理器命令构造，
+`scripts/verify-update.ts` 直接跑它）、编排 `src/lib/updater.ts`、执行端 `electron/update.ts`。
+**只有 AppImage 是原子更新**（同目录临时文件 → `rename` 原位替换，文件名不变，桌面项照旧有效，
+重启把 `execPath` 指到 `$APPIMAGE` 本体）。其余 Linux 形态一律「下载 → 终端里跑包管理器」：
+
+| 形态 | 命令（路径为绝对路径，单引号转义） |
+| --- | --- |
+| deb 系 | `pkexec apt install <包>`（备选 `pkexec oma install <包>`） |
+| RPM 系 | `pkexec zypper install <包>`（备选 `pkexec dnf install <包>`） |
+| pacman | `pkexec pacman -U <包>`（已是 root 时去掉 `pkexec`） |
+| Flatpak | `flatpak install <包>`（polkit 由 flatpak 自己弹，**不要**再包 pkexec） |
+
+- **Windows 首装可自选目录**：打包配置是 assisted NSIS（`packages/windows/x86-arm.yml` 的
+  `oneClick: false` + `allowToChangeInstallationDirectory: true`）。应用内更新仍走 `/S` 静默安装；
+  `initMultiUser` 会从 HKCU/HKLM 的 `InstallLocation` 读回旧路径，所以自定义目录在升级时保持不变。
+  不要手拼 `/D=`：NSIS 要求它裸写且放最后，路径含空格时经 spawn 传参会被引号弄坏。
+
+- 包型由 `electron/update.ts` 的 `linuxPkgKind()` 判定：`/.flatpak-info` → flatpak（必须先于
+  os-release，沙箱里的那份是 runtime 的），否则按 `/etc/os-release` 的 ID/ID_LIKE 过
+  Arch 系 → deb 系 → RPM 系。渲染层把这个值当 `pickAsset` 的 `prefer`，缺档宁可返回 null
+  走「打开发布页」，也不回退 AppImage（跑在 deb 安装里的进程换不了 AppImage 本体）。
+- 命令只由 `update-core.installCommandFor()` 构造，主进程不许手拼；安装工具按 `LINUX_PKG_TOOLS`
+  探 PATH，工具与终端都缺席时把命令原样交给弹窗，让用户自己开终端执行。
+- 终端脚本（`buildInstallScript`）负责：跑命令 → 成功即 `rm -f` 安装包 → 写退出码到状态文件 →
+  失败时 `read` 停住（报错别一闪而过）。**删包必须留在脚本里**：用户装完就退出应用时主进程的
+  watcher 已经没了，只有终端里这条 shell 还活着。
+- 主进程 `watchInstall` 盯状态文件，推 `quaver:update-install-done`（ok / completed / removed）。
+  前台型终端（`--wait`/`--nofork` 一类）的 child 退出才等于「用户关窗放弃」；客户端/服务器型
+  （gnome-terminal 等）开窗就返回，只认状态文件，别把 child exit 当失败。
+  「下载」目录）。弹窗关掉后结果仍在 `updater.ts` 里以 toast 兜底，不静默吞掉。
+
 ## 打包与首屏（Rolldown · 动态加载 · 内存）
 
 Vite 8 的打包内核就是 **Rolldown**（`node_modules/rolldown` 1.2.x），配置写在 `build.rolldownOptions`
@@ -986,6 +1130,7 @@ Vite 8 的打包内核就是 **Rolldown**（`node_modules/rolldown` 1.2.x），�
   加字段改协议那份，别把重依赖带回契约里。
 - 更新链路（`lib/updater` + `lib/update-core` + `UpdateDialog` ≈ 22KB）不在首屏：`main.ts` 把
   「启动 3s 后检查」的延时留在调用侧，到点才 `import()`。延时口径没变，只是把加载缝隙钉在了那里。
+  安装口径见上文「应用自更新」：AppImage 原位替换，deb/rpm/pacman/flatpak 在终端里跑包管理器。
 - MPV 兼容模式（pcm 出声）整条渲染侧状态机住在 `src/lib/pcm-sink.ts`：`PcmController`
   （进度上报 / 暂停淡出 / EQ / 跨曲淡出 / 世代校验）+ `PcmEngineTransport` 子类，由
   `createEngineTransport` 按 mode **动态 import**；native 版 `EngineTransport` 里只有空钩子
