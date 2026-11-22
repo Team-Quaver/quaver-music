@@ -57,8 +57,6 @@ const FALLBACK: ConfigSnapshot = {
   "Window.QueueWidth": "",
   "Playing.Backend": defaultBackend(),
   "Playing.AudioDevice": "auto",
-  "Playing.AdaptiveRate": "False",
-  "Playing.AlsaExclusive": "False",
   "Playing.Fade": "normal",
   "Playing.Volume": "0.8",
   "Playing.Equalizer": JSON.stringify(defaultEqState()),

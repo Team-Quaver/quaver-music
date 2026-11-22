@@ -24,9 +24,6 @@ export interface AudioEngineBoot {
   log: EngineLog;
   /** quaver.conf 的 [Playing] Backend 快照：Liino / MPV / MPVCompat / Chromium；空值走平台默认。 */
   backendPreference?: string;
-  /** Liino 启动快照：跟随源采样率 / ALSA 独占输出。 */
-  adaptiveRate?: boolean;
-  alsaExclusive?: boolean;
 }
 
 /** 当前生效的后端（boot 之前为 null；诊断面板与信号收尾路径都读它）。 */

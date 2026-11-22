@@ -477,25 +477,6 @@ export function setAudioDevice(id: string) {
   cfgSet({ "Playing.AudioDevice": id || "auto" });
 }
 
-// —— Liino 输出策略：两项都在下一次创建 Liino 会话时生效（不硬拆正在播放的输出）。
-//    AdaptiveRate 让 PipeWire 优先协商源采样率；AlsaExclusive 只对 ALSA hw 设备有意义，
-//    False 走 plughw（系统混音器可用），True 走 hw（独占、避免 daemon 重采样）。 ——
-export function getAdaptiveRate(): boolean {
-  return !/^(false|0|no)$/i.test(cfg("Playing.AdaptiveRate", "True"));
-}
-
-export function setAdaptiveRate(v: boolean) {
-  cfgSet({ "Playing.AdaptiveRate": v ? "True" : "False" });
-}
-
-export function getAlsaExclusive(): boolean {
-  return !/^(false|0|no)$/i.test(cfg("Playing.AlsaExclusive", "False"));
-}
-
-export function setAlsaExclusive(v: boolean) {
-  cfgSet({ "Playing.AlsaExclusive": v ? "True" : "False" });
-}
-
 // —— 淡入淡出（仅原生后端）：起播淡入 / 暂停与切歌淡出。直出走 MPV 包络，兼容走 renderer GainNode。 ——
 export type FadePreset = "off" | "short" | "normal" | "long";
 

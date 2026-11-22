@@ -201,18 +201,6 @@ const prefs = src("src/lib/prefs.ts");
 
 ok("播放偏好含 Liino 档", /export type DecodeBackend = "MPV" \| "MPVCompat" \| "Liino" \| "Blink"/.test(prefs));
 
-ok("Liino create 配置带 PipeWire 自适应采样率与 ALSA 独占开关",
-  /adaptive_rate: adaptiveRate/.test(engine)
-    && /exclusive: alsaExclusive/.test(engine)
-    && /bootAdaptiveRate/.test(src("electron/main.ts"))
-    && /bootAlsaExclusive/.test(src("electron/main.ts")));
-
-ok("设置页暴露 Liino 采样率与 ALSA 共享/独占模式",
-  /#liino-adaptive-rate-cards/.test(settings)
-    && /#liino-alsa-exclusive-cards/.test(settings)
-    && /getAdaptiveRate\(\)/.test(prefs)
-    && /getAlsaExclusive\(\)/.test(prefs));
-
 ok("Liino 不可用时明确回落提示", /Liino 后端不可用，已回落 MPV/.test(src("src/player.ts")) && /Liino 后端不可用，已回落 MPV/.test(src("AGENTS.md")));
 
 console.log(fails ? `\n${fails} 项失败` : "\nverify-liino: 全部通过");

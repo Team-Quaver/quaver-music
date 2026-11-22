@@ -206,8 +206,6 @@ const bootTheme = bootConf["Style.Style"] ?? "dark";
 // macOS 默认 MPV，随应用启动时生效。
 // 这里只保留一个启动快照：bootAudioEngine 在 whenReady 里按它二选一 init（进程一个 IPC handle 只能有一个主人）。
 const bootAudioBackend = bootConf["Playing.Backend"] ?? defaultBackend();
-const bootAdaptiveRate = !/^(false|0|no)$/i.test(bootConf["Playing.AdaptiveRate"] ?? "False");
-const bootAlsaExclusive = !/^(false|0|no)$/i.test(bootConf["Playing.AlsaExclusive"] ?? "False");
 
 // 窗口底色：按 quaver.conf 的主题预判，避免加载首帧白闪（dark、或跟随系统且系统为深色 → 深底）。
 // 跟随系统的判据走我们自己的探测：nativeTheme 在 whenReady 之前不可靠，且 Linux 上它只认 GTK
@@ -923,14 +921,7 @@ async function createWindow() {
   // 引擎拿真实加载地址的 origin 做流中继（幂等：重建窗口只刷新引用与 baseUrl）。
   // 必须 await：渲染层起来第一件事就是 status 探测后端，handler 还没挂上 = 直接掉到 <audio>。
   try {
-    await bootAudioEngine({
-      baseUrl: new URL(url).origin,
-      getWin: () => win,
-      log,
-      backendPreference: bootAudioBackend,
-      adaptiveRate: bootAdaptiveRate,
-      alsaExclusive: bootAlsaExclusive,
-    });
+    await bootAudioEngine({ baseUrl: new URL(url).origin, getWin: () => win, log, backendPreference: bootAudioBackend });
   } catch (e) { log("[quaver] audio engine init failed:", String(e)); }
 
   const appOrigin = new URL(url).origin;
