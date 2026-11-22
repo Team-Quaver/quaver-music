@@ -16,7 +16,7 @@ import { clearMusicCache, musicCacheStatus, setMusicCacheLimit } from "../lib/mu
 import { desktopLyricsStateSync } from "../lib/desktop-lyrics";
 import { syncInhibit } from "../lib/inhibit";
 import { applyMenuGlass } from "../lib/menu-glass";
-import { BG_BLUR_MAX, BG_BLUR_MIN, BG_FLOW_MAX, BG_FLOW_MIN, FONT_CUSTOM, FONT_LABELS, FONT_PRESETS, TINT_DEFAULT_COLOR, fontKeyOf, getAdaptiveRate, getAlsaExclusive, getAudioDevice, getAutoCheck, getBackgroundBlur, getBackgroundFlow, getBackgroundImage, getBackgroundMode, getBackgroundRenderer, getNpBackgroundRenderer, getChineseConvert, getCloseAction, getControlBarMode, getDecode, getPlaylistMode,
+import { BG_BLUR_MAX, BG_BLUR_MIN, BG_FLOW_MAX, BG_FLOW_MIN, FONT_CUSTOM, FONT_LABELS, FONT_PRESETS, TINT_DEFAULT_COLOR, fontKeyOf, getAdaptiveRate, getAlsaExclusive, getAutoCheck, getBackgroundBlur, getBackgroundFlow, getBackgroundImage, getBackgroundMode, getBackgroundRenderer, getNpBackgroundRenderer, getChineseConvert, getCloseAction, getControlBarMode, getDecode, getPlaylistMode,
   getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsLocked, getLyricTint, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getDesktopLyricsWeight, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMusicCacheDir, getMusicCacheLimitMB, getMenuBlur, getMprisLrc, getNpLyricLayout, getOnlineTtml, getPrevBehavior, getReportListenTime, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAdaptiveRate, setAlsaExclusive, setAutoCheck, setBackgroundBlur, setBackgroundFlow, setBackgroundImage, setBackgroundMode, setBackgroundRenderer, setNpBackgroundRenderer, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setMusicCacheLimitMB, setPlaylistMode, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsBorder, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsFontList, setDesktopLyricsFontPreset, setDesktopLyricsLocked, setDesktopLyricsShadow, setDesktopLyricsShadowBlur, setDesktopLyricsShadowOpacity, setDesktopLyricsShadowX, setDesktopLyricsShadowY, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setDesktopLyricsWeight, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricTint, setLyricFontPreset, setMenuBlur, setMprisLrc, setNpLyricLayout, setOnlineTtml, setPrevBehavior, setReportListenTime, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel, MUSIC_CACHE_MAX_MB } from "../lib/prefs";
 import type { BackgroundMode, BackgroundRenderer, ChineseConvert, CloseAction, ControlBarMode, DecorMode, PlaylistMode, DlColorMode, DlMode, FadePreset, FallbackSort, NpLyricLayout, PrevBehavior, ThemeMode, TintMode, UpdateChannel } from "../lib/prefs";
 import { applyTint } from "../lib/tint";
@@ -2178,27 +2178,16 @@ export default async function settingsView(root: HTMLElement) {
 
     devSel.innerHTML = `<option value="auto">系统默认</option>`
       + r.devices.map((d) => `<option value="${escHtml(d.id)}">${escHtml(d.desc)}</option>`).join("");
-    const savedDevice = getAudioDevice();
-
-    if (r.devices.some((d) => d.id === savedDevice)) devSel.value = savedDevice;
-
     devSel.disabled = false;
     devHint.textContent = "切换即时生效，无需重启。";
-
-    const paintLiinoOutput = () => {
-      const alsaSelected = devSel.value.startsWith("alsa/");
-      const liinoActive = player.backend === "liino";
-      outputHint.hidden = !liinoActive;
-      adaptiveCards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = !liinoActive; });
-      exclusiveCards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = !liinoActive || !alsaSelected; });
-      syncSel(adaptiveCards, "opt", getAdaptiveRate() ? "on" : "off");
-      syncSel(exclusiveCards, "opt", getAlsaExclusive() ? "exclusive" : "shared");
-    };
-
-    devSel.onchange = () => { void player.selectAudioDevice(devSel.value).then(paintLiinoOutput); };
-
-    paintLiinoOutput();
-
+    devSel.onchange = () => { void player.selectAudioDevice(devSel.value); };
+    const alsaSelected = devSel.value.startsWith("alsa/");
+    const liinoActive = player.backend === "liino";
+    outputHint.hidden = !liinoActive;
+    adaptiveCards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = !liinoActive; });
+    exclusiveCards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = !liinoActive || !alsaSelected; });
+    syncSel(adaptiveCards, "opt", getAdaptiveRate() ? "on" : "off");
+    syncSel(exclusiveCards, "opt", getAlsaExclusive() ? "exclusive" : "shared");
     bindOptCards<"on" | "off">(adaptiveCards, () => getAdaptiveRate() ? "on" : "off", (v) => setAdaptiveRate(v === "on"));
     bindOptCards<"shared" | "exclusive">(exclusiveCards, () => getAlsaExclusive() ? "exclusive" : "shared", (v) => setAlsaExclusive(v === "exclusive"));
   }

@@ -208,7 +208,6 @@ const bootTheme = bootConf["Style.Style"] ?? "dark";
 const bootAudioBackend = bootConf["Playing.Backend"] ?? defaultBackend();
 const bootAdaptiveRate = !/^(false|0|no)$/i.test(bootConf["Playing.AdaptiveRate"] ?? "False");
 const bootAlsaExclusive = !/^(false|0|no)$/i.test(bootConf["Playing.AlsaExclusive"] ?? "False");
-const isTrueConf = (value: unknown): boolean => !/^(false|0|no)$/i.test(String(value ?? "False"));
 
 // 窗口底色：按 quaver.conf 的主题预判，避免加载首帧白闪（dark、或跟随系统且系统为深色 → 深底）。
 // 跟随系统的判据走我们自己的探测：nativeTheme 在 whenReady 之前不可靠，且 Linux 上它只认 GTK
@@ -1077,20 +1076,6 @@ ipcMain.handle("quaver:config", async (_e, msg) => {
       // [DesktopLyrics] 开关可能刚被改：控制器按磁盘现值对齐窗口（幂等 —— 设置页的 cfgSet
       // 与 control() 双写同值时，syncFromConf 只是空转一次）
       if (written.some((k) => k.startsWith("DesktopLyrics."))) desktopLyrics?.syncFromConf();
-
-      // Liino 输出策略与后端一样属于主进程状态：落盘即更新，下一条 load 重建会话时生效。
-      if (written.some((k) => k === "Playing.AdaptiveRate" || k === "Playing.AlsaExclusive")) {
-        const engine = getAudioEngine();
-        const current = readValues();
-        const adaptiveRate = msg?.patch?.["Playing.AdaptiveRate"] !== undefined
-          ? isTrueConf(msg?.patch?.["Playing.AdaptiveRate"])
-          : isTrueConf(current.values["Playing.AdaptiveRate"]);
-        const alsaExclusive = msg?.patch?.["Playing.AlsaExclusive"] !== undefined
-          ? isTrueConf(msg?.patch?.["Playing.AlsaExclusive"])
-          : isTrueConf(current.values["Playing.AlsaExclusive"]);
-
-        if (engine.kind === "liino") engine.setOutputPolicy(adaptiveRate, alsaExclusive);
-      }
 
       // 音乐缓存位置刚变：让 sidecar 立刻换目录（并搬走已有缓存），不必等重启。
       // apply:false = 只落盘不搬家（设置页换位置失败后的回滚走这条：sidecar 本来就没换成，
