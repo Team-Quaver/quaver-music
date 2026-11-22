@@ -13,7 +13,9 @@ import { fileURLToPath } from "node:url";
 // 音频引擎：Linux/Windows 默认 Liino、macOS 默认 mpv；库不可 dlopen 时回落 mpv；
 // QUAVER_AUDIO_BACKEND 仍可顶掉启动选择（见 audio/backend.ts）。
 // 窗口 URL 确定后 init（两边都需要 baseUrl 绝对化 /api/stream 中继地址）。
-import { audioExternalPids, bootAudioEngine, getAudioEngine, shutdownAudioEngine } from "./audio/backend.ts";
+import {
+  audioExternalPids, bootAudioEngine, getAudioEngine, setAudioAdaptiveRate, setAudioAdaptiveRateSwitch, shutdownAudioEngine,
+} from "./audio/backend.ts";
 // 配置文件（quaver.conf）与跨平台目录规则：路径单一真相，渲染层与 sidecar 都对齐这一份
 import { cacheDir, configDir, configFile, defaultBackend, defaultDecor, ensureConfigDir, logFile, musicCacheDir, readValues, resetConfig, WEIYUN_LEGACY_NAME, WEIYUN_STORE_NAME, writeValues } from "./config.ts";
 // 自定义背景图（默认主题）：路径只认 quaver.conf 里那一条，图片本体由 /api/bg 交给界面
@@ -206,6 +208,13 @@ const bootTheme = bootConf["Style.Style"] ?? "dark";
 // macOS 默认 MPV，随应用启动时生效。
 // 这里只保留一个启动快照：bootAudioEngine 在 whenReady 里按它二选一 init（进程一个 IPC handle 只能有一个主人）。
 const bootAudioBackend = bootConf["Playing.Backend"] ?? defaultBackend();
+
+// Liino 自适应采样率只在 Linux/PipeWire 上真正有意义；其余平台即使手改配置也按关闭处理。
+// 可变：设置页改过之后，窗口重建/后端热切换必须沿用新值，不能退回启动快照。
+let audioAdaptiveRate = process.platform === "linux"
+  && /^(true|1|yes)$/i.test(bootConf["Playing.AdaptiveRate"] ?? "False");
+let audioAdaptiveRateSwitch = process.platform === "linux"
+  && /^(true|1|yes)$/i.test(bootConf["Playing.AdaptiveRateSwitch"] ?? "False");
 
 // 窗口底色：按 quaver.conf 的主题预判，避免加载首帧白闪（dark、或跟随系统且系统为深色 → 深底）。
 // 跟随系统的判据走我们自己的探测：nativeTheme 在 whenReady 之前不可靠，且 Linux 上它只认 GTK
@@ -921,7 +930,14 @@ async function createWindow() {
   // 引擎拿真实加载地址的 origin 做流中继（幂等：重建窗口只刷新引用与 baseUrl）。
   // 必须 await：渲染层起来第一件事就是 status 探测后端，handler 还没挂上 = 直接掉到 <audio>。
   try {
-    await bootAudioEngine({ baseUrl: new URL(url).origin, getWin: () => win, log, backendPreference: bootAudioBackend });
+    await bootAudioEngine({
+      baseUrl: new URL(url).origin,
+      getWin: () => win,
+      log,
+      backendPreference: bootAudioBackend,
+      adaptiveRate: audioAdaptiveRate,
+      adaptiveRateSwitch: audioAdaptiveRateSwitch,
+    });
   } catch (e) { log("[quaver] audio engine init failed:", String(e)); }
 
   const appOrigin = new URL(url).origin;
@@ -1068,6 +1084,23 @@ ipcMain.handle("quaver:config", async (_e, msg) => {
       // 与 control() 双写同值时，syncFromConf 只是空转一次）
       if (written.some((k) => k.startsWith("DesktopLyrics."))) desktopLyrics?.syncFromConf();
 
+      // Liino 输出采样率：主进程持有引擎状态，落盘即下发；native 侧在下一首 Open 时生效。
+      if (written.includes("Playing.AdaptiveRate")) {
+        const on = process.platform === "linux"
+          && /^(true|1|yes)$/i.test(String(msg?.patch?.["Playing.AdaptiveRate"] ?? "False"));
+
+        audioAdaptiveRate = on;
+        setAudioAdaptiveRate(on);
+      }
+
+      if (written.includes("Playing.AdaptiveRateSwitch")) {
+        const on = process.platform === "linux"
+          && /^(true|1|yes)$/i.test(String(msg?.patch?.["Playing.AdaptiveRateSwitch"] ?? "False"));
+
+        audioAdaptiveRateSwitch = on;
+        setAudioAdaptiveRateSwitch(on);
+      }
+
       // 音乐缓存位置刚变：让 sidecar 立刻换目录（并搬走已有缓存），不必等重启。
       // apply:false = 只落盘不搬家（设置页换位置失败后的回滚走这条：sidecar 本来就没换成，
       // 再搬一次只是把几个 GiB 白复制两趟）。渲染层拿这次的结果回显，await 是有意的。
@@ -1088,6 +1121,10 @@ ipcMain.handle("quaver:config", async (_e, msg) => {
       themePref = values["Style.Style"] ?? "dark";
       applyThemeSource();
       hotkeys.apply(); // 绑定整体回到默认
+      audioAdaptiveRate = false;
+      setAudioAdaptiveRate(false); // 模板默认 False
+      audioAdaptiveRateSwitch = false;
+      setAudioAdaptiveRateSwitch(false);
       void applyMusicCacheDir(); // 模板里 MusicCacheDir 为空：缓存位置回到平台默认
 
       return { ok: true, values };

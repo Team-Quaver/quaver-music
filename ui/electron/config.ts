@@ -649,8 +649,20 @@ export const SCHEMA: SectionSpec[] = [
       {
         key: "AudioDevice",
         def: "auto",
-        doc: ["音频输出设备（仅原生直出）：auto=系统默认；其余填 mpv audio-device 名（pipewire/pulse/alsa/…）"],
+        doc: ["音频输出设备（仅原生直出）：auto=系统默认；其余填各后端自己的设备 ID（mpv 用 audio-device 名，Liino 用 pipewire/default 等）"],
         valid: (v: string) => v.length > 0,
+      },
+      {
+        key: "AdaptiveRate",
+        def: "False",
+        doc: ["Liino 输出采样率（Linux/PipeWire）：False=固定 48 kHz｜True=跟随音源。下一首生效。"],
+        valid: isBoolValue,
+      },
+      {
+        key: "AdaptiveRateSwitch",
+        def: "False",
+        doc: ["跟随音源时是否请求 PipeWire 切换声卡时钟；默认关，打开后慢设备可能短暂静音。"],
+        valid: isBoolValue,
       },
       {
         key: "Fade",

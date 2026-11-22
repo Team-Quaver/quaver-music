@@ -568,6 +568,12 @@ cd ui && pnpm run app                              # 真出声跑一圈（Linux/
   `process.title` 改不到它）。vendor 的 purego-pipewire fork 经 `pw_properties_new_dict` 把
   `application.name` / `media.name` / `node.name` 传给 `pw_stream_new_simple`，值来自
   `sessionConfig` 的 `app_name` / `stream_name`（见 `third_party/VENDORED.md`）。
+- **采样率（`Playing.AdaptiveRate` / `Playing.AdaptiveRateSwitch`，仅 Linux/PipeWire）**：
+  默认都是 `False`：固定 48 kHz 管线。`AdaptiveRate=True` 走 `FollowSource`，ring / DSP / clock /
+  output 跟随源时钟；`AdaptiveRateSwitch=True` 才在 PipeWire 流节点带 `node.rate` 请求切声卡
+  （慢设备可能静音，`checkRateSwitch` 700ms 无出帧会自动回退）。换曲换率先
+  `detachOutputForRate` 再 `setStreamFormat`；运行中改设置只影响下一首。暂停中的 Liino 流会
+  占住 graph，阻止采样率切换（包括其他程序）。
 - 验证：`pnpm run verify:liino`（静态接线）+ `./node_modules/.bin/electron scripts/probe-liino.ts
   [--device=pipewire/default|--device=null]`（真 dlopen / 真出声 / 真取流：契约、事件、
   小世代（新页面）被接受、EQ 丢弃数、曲末只发一次 ended、shutdown 收尾）。设置页解析状态按 `status.backend`

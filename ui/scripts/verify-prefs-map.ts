@@ -116,6 +116,10 @@ eq("淡入淡出默认 normal", P.getFade(), "normal");
 
 eq("音频设备默认 auto", P.getAudioDevice(), "auto");
 
+eq("Liino 自适应采样率默认关（固定 48 kHz）", P.getAdaptiveRate(), false);
+
+eq("Liino 切声卡时钟默认关（立即出声）", P.getAdaptiveRateSwitch(), false);
+
 eq("上一首逻辑默认 replay（重放）", P.getPrevBehavior(), "replay");
 
 eq("睡眠禁止默认开", P.getInhibitSleep(), true);
@@ -188,6 +192,14 @@ P.setDecor("ssd");      eq("Decor 键名", conf()["Window.Decor"], "ssd");
 P.setCloseAction("quit"); eq("CloseAction 键名", conf()["Window.CloseAction"], "quit");
 
 P.setAudioDevice("pipewire"); eq("AudioDevice 键名", conf()["Playing.AudioDevice"], "pipewire");
+
+P.setAdaptiveRate(true); eq("AdaptiveRate 键名", conf()["Playing.AdaptiveRate"], "True");
+eq("AdaptiveRate 读回 true", P.getAdaptiveRate(), true);
+P.setAdaptiveRate(false); eq("AdaptiveRate 关回落 False", conf()["Playing.AdaptiveRate"], "False");
+
+P.setAdaptiveRateSwitch(true); eq("AdaptiveRateSwitch 键名", conf()["Playing.AdaptiveRateSwitch"], "True");
+eq("AdaptiveRateSwitch 读回 true", P.getAdaptiveRateSwitch(), true);
+P.setAdaptiveRateSwitch(false); eq("AdaptiveRateSwitch 关回落 False", conf()["Playing.AdaptiveRateSwitch"], "False");
 
 P.setFade("long");      eq("Fade 键名", conf()["Playing.Fade"], "long");
 
@@ -444,7 +456,7 @@ check("写盘键名齐全（Section.Key 风格）", [
   "Style.Style", "Style.DefaultUIFonts", "Style.DefaultLyricsFonts",
   "Style.Background", "Style.BackgroundImage", "Style.BackgroundFlow", "Style.BackgroundBlur", "Style.BackgroundRenderer", "Style.NpBackgroundRenderer", "Style.MenuBlur",
   "Window.Decor", "Window.CloseAction",
-  "Playing.Backend", "Playing.AudioDevice", "Playing.Fade", "Playing.PrevReplay", "Playing.InhibitSleep", "Playing.ReportListenTime",
+  "Playing.Backend", "Playing.AudioDevice", "Playing.AdaptiveRate", "Playing.AdaptiveRateSwitch", "Playing.Fade", "Playing.PrevReplay", "Playing.InhibitSleep", "Playing.ReportListenTime",
   "Quality.DefaultQuality", "Quality.FallbackToQMAtmos",
   "Update.AutoCheck", "Update.Channel", "Update.LastNotified",
 ].every((k) => keys.includes(k)), keys.join(","));

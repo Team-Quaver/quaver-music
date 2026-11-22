@@ -477,6 +477,26 @@ export function setAudioDevice(id: string) {
   cfgSet({ "Playing.AudioDevice": id || "auto" });
 }
 
+// —— Liino 输出采样率（仅 Linux / PipeWire）：True = 解码与 PipeWire 流都用音源采样率，
+//    graph 能跟随就原生运行；False = 维持固定的 48 kHz 管线。运行中切换只影响下一首。 ——
+export function getAdaptiveRate(): boolean {
+  return /^(true|1|yes)$/i.test(cfg("Playing.AdaptiveRate", "False"));
+}
+
+export function setAdaptiveRate(v: boolean) {
+  cfgSet({ "Playing.AdaptiveRate": v ? "True" : "False" });
+}
+
+// —— 跟随音源时是否请求声卡切时钟（node.rate）：关=立即出声、PipeWire 重采样；
+//    开=声卡跟随，慢设备可能短暂静音（Liino 会自动回退）。下一首生效。 ——
+export function getAdaptiveRateSwitch(): boolean {
+  return /^(true|1|yes)$/i.test(cfg("Playing.AdaptiveRateSwitch", "False"));
+}
+
+export function setAdaptiveRateSwitch(v: boolean) {
+  cfgSet({ "Playing.AdaptiveRateSwitch": v ? "True" : "False" });
+}
+
 // —— 淡入淡出（仅原生后端）：起播淡入 / 暂停与切歌淡出。直出走 MPV 包络，兼容走 renderer GainNode。 ——
 export type FadePreset = "off" | "short" | "normal" | "long";
 

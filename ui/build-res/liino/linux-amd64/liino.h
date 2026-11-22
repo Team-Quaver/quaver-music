@@ -105,6 +105,8 @@ extern int liino_set_eq(struct liino_player* key, char* bandsJSON, char** errp);
 extern int liino_set_limiter(struct liino_player* key, int enabled, char** errp);
 extern int liino_set_bypass(struct liino_player* key, int bypass, char** errp);
 extern int liino_set_device(struct liino_player* key, char* deviceID, char** errp);
+extern int liino_set_adaptive_rate(struct liino_player* key, int on, char** errp);
+extern int liino_set_switch_device_rate(struct liino_player* key, int on, char** errp);
 extern int liino_snapshot_json(struct liino_player* key, char** out);
 extern int liino_clock_json(struct liino_player* key, char** out);
 extern int liino_level_json(struct liino_player* key, char** out);

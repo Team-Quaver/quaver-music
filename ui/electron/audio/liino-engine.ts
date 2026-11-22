@@ -78,11 +78,15 @@ interface CommandFailure {
 }
 
 /** Liino 的 create() 配置：应用名进 PipeWire/WASAPI 的媒体角色，设备/音量/EQ 随后由命令覆盖。 */
-function sessionConfig(device: string, eq: LiinoEqPlan) {
+function sessionConfig(device: string, eq: LiinoEqPlan, adaptiveRate: boolean, switchDeviceRate: boolean) {
   return {
     app_name: "Quaver Music",
     stream_name: "Quaver Music",
     device_id: device === "auto" ? "" : device,
+    // true = 解码 / 环形缓冲 / DSP / 时钟 / PipeWire 流全部跟着音源采样率走。
+    adaptive_rate: adaptiveRate,
+    // true = 同时请求 PipeWire 把声卡时钟切到源采样率（慢设备可能短暂静音）。
+    switch_device_rate: adaptiveRate && switchDeviceRate,
     // 安全限幅会把 F32 软削成非零底噪；正常流交给 0dBFS 防爆音，不开它。
     limiter: false,
     eq: eq.bands,
@@ -196,6 +200,8 @@ export class LiinoEngine {
   pollTimer: NodeJS.Timeout | null;
   dead: boolean;                     // native 会话硬错：下一条命令重建
   note: string;                      // 最近一次失败的人话原因（进 status.reason）
+  adaptiveRate: boolean;             // Liino：按音源采样率输出（下一首 Open 生效）
+  switchDeviceRate: boolean;         // Liino：同时请求声卡切时钟（慢设备可能静音，自动回退）
 
   constructor() {
     this.baseUrl = "";
@@ -229,6 +235,8 @@ export class LiinoEngine {
     this.pollTimer = null;
     this.dead = false;
     this.note = "";
+    this.adaptiveRate = false;
+    this.switchDeviceRate = false;
   }
 
   /** 解析随包/开发态的 libliino（幂等：init 与 probe 都走这一条）。 */
@@ -250,12 +258,16 @@ export class LiinoEngine {
   }
 
   /** 与 AudioEngine.init 同签名：main.ts 在窗口 URL 定下后调用（幂等，二选一 init）。 */
-  init({ baseUrl, getWin, log }: { baseUrl?: string; getWin?: () => BrowserWindow | null; log?: EngineLog }): void {
+  init({ baseUrl, getWin, log, adaptiveRate, adaptiveRateSwitch }: { baseUrl?: string; getWin?: () => BrowserWindow | null; log?: EngineLog; adaptiveRate?: boolean; adaptiveRateSwitch?: boolean }): void {
     if (baseUrl) this.baseUrl = baseUrl;
 
     if (getWin) this.getWin = getWin;
 
     if (log) this.log = log;
+
+    if (adaptiveRate !== undefined) this.setAdaptiveRate(adaptiveRate);
+
+    if (adaptiveRateSwitch !== undefined) this.setAdaptiveRateSwitch(adaptiveRateSwitch);
 
     // `quaver:audio` 的 handler 归 backend.ts 门面所有（一个通道只能有一个主人）；
     // 这样设置页运行时切 Liino/MPV 才能真正换掉在答话的引擎。
@@ -263,6 +275,32 @@ export class LiinoEngine {
       this.wired = true;
       this.resolveRuntime();
     }
+  }
+
+  /** 输出采样率策略：下一首 open 生效。 */
+  setAdaptiveRate(on: boolean): void {
+    if (this.adaptiveRate === on) return;
+
+    this.adaptiveRate = on;
+    const player = this.player;
+
+    if (!player || this.dead) return;
+
+    // SAFETY: catch 边界进来的都是 unknown；只取 message 拼日志，字段缺失兜 "unknown"
+    try { player.setAdaptiveRate(on); } catch (e) { this.log("[liino] set adaptive rate failed:", String(caught(e))); }
+  }
+
+  /** 是否请求声卡跟着切时钟：同自适应采样率，下一首 Open 生效。 */
+  setAdaptiveRateSwitch(on: boolean): void {
+    if (this.switchDeviceRate === on) return;
+
+    this.switchDeviceRate = on;
+    const player = this.player;
+
+    if (!player || this.dead) return;
+
+    // SAFETY: catch 边界进来的都是 unknown；只取 message 拼日志，字段缺失兜 "unknown"
+    try { player.setSwitchDeviceRate(on); } catch (e) { this.log("[liino] set switch device rate failed:", String(caught(e))); }
   }
 
   send(ev: AudioEvent): void {
@@ -328,7 +366,7 @@ export class LiinoEngine {
       if (!lib) return null;
 
       try {
-        const player = lib.create(sessionConfig(this.device, this.eqPlan));
+        const player = lib.create(sessionConfig(this.device, this.eqPlan, this.adaptiveRate, this.switchDeviceRate));
 
         // create 期间会话被 shutdown/hardFail 拆掉：这个结果已经过时，自己关掉。
         if (gen !== this.playerGen) {
