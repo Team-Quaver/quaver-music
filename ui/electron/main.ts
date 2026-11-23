@@ -1,7 +1,7 @@
 // Quaver — Electron 主进程（ESM）
 // 起一个进程内 vite preview（dist/ + /api 中继插件），窗口加载 http://127.0.0.1:<port>
 // frame:false：无原生标题栏——窗口右上角平铺三个窗口按钮（min/max/close），经 preload IPC 接管。
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, session, Tray, nativeImage, nativeTheme, safeStorage, shell } from "electron";
+import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, session, Tray, nativeImage, nativeTheme, safeStorage, shell } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -1694,6 +1694,37 @@ if (!app.requestSingleInstanceLock()) {
 // 勿用顶层 await：Electron 对 ESM 主进程中挂起在 await 的模块引导不完整（实测 whenReady 永不兑现）
 app.whenReady().then(() => {
   log("[quaver] app ready");
+
+  // 听歌识曲的 display-capture 授权：只接受本机应用页，Windows 顺手给 loopback 音频。
+  // Linux 的系统声音走 recognition-capture.ts 的 monitor source（Chromium loopback 不覆盖 Linux）。
+  session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
+    if (!/^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?$/.test(request.securityOrigin)) {
+      callback(null);
+
+      return;
+    }
+
+    try {
+      const [source] = await desktopCapturer.getSources({
+        types: ["screen"],
+        thumbnailSize: { width: 0, height: 0 },
+      });
+
+      if (!source) {
+        callback(null);
+
+        return;
+      }
+
+      callback({
+        video: source,
+        ...(process.platform === "win32" ? { audio: "loopback" as const } : {}),
+      });
+    } catch {
+      callback(null);
+    }
+  });
+
   // ——— 凭证存储：ready 之后第一件事就是把「这次到底拿到了什么后端」问清楚 ———
   // 探测（选开关）与校验（认不认）是两件事：这里只信 safeStorage 的自报，落在 basic_text 一律不用。
   let plan;

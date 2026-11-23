@@ -34,6 +34,12 @@ extraResources:
     filter:
       - "**/*"
       - "!**/.work/**"
+  # 听歌识曲 AFP 指纹库：WASM 只在主进程加载，不进渲染层 bundle。
+  - from: resources/afp
+    to: afp
+    filter:
+      - afp.mjs
+      - afp.wasm.mjs
 
 # koffi 的 dlopen 只认真实文件路径；libliino 必须解出 asar（与 mpv 运行时同口径）。
 # 引擎解析路径（electron/audio/liino-engine.ts）对打包态都算在 resources 下，

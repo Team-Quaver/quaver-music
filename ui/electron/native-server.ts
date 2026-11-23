@@ -11,6 +11,9 @@ import { extname, isAbsolute, join, normalize, relative } from "node:path";
 import { backgroundResponse } from "./background.ts";
 import { accentPayload } from "./accent.ts";
 import { handleLocalApi } from "./local/library.ts";
+import { matchFingerprint, normalizeMatchResults, resolveQQMatches } from "./recognition-match.ts";
+import { fingerprintPcm } from "./recognition-fingerprint.ts";
+import { captureSystemPcm, DEFAULT_CAPTURE_MS } from "./recognition-capture.ts";
 
 const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -276,6 +279,93 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
         res.setHeader("cache-control", "no-store");
 
         return res.end(JSON.stringify(r));
+      }
+
+      // 听歌识曲指纹：与 dev/preview 中继同构，渲染层 PCM 交给主进程跑 AFP
+      if (sub === "/recognition/fingerprint") {
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          res.setHeader("content-type", "application/json");
+
+          return res.end(JSON.stringify({ code: -1, msg: "method not allowed" }));
+        }
+
+        const body = await readBody(req);
+
+        if (!body?.byteLength || body.byteLength > 2 * 1024 * 1024) {
+          res.statusCode = 400;
+          res.setHeader("content-type", "application/json");
+
+          return res.end(JSON.stringify({ code: -1, msg: "无效的音频样本" }));
+        }
+
+        const bytes = new Uint8Array(body);
+        const pcm = new Float32Array(bytes.buffer, 0, Math.floor(bytes.byteLength / 4));
+        const fingerprint = await fingerprintPcm(pcm);
+
+        res.statusCode = fingerprint ? 200 : 503;
+        res.setHeader("content-type", "application/json");
+        res.setHeader("cache-control", "no-store");
+
+        return res.end(JSON.stringify(fingerprint
+          ? { code: 0, msg: "ok", data: { fingerprint } }
+          : { code: -1, msg: "音频指纹组件不可用（缺少 resources/afp）" }));
+      }
+
+      // 系统声音采集（Linux）：Chromium 的 loopback 不覆盖 Linux，交给主进程录 monitor source。
+      if (sub === "/recognition/system-pcm") {
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          res.setHeader("content-type", "application/json");
+
+          return res.end(JSON.stringify({ code: -1, msg: "method not allowed" }));
+        }
+
+        const duration = Number(url.searchParams.get("duration") ?? DEFAULT_CAPTURE_MS);
+        const ac = new AbortController();
+        const onGone = () => { if (!res.writableFinished) ac.abort(); };
+
+        res.once("close", onGone);
+
+        const captured = await captureSystemPcm(Number.isFinite(duration) ? duration : DEFAULT_CAPTURE_MS, ac.signal);
+
+        res.setHeader("cache-control", "no-store");
+
+        if (!captured.ok) {
+          res.statusCode = captured.reason === "unsupported" ? 501 : 502;
+          res.setHeader("content-type", "application/json");
+
+          return res.end(JSON.stringify({ code: -1, msg: captured.message }));
+        }
+
+        res.statusCode = 200;
+        res.setHeader("content-type", "application/octet-stream");
+
+        return res.end(Buffer.from(captured.pcm.buffer, captured.pcm.byteOffset, captured.pcm.byteLength));
+      }
+
+      // 听歌识曲匹配：与 dev/preview 中继同构，渲染层侧指纹经主进程转发公共接口
+      if (sub === "/recognition/match") {
+        const fingerprint = url.searchParams.get("fingerprint") ?? "";
+        const duration = Number(url.searchParams.get("duration") ?? "0");
+
+        try {
+          const matched = normalizeMatchResults(await matchFingerprint(fingerprint, duration));
+          // 只给前 3 首补 QQ songmid：识别结果通常一眼可定，没必要为展示列表回查整页。
+          const data = { result: await resolveQQMatches(matched.slice(0, 3)) };
+          res.statusCode = 200;
+          res.setHeader("content-type", "application/json");
+          res.setHeader("cache-control", "no-store");
+
+          // 没匹配到是正常结果，不是网关错误 —— 别再用 502 让前端/日志误判。
+          return res.end(JSON.stringify({ code: 0, msg: data.result.length ? "ok" : "没有识别到结果", data }));
+        } catch {
+          res.statusCode = 502;
+          res.setHeader("content-type", "application/json");
+          res.setHeader("cache-control", "no-store");
+
+          return res.end(JSON.stringify({ code: -1, msg: "音频匹配服务不可用" }));
+        }
       }
 
       // Sparkle 已安装插件的文件服务（必须在 sidecar 转发之前截住）

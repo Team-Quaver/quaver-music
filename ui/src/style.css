@@ -689,6 +689,13 @@ body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-b
 }
 .top-back:hover { background: var(--hover); color: var(--ink); }
 .top-back[hidden] { display: none; }
+.top-recognize {
+  position: absolute; left: calc(100% + 8px); top: 50%; transform: translateY(-50%);
+  width: 28px; height: 28px; border-radius: 50%; padding: 0;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink2);
+  display: grid; place-items: center; cursor: pointer;
+}
+.top-recognize:hover { background: var(--hover); color: var(--ink); }
 .sb-field {
   display: flex; align-items: center; gap: 7px; min-width: 0; height: 29px; padding: 0 11px;
   border-radius: 999px; background: var(--card); border: 1px solid var(--line); color: var(--ink2);
@@ -700,6 +707,46 @@ body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-b
   color: var(--ink); font: inherit; font-size: 12.5px;
 }
 .sb-field input::-webkit-search-cancel-button { -webkit-appearance: none; }
+
+/* —— 听歌识曲弹窗 ——
+   外壳沿用更新/Credits 的 .upd-overlay + .upd-dialog（玻璃、宽高上限、进出场与
+   reduced-motion 全白拿），这里只补内容区与底部动作条。 */
+.upd-dialog.rec-panel { width: min(560px, 92vw); }
+.upd-notes.rec-body { padding: 16px 2px 6px; }
+.rec-stage { min-height: 132px; display: grid; place-items: center; text-align: center; gap: 12px; padding: 6px 0 14px; }
+.rec-ring { display: flex; align-items: flex-end; gap: 5px; height: 56px; opacity: .45; }
+/* 波浪动画只在纵向缩放；把变换原点钉在底部，三条柱子才始终落在同一条基线上。 */
+.rec-ring span { width: 6px; height: 18px; border-radius: 999px; background: var(--cvg-accent, var(--acc)); transition: height .18s ease; transform-origin: 50% 100%; }
+.rec-stage.busy .rec-ring { opacity: 1; }
+.rec-stage.busy .rec-ring span:nth-child(1) { animation: rec-bar .9s ease-in-out infinite; }
+.rec-stage.busy .rec-ring span:nth-child(2) { animation: rec-bar .7s ease-in-out infinite .12s; height: 42px; }
+.rec-stage.busy .rec-ring span:nth-child(3) { animation: rec-bar .8s ease-in-out infinite .24s; height: 28px; }
+@keyframes rec-bar { 0%, 100% { transform: scaleY(.4); } 50% { transform: scaleY(1.2); } }
+.rec-status { margin: 0; font-size: 13px; color: var(--ink2); }
+.rec-sources { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.rec-sources[hidden] { display: none; }
+.rec-source {
+  display: grid; gap: 2px; padding: 9px 11px; text-align: left; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 10px; background: transparent; color: var(--ink2);
+}
+.rec-source span { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.rec-source small { font-size: 10.5px; color: var(--ink2); }
+.rec-source:hover { background: var(--hover); }
+.rec-source[aria-pressed="true"] {
+  border-color: var(--cvg-accent, var(--acc));
+  background: color-mix(in srgb, var(--cvg-accent, var(--acc)) 12%, transparent);
+}
+.upd-foot.rec-foot { gap: 8px; }
+.rec-note { font-size: 11.5px; }
+.rec-results { margin-top: 4px; display: grid; gap: 6px; }
+.rec-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); text-align: left; cursor: pointer; }
+.rec-item:hover { background: var(--hover); border-color: var(--cvg-accent, var(--acc)); }
+.rec-art { flex: 0 0 44px; width: 44px; height: 44px; border-radius: 8px; overflow: hidden; background: var(--ph2); display: grid; place-items: center; }
+.rec-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.rec-meta { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.rec-title { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-artist { font-size: 11px; color: var(--ink2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-play { color: var(--cvg-accent, var(--acc)); opacity: .85; }
 .sb-drop {
   position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 60;
   max-height: 320px; overflow-y: auto; border-radius: 12px; padding: 6px;

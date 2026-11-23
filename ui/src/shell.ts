@@ -288,7 +288,19 @@ export function bootShell() {
     if (stackPos > 0) { stackPos--; history.back(); } // renderRoute/hashchange 不会再压栈（同址判定）
   };
 
-  topCenter.append(backBtn, SearchBox());
+  const search = SearchBox();
+  const recognize = document.createElement("button");
+  recognize.type = "button";
+  recognize.className = "top-recognize";
+  recognize.title = "听歌识曲";
+  recognize.setAttribute("aria-label", "听歌识曲");
+  recognize.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v18"/><path d="M7 8v8"/><path d="M17 8v8"/><path d="M3 12h2"/><path d="M19 12h2"/></svg>`;
+  // 识曲弹窗连同采集/指纹协议按需加载：首屏不为一个入口按钮付整块代码。
+  recognize.addEventListener("click", () => {
+    void import("./components/SongRecognitionDialog").then((m) => m.openSongRecognition());
+  });
+
+  topCenter.append(backBtn, search, recognize);
   // CSD 拖拽把手层：顶带内的独立层（右缘让开窗口按钮簇，几何见 style.css .top-drag 注释）。
   // 放在 .top-center 之前 → DOM 序在后者的下层，搜索组照样收得到指针事件。
   const topDrag = document.createElement("div");
