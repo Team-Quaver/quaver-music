@@ -1,6 +1,5 @@
 // Quaver — 路由视图：liked（由 src/views/index.ts 按需动态 import，不在首屏解析）
 import { songListTools } from "../components/ListTools";
-import { icons } from "../lib/icons";
 import { orderComplete } from "../lib/order-shelter";
 import { bindSonglistReorder, songlistReorderActive } from "../lib/songlist-reorder";
 import { renderSongRows, renumberRows } from "../lib/songs";
@@ -93,7 +92,6 @@ export default async function likedView(root: HTMLElement) {
 
       setCount(Math.max(items.length, player.likedTotal));
       renderSongRows(box, songs, {
-        reorder: reorderOn(),
         onPlay: (_s, i, all) => player.playList(all, i),
         onLove: (song, on) => { if (!on) dropRow(song); }, // 取消红心 = 取消单曲收藏 + 移出本页
       });
@@ -123,22 +121,6 @@ export default async function likedView(root: HTMLElement) {
     onAbort: () => { const cur = player.likedCache; if (cur) adopt(cur); else tools.repaint(); },
     onRollback: () => tools.repaint(), // 写失败：player.likedCache 未动，按它重画即回滚
   });
-
-  // 筛排态切换 → 把手显隐即时跟随（与歌单页同一套；截断态变化经 repaint 走 hooksFor）
-  const gripHtml = `<span class="row-grip" title="拖动调整歌单顺序" aria-hidden="true">${icons.grip}</span>`;
-
-  const syncGrips = () => {
-    const on = reorderOn();
-
-    for (const row of box.querySelectorAll<HTMLElement>(".row[data-songkey]")) {
-      const grip = row.querySelector<HTMLElement>(".row-grip");
-
-      if (on && !grip) row.insertAdjacentHTML("afterbegin", gripHtml);
-      else if (!on && grip) grip.remove();
-    }
-  };
-
-  const offGrips = tools.onState(syncGrips);
 
   // 写后增量回源/别处收藏（player 侧）落定 → 打开中的本页即时跟进。
   // 延一拍再动手：行内取消红心的 dropRow（含淡出）在同任务里先落地，多数变更到这里已自洽。
@@ -174,7 +156,6 @@ export default async function likedView(root: HTMLElement) {
   if (!ok) {
     offList();
     offReorder();
-    offGrips();
     sticky.off();
     fabs.off();
 
@@ -197,7 +178,7 @@ export default async function likedView(root: HTMLElement) {
   if (!sameMids(painted, fresh)) adopt(fresh);
   player.syncLovedSoon(); // 进页顺带一次小窗对账：TTL 内不整单重载也能纠漂移
 
-  return () => { offList(); offReorder(); offGrips(); sticky.off(); fabs.off(); };
+  return () => { offList(); offReorder(); sticky.off(); fabs.off(); };
 }
 
 // —— 设置页（对齐设计稿：外观设置 / 播放设置 / 调试 三区；不触碰侧栏与播放条） ——

@@ -109,7 +109,7 @@ ok("续批: jump 到第五首时触发 maybeExtendRadio", re(playerCode, /this\.
 
 ok("续批: 下一轮追加到队列尾部", has(playerCode, "this.queue.push(...songs)"));
 
-ok("续批: 取歌期间回听则不把人拽回队尾", has(playerCode, "const stillAtEnd = this.index >= firstNew - 1;") && re(playerCode, /if \(this\.radioWaitingNext\) \{[\s\S]{0,120}if \(stillAtEnd\) this\.jump\(firstNew\);/));
+ok("续批: 取歌期间回听则不把人拽回队尾", has(playerCode, "const stillAtEnd = this.index >= firstNew - 1;") && re(playerCode, /if \(this\.radioWaitingNext\) \{[\s\S]{0,120}if \(stillAtEnd\) this\.jump\(firstNew, "next"\);/));
 
 ok("续批: 回到历史曲目即清掉轮末等待（迟到结果不跳过重新选的曲）",
   re(playerCode, /this\.index = i;[\s\S]{0,220}?if \(this\.radioOn && this\.index < this\.radioEnd\) this\.radioWaitingNext = false;[\s\S]{0,40}?this\.maybeExtendRadio\(\);/));
@@ -125,7 +125,7 @@ ok("轮末: 下一轮未到时等待，不回绕旧歌", re(playerCode, /this\.r
 ok("上一曲: 电台队首之外 canPrev=true", re(playerCode, /get canPrev\(\) \{ return this\.queue\.length > 0 && \(!this\.radioOn \|\| this\.index > 0\); \}/));
 
 ok("上一曲: prev() 在电台里回退一首，队首不回绕",
-  re(playerCode, /if \(this\.radioOn\) \{\s*if \(this\.index <= 0\) return;\s*this\.jump\(this\.index - 1\);/) && !re(playerCode, /prev\(force = false\) \{[\s\S]{0,300}?if \(this\.radioOn\) return;/));
+  re(playerCode, /if \(this\.radioOn\) \{\s*if \(this\.index <= 0\) return;\s*this\.jump\(this\.index - 1, "prev"\);/) && !re(playerCode, /prev\(force = false\) \{[\s\S]{0,300}?if \(this\.radioOn\) return;/));
 
 ok("上一曲: 播放条按钮按 canPrev 禁用", has(playerBarCode, "prev.disabled = !canPrev;"));
 
@@ -204,7 +204,7 @@ ok("电台: songAtOffset 可回退已播历史、但不越过队首/队列末尾
   re(playerCode, /if \(this\.radioOn\) \{\s*const i = this\.index \+ offset;\s*return i >= 0 && i < this\.queue\.length \? this\.queue\[i\] : undefined;/));
 
 ok("电台: jumpToOffset 只拒绝越过两端，历史范围内可回退",
-  re(playerCode, /jumpToOffset[\s\S]{0,500}?if \(this\.radioOn\) \{\s*const i = this\.index \+ offset;\s*if \(i < 0 \|\| i >= this\.queue\.length\) return;\s*this\.jump\(i\);/));
+  re(playerCode, /jumpToOffset[\s\S]{0,500}?if \(this\.radioOn\) \{\s*const i = this\.index \+ offset;\s*if \(i < 0 \|\| i >= this\.queue\.length\) return;\s*this\.jump\(i, offset > 0 \? "next" : "prev"\);/));
 
 console.log(`\n${checks - fails}/${checks} passed${fails ? ` — ${fails} FAILED` : ""}`);
 

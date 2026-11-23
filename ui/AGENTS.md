@@ -321,6 +321,25 @@ plugin 侧参考实现是 `vendor/Sparkle/marketplace/folia-visualizer`：正在
 `src/sparkle/player-facade.ts` 是播放器只读门面的落点（host 与 transport 共用，避免 transport →
 host → shell → PlayerBar 成环）。
 
+## 正在播放页封面中心翻转（带惯性 · 默认布局 · 插件可回放）
+
+切歌时默认正在播放页的大封面绕中心 Y 轴翻转：**上一首 = 左到右，下一首 = 右到左**。
+两面在 42% 处同时转到侧棱，新面随后转正并过冲 12°，最后用约 28% 的时长缓慢回正。
+动画只在默认布局发生（收起态、`np-taken-over` 接管视图都不动）；插件需要手动补一次动效时
+调 `ctx.player.flipCover?.("prev" | "next")`，宿主经 `lib/np-cover-flip.ts` 的请求通道交给
+NowPlaying，没有监听者时是 no-op。
+
+- 来向由 `player.ts` 的 `switchDir` 记录：`next()/prev()/jumpToOffset()` 显式传方向；直接点
+  播放队列行按目标下标前后判定。随机播放的「下一首」可能落到更小下标，所以**不能**只看下标。
+- NowPlaying 只在 `mid` 真变化时翻；同曲的封面候选降级（1500→1200…）与展开/收起换档只换图
+  不翻。换曲检测以 `mid` 为准，不看图片 URL（同专辑两首歌可能共用一张封面）。
+- 实现是「旧图克隆成 `.np-cover-ghost` + 主封面同时反向转」：主 `#np-cover` DOM 始终只有当前
+  曲的一张 `<img>`，插件/主题用 `querySelector("img")` 读到的不会是上一首的旧图。两面都设
+  `transform-origin: 50% 50%` / `backface-visibility: hidden`；`prefers-reduced-motion`
+  直接换图不播动画。
+- 验证：`node scripts/verify-np-cover-flip.ts`（方向关键帧真单测 + 宿主/SDK 接线静态断言；
+  已进 `verify:static`）。
+
 ## Liino 后端（Linux/Windows 默认 · macOS 实验性 · 纯 Go 音频管线）
 
 主进程音频后端有两个：「liino」（Linux/Windows 默认，纯 Go 管线；macOS 为实验性、默认走 MPV）
@@ -708,15 +727,15 @@ PR 306 的两阶段映射：0/1→0；5/111/112/113 原样；其余→1）。渲
 
 拖拽重排（**自有歌单 + 「我喜欢」**，均要求**默认序 + 无搜索**；「我喜欢」还要求预载完整
 —— `orderComplete(items.length, player.likedTotal)`，截断列表拿可见前缀当整单提交会打乱
-未提交歌曲，视图收把手、`player.reorderLoved` 再兜一道）：
+未提交歌曲，视图关掉起拖、`player.reorderLoved` 再兜一道）：
 
 - 机制在 `src/lib/songlist-reorder.ts`：与 QueuePanel 同一套指针纪律（监听挂 window、
   量流位置先清 transform、`.row.dragging` 的 transition 不带 transform），几何/序列纯逻辑
   共用 `lib/reorder.ts`（`dropSlot`/`edgeSpeed`/`applyVisibleOrder`——回映射按**对象引用**
-  不按 mid，歌单允许同曲出现两次）。把手由 `hooks.reorder` 渲染（`songs.ts`），筛排态切换
-  经 `tools.onState(syncGrips)` 原地增删，不整表重画。把手贴行左缘（负 margin 抵消行内边距
-  与 flex 间隙，落在序号左侧边槽）。提交/取消/失败三条回调分开：`submit`（写接口+庇护，
-  视图注入）/ `onAbort`（Esc/节点被摘，按**当前数据**重画）/ `onRollback`（写失败回旧序）。
+  不按 mid，歌单允许同曲出现两次）。**整行按住即可拖，不再渲染把手/拖拽提示**（插件会对
+  行首多出来的节点做排版/选择器假设）；行内链接与按钮保留原生交互，不参与起拖。提交/取消/
+  失败三条回调分开：`submit`（写接口+庇护，视图注入）/ `onAbort`（Esc/节点被摘，按**当前
+  数据**重画）/ `onRollback`（写失败回旧序）。队列面板同口径：整行按住拖动，无把手提示。
 - 提交 = **整单**新顺序 `POST /songlist/{dirid}/order`（SeqSonglist；「我喜欢」dirid=201、
   tid=0，上游 PR 307 明确支持）：部分提交上游照样回成功但打乱未提交歌曲 ——
   `playlists.ts:reorderSonglist` 只收整单，Go handler 拦空列表。写确认前乐观改序

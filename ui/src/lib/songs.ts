@@ -3,7 +3,6 @@
 import { api, coverUrl, escHtml as esc, fmtTime, songSubtitle, songTitle } from "./api";
 import { player } from "../player";
 import { bindSongMenu } from "../components/SongMenu";
-import { icons } from "./icons";
 
 export interface RowHooks {
   onPlay?: (song: any, index: number, all: any[]) => void;
@@ -21,9 +20,6 @@ export interface RowHooks {
   onRemoved?: (song: any) => void;
   /** 隐藏行内红心（本地音乐页：红心是 QQ 侧概念，本地曲目无在线收藏） */
   hideLove?: boolean;
-  /** 歌单重排：给出时行首出现拖拽把手（仅自有歌单 + 默认序 + 无搜索时由视图传入）。
-   *  拖拽机制本体在 lib/songlist-reorder.ts（容器级委托，行上不挂监听）。 */
-  reorder?: boolean;
 }
 
 // —— 行内红心：与 player.loved（单一真相源）同步 ——
@@ -231,11 +227,7 @@ export function renderSongRows(box: HTMLElement, songs: any[], hooks: RowHooks =
     // 标题 = title（主名 + 版本后缀）；subtitle 是独立的一句话说明，跟在标题后做次级文本
     const sub = songSubtitle(s);
 
-    const grip = hooks.reorder
-      ? `<span class="row-grip" title="拖动调整歌单顺序" aria-hidden="true">${icons.grip}</span>`
-      : "";
-
-    row.innerHTML = `${grip}<span class="idx">${i + 1}</span>
+    row.innerHTML = `<span class="idx">${i + 1}</span>
       ${showCover ? `<span class="rthumb">${pic ? `<img src="${pic}" alt="" loading="lazy"/>` : ""}</span>` : ""}
       <span class="rmeta"><span class="rt" style="display:block">${esc(songTitle(s))}${sub ? `<span class="rt-sub">${esc(sub)}</span>` : ""}</span>${artistLine}${albumLine}</span>
       ${loveBtn}

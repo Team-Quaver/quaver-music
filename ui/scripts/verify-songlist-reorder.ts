@@ -129,8 +129,14 @@ ok("reorder: pointermove/up/cancel 挂 window（insertBefore 丢捕获的坑）"
   && /window\.addEventListener\("pointerup", onUp\)/.test(noComments(mod))
   && /window\.addEventListener\("pointercancel", onCancel\)/.test(noComments(mod)));
 
-ok("reorder: 只有把手起拖（行体留给选中/双击）",
-  /closest\("\.row-grip"\)/.test(noComments(mod)));
+ok("reorder: 整行按住即可起拖，不再有把手/拖拽提示",
+  /const row = target\.closest<HTMLElement>\("\.row\[data-songkey\]"\)/.test(noComments(mod))
+  && !/row-grip/.test(noComments(mod))
+  && !/row-grip/.test(noComments(songs))
+  && !/拖动调整歌单顺序/.test(mod));
+
+ok("reorder: 行内链接/按钮不参与起拖（保留原生点击）",
+  /target\.closest\("a, button, input, textarea, select"\)/.test(noComments(mod)));
 
 ok("reorder: 量文档流位置前先清 transform",
   /row\.style\.transform = "";\s*const flowTop = row\.getBoundingClientRect\(\)\.top/.test(noComments(mod)));
@@ -172,7 +178,8 @@ ok("view(我喜欢): 仅默认序 + 无搜索 + 预载完整开放（orderComple
 
 ok("view(我喜欢): 拖拽中跟进重画被挡 + 退订登记（含失败/早退路径）",
   (noComments(liked).match(/songlistReorderActive\(box\)/g) ?? []).length >= 2
-  && /offReorder\(\);/.test(noComments(liked)) && /offGrips\(\);/.test(noComments(liked)));
+  && (noComments(liked).match(/offReorder\(\);/g) ?? []).length >= 2
+  && !/offGrips|syncGrips|row-grip/.test(noComments(liked)));
 
 ok("reorder: 写在途不接受第二次起拖（submitting 闸）",
   /dragRow \|\| submitting \|\| !opts\.enabled\(\)/.test(noComments(mod)));
@@ -190,10 +197,11 @@ ok("view: 仅自有歌单 + 默认序 + 无搜索开放（own && tools.plain()�
   /const reorderOn = \(\) => own && tools\.plain\(\)/.test(noComments(view))
   && /enabled: reorderOn/.test(noComments(view)));
 
-ok("view: hooks.reorder 决定行首把手；筛排切换经 onState 同步显隐",
-  /reorder: reorderOn\(\)/.test(noComments(view))
-  && /tools\.onState\(syncGrips\)/.test(noComments(view))
-  && /reorder\?: boolean/.test(songs));
+ok("view: 只把 enabled 交给重排器，行渲染不再接收 reorder/把手",
+  /enabled: reorderOn/.test(noComments(view))
+  && !/reorder: reorderOn\(\)/.test(noComments(view))
+  && !/row-grip/.test(noComments(view))
+  && !/reorder\?: boolean/.test(songs));
 
 ok("view: 拖拽中不整表重画（songlistReorderActive 守卫，松手后自然对上）",
   (noComments(view).match(/songlistReorderActive\(rows\)/g) ?? []).length >= 2);
@@ -201,22 +209,19 @@ ok("view: 拖拽中不整表重画（songlistReorderActive 守卫，松手后自
 ok("view: 退订登记进 cleanups（路由切换不留死监听）",
   /cleanups\.push\(offReorder\)/.test(noComments(view)));
 
-ok("tools: plain()/onState 对外暴露（重排把手的显隐依据）",
-  /plain\(\): boolean/.test(tools) && /onState\(fn: \(\) => void\)/.test(tools)
-  && /const plain = \(\) => sortKey === "default" && !kw\.trim\(\)/.test(noComments(tools)));
+ok("tools: plain() 对外暴露（每次起拖现问是否默认序 + 无搜索）",
+  /plain\(\): boolean/.test(tools)
+  && /const plain = \(\) => sortKey === "default" && !kw\.trim\(\)/.test(noComments(tools))
+  && !/onState/.test(tools));
 
 // —— 样式 ——
 ok("css: .row.dragging 的 transition 不带 transform（残差复利的坑）",
   /\.row\.dragging \{[^}]*transition: background \.14s;[^}]*\}/.test(css)
   && !/\.row\.dragging \{[^}]*transition:[^;}]*transform/.test(css));
 
-ok("css: 把手 hover 才现身 + grabbing 光标 + touch-action:none",
-  /\.row:hover \.row-grip \{ opacity: \.8; \}/.test(css)
-  && /\.rows\.reordering, \.rows\.reordering \.row \{ cursor: grabbing; \}/.test(css)
-  && /\.row-grip \{[^}]*touch-action: none/.test(css));
-
-ok("css: 把手贴行左缘（抵消行内边距与 flex 间隙，落在序号左侧边槽）",
-  /\.row-grip \{[^}]*margin-left: -10px; margin-right: -12px;/.test(css));
+ok("css: 不再有把手样式；重排中整行 grabbing",
+  !/\.row-grip/.test(css)
+  && /\.rows\.reordering, \.rows\.reordering \.row \{ cursor: grabbing; \}/.test(css));
 
 // —— 后端路由对得上 ——
 ok("Go sidecar: POST /songlist/{dirid}/order -> ReorderSongs（全量守卫在 handler）",

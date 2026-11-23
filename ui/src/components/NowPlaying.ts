@@ -35,6 +35,9 @@ import { sparkleKaraokeProvider, onSparkleChange, sparkleNpMenuItems, sparkleAct
 import { backgroundRendererOf } from "../sparkle/theme-background";
 import { npSongSnapshot, syncNpView } from "../sparkle/np-view";
 import { currentSpectrumMode, loadSpectrumStyles, spectrumFacade, spectrumMode, spectrumModes } from "../lib/spectrum-controller";
+import {
+  bindNpCoverFlip, coverFlipFrames, COVER_FLIP_MS, type CoverFlipDirection,
+} from "../lib/np-cover-flip";
 
 export function NowPlaying(): HTMLElement {
   const el = document.createElement("div");
@@ -103,7 +106,7 @@ export function NowPlaying(): HTMLElement {
   let spectrumPendingId = "";
   let spectrumExitTimer = 0;
 
-  const reduceSpectrumMotion = () =>
+  const reduceMotion = () =>
     typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   function disposeSpectrumLayer(layer: SpectrumLayer) {
@@ -119,7 +122,7 @@ export function NowPlaying(): HTMLElement {
   function retireSpectrumLayer(layer: SpectrumLayer) {
     if (!spectrumLayers.has(layer)) return;
 
-    if (reduceSpectrumMotion()) { disposeSpectrumLayer(layer); return; }
+    if (reduceMotion()) { disposeSpectrumLayer(layer); return; }
 
     layer.host.classList.remove("is-live");
     layer.host.classList.add("is-leaving");
@@ -210,7 +213,7 @@ export function NowPlaying(): HTMLElement {
   function closeSpectrumSurface() {
     if (!el.classList.contains("spectrum-on") || el.classList.contains("spectrum-closing")) return;
 
-    if (reduceSpectrumMotion()) {
+    if (reduceMotion()) {
       el.classList.remove("spectrum-on", "spectrum-closing");
       unmountSpectrum();
 
@@ -796,14 +799,88 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
   let lastAuxMode = "";    // 翻译选项档位（换档要重挑每行的辅助行文本）
   let lastIdx = -1;        // 高亮行索引（避免每帧改 class）
   let lastCover: string | null = null; // 封面 img 的 src 签名（4Hz notify 里防 <img> 重建/重解码）
+  let lastCoverMid = "";   // 上一首的 mid：换曲才翻，同曲换候选/展开换档不翻
+  let coverSeen = false;
   let npCoverWant = "";    // 当前封面候选链的指纹（首项 URL；换曲/换封面才重置降级游标）
   let npCoverUrls: string[] = [];
   let npCoverTry = 0;
   let lineEls: HTMLElement[] = [];
+  let coverFlipGhost: HTMLElement | null = null;
+  let coverFlipAnims: Animation[] = [];
+  let coverFlipSeq = 0;
+
+  function clearCoverFlip() {
+    coverFlipSeq++;
+
+    for (const anim of coverFlipAnims) {
+      try { anim.cancel(); } catch { /* 动画已结束/已取消 */ }
+    }
+
+    coverFlipAnims = [];
+    coverFlipGhost?.remove();
+    coverFlipGhost = null;
+  }
+
+  /** 切歌/插件回放：旧图克隆成第二面，两面在 50% 处同时转到侧棱，
+   *  随后新面转正并带一点惯性过冲。主封面 DOM 始终只有当前曲的一张 <img>。 */
+  function flipCover(dir: CoverFlipDirection, update: (() => void) | null) {
+    const canFlip = player.expanded && !!player.current && !el.classList.contains("np-taken-over")
+      && !!cover.firstElementChild && !reduceMotion();
+
+    if (!canFlip) {
+      clearCoverFlip();
+      update?.();
+
+      return;
+    }
+
+    // SAFETY: cloneNode(true) 复制的是 cover 元素本身，节点类型与 cover 一致
+    const ghost = cover.cloneNode(true) as HTMLElement;
+
+    clearCoverFlip();
+    ghost.removeAttribute("id");
+    ghost.classList.add("np-cover-ghost");
+    ghost.setAttribute("aria-hidden", "true");
+    cover.parentElement?.append(ghost);
+    coverFlipGhost = ghost;
+    update?.();
+
+    const frames = coverFlipFrames(dir);
+
+    const options: KeyframeAnimationOptions = {
+      duration: COVER_FLIP_MS,
+      easing: "linear",
+      fill: "both",
+    };
+
+    const incoming = cover.animate(frames.incoming, options);
+    const outgoing = ghost.animate(frames.outgoing, options);
+    const seq = ++coverFlipSeq;
+
+    coverFlipAnims = [incoming, outgoing];
+    void Promise.allSettled([incoming.finished, outgoing.finished]).then(() => {
+      if (seq !== coverFlipSeq) return;
+      clearCoverFlip();
+    });
+  }
 
   // 正在播放页大封面从 QQ 音乐最高档 1500 起取；个别专辑没有该档时 <img> 404，
   // 按候选链逐级下降到 1200/800/500/300/150/90。候选首项兼作指纹：4Hz notify
   // 不会反复重建 <img>/重解码，只有真的换曲或本地封面版本变化才重置游标。
+  function paintNpCover(pic: string) {
+    cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : `<div class="np-cover-ph">${icons.disc ?? ""}</div>`;
+
+    const img = cover.querySelector("img");
+
+    if (img) img.onerror = () => {
+      if (npCoverUrls[npCoverTry] !== pic) return; // 期间已换曲/换候选
+
+      npCoverTry++;
+      lastCover = null;
+      showNpCover(player.current, player.expanded);
+    };
+  }
+
   function showNpCover(s: Song | undefined, open: boolean) {
     // 收起态整页 opacity:0 但仍在 DOM 里：别让一张看不见的 1500×1500 占着解码位图
     // （实测 ~8.6MB）。收起只留 300 档，展开瞬间再按候选链升到 1500；关回来自动降回。
@@ -819,21 +896,27 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
     }
 
     const pic = npCoverUrls[npCoverTry] ?? "";
+    const mid = s?.mid ?? "";
+    const switched = coverSeen && !!mid && !!lastCoverMid && mid !== lastCoverMid;
 
-    if (pic === lastCover) return;
+    coverSeen = true;
+    lastCoverMid = mid;
+
+    if (!switched && pic === lastCover) return;
     lastCover = pic;
-    cover.innerHTML = pic ? `<img src="${pic}" alt=""/>` : `<div class="np-cover-ph">${icons.disc ?? ""}</div>`;
 
-    const img = cover.querySelector("img");
+    if (switched && open) {
+      flipCover(player.coverFlipDirection, () => paintNpCover(pic));
 
-    if (img) img.onerror = () => {
-      if (npCoverUrls[npCoverTry] !== pic) return; // 期间已换曲/换候选
+      return;
+    }
 
-      npCoverTry++;
-      lastCover = null;
-      showNpCover(s, open);
-    };
+    if (switched || !open) clearCoverFlip();
+    paintNpCover(pic);
   }
+
+  // 插件回放入口（player.flipCover）：默认布局在屏上才动；接管视图与收起态直接忽略。
+  bindNpCoverFlip((dir) => flipCover(dir, null));
 
   // —— 歌词（提供器接管 .np-kara-host：内置 AMLL 渲染逐字 QRC/TTML 与行级 LRC）——
   // notify 只有 4Hz，逐字扫色要逐帧时间：逐帧时钟/播放态/翻译显隐/收起冻结全部由

@@ -2,7 +2,6 @@
 import { songListTools } from "../components/ListTools";
 import { upPic } from "../lib/api";
 import { getMyMusicid, loadFavSonglists } from "../lib/favs";
-import { icons } from "../lib/icons";
 import { getCachedSonglist, loadSonglistDetail, noteSonglistOrder, noteSonglistWrite, onSonglistChange, syncSonglistSoon } from "../lib/songlist-detail";
 import type { SonglistDetail } from "../lib/songlist-detail";
 import { reorderSonglist } from "../lib/playlists";
@@ -79,7 +78,7 @@ export default async function playlistView(root: HTMLElement, q: URLSearchParams
 
   // 工具条（本地搜索 + 排序）：控件靠右。实现见 components/ListTools.ts
   // all 恒为服务端原序（orderlist = 加入歌单的时间），工具条只读它，排序作用在副本上。
-  // 重排把手只在「自有歌单 + 默认序 + 无搜索」出现（own 在下方异步判定，画行时现问）。
+  // 重排只在「自有歌单 + 默认序 + 无搜索」开放（own 在下方异步判定，每次起拖现问）。
   let own = false;
   const reorderOn = () => own && tools.plain();
 
@@ -130,22 +129,6 @@ export default async function playlistView(root: HTMLElement, q: URLSearchParams
   });
 
   cleanups.push(offReorder);
-  // 筛排态切换 → 把手显隐即时跟随（进搜索/排序摘把手，回默认序装回来；不整表重画）
-  const gripHtml = `<span class="row-grip" title="拖动调整歌单顺序" aria-hidden="true">${icons.grip}</span>`;
-
-  const syncGrips = () => {
-    const on = reorderOn();
-
-    for (const row of rows.querySelectorAll<HTMLElement>(".row[data-songkey]")) {
-      const grip = row.querySelector<HTMLElement>(".row-grip");
-
-      if (on && !grip) row.insertAdjacentHTML("afterbegin", gripHtml);
-      else if (!on && grip) grip.remove();
-    }
-  };
-
-  cleanups.push(tools.onState(syncGrips));
-
   // —— 打开中的本页跟着数据走（与 likedView 同一套） ——
   let painted: Song[] = []; // 最近一次上屏的序列（筛排后的副本）：列表级重画只在与缓存不一致时发生
   const keyOf = (s: Song) => String(s._key ?? s.mid ?? "");
@@ -213,7 +196,6 @@ export default async function playlistView(root: HTMLElement, q: URLSearchParams
   function hooksFor(): RowHooks {
     return {
       showAlbum: true,
-      reorder: reorderOn(),
       // 双击播的是**当前看到的那一列**（排过序/筛过），不是服务端原序 —— 与眼睛一致
       onPlay: (_s, i, all2) => player.playList(all2, i),
       playlist: {

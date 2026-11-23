@@ -33,6 +33,7 @@ import { findPlaybackFallback, hasPlayableTier, warmPlaybackFallbackSources } fr
 import { toast } from "./lib/toast";
 import { applyOrderMark, type OrderMark } from "./lib/order-shelter";
 import { reorderSonglist } from "./lib/playlists";
+import type { CoverFlipDirection } from "./lib/np-cover-flip";
 
 /** OGG 档位（Vorbis/Opus）：Liino 不捆绑解码器，Windows/macOS 上要靠系统能力。 */
 const OGG_TIERS = new Set(["96ogg", "192ogg", "320ogg", "640ogg", "atmos71"]);
@@ -125,6 +126,9 @@ class Player {
   /** 队列内容版本号：任何队列变更 +1（QueuePanel 据此做 4Hz 去重，
    *  免得每次位置广播都把整条队列拼成大字符串比对） */
   queueVersion = 0;
+  /** 最近一次切歌的来向：默认正在播放页按它决定封面转动方向。
+   *  next = 下一首（右到左）/ prev = 上一首（左到右）。只在当前曲真的变化时被消费。 */
+  private switchDir: CoverFlipDirection = "next";
   /** 队列**建队时**的来源页 hash（播放条封面右键「跳转至歌单」的兜底）。playList 建队时记录：
    *  视图内点歌按当时路由捕获，侧栏/首页卡片这类跨页起播由调用方显式给。
    *  只存路由、展示名在菜单打开时才解析（见 lib/queue-source.ts）。
@@ -768,6 +772,8 @@ class Player {
   notifyPublic() { this.notify(); }
 
   get current(): Song | undefined { return this.queue[this.index]; }
+  /** 默认正在播放页读取：当前曲是怎么切过来的。 */
+  get coverFlipDirection(): CoverFlipDirection { return this.switchDir; }
   get playing() { return !this.transport.paused; }
   get paused() { return this.transport.paused; }
   /** 播放中但还没真出声（起播预缓冲 / 网络卡顿）：歌词/桌面歌词据此停表。 */
@@ -926,6 +932,7 @@ class Player {
       this._radioLoading = false;
       this.queueVersion++;
       this.error = "";
+      this.switchDir = "next";
       this.notify();
       void this.startCurrent(0, autoplay);
 
@@ -1001,7 +1008,7 @@ class Player {
       if (this.radioWaitingNext) {
         this.radioWaitingNext = false;
 
-        if (stillAtEnd) this.jump(firstNew);
+        if (stillAtEnd) this.jump(firstNew, "next");
       }
     } catch (e) {
       if (seq !== this.radioSeq) return;
@@ -1043,6 +1050,7 @@ class Player {
     // 新队列是新的播放身份：旧曲的兜底源不能带过来。
     this.fallbackForMid = "";
     this.fallbackSong = null;
+    this.switchDir = "next";
     void this.startCurrent();
   }
 
@@ -1183,8 +1191,10 @@ class Player {
     clearSession();
   }
 
-  jump(i: number) {
+  jump(i: number, dir?: CoverFlipDirection) {
     if (i < 0 || i >= this.queue.length) return;
+    // 明确来向优先（随机序下「下一首」可能落到更小的下标）；直接点队列行则按前后位置判。
+    this.switchDir = dir ?? (i < this.index ? "prev" : "next");
     this.index = i;
 
     // 离开旧队尾（回听历史）就不再等"下一轮到了自动接歌"：否则之后重新跳到
@@ -1599,7 +1609,7 @@ class Player {
 
     if (i < 0) { this.loading = false; this.notify(); return; }
 
-    this.jump(i);
+    this.jump(i, "next");
   }
 
   // —— 单击预加载：行点击即后台协商播放链接（含上游取链+嗅探这两次慢 RTT），
@@ -2225,7 +2235,7 @@ class Player {
       const i = this.index + offset;
 
       if (i < 0 || i >= this.queue.length) return;
-      this.jump(i);
+      this.jump(i, offset > 0 ? "next" : "prev");
 
       return;
     }
@@ -2234,7 +2244,7 @@ class Player {
     const i = walk(this.orderOf(), this.index, Math.abs(offset), dir, true); // wrap：手动跳允许回绕
 
     if (i < 0) return;
-    this.jump(i);
+    this.jump(i, dir > 0 ? "next" : "prev");
   }
 
   next(auto = false) {
@@ -2260,7 +2270,7 @@ class Player {
         return;
       }
 
-      this.jump(i);
+      this.jump(i, "next");
 
       return;
     }
@@ -2278,7 +2288,7 @@ class Player {
 
     if (i < 0) { this.notify(); return; }
 
-    this.jump(i);
+    this.jump(i, "next");
   }
 
   prev(force = false) {
@@ -2292,7 +2302,7 @@ class Player {
     // 无限电台保留已播历史：可逐首回退，但队首没有上一首，也不回绕到队尾。
     if (this.radioOn) {
       if (this.index <= 0) return;
-      this.jump(this.index - 1);
+      this.jump(this.index - 1, "prev");
 
       return;
     }
@@ -2300,7 +2310,7 @@ class Player {
     const i = this.stepInOrder(-1);
 
     if (i < 0) return;
-    this.jump(i);
+    this.jump(i, "prev");
   }
 
   /** 媒体键/热键的「上一曲」入口：快速连按两次（≤400ms，系统双击时长同级）视为双击 ——

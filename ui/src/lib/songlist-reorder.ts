@@ -1,9 +1,9 @@
-// Quaver — 歌单页「拖拽重排」：把手拖行 → 全量提交 POST /songlist/{dirid}/order
+// Quaver — 歌单页「拖拽重排」：按住行体拖动 → 全量提交 POST /songlist/{dirid}/order
 //
 // 与队列面板拖拽（components/QueuePanel.ts）同一套指针机制，几何/序列纯逻辑共用
 // lib/reorder.ts（dropSlot / edgeSpeed / applyVisibleOrder）。差异只在提交端：
 // 队列是本地数组挪位，歌单是**全量顺序写上游**（SeqSonglist），所以有三条额外纪律：
-//  1. 只在「默认序 + 无搜索」开放（视图侧由 tools.plain() 决定传不传 hooks.reorder）。
+//  1. 只在「默认序 + 无搜索」开放（视图侧由 tools.plain() 现问 enabled()）。
 //     筛排副本的拖拽结果映射不回服务端顺序 —— 排过序的列表上拖一行，等于按拼音序
 //     重写「加入顺序」，用户没有表达这个意图。
 //  2. 提交的是**整单**新顺序（读侧对象数组）。上游对部分提交照样回成功但会打乱
@@ -128,11 +128,11 @@ export function bindSonglistReorder(opts: SonglistReorderOptions): () => void {
     // SAFETY: pointerdown 的目标必然是 Element（DOM 指针事件的不变量）
     const target = e.target as HTMLElement;
 
-    if (!target.closest(".row-grip")) return; // 只有把手起拖：行体留给选中/双击播放
+    // 行内链接/按钮保持原生交互，不参与起拖（普通行体单击仍走选中/预加载，双击播放）
+    if (target.closest("a, button, input, textarea, select")) return;
     const row = target.closest<HTMLElement>(".row[data-songkey]");
 
     if (!row || !box.contains(row)) return;
-    e.preventDefault(); // 把手上的原生文本选择/图片拖动一律不要
     const fromIdx = rowsNow().indexOf(row);
     const pid = e.pointerId;
     const startY = e.clientY;

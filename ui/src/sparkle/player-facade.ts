@@ -6,6 +6,7 @@
 import type { SparklePlayerFacade } from "@quaver/sparkle";
 import { player } from "../player";
 import { spectrumFacade } from "../lib/spectrum-controller";
+import { requestNpCoverFlip } from "../lib/np-cover-flip";
 
 export const sparklePlayerFacade: SparklePlayerFacade = {
   get current() {
@@ -18,4 +19,5 @@ export const sparklePlayerFacade: SparklePlayerFacade = {
   on(cb) { return player.on(cb); },
   spectrum: () => spectrumFacade.frame(),
   onSpectrum: (cb) => spectrumFacade.onFrame(cb),
+  flipCover: (direction) => requestNpCoverFlip(direction),
 };

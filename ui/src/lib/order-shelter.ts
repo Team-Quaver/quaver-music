@@ -45,6 +45,6 @@ export function applyOrderMark<T extends { mid?: string }>(mark: OrderMark, song
 }
 
 /** 截断列表（「我喜欢」LOVED_MAX）不能拿可见前缀当整单提交 —— 部分提交会打乱
- *  未提交歌曲的顺序。可见数 < 服务端总数时重排必须整体禁用（视图据此收把手）。 */
+ *  未提交歌曲的顺序。可见数 < 服务端总数时重排必须整体禁用（视图据此关掉起拖）。 */
 export const orderComplete = (visible: number, total: number): boolean =>
   visible > 0 && visible >= total;
