@@ -658,7 +658,7 @@ ok("flowscape: 无限电台收掉左侧历史卡、禁止倒带，并为轮末�
 
 ok("np-view: 无限电台状态透传给插件（active/loading/error）", has(noComments(src.npView), "radioActive: () => player.radioActive") && has(noComments(src.npView), "radioLoading: () => player.radioLoading") && has(noComments(src.npView), "radioError: () => player.radioError"));
 
-ok("player: 电台邻曲/封面流跳转不再回绕到历史（songAt/jumpTo 只向前）", has(noComments(src.player), "if (this.radioOn) {") && re(noComments(src.player), /songAtOffset[\s\S]{0,500}?if \(this\.radioOn\) \{\s*if \(offset < 0\) return undefined;[\s\S]{0,120}?this\.queue\[i\]/) && re(noComments(src.player), /jumpToOffset[\s\S]{0,500}?if \(this\.radioOn\) \{\s*const i = this\.index \+ offset;[\s\S]{0,120}?this\.jump\(i\);/));
+ok("player: 电台邻曲/封面流可回退已播历史，但不回绕", has(noComments(src.player), "if (this.radioOn) {") && re(noComments(src.player), /songAtOffset[\s\S]{0,500}?if \(this\.radioOn\) \{\s*const i = this\.index \+ offset;\s*return i >= 0 && i < this\.queue\.length \? this\.queue\[i\] : undefined;/) && re(noComments(src.player), /jumpToOffset[\s\S]{0,500}?if \(this\.radioOn\) \{\s*const i = this\.index \+ offset;[\s\S]{0,120}?this\.jump\(i\);/));
 
 // 三张卡时代用一层「堆叠轮廓」伪元素（半透明白+阴影往外偏）暗示后面还有一叠；
 // 五张全是真卡之后它没了意义，正好悬在 ±1 与 ±2 之间 = 用户看到的「神秘透明蒙版」。

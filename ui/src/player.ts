@@ -146,7 +146,8 @@ class Player {
     return own ?? this.queueSource ?? (this.radioOn ? "#/guess" : null);
   }
   /** 猜你喜欢无限电台：开关与当前轮次随会话存档恢复。
-   *  radioEnd = 当前这一轮最后一首在 queue 里的下标；播到它时补下一轮并裁掉当前曲之前的历史。 */
+   *  radioEnd = 当前这一轮最后一首在 queue 里的下标；播到它时补下一轮。
+   *  已播历史保留在队列里（允许「上一首」回退），但队列面板仍不对用户开放。 */
   private radioOn = false;
   private radioEnd = -1;
   private _radioLoading = false;
@@ -788,11 +789,11 @@ class Player {
   get pcmAnalyser(): AnalyserNode | null {
     return this.outputMode === "pcm" ? (this.transport.pcmAnalyser?.() ?? null) : null;
   }
-  /** 无限电台是否生效（播放条据此屏蔽上一曲、QueuePanel 可据此显示电台态） */
+  /** 无限电台是否生效（播放条据此屏蔽队列、QueuePanel 可据此显示电台态） */
   get radioActive() { return this.radioOn; }
   get radioLoading() { return this._radioLoading; }
-  /** 上一曲是否可用：电台只向前走，必须把按钮/媒体键的入口一并关掉，不能只藏 UI */
-  get canPrev() { return this.queue.length > 0 && !this.radioOn; }
+  /** 上一曲是否可用：电台保留已播历史，队首没有上一首，也不回绕到队尾。 */
+  get canPrev() { return this.queue.length > 0 && (!this.radioOn || this.index > 0); }
   get time() { return this.transport.position; }
   /** 歌词时钟补偿（秒）：mpv native/web 沿用现有 +0.2s；PCM 兼容模式启动有预缓冲，不能再叠这一层。
    *  Liino 的位置来自 clock()（已减掉输出延迟的可听位置），再叠补偿就是双重修正 → 取 0。 */
@@ -971,7 +972,7 @@ class Player {
     void this.extendRadio();
   }
 
-  /** 追加下一轮 5 首，并删除当前曲之前的全部历史。当前曲对象本身留在队列首位。 */
+  /** 追加下一轮 5 首；已播历史保留在队列里，上一首可以回退。 */
   private async extendRadio() {
     if (!this.radioOn || this._radioLoading || this.radioEnd < 0 || this.index < this.radioEnd) return;
     this.clearRadioRetry();
@@ -986,15 +987,12 @@ class Player {
       if (seq !== this.radioSeq) return;
 
       if (!songs.length) throw new Error("猜你喜欢暂无更多推荐");
+      const firstNew = this.queue.length;
+      // 取歌期间用户可能已经点了「上一首」：只有仍停在旧队尾才自动接新歌，
+      // 否则会把正在回听的人硬拽回队尾。
+      const stillAtEnd = this.index >= firstNew - 1;
       this.queue.push(...songs);
       this.queueOrigins.push(...songs.map(() => "#/guess"));
-      const anchor = this.current;
-      const at = anchor ? this.queue.indexOf(anchor) : this.index;
-      const drop = Math.max(0, at);
-
-      if (drop) { this.queue.splice(0, drop); this.queueOrigins.splice(0, drop); }
-
-      this.index = Math.max(0, this.index - drop);
       this.queueVersion++;
       this.radioEnd = this.queue.length - 1;
       this._radioLoading = false;
@@ -1003,7 +1001,7 @@ class Player {
       if (this.radioWaitingNext) {
         this.radioWaitingNext = false;
 
-        if (this.index + 1 < this.queue.length) this.jump(this.index + 1);
+        if (stillAtEnd) this.jump(firstNew);
       }
     } catch (e) {
       if (seq !== this.radioSeq) return;
@@ -1188,6 +1186,10 @@ class Player {
   jump(i: number) {
     if (i < 0 || i >= this.queue.length) return;
     this.index = i;
+
+    // 离开旧队尾（回听历史）就不再等"下一轮到了自动接歌"：否则之后重新跳到
+    // 队尾时，迟到的取歌结果会把这一首直接跳过。
+    if (this.radioOn && this.index < this.radioEnd) this.radioWaitingNext = false;
     this.maybeExtendRadio();
     void this.startCurrent();
   }
@@ -2166,11 +2168,12 @@ class Player {
   /** 播放顺序上的相邻下标（-1 = 没有）：随机播放时按当日洗牌序，与 stepInOrder 同源。
    *  正在播放页的封面流用它取左右邻曲 —— 别自己写 index±1（随机序下会指错歌）。 */
   neighbors(): { prev: number; next: number } {
-    // 电台是单向流：左侧没有「上一首」，轮末也绝不回绕到本轮第一首。
+    // 电台保留已播历史：左侧可取到上一首，但队首不回绕，轮末也绝不回绕到本轮第一首。
     if (this.radioOn) {
+      const prev = this.index > 0 ? this.index - 1 : -1;
       const next = this.index >= 0 && this.index + 1 < this.queue.length ? this.index + 1 : -1;
 
-      return { prev: -1, next };
+      return { prev, next };
     }
 
     return { prev: this.stepInOrder(-1), next: this.stepInOrder(1) };
@@ -2188,7 +2191,7 @@ class Player {
    * 就是队尾那首（顺序播放档已移除，播放推进一律回绕）。所以歌单**第一首**的左侧两格
    * 也有封面，点下去跳的正是那一首。这条必须与 jumpToOffset 口径一致：否则「取邻曲」
    * 说没有、而「跳过去」却回绕，封面流拿旧邻居表做的方向判定会当场失配（点了不滚格）。
-   * 无限电台例外：只向前、不回绕 —— 负偏移恒为空，正向越过当前队列末尾也为空。
+   * 无限电台例外：可回退到已播历史、但不回绕 —— 负偏移越过队首为空，正向越过队列末尾也为空。
    * 只有队列为空才返回 undefined。
    */
   songAtOffset(offset: number): Song | undefined {
@@ -2199,7 +2202,6 @@ class Player {
     if (!Number.isInteger(offset)) return undefined;
 
     if (this.radioOn) {
-      if (offset < 0) return undefined;
       const i = this.index + offset;
 
       return i >= 0 && i < this.queue.length ? this.queue[i] : undefined;
@@ -2215,7 +2217,7 @@ class Player {
   }
 
   /** 跳到播放顺序上偏移 offset 首（0 = 当前即原地重播）。给封面流「点第几张跳第几首」用。
-   *  无限电台只接受正向且未越过队列末尾的偏移，负偏移与回绕一律 no-op。 */
+   *  无限电台接受已播历史范围内的负偏移，但不回绕：越过队首或队列末尾一律 no-op。 */
   jumpToOffset(offset: number) {
     if (!Number.isInteger(offset) || offset === 0) return;
 
@@ -2282,11 +2284,18 @@ class Player {
   prev(force = false) {
     if (!this.queue.length) return;
 
-    if (this.radioOn) return; // 无限电台屏蔽上一曲（按钮/热键/媒体键最终都落到这里）
     // 「上一首」逻辑（Playing.PrevReplay，设置页即时生效）：
     // replay=把当前曲从头重放（播放条双击走 force 直接切上一首）；previous=直接切到队列里的上一首。
     // force 只由播放条双击与媒体键/热键的连按判定传：单次动作永远按单击逻辑走
     if (!force && getPrevBehavior() === "replay") { this.transport.seek(0); return; }
+
+    // 无限电台保留已播历史：可逐首回退，但队首没有上一首，也不回绕到队尾。
+    if (this.radioOn) {
+      if (this.index <= 0) return;
+      this.jump(this.index - 1);
+
+      return;
+    }
 
     const i = this.stepInOrder(-1);
 

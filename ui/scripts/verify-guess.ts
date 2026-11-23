@@ -105,25 +105,32 @@ ok("续批: 有当前轮末下标 radioEnd", has(playerCode, "private radioEnd =
 ok("续批: 播到本轮末首才续批（index < radioEnd 时不取）",
   re(playerCode, /this\.index < this\.radioEnd\) return;[\s\S]{0,80}void this\.extendRadio\(\)/));
 
-ok("续批: jump 到第五首时触发 maybeExtendRadio", re(playerCode, /this\.index = i;\s*this\.maybeExtendRadio\(\);/));
+ok("续批: jump 到第五首时触发 maybeExtendRadio", re(playerCode, /this\.index = i;[\s\S]{0,300}?this\.maybeExtendRadio\(\);/));
 
 ok("续批: 下一轮追加到队列尾部", has(playerCode, "this.queue.push(...songs)"));
 
-ok("裁剪: 以当前曲为锚，删掉正在播放曲之前的全部历史",
-  re(playerCode, /const anchor = this\.current;[\s\S]{0,160}const drop = Math\.max\(0, at\);[\s\S]{0,80}this\.queue\.splice\(0, drop\)/));
+ok("续批: 取歌期间回听则不把人拽回队尾", has(playerCode, "const stillAtEnd = this.index >= firstNew - 1;") && re(playerCode, /if \(this\.radioWaitingNext\) \{[\s\S]{0,120}if \(stillAtEnd\) this\.jump\(firstNew\);/));
 
-ok("续批: 裁剪后重算本轮末下标", re(playerCode, /this\.radioEnd = this\.queue\.length - 1;/));
+ok("续批: 回到历史曲目即清掉轮末等待（迟到结果不跳过重新选的曲）",
+  re(playerCode, /this\.index = i;[\s\S]{0,220}?if \(this\.radioOn && this\.index < this\.radioEnd\) this\.radioWaitingNext = false;[\s\S]{0,40}?this\.maybeExtendRadio\(\);/));
+
+ok("续批: 保留已播历史，不再裁掉当前曲之前的队列",
+  !re(playerCode, /const anchor = this\.current;/) && !re(playerCode, /this\.queue\.splice\(0, drop\)/) && !re(playerCode, /this\.index = Math\.max\(0, this\.index - drop\)/));
+
+ok("续批: 追加后重算本轮末下标", re(playerCode, /this\.radioEnd = this\.queue\.length - 1;/));
 
 ok("轮末: 下一轮未到时等待，不回绕旧歌", re(playerCode, /this\.radioWaitingNext = true;[\s\S]{0,100}return;/));
 
-// ============ 4. 屏蔽上一曲，保留红心 ============
-ok("上一曲: radioActive 时 canPrev=false", re(playerCode, /get canPrev\(\) \{ return this\.queue\.length > 0 && !this\.radioOn; \}/));
+// ============ 4. 允许回退已播历史，保留红心 ============
+ok("上一曲: 电台队首之外 canPrev=true", re(playerCode, /get canPrev\(\) \{ return this\.queue\.length > 0 && \(!this\.radioOn \|\| this\.index > 0\); \}/));
 
-ok("上一曲: prev() 在电台里直接 return", re(playerCode, /if \(this\.radioOn\) return;[\s\S]{0,120}replay/));
+ok("上一曲: prev() 在电台里回退一首，队首不回绕",
+  re(playerCode, /if \(this\.radioOn\) \{\s*if \(this\.index <= 0\) return;\s*this\.jump\(this\.index - 1\);/) && !re(playerCode, /prev\(force = false\) \{[\s\S]{0,300}?if \(this\.radioOn\) return;/));
 
 ok("上一曲: 播放条按钮按 canPrev 禁用", has(playerBarCode, "prev.disabled = !canPrev;"));
 
-ok("上一曲: 禁用原因写进 title/aria-label", has(playerBarCode, "无限电台只向前播放"));
+ok("上一曲: 队首禁用原因写进 title/aria-label",
+  has(playerBarCode, 'prev.dataset.tooltip = canPrev ? "上一首" : "已是第一首";') && !has(playerBarCode, "无限电台只向前播放"));
 
 ok("红心: 播放条红心仍调用 player.toggleLove(current)", has(playerBarCode, "player.toggleLove(player.current)"));
 
@@ -187,16 +194,16 @@ ok("插队: 歌单插队先拦电台再取歌", re(playlistMenuCode, /playSongsN
 // ============ 5. 电台退出与队列语义 ============
 ok("电台: 换整张队列/手动改队列会退出电台", re(playerCode, /playList\(songs: Song\[\], i = 0, source\?: string \| null\) \{\s*this\.exitRadio\(\);/));
 
-ok("电台: 只向前走（orderOf 在 radioOn 时走原序）",
+ok("电台: 播放顺序固定按队列原序（不随机）",
   re(playerCode, /if \(this\.radioOn\) \{[\s\S]{0,180}return this\.identityOrder;/));
 
-ok("电台: 封面流邻曲不回绕（左侧 -1，轮末 next 也为 -1）",
-  re(playerCode, /if \(this\.radioOn\) \{\s*const next = this\.index >= 0 && this\.index \+ 1 < this\.queue\.length \? this\.index \+ 1 : -1;\s*return \{ prev: -1, next \};/));
+ok("电台: 封面流左侧可取已播历史，队首/轮末都不回绕",
+  re(playerCode, /if \(this\.radioOn\) \{\s*const prev = this\.index > 0 \? this\.index - 1 : -1;\s*const next = this\.index >= 0 && this\.index \+ 1 < this\.queue\.length \? this\.index \+ 1 : -1;\s*return \{ prev, next \};/));
 
-ok("电台: songAtOffset 负偏移为空、正向不越过队列末尾",
-  re(playerCode, /if \(this\.radioOn\) \{\s*if \(offset < 0\) return undefined;\s*const i = this\.index \+ offset;\s*return i >= 0 && i < this\.queue\.length \? this\.queue\[i\] : undefined;/));
+ok("电台: songAtOffset 可回退已播历史、但不越过队首/队列末尾",
+  re(playerCode, /if \(this\.radioOn\) \{\s*const i = this\.index \+ offset;\s*return i >= 0 && i < this\.queue\.length \? this\.queue\[i\] : undefined;/));
 
-ok("电台: jumpToOffset 负偏移与越界都是 no-op，绝不倒带/回绕",
+ok("电台: jumpToOffset 只拒绝越过两端，历史范围内可回退",
   re(playerCode, /jumpToOffset[\s\S]{0,500}?if \(this\.radioOn\) \{\s*const i = this\.index \+ offset;\s*if \(i < 0 \|\| i >= this\.queue\.length\) return;\s*this\.jump\(i\);/));
 
 console.log(`\n${checks - fails}/${checks} passed${fails ? ` — ${fails} FAILED` : ""}`);

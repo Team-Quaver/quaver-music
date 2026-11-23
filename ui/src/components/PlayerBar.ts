@@ -521,7 +521,7 @@ export function PlayerBar(): HTMLElement {
     if (canPrev !== lastCanPrev) {
       lastCanPrev = canPrev;
       prev.disabled = !canPrev;
-      prev.dataset.tooltip = canPrev ? "上一首" : "无限电台只向前播放";
+      prev.dataset.tooltip = canPrev ? "上一首" : "已是第一首";
       prev.setAttribute("aria-label", prev.dataset.tooltip);
     }
 

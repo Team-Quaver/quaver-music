@@ -106,7 +106,7 @@ export function npViewCtx(): SparkleNpViewCtx {
     // 按播放顺序偏移取（随机播放时走当日洗牌序）—— 插件自己算 index±1 会指错歌
     songAt: (offset) => npSongSnapshot(player.songAtOffset(offset)),
     queueLength: () => player.queue.length,
-    // 无限电台是单向会话：插件据此收掉左侧「上一首」、在轮末续歌时显示等待态。
+    // 无限电台会话：插件据此显示电台徽标、轮末续歌的等待态与取歌错误。
     radioActive: () => player.radioActive,
     radioLoading: () => player.radioLoading,
     radioError: () => player.radioError,
