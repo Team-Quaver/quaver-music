@@ -9,15 +9,25 @@
 //   macOS    ~/Library/Application Support/Quaver Music
 //   QUAVER_CONFIG_DIR 环境变量可整体顶掉（测试 / 由主进程显式传给 sidecar）。
 //
+// 缓存目录（音乐缓存这类可再生的大字节）与配置分家，规则见 cacheDir：
+//   Linux    $XDG_CACHE_HOME/quaver-music    默认 ~/.cache/quaver-music
+//   Windows  %LocalAppData%/Quaver Music/Quaver Cache
+//   macOS    ~/Library/Caches/Quaver Music
+//   QUAVER_CACHE_DIR 环境变量可整体顶掉；用户自定义位置走 [Playing] MusicCacheDir。
+//
 // 写入策略：读文件时保留原始行（注释、顺序、用户自加的键都不动），set 只改对应键那一行；
 // 键不存在时追加。落盘走「同目录临时文件 + rename」原子替换，权限 0600、目录 0700。
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { defaultEqState, EQ_MAX_BANDS, normalizeEqState } from "./audio/eq-config.ts";
 
 export const APP_DIR_NAME = "Quaver Music"; // Windows / macOS 用
 export const APP_DIR_NAME_POSIX = "quaver-music"; // Linux（XDG 风格小写）
+
+/** Windows 的缓存子目录名：与 Chromium 自己的 `Cache` 明确区分（此前两者只差大小写）。 */
+export const APP_CACHE_DIR_NAME = "Quaver Cache";
+
 export const CONFIG_NAME = "quaver.conf";
 export const CREDENTIAL_NAME = "credential.json"; // 明文——只作为升级遗留的导入来源，导入后即删
 export const CREDENTIAL_STORE_NAME = "credential.enc"; // 密钥环模式：磁盘上只留密文，钥匙在系统密钥管理器里
@@ -86,6 +96,49 @@ export const credentialFile = (env: Env = process.env): string => join(configDir
 export const credentialStoreFile = (env: Env = process.env): string => join(configDir(env), CREDENTIAL_STORE_NAME);
 export const deviceFile = (env: Env = process.env): string => join(configDir(env), DEVICE_NAME);
 export const logFile = (env: Env = process.env): string => join(configDir(env), "electron-dev.log");
+
+/** 平台默认缓存根目录（不含用户自定义）。与 vendor/Typhoeus-go/server/session.go:CacheDir 同规。
+ *
+ *  与配置目录分家的理由：音乐缓存是几个 GiB 的可再生字节，放进配置目录会被备份/同步工具
+ *  一起搬走，Linux 上也违背 XDG 分工。Windows 用 %LocalAppData%（本机缓存不该漫游），
+ *  且落在 `Quaver Music/Quaver Cache` —— 与 Chromium 的 `Cache` 一眼可分，不再是
+ *  「Cache / cache」这种只差大小写的两个目录。 */
+export function defaultCacheDir(env: Env = process.env, platform: string = process.platform): string {
+  if (platform === "win32") {
+    const local = String(env.LOCALAPPDATA ?? "").trim() || join(homedir(), "AppData", "Local");
+
+    return join(local, APP_DIR_NAME, APP_CACHE_DIR_NAME);
+  }
+
+  if (platform === "darwin") return join(homedir(), "Library", "Caches", APP_DIR_NAME);
+
+  const xdg = String(env.XDG_CACHE_HOME ?? "").trim();
+
+  return join(xdg || join(homedir(), ".cache"), APP_DIR_NAME_POSIX);
+}
+
+/** 生效的缓存根目录：QUAVER_CACHE_DIR > [Playing] MusicCacheDir（用户自定义）> 平台默认。
+ *  自定义值只认绝对路径（相对路径会跟着进程 cwd 漂）；读配置失败一律回落默认，不阻断启动。 */
+export function cacheDir(env: Env = process.env, platform: string = process.platform): string {
+  const override = String(env.QUAVER_CACHE_DIR ?? "").trim();
+
+  if (override) return resolve(override);
+
+  try {
+    const custom = String(readValues(env, platform).values["Playing.MusicCacheDir"] ?? "").trim();
+
+    if (custom && isAbsolute(custom)) return resolve(custom);
+  } catch { /* 配置读不了：走平台默认 */ }
+
+  return defaultCacheDir(env, platform);
+}
+
+/** 音乐缓存目录 = 缓存根目录/music（与 sidecar 的 musicCacheDir 同规）。 */
+export const musicCacheDir = (env: Env = process.env, platform: string = process.platform): string =>
+  join(cacheDir(env, platform), "music");
+
+/** 旧版音乐缓存目录（配置目录下 cache/music）：只用于回显与升级搬家，新数据不再写这里。 */
+export const legacyMusicCacheDir = (env: Env = process.env): string => join(configDir(env), "cache", "music");
 
 /** 确保目录存在（0700）。返回目录路径。 */
 export function ensureConfigDir(env: Env = process.env): string {
@@ -287,6 +340,11 @@ export const isHexColor = (v: string): boolean => /^#(?:[0-9a-f]{3}|[0-9a-f]{6})
  *  只拦会撕开 INI 段结构的换行/控制字符并限长 —— 路径里的引号/井号是用户自己机器上的文件名，读盘侧不吃字符串拼接。 */
 const isLocalPathValue = (v: string): boolean =>
   v.trim() === "" || (!/[\r\n\u0000]/.test(v) && v.length <= 1024);
+
+/** 音乐缓存目录值（[Playing] MusicCacheDir）：空 = 平台默认；非空必须是绝对路径。
+ *  相对路径在这里就拒掉 —— 它会跟着进程 cwd 漂，AppImage/服务化启动下每次落点都不同。 */
+const isCacheDirValue = (v: string): boolean =>
+  v.trim() === "" || (isLocalPathValue(v) && isAbsolute(v.trim()));
 
 /** TTML 数据库地址模板的值域：http(s) 绝对地址、必须含 %s（歌曲 id 占位符，%p 平台段可选）、
  *  不含空白/引号/尖括号/反斜杠/井号（INI 行内注释与 URL 片段的歧义一并关掉）、长度合理。
@@ -591,8 +649,20 @@ export const SCHEMA: SectionSpec[] = [
       {
         key: "AudioDevice",
         def: "auto",
-        doc: ["音频输出设备（仅原生直出）：auto=系统默认；其余填 mpv audio-device 名（pipewire/pulse/alsa/…）"],
+        doc: ["音频输出设备（仅原生直出）：auto=系统默认；其余填各后端自己的设备 ID（mpv 用 audio-device 名，Liino 用 pipewire/default 等）"],
         valid: (v: string) => v.length > 0,
+      },
+      {
+        key: "AdaptiveRate",
+        def: "False",
+        doc: ["Liino 输出采样率（Linux/PipeWire）：False=固定 48 kHz｜True=跟随音源。下一首生效。"],
+        valid: isBoolValue,
+      },
+      {
+        key: "AdaptiveRateSwitch",
+        def: "False",
+        doc: ["跟随音源时是否请求 PipeWire 切换声卡时钟；默认关，打开后慢设备可能短暂静音。"],
+        valid: isBoolValue,
       },
       {
         key: "Fade",
@@ -657,6 +727,19 @@ export const SCHEMA: SectionSpec[] = [
           "缓存与账号绑定，索引与音频均加密落盘（*.quaverlocalcache），不是下载功能",
         ],
         valid: (v: string) => v.trim() !== "" && Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 32768,
+      },
+      {
+        key: "MusicCacheDir",
+        def: "",
+        doc: [
+          "音乐缓存位置的**绝对路径**（设置页「选择目录」写入）；留空=平台默认缓存目录：",
+          "  Linux    $XDG_CACHE_HOME/quaver-music（默认 ~/.cache/quaver-music）",
+          "  Windows  %LocalAppData%\\Quaver Music\\Quaver Cache",
+          "  macOS    ~/Library/Caches/Quaver Music",
+          "缓存数据落在该目录的 music/ 子目录里；改位置时已有缓存会一并搬过去。",
+          "相对路径不合法（会跟着进程工作目录漂），写错会回落平台默认",
+        ],
+        valid: isCacheDirValue,
       },
     ],
   },

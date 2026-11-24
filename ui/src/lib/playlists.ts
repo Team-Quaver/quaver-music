@@ -6,11 +6,12 @@
 // 关键约定（实测得来，别想当然）：
 //  1. **dirid ≠ disstid**。写操作要 dirid（自建歌单的「目录 ID」，从 created-songlists 或
 //     歌单详情的 info.dirid 拿）；读详情用 disstid（= info.id）。两者混用会静默改错歌单。
-//  2. songType 必须用**写侧**枚举（读侧 type - 1，见 api.ts:writeSongType）。发读侧原值
-//     上游照样回 retCode=0，但歌单毫无变化（静默空操作）。
+//  2. song_type 一律发**读侧 Song.type 原值**：写侧枚举转换收口在 Go SDK
+//     （modules.ToSonglistWriteType，上游 PR 306 的两阶段映射）。渲染层再做偏移
+//     = 双重转换，上游 retCode=0 但歌单毫无变化（静默空操作）。
 //  3. tid 传歌单的 tid（= 列表里的 id）；不知道就 0，上游多数情况容得下。
 //  4. dirid=201 是「我喜欢」，与行内红心是同一份数据，故不列进「加入歌单」菜单。
-import { api, postJson, writeSongType } from "./api";
+import { api, postJson } from "./api";
 import { getCachedSonglist, noteSonglistWrite } from "./songlist-detail";
 
 export interface MyPlaylist {
@@ -63,7 +64,7 @@ export async function loadMySonglists(force = false): Promise<MyPlaylist[]> {
 function songRef(song: any): { song_id: number; song_type: number } {
   if (!song?.id) throw new Error("这首歌缺少 song_id，无法写入歌单");
 
-  return { song_id: Number(song.id), song_type: writeSongType(song.type) };
+  return { song_id: Number(song.id), song_type: Number(song.type ?? 1) };
 }
 
 /** 写接口的统一收口：SDK 把上游结果压成 bool（`retCode==0` → True；
@@ -110,16 +111,45 @@ export async function removeSongFromSonglist(
   if (target.tid) noteSonglistWrite(target.tid, String(song.mid ?? ""), false, song);
 }
 
-// 开发/自动化测试钩子（生产构建里 vite define 会剔除，同 player.ts 的 __quaverPlayer）
-declare global { interface Window { __quaverSonglists?: {
+// 开发/自动化测试钩子（生产构建里 vite define 会剔除，同 player.ts 的 __quaverPlayer）。
+// 类型导出给 scripts/test-globals.d.ts 引用：scripts 工程经 verify 脚本间接 import 本模块，
+// 全局 Window 合并要求两处声明逐字同型。
+export interface QuaverSonglistsBridge {
   addSongToSonglist: typeof addSongToSonglist;
   removeSongFromSonglist: typeof removeSongFromSonglist;
+  reorderSonglist: typeof reorderSonglist;
   mySonglists: typeof mySonglists;
   getCachedSonglist: typeof getCachedSonglist;
-} } }
+}
+
+declare global { interface Window { __quaverSonglists?: QuaverSonglistsBridge } }
 
 if (import.meta.env?.DEV) {
-  window.__quaverSonglists = { addSongToSonglist, removeSongFromSonglist, mySonglists, getCachedSonglist };
+  window.__quaverSonglists = { addSongToSonglist, removeSongFromSonglist, reorderSonglist, mySonglists, getCachedSonglist };
+}
+
+/** 歌单全量重排序（POST /songlist/{dirid}/order → SeqSonglist）。
+ *  ordered 必须是该歌单**全部**歌曲的新顺序（读侧对象数组，song_type 发原值）——
+ *  上游对部分提交照样回成功但会打乱未提交歌曲的顺序，所以这里只收整单。
+ *  成功后不做乐观缓存改写：整单顺序的读侧滞后与增删同族，由调用方
+ *  （songlist-detail.noteSonglistOrder）负责乐观跟进 + 回源对账。 */
+export async function reorderSonglist(
+  target: { dirid: number; tid?: number },
+  ordered: any[],
+): Promise<void> {
+  if (!Number(target?.dirid)) throw new Error("缺少歌单 dirid，无法重排");
+
+  if (!ordered.length) throw new Error("重排列表为空：必须提交歌单全部歌曲");
+
+  const songs = ordered.map((s) => {
+    if (!s?.id) throw new Error("有歌曲缺少 song_id，无法重排");
+
+    return { song_id: Number(s.id), song_type: Number(s.type ?? 1) };
+  });
+
+  const r = await postJson<{ ok: boolean }>(`/songlist/${target.dirid}/order`, { tid: target.tid ?? 0, songs });
+
+  assertAccepted(r, "歌单重排");
 }
 
 /** 删除整个自建歌单（PlaylistBaseWrite DelPlaylist）。走的是 DELETE /songlist/{dirid}

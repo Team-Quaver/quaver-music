@@ -16,6 +16,10 @@ finish-args:
   - --device=dri
   - --socket=pulseaudio
   - --share=network
+  # 应用内更新：更新包落在「下载」目录，用户要在宿主机终端里执行 flatpak install 才能装进去
+  # （沙箱里没有 flatpak CLI，也不该给应用装宿主机命令的权限）。不给这一条，包会落在沙箱私有
+  # 的 ~/Downloads 里，宿主和用户都看不到 —— 更新包等于被吞掉。
+  - --filesystem=xdg-download
   - --filesystem=xdg-music
   - --talk-name=org.freedesktop.Notifications
   - --talk-name=org.freedesktop.secrets

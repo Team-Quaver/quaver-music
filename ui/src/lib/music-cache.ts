@@ -42,7 +42,7 @@ export async function syncMusicCacheSeed(accountKey = ""): Promise<void> {
 	catch { /* sidecar 未起/未登录：下次 resolve 再试 */ }
 }
 
-export interface MusicCacheStatus { items: number; bytes: number; limit_bytes?: number }
+export interface MusicCacheStatus { items: number; bytes: number; limit_bytes?: number; dir?: string }
 
 export const musicCacheStatus = (): Promise<MusicCacheStatus> => api<MusicCacheStatus>("/cache/music/status");
 

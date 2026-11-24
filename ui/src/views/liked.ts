@@ -1,5 +1,7 @@
 // Quaver — 路由视图：liked（由 src/views/index.ts 按需动态 import，不在首屏解析）
 import { songListTools } from "../components/ListTools";
+import { orderComplete } from "../lib/order-shelter";
+import { bindSonglistReorder, songlistReorderActive } from "../lib/songlist-reorder";
 import { renderSongRows, renumberRows } from "../lib/songs";
 import { player } from "../player";
 import type { Song } from "../player";
@@ -44,6 +46,10 @@ export default async function likedView(root: HTMLElement) {
   };
 
   const keyOf = (s: Song) => String(s._key ?? s.mid ?? "");
+
+  // —— 拖拽重排：「我喜欢」= dirid 201 的歌单，SeqSonglist 同样适用 ——
+  // 仅「默认序 + 无搜索 + 预载完整」开放：截断列表拿可见前缀当整单提交会打乱未提交歌曲。
+  const reorderOn = () => tools.plain() && orderComplete(items.length, player.likedTotal);
 
   // 取消收藏：行淡出后移出本页 + 计数 -1。只在写接口确认后调用——失败已在 player 侧回滚，不会触发
   const dropRow = (song: Song) => {
@@ -101,6 +107,21 @@ export default async function likedView(root: HTMLElement) {
   const fabs = mountListFabs(root, () => [...box.querySelectorAll<HTMLElement>(".row[data-songkey]")]);
   const adopt = (songs: Song[]) => { items = songs; tools.repaint(); };
 
+  const offReorder = bindSonglistReorder({
+    box,
+    scroller: box.closest<HTMLElement>(".route") ?? box,
+    enabled: reorderOn,
+    source: () => items,
+    submit: (ordered) => player.reorderLoved(ordered),
+    onOrdered: (ordered) => {
+      items = ordered;
+      painted = ordered.slice(); // 默认序态上屏的就是整单：跟进逻辑据此判定已自洽
+      player.markActive();
+    },
+    onAbort: () => { const cur = player.likedCache; if (cur) adopt(cur); else tools.repaint(); },
+    onRollback: () => tools.repaint(), // 写失败：player.likedCache 未动，按它重画即回滚
+  });
+
   // 写后增量回源/别处收藏（player 侧）落定 → 打开中的本页即时跟进。
   // 延一拍再动手：行内取消红心的 dropRow（含淡出）在同任务里先落地，多数变更到这里已自洽。
   // 仍不一致时：纯移除逐行淡出补齐（兜住播放条等别处的取消），其余整表重画；有行在淡出则先跳过。
@@ -108,10 +129,13 @@ export default async function likedView(root: HTMLElement) {
     const cur = player.likedCache;
 
     if (!cur || sameMids(painted, cur)) return;
+
+    if (songlistReorderActive(box)) return; // 拖拽中不整表重画；松手提交后自然对上
+
     setTimeout(() => {
       const now = player.likedCache;
 
-      if (!now || sameMids(painted, now) || box.querySelector(".row.leaving")) return;
+      if (!now || sameMids(painted, now) || box.querySelector(".row.leaving") || songlistReorderActive(box)) return;
       const nowKeys = new Set(now.map(keyOf));
       const paintKeys = new Set(painted.map(keyOf));
       const gone = painted.filter((s) => !nowKeys.has(keyOf(s)));
@@ -131,6 +155,7 @@ export default async function likedView(root: HTMLElement) {
 
   if (!ok) {
     offList();
+    offReorder();
     sticky.off();
     fabs.off();
 
@@ -153,7 +178,7 @@ export default async function likedView(root: HTMLElement) {
   if (!sameMids(painted, fresh)) adopt(fresh);
   player.syncLovedSoon(); // 进页顺带一次小窗对账：TTL 内不整单重载也能纠漂移
 
-  return () => { offList(); sticky.off(); fabs.off(); };
+  return () => { offList(); offReorder(); sticky.off(); fabs.off(); };
 }
 
 // —— 设置页（对齐设计稿：外观设置 / 播放设置 / 调试 三区；不触碰侧栏与播放条） ——

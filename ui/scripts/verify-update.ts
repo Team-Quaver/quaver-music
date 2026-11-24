@@ -231,6 +231,19 @@ section("安装包匹配");
   check("prefer=flatpak 但无 flatpak → null（不回退 deb/AppImage）", C.pickAsset("linux", "x64", A([["Quaver-1.2.3-x86_64.AppImage", 1], ["Quaver-1.2.3-amd64.deb", 1]]), "flatpak") === null);
   eq("无 prefer 时 flatpak 不抢 AppImage 的优先位", C.pickAsset("linux", "x64", fp)?.kind, "appimage");
 
+  // pacman：CI 产物是 .pkg.tar.zst（produce 后用 .endsWith 匹配，复合后缀别被 .tar/.zst 抢走）
+  const pac = A([
+    ["Quaver-1.2.3-x86_64.AppImage", 1],
+    ["Quaver-1.2.3-amd64.deb", 1],
+    ["Quaver-1.2.3-x86_64.pkg.tar.zst", 1],
+    ["Quaver-1.2.3-aarch64.pkg.tar.zst", 1],
+  ]);
+
+  eq("pacman 安装（prefer=pacman）→ 挑 x86_64 包", C.pickAsset("linux", "x64", pac, "pacman")?.asset.name, "Quaver-1.2.3-x86_64.pkg.tar.zst");
+  eq("pacman arm64 → aarch64 包", C.pickAsset("linux", "arm64", pac, "pacman")?.asset.name, "Quaver-1.2.3-aarch64.pkg.tar.zst");
+  check("prefer=pacman 但无 pacman → null（不回退 deb/AppImage）", C.pickAsset("linux", "x64", A([["Quaver-1.2.3-x86_64.AppImage", 1], ["Quaver-1.2.3-amd64.deb", 1]]), "pacman") === null);
+  eq("无 prefer 时 pacman 不抢 AppImage 的优先位", C.pickAsset("linux", "x64", pac)?.kind, "appimage");
+
   // sha256 = GitHub API assets[].digest（"sha256:<hex>"）；缺省/畸形 → 空串（跳过校验）
   const withDigest = C.normalizeRelease({ tag_name: "v1.2.3", assets: [
     { name: "Quaver-1.2.3-x86_64.AppImage", size: 1, browser_download_url: "https://x/a", digest: "sha256:DEADBEEFdeadbeef00112233445566778899aabbccddeeff0011223344556677" },
@@ -241,6 +254,34 @@ section("安装包匹配");
   eq("digest 去前缀、小写落进 sha256", withDigest[0].sha256, "deadbeefdeadbeef00112233445566778899aabbccddeeff0011223344556677");
   eq("无 digest → 空串", withDigest[1].sha256, "");
   eq("非 sha256 digest → 空串", withDigest[2].sha256, "");
+}
+
+// ——— Linux 包管理器安装命令（下载完在终端里执行的那一条）———
+section("包管理器安装命令");
+
+{
+  const q = C.shellQuote;
+
+  eq("shell: 常规路径加单引号", q("/home/a/Quaver.deb"), "'/home/a/Quaver.deb'");
+  eq("shell: 空格不拆词", q("/home/a b/Q.deb"), "'/home/a b/Q.deb'");
+  eq("shell: 撇号转义为 '\\''", q("/home/o'brien/Q.deb"), "'/home/o'\\''brien/Q.deb'");
+  eq("shell: 反引号/$( ) 都在单引号里失去语义", q("/tmp/$(id)`id`.deb"), "'/tmp/$(id)`id`.deb'");
+
+  const p = "/home/a/Downloads/Quaver-2.0.0-amd64.deb";
+
+  eq("deb: pkexec apt install <abs>", C.installCommandFor("deb", "apt", p), `pkexec apt install '${p}'`);
+  eq("deb 系备选 oma", C.installCommandFor("deb", "oma", p), `pkexec oma install '${p}'`);
+  eq("rpm: pkexec dnf install <abs>", C.installCommandFor("rpm", "dnf", "/home/a/Q.rpm"), "pkexec dnf install '/home/a/Q.rpm'");
+  eq("rpm: zypper 同口径", C.installCommandFor("rpm", "zypper", "/home/a/Q.rpm"), "pkexec zypper install '/home/a/Q.rpm'");
+  eq("pacman: pacman -U <abs>（非 root 经 pkexec）", C.installCommandFor("pacman", "pacman", "/home/a/Q.pkg.tar.zst"), "pkexec pacman -U '/home/a/Q.pkg.tar.zst'");
+  eq("pacman: 已是 root 时不再 pkexec", C.installCommandFor("pacman", "pacman", "/home/a/Q.pkg.tar.zst", { root: true }), "pacman -U '/home/a/Q.pkg.tar.zst'");
+  eq("deb: root 时也不 pkexec", C.installCommandFor("deb", "apt", p, { root: true }), `apt install '${p}'`);
+  eq("flatpak: flatpak install <abs>（不提 pkexec，polkit 自己弹）", C.installCommandFor("flatpak", "flatpak", "/home/a/Q.flatpak"), "flatpak install '/home/a/Q.flatpak'");
+
+  check("包型白名单只认四种", C.isLinuxPkgKind("deb") && C.isLinuxPkgKind("pacman") && !C.isLinuxPkgKind("appimage") && !C.isLinuxPkgKind("exe"));
+  check("工具候选：deb 优先 apt、备选 oma", JSON.stringify(C.LINUX_PKG_TOOLS.deb) === JSON.stringify(["apt", "oma"]));
+  check("工具候选：rpm 优先 zypper、备选 dnf", JSON.stringify(C.LINUX_PKG_TOOLS.rpm) === JSON.stringify(["zypper", "dnf"]));
+  check("后缀白名单：pacman 是复合后缀", C.LINUX_PKG_SUFFIX.pacman === ".pkg.tar.zst" && C.LINUX_PKG_SUFFIX.deb === ".deb");
 }
 
 // ——— release notes 迷你渲染（第三方内容，注入面必须为零）———
@@ -409,40 +450,74 @@ section("安装收尾接线");
 {
   const up = noComments(readSrc("electron/update.ts"));
   const updater = noComments(readSrc("src/lib/updater.ts"));
-  // oneClick NSIS 默认只在非静默时 runAfterFinish；更新走 /S 静默 → 少了 --force-run 就装完不启动
+  // 主进程直接跑 TS 源码：electron/** 里 import 的仓内文件必须同时进 asar，
+  // 否则开发态正常、打包态 ERR_MODULE_NOT_FOUND（曾漏掉 src/lib/update-core.ts）。
+  const builder = readFileSync(new URL("../../packages/electron-builder-base.yml", import.meta.url), "utf8");
+  const mainImports = [...up.matchAll(/from\s+"(\.\.?\/[^"]+)"/g)].map((m) => m[1]);
+  const outsideElectron = mainImports.filter((p) => !p.startsWith("./"));
+  check("打包: electron/ 跨目录 import 的源码都在 files 里",
+    outsideElectron.every((p) => {
+      const rel = p.replace(/^\.\.\//, "").replace(/^\.\//, "");
+
+      return builder.includes(`- ${rel}`);
+    }), outsideElectron.join(", "));
+  // assisted NSIS 只在 isForceRun && Silent 时拉起应用；更新走 /S 静默 → 少了 --force-run 就装完不启动
   check("Windows: 静默安装器带 --force-run（否则静默装完没人拉起 quaver）",
     re(up, /spawn\(path, \["\/S", "--force-run"\]/));
+  // 首装要能自选目录：assisted 安装器 + 目录页（oneClick 模式 electron-builder 不允许该选项）
+  const nsis = readFileSync(new URL("../../packages/windows/x86-arm.yml", import.meta.url), "utf8");
+  check("Windows 打包: assisted 安装器显示安装目录页",
+    re(nsis, /^\s*oneClick:\s*false\s*$/m) && re(nsis, /^\s*allowToChangeInstallationDirectory:\s*true\s*$/m));
   // AppImage 原位替换后 app.relaunch() 默认重启的是只读挂载点里的旧构建 → 必须指到 $APPIMAGE 本体
   check("Linux: AppImage 重启把 execPath 指到 $APPIMAGE 本体",
     re(up, /app\.relaunch\(\{ execPath: appimage \}\)/) && has(up, "process.env.APPIMAGE"));
   // AppImage 自动更新只做原位替换：不再把更新交给 Gear Lever / AppManager
   check("AppImage: 已移除 Gear Lever / AppManager 联动",
     !has(up, "gearlever") && !has(up, "app-manager") && !has(up, "appimage-managers") && !has(up, "run-manager-update"));
-  // deb/rpm/flatpak 更新 = 下载后交系统默认应用打开（Linux 走 xdg-open），由用户点「打开安装包」触发
-  check("Linux deb/rpm/flatpak: open-path 走 xdg-open",
+  // 目录定位仍走 xdg-open（失败态里给「安装包还在哪」的出口，不与安装混为一谈）
+  check("Linux: open-path 走 xdg-open",
     re(up, /spawn\("xdg-open", \[path\]/));
   // Flatpak 与 deb/rpm 同口径：主进程认 /.flatpak-info（先于 os-release，沙箱里的 os-release 是 runtime 的）
   check("update.ts: Flatpak 运行态识别（/.flatpak-info → pkg=flatpak）",
     re(up, /pathExists\("\/\.flatpak-info"\)/) && has(up, 'return "flatpak"'));
-  // Linux 按运行方式挑包：渲染层把 pkg（deb/rpm/flatpak）作为 prefer 传给 pickAsset
-  check("updater: Linux 发行版包安装按 pkg 挑 deb/rpm/flatpak",
+  // Linux 按运行方式挑包：渲染层把 pkg（deb/rpm/pacman/flatpak）作为 prefer 传给 pickAsset
+  check("updater: Linux 发行版包安装按 pkg 挑 deb/rpm/pacman/flatpak",
     re(updater, /pickAsset\(platform, arch, release\.assets, platform === "linux" && !pf\?\.appimage \? pf\?\.pkg \?\? null : null\)/));
 
   const dialog = noComments(readSrc("src/components/UpdateDialog.ts"));
-  // deb/rpm/flatpak 落「下载」目录，绝不自动拉起安装器：主进程给 downloads 落盘模式，finalize 只回报「已下载」
-  check("deb/rpm/flatpak: 下载落用户「下载」目录（mode=downloads → app.getPath('downloads')）",
+  // 包落「下载」目录（原地安装完要删，落 tmp 会被系统清理、用户也无从手动补救）
+  check("包管理器更新: 下载落用户「下载」目录（mode=downloads → app.getPath('downloads')）",
     has(up, 'uniqueDest(app.getPath("downloads"), assetBasename(url))'));
-  check("deb/rpm/flatpak: 下载后不自动打开，交回弹窗（installer-downloaded，不调 open-path）",
-    has(updater, 'if (kind === "deb" || kind === "rpm" || kind === "flatpak") return { type: "installer-downloaded", path, deduped };'));
-  check("deb/rpm/flatpak: updater 下载模式按包型切 downloads",
-    re(updater, /kind === "deb" \|\| kind === "rpm" \|\| kind === "flatpak" \? "downloads"/));
-  // 弹窗：确认按钮「打开安装包」+ 旁边「打开所在目录」
-  check("弹窗: 已下载态给「打开安装包」主按钮（走 openPath）",
-    has(dialog, 'setMain("打开安装包", true') && has(dialog, "openPath(step.path)"));
-  check("弹窗: 旁边有「打开所在目录」按钮（走 openPath(dir)）",
-    has(dialog, "打开所在目录") && has(dialog, "openPath(dir)"));
-  check("弹窗: downloads 态按钮从隐藏态显式打开（不是默认展示）",
-    re(dialog, /data-act="open-dir"[^>]*hidden/) && has(dialog, "openDirBtn.hidden = false"));
+  check("包管理器更新: updater 下载模式按包型切 downloads",
+    re(updater, /isPackageKind\(kind\) \? "downloads"/));
+
+  // 下载完不再交系统默认应用（xdg-open 会落到无关程序/静默失败）：改为在用户终端里跑包管理器
+  check("包管理器更新: 下载完走 install-linux-package（不再 open-path 安装包）",
+    re(updater, /bridge\(\)\.invoke\(\{ op: "install-linux-package", kind, path, id \}\)/)
+    && !has(updater, 'if (kind === "deb" || kind === "rpm" || kind === "flatpak") return { type: "installer-downloaded"'));
+  check("包管理器更新: 弹窗有「安装中」与「是否退出」两态",
+    has(dialog, 'setMain("安装中…", false') && has(dialog, "现在退出 Quaver Music 完成更新吗"));
+  check("包管理器更新: 失败时把命令回显出来，安装包留在下载目录",
+    has(dialog, 'r.completed') && has(dialog, "安装包仍在"));
+  check("包管理器更新: 起不了终端退化成「手动执行命令」",
+    has(dialog, 'step.type === "package-manual"') && re(dialog, /setMain\("知道了", true, close\)/));
+
+  // 安装走「系统包管理器在终端里跑」：探 PATH 找工具 → 生成一次性脚本 → 起终端 → 等退出码
+  check("update.ts: 按包型探安装工具（deb→apt/oma、rpm→zypper/dnf、pacman、flatpak）",
+    has(up, "async function findPkgTool") && has(up, "LINUX_PKG_TOOLS[kind]"));
+  check("update.ts: 命令由 installCommandFor 统一构造（不在主进程里手拼）",
+    has(up, "installCommandFor(kind, tool.tool, path, { root: process.getuid?.() === 0 })"));
+  check("update.ts: 终端脚本把退出码写进状态文件（安装成败的判据）",
+    has(up, "${shellQuote(stateFile)}") && has(up, '"$rc" >'));
+  check("update.ts: 前台终端先退出 = 用户关窗放弃（waits 标记只在 --wait 类终端启用）",
+    has(up, "opts.waits && exited") && has(up, '["--wait", "--"]'));
+  check("update.ts: 安装结果推 quaver:update-install-done（含 ok/completed/removed）",
+    has(up, '"quaver:update-install-done"') && has(up, "removed: ok"));
+  check("preload: 暴露 onInstallDone 事件", has(noComments(readSrc("electron/preload.cts")), '"quaver:update-install-done"'));
+  check("update.ts: pacman 发行版识别（Arch 系 ID/ID_LIKE → pkg=pacman）",
+    has(up, 'return "pacman"') && has(up, "PACMAN_LIKE"));
+  check("update.ts: 安装包路径与后缀都要过校验（终端里执行的命令别松）",
+    has(up, "!isAbsolute(path) || !path.endsWith(suffix)"));
 }
 
 // ——— 接线（源码级）：sha256 完整性校验 / 去重 / 商店托管（星火·如意玲珑）———
@@ -461,7 +536,9 @@ section("完整性校验与商店托管接线");
   // 避免重复下载：本地已存在校验通过的包（下载目录同名文件 / AppImage 本体 / 残留临时文件）直接复用
   check("update.ts: 下载前复用已校验文件（reuseIfValid → deduped）",
     has(up, "reuseIfValid") && has(up, "deduped: true"));
-  check("弹窗: 复用态文案「未重复下载」", has(dialog, "未重复下载"));
+  // 删包双保险：脚本里（应用已退出也照样清理）+ 主进程 watcher 里（幂等）
+  check("update.ts: 成功安装后自动删除安装包（脚本 + watcher 双保险）",
+    has(up, '[ "$rc" -eq 0 ] && rm -f --') && has(up, "if (ok) await rmQuiet(o.path)"));
 
   // 商店托管：APM（ACE 容器 IS_ACE_ENV=1 / /amber-ce-tools）与玲珑（hostname + container-init + packages.list）
   check("update.ts: APM/ACE 容器识别（IS_ACE_ENV 或 /amber-ce-tools → spark）",

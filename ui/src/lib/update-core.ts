@@ -338,7 +338,59 @@ export function decideUpdate(
 
 // ——— 安装包匹配（平台 × 架构） ———
 
-export type AssetKind = "appimage" | "exe" | "dmg" | "deb" | "rpm" | "flatpak";
+export type AssetKind = "appimage" | "exe" | "dmg" | "deb" | "rpm" | "flatpak" | "pacman";
+
+// ——— Linux 包管理器更新：下载完在终端里执行系统包管理器命令 ———
+// 口径（用户约定）：
+//   deb 系   pkexec apt/oma install <abs>
+//   RPM 系   pkexec zypper/dnf install <abs>
+//   pacman   pacman -U <abs>（pacman 本身不提权 → 非 root 时同样经 pkexec）
+//   Flatpak  flatpak install <abs>（flatpak 自己经 polkit 提权）
+// 命令构造放这里（纯逻辑）：主进程只负责探 PATH 找工具、开终端、看结果。
+
+/** 需要应用内「下载 → 终端安装」的 Linux 包型（AppImage 走原位替换，不在此列）。 */
+export type LinuxPkgKind = "deb" | "rpm" | "pacman" | "flatpak";
+
+/** 运行时收口：IPC 传上来的 kind 只认这四个字面量（其余一律拒掉）。 */
+export function isLinuxPkgKind(v: unknown): v is LinuxPkgKind {
+  return v === "deb" || v === "rpm" || v === "pacman" || v === "flatpak";
+}
+
+/** 各包型的安装工具候选：按顺序探 PATH，第一个命中的用。 */
+export const LINUX_PKG_TOOLS: Record<LinuxPkgKind, readonly string[]> = {
+  deb: ["apt", "oma"],
+  rpm: ["zypper", "dnf"],
+  pacman: ["pacman"],
+  flatpak: ["flatpak"],
+};
+
+/** 包型 → 后缀（校验「落地文件确实是这类包」；pacman 是复合后缀）。 */
+export const LINUX_PKG_SUFFIX: Record<LinuxPkgKind, string> = {
+  deb: ".deb",
+  rpm: ".rpm",
+  pacman: ".pkg.tar.zst",
+  flatpak: ".flatpak",
+};
+
+/** POSIX shell 单引号转义（路径可能含空格 / 撇号）。 */
+export function shellQuote(s: string): string {
+  return `'${String(s).replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * 构造终端里执行的完整安装命令。root = 当前进程已是 root（几乎不会发生，兜底别在 root 下再 pkexec）；
+ * 路径调用方保证绝对 —— 终端工作目录不可控，相对路径会指错文件。
+ */
+export function installCommandFor(
+  kind: LinuxPkgKind, tool: string, path: string, opts?: { root?: boolean },
+): string {
+  const q = shellQuote(path);
+
+  if (kind === "flatpak") return `${tool} install ${q}`;
+  const base = kind === "pacman" ? `${tool} -U ${q}` : `${tool} install ${q}`;
+
+  return opts?.root ? base : `pkexec ${base}`;
+}
 
 /** 各运行架构对应的产物名写法（CI：AppImage=x86_64/aarch64，NSIS=x64/arm64，dmg=arm64）。 */
 const ARCH_WORDS: Record<string, RegExp> = {
@@ -353,9 +405,10 @@ const ARCH_WORDS: Record<string, RegExp> = {
  * Linux 有两种更新口径，靠 prefer 区分（主进程按当前运行方式给：$APPIMAGE 在位 → AppImage；
  * 发行版包 / Flatpak 装出来的进程 → deb / rpm / flatpak）：
  *   - prefer 缺省（AppImage 运行态、Windows/mac）：AppImage 优先、deb 兜底（旧行为）。
- *   - prefer 显式（如 "deb" / "rpm" / "flatpak"）：只认这一档 —— 运行在 deb/rpm/flatpak 安装里的
+ *   - prefer 显式（如 "deb" / "rpm" / "pacman" / "flatpak"）：只认这一档 —— 运行在包管理器安装里的
  *     进程换不了 AppImage 本体，挑了也没法应用内替换，只会把用户引到死路；缺档就返回 null
- *     让调用方走「打开发布页」。flatpak 档认 CI 出的离线 bundle（Quaver-<ver>-<arch>.flatpak）。
+ *     让调用方走「打开发布页」。flatpak 档认 CI 出的离线 bundle（Quaver-<ver>-<arch>.flatpak），
+ *     pacman 档认 CI 出的 .pkg.tar.zst（Quaver-<ver>-<arch>.pkg.tar.zst）。
  * 商店托管的安装方式（APM/星火、玲珑）不走本函数 —— 渲染层直接不挑包，弹窗改为「等商店推送」。
  * 找不到（如 x86 mac —— 构建已裁撤）返回 null，调用方应引导去发布页。
  */
@@ -373,6 +426,7 @@ export function pickAsset(
     { ext: ".deb", kind: "deb", platform: "linux" },
     { ext: ".rpm", kind: "rpm", platform: "linux" },
     { ext: ".flatpak", kind: "flatpak", platform: "linux" },
+    { ext: ".pkg.tar.zst", kind: "pacman", platform: "linux" },
   ];
 
   const pool = kinds.filter((k) => k.platform === platform && (!prefer || k.kind === prefer));

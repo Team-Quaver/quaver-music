@@ -112,7 +112,7 @@ contextBridge.exposeInMainWorld("quaverRedflag", configBoot.redflag === true);
 contextBridge.exposeInMainWorld("quaverConfig", {
   boot: configBoot,
   all: () => ipcRenderer.invoke("quaver:config", { op: "all" }),
-  set: (patch: Record<string, string>) => ipcRenderer.invoke("quaver:config", { op: "set", patch }),
+  set: (patch: Record<string, string>, apply?: boolean) => ipcRenderer.invoke("quaver:config", { op: "set", patch, apply }),
   reset: () => ipcRenderer.invoke("quaver:config", { op: "reset" }),
   reveal: () => ipcRenderer.invoke("quaver:config", { op: "reveal" }),
   // 配置变更广播（主进程在任意窗口写盘成功后发给全部窗口）：{ keys, values } = 增量，
@@ -156,7 +156,7 @@ contextBridge.exposeInMainWorld("quaverBackground", {
 // 本地/NAS 曲库：原生选目录 + 在文件管理器中定位（reveal 只传曲目 id，路径在主进程从库现读）。
 // 曲目的音频/封面/歌词本体走同源 /api/local/*，不经这里。
 contextBridge.exposeInMainWorld("quaverLocal", {
-  pickFolder: () => ipcRenderer.invoke("quaver:local", { op: "pick-folder" }),
+  pickFolder: (purpose?: string) => ipcRenderer.invoke("quaver:local", { op: "pick-folder", purpose }),
   reveal: (id: string) => ipcRenderer.invoke("quaver:local", { op: "reveal", id }),
 });
 
@@ -178,6 +178,11 @@ contextBridge.exposeInMainWorld("quaverUpdate", {
   onProgress: (cb: (p: unknown) => void) =>
     ipcRenderer.on("quaver:update-progress", (_e: Electron.IpcRendererEvent, p: unknown) => {
       try { cb(p); } catch (err) { console.warn("update progress failed", err); }
+    }),
+  // 包管理器安装结束（deb/rpm/pacman/flatpak 在终端里跑完）：渲染层据此问是否退出应用
+  onInstallDone: (cb: (p: unknown) => void) =>
+    ipcRenderer.on("quaver:update-install-done", (_e: Electron.IpcRendererEvent, p: unknown) => {
+      try { cb(p); } catch (err) { console.warn("update install-done failed", err); }
     }),
 });
 

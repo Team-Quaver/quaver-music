@@ -103,8 +103,11 @@ ok("提交前先撤 dragRow（否则重建被自己挡住，队列顺序提交�
 ok("拖拽期间队列被改过 → 本次排序作废（DOM 下标已不对应，硬提交会挪错歌）",
   /to !== fromIdx && !pendingRebuild/.test(code));
 
-ok("整行可拖（把手只是显式入口）：监听挂在 row 上",
-  /row\.addEventListener\("pointerdown"/.test(code) && !/grip\.addEventListener\("pointerdown"/.test(code));
+ok("整行可拖：监听挂在 row 上，不再渲染把手/拖拽提示",
+  /row\.addEventListener\("pointerdown"/.test(code)
+  && !/qi-grip/.test(code)
+  && !/拖动调整播放顺序/.test(qp)
+  && !/grip\.addEventListener\("pointerdown"/.test(code));
 
 ok("删除钮不参与拖拽", /closest\("\.qi-del"\)\) return/.test(code));
 
@@ -155,8 +158,8 @@ const itemRule = css.match(/\.qp-item \{([^}]*)\}/)?.[1] ?? "";
 
 ok("css: 整行禁选中（否则纵向一拖就选中歌名）", /user-select:\s*none/.test(itemRule));
 
-ok("css: 行是 touch-action:pan-y（触屏纵向仍归列表滚动），把手是 none（触屏走把手拖）",
-  /touch-action:\s*pan-y/.test(itemRule) && /\.qi-grip \{[^}]*touch-action:\s*none/.test(css));
+ok("css: 行是 touch-action:pan-y（触屏纵向仍归列表滚动），把手样式已移除",
+  /touch-action:\s*pan-y/.test(itemRule) && !/\.qi-grip/.test(css));
 
 ok("css: 缩略图不触发浏览器原生图片拖拽", /draggable="false"/.test(read("src/components/QueuePanel.ts")));
 

@@ -152,7 +152,8 @@ await page.waitForFunction(() => (window.__quaverPlayer?.likedCache?.length ?? 0
 
 await page.waitForFunction(() => !!window.__quaverPlayer?.likedAt, { timeout: 90000 }); // 预载完成
 
-const writeType = (t) => (Number(t ?? 1) === 1 ? 0 : Number(t ?? 0));
+// song_type 发读侧原值：写侧枚举转换收口在 Go SDK（ToSonglistWriteType，上游 PR 306）
+const writeType = (t) => Number(t ?? 1);
 
 // 残留自清理：上次运行若中途挂掉，测试歌可能留在我喜欢 —— 写接口逐个移出并等上游反映
 const leftovers = await page.evaluate(() => JSON.parse(localStorage.getItem("quaver.loved-sync.test") ?? "[]"));
@@ -372,10 +373,8 @@ await step("复原：移出测试歌曲，上游回到初始 total", async () =>
     } else {
       // 本地红心已不在（庇护快照异常的兜底）：清掉庇护记录再直写接口，防止增量回源把它加回来
       const code = await page.evaluate(async (p) => {
-        const t = Number(p.type ?? 1) === 1 ? 0 : Number(p.type ?? 0);
-
         const r = await fetch("/api/song/unlike", { method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ song_id: p.id, song_type: t }) });
+          body: JSON.stringify({ song_id: p.id, song_type: Number(p.type ?? 1) }) });
 
         return (await r.json()).code;
       }, s);

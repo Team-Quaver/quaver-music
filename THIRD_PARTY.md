@@ -23,6 +23,20 @@ The port is kept behaviourally identical to upstream: golden cases come from ups
 
 The project is licensed under AGPL-3.0. Please checkout the project license.
 
+## AFP audio fingerprint (`afp.mjs` / `afp.wasm.mjs`)
+
+`ui/resources/afp/` ships the AFP WebAssembly fingerprint library used by
+splayer-next for its song-recognition pipeline. The bundle identifies itself as the
+runtime from NetEase Cloud Music's official Chrome extension
+(`https://fn.music.163.com/g/chrome-extension-home-page-beta/`); Quaver loads it only in
+the Electron main process to turn captured 8 kHz PCM into a Shazam-v2-compatible
+fingerprint. That fingerprint is sent only to NetEase's official audio-match endpoint
+(`interface.music.163.com/api/music/audio/match`, Shazam-v2 algorithm) to identify
+the track; the returned title/artist is then looked up in the QQ Music catalogue to
+obtain a `songmid` for playback. The files are redistributed unmodified. No separate
+license text was included with the upstream bundle; treat it as NetEase Cloud Music
+extension code and check the upstream terms before redistributing this build.
+
 ## Electron
 
 This is frontend render engine used by Quaver.

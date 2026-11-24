@@ -62,12 +62,36 @@ pnpm run preview    # 预览构建产物（同样挂 /api 中继）
 `credential.json` 只有一种来历：旧版本留下的明文，升级后读一次即导入密钥环并删除。
 `QUAVER_CONFIG_DIR` 可整体顶掉这个目录（主进程同时用它下发给 sidecar，两边规则必须一致）。
 
+## 音乐缓存目录（与配置分开）
+
+在线音乐的加密缓存是可再生的大字节（默认上限 2 GiB），不跟配置文件混在一起 ——
+配置要跟着备份/同步走，缓存不该被一起搬：
+
+| 平台 | 目录 |
+| --- | --- |
+| Linux | `$XDG_CACHE_HOME/quaver-music`（默认 `~/.cache/quaver-music`） |
+| Windows | `%LocalAppData%\Quaver Music\Quaver Cache` |
+| macOS | `~/Library/Caches/Quaver Music` |
+
+音频与索引落在该目录的 `music/` 子目录里（`*.quaverlocalcache`，均加密）。Windows 用
+`Quaver Cache` 而不是 `cache`：同一棵目录树下还有 Chromium 自己的 `Cache`，两者只差大小写
+在 Windows/macOS 上根本分不清。
+
+- **自定义位置**：设置 → 通用 → 音乐缓存 → 「缓存位置」选目录（`[Playing] MusicCacheDir`，
+  绝对路径；「恢复默认」= 清空该键）。换位置时已有缓存会一并搬过去，旧目录收干净。
+- `QUAVER_CACHE_DIR` 可整体顶掉（主进程同时用它下发给 sidecar，两边规则必须一致）。
+- **旧版本升级**：原来存在配置目录 `cache/music` 下的缓存，升级后首次使用会自动搬到新位置，
+  已缓存的歌曲照旧离线复播（加密密钥的两半都没变），不需要重新登录或重新缓冲。
+  搬家按文件确认：万一有文件搬不动（磁盘满 / 目标只读），整份缓存保留在原位置继续使用，
+  不会出现「新位置空着、旧位置被清空」。
+
 ```ini
 [Style]     Style / DefaultUIFonts / DefaultLyricsFonts / ShowTranslation
             Background / BackgroundImage / BackgroundBlur
             Tint / TintColor
 [Window]    Decor / CloseAction / SidebarCollapsed
 [Playing]   Backend / AudioDevice / Fade / Volume / Muted
+            MusicCacheLimitMB / MusicCacheDir
 [DesktopLyrics] Enabled / Locked / Opacity / Backdrop / Scale / Font / Border
                 Shadow / ShadowBlur / ShadowOpacity / ShadowX / ShadowY
                 Mode / SingleCenter / ColorMode / Color / X / Y / W / H

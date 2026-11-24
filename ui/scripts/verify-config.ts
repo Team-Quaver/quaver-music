@@ -6,8 +6,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  CONFIG_NAME, configDir, configFile, credentialFile, credentialStoreFile, deviceFile,
-  defaultDecor, defaults, IniDoc, readValues, resetConfig, template, writeValues,
+  APP_CACHE_DIR_NAME, CONFIG_NAME, cacheDir, configDir, configFile, credentialFile, credentialStoreFile,
+  defaultCacheDir, deviceFile, defaultDecor, defaults, IniDoc, legacyMusicCacheDir, musicCacheDir,
+  readValues, resetConfig, template, writeValues,
 } from "../electron/config.ts";
 
 let pass = 0, fail = 0;
@@ -47,6 +48,50 @@ check("平台默认值不含 QUAVER_CONFIG_DIR 覆盖（Linux 走 XDG）",
     const got = configDir(); process.env.XDG_CONFIG_HOME = xdg; process.env.QUAVER_CONFIG_DIR = bak;
 
     return got === "/x/quaver-music" || got.endsWith("quaver-music"); })());
+
+// ——— 缓存目录（与配置分家：Linux XDG_CACHE_HOME / Windows·macOS Quaver Cache）———
+section("缓存目录规则");
+
+eq("Linux 默认走 XDG_CACHE_HOME 而非 XDG_CONFIG_HOME",
+  defaultCacheDir({ XDG_CACHE_HOME: "/c", XDG_CONFIG_HOME: "/x" }, "linux"), "/c/quaver-music");
+
+check("Linux 未设 XDG_CACHE_HOME 时落 ~/.cache（不是 ~/.config）",
+  defaultCacheDir({}, "linux").endsWith(`${join(".cache", "quaver-music")}`), defaultCacheDir({}, "linux"));
+
+eq("Windows 落 %LocalAppData% 下的 Quaver Cache（与 Chromium 的 Cache 区分）",
+  defaultCacheDir({ LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local" }, "win32"),
+  join("C:\\Users\\me\\AppData\\Local", "Quaver Music", APP_CACHE_DIR_NAME));
+
+check("Windows 缓存目录名不是裸 Cache/cache（大小写同名歧义已消除）",
+  APP_CACHE_DIR_NAME === "Quaver Cache" && APP_CACHE_DIR_NAME.toLowerCase() !== "cache");
+
+check("macOS 落 ~/Library/Caches（不是 Application Support）",
+  defaultCacheDir({}, "darwin").endsWith(join("Library", "Caches", "Quaver Music")), defaultCacheDir({}, "darwin"));
+
+eq("QUAVER_CACHE_DIR 整体顶掉", cacheDir({ QUAVER_CACHE_DIR: join(ROOT, "env-cache") }, "linux"), join(ROOT, "env-cache"));
+
+eq("音乐缓存目录 = 缓存根/music", musicCacheDir({ QUAVER_CACHE_DIR: join(ROOT, "env-cache") }, "linux"), join(ROOT, "env-cache", "music"));
+
+check("缓存目录默认不在配置目录内", !cacheDir({ QUAVER_CONFIG_DIR: dir }, "linux").startsWith(dir), cacheDir({ QUAVER_CONFIG_DIR: dir }, "linux"));
+
+eq("旧版缓存目录仍指向配置目录下 cache/music（升级搬家的来源）", legacyMusicCacheDir(), join(dir, "cache", "music"));
+
+eq("用户自定义位置默认空（= 平台默认）", defaults()["Playing.MusicCacheDir"], "");
+
+eq("自定义缓存位置接受绝对路径", writeValues({ "Playing.MusicCacheDir": join(ROOT, "my-cache") }), ["Playing.MusicCacheDir"]);
+
+eq("自定义位置生效", cacheDir({ QUAVER_CONFIG_DIR: dir }, "linux"), join(ROOT, "my-cache"));
+
+eq("环境变量优先于配置里的自定义位置",
+  cacheDir({ QUAVER_CONFIG_DIR: dir, QUAVER_CACHE_DIR: join(ROOT, "env-cache") }, "linux"), join(ROOT, "env-cache"));
+
+eq("相对路径被拒（会跟着进程 cwd 漂）", writeValues({ "Playing.MusicCacheDir": "relative/cache" }), []);
+
+eq("换行被拒（撕开 INI 段结构）", writeValues({ "Playing.MusicCacheDir": "/tmp/a\n[Evil]" }), []);
+
+writeValues({ "Playing.MusicCacheDir": "" });
+
+eq("清空 = 回到平台默认缓存目录", cacheDir({ QUAVER_CONFIG_DIR: dir }, "linux"), defaultCacheDir({}, "linux"));
 
 // ——— INI 解析（保结构）———
 section("INI 解析与保注释");
@@ -141,7 +186,7 @@ eq("侧栏隐藏项接受空串", writeValues({ "Style.NavHidden": "" }), ["Styl
 eq("侧栏隐藏项拒绝重复 id", writeValues({ "Style.NavHidden": "home,home" }), []);
 writeValues({ "Style.NavOrder": defaults()["Style.NavOrder"] });
 
-eq("schema 默认值表条数", Object.keys(defaults()).length, 83); // [DesktopLyrics] 21 键（Enabled/Locked/Opacity/Backdrop/Scale/Weight/Font/Border/Shadow/ShadowBlur/ShadowOpacity/ShadowX/ShadowY/Mode/SingleCenter/ColorMode/Color + X/Y/W/H 记忆坐标）；[Lyrics] 6 键（LyricTint 歌词染色开关/ChineseConvert 繁简档/OnlineTtml 在线逐字开关/TtmlDatabase 地址模板/TtmlLibrary 本地库目录/MprisLrc 系统媒体控件歌词格式）；LyricAux 为歌词辅助行（关闭/翻译/音译，两路同位置且各按档位回落）；LyricScale 为行级歌词缩放；LyricLayout 为正在播放页歌词列四档；Background/BackgroundImage/BackgroundFlow/BackgroundBlur/BackgroundRenderer/NpBackgroundRenderer 为默认主题背景（模式/自定义图/AMLL 流动速度/Quaver Design 首页模糊半径/首页与歌词页呈现风格）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；ControlBar 为控制条停靠形态；PlaylistMode 为歌单显示模式（菜单栏/歌单集合页）；NavOrder/NavHidden 为侧栏主菜单的顺序与隐藏项；MenuBlur 为浮层菜单毛玻璃开关；Spectrum/SpectrumMode 为正在播放页真实音频频谱开关与形态；Equalizer 为 Quark EQ 整段 JSON（默认空曲线、最多 10 段、bypass）；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；ReportListenTime 为听歌时长上报开关；MusicCacheLimitMB 为本地音乐缓存上限；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
+eq("schema 默认值表条数", Object.keys(defaults()).length, 86); // [DesktopLyrics] 21 键（Enabled/Locked/Opacity/Backdrop/Scale/Weight/Font/Border/Shadow/ShadowBlur/ShadowOpacity/ShadowX/ShadowY/Mode/SingleCenter/ColorMode/Color + X/Y/W/H 记忆坐标）；[Lyrics] 6 键（LyricTint 歌词染色开关/ChineseConvert 繁简档/OnlineTtml 在线逐字开关/TtmlDatabase 地址模板/TtmlLibrary 本地库目录/MprisLrc 系统媒体控件歌词格式）；LyricAux 为歌词辅助行（关闭/翻译/音译，两路同位置且各按档位回落）；LyricScale 为行级歌词缩放；LyricLayout 为正在播放页歌词列四档；Background/BackgroundImage/BackgroundFlow/BackgroundBlur/BackgroundRenderer/NpBackgroundRenderer 为默认主题背景（模式/自定义图/AMLL 流动速度/Quaver Design 首页模糊半径/首页与歌词页呈现风格）；Tint/TintColor 为界面高亮色（来源档位/自定义色）；ControlBar 为控制条停靠形态；PlaylistMode 为歌单显示模式（菜单栏/歌单集合页）；NavOrder/NavHidden 为侧栏主菜单的顺序与隐藏项；MenuBlur 为浮层菜单毛玻璃开关；Spectrum/SpectrumMode 为正在播放页真实音频频谱开关与形态；Equalizer 为 Quark EQ 整段 JSON（默认空曲线、最多 10 段、bypass）；AdaptiveRate 为 Liino 跟随音源采样率；AdaptiveRateSwitch 为是否同时切换声卡时钟；PrevReplay 为上一首按钮逻辑；InhibitSleep 为播放音频时睡眠禁止；ReportListenTime 为听歌时长上报开关；MusicCacheLimitMB/MusicCacheDir 为本地音乐缓存的上限与位置；[Hotkeys.Global]/[Hotkeys.Focus] 共 11 键；[Sparkle] 1 键（Blacklist）；[Update] 共 3 键（AutoCheck/Channel/LastNotified）
 
 check("模板含热键两段", ["[Hotkeys.Global]", "[Hotkeys.Focus]"].every((s) => template().includes(s)));
 

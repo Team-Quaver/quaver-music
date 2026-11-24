@@ -58,3 +58,23 @@ export function edgeSpeed(
 
   return 0;
 }
+
+/**
+ * 把「可见子序列的新排列」作用回原列表：moved 是 source 的一个子集（比如搜索筛过的
+ * 上屏列表）拖拽后的新顺序；source 里属于该子集的位置依次改放 moved 的元素，
+ * 子集之外的元素原地不动。返回新数组，不改入参。
+ *
+ * 对位按**对象引用**而不是 mid：歌单允许同一首出现两次（上游顺序表按 songId 记），
+ * 按 mid 会把两行当成同一行、把没拖的那行也挪走。渲染层给每行的就是 source 数组里
+ * 的那个对象（renderSongRows 不复制对象），引用对位天然区分重复曲目。
+ *
+ * moved 必须恰好是 source 中「属于子集的那些元素」的一个排列（调用方用同一个
+ * 成员判定生成两者）；不在 source 里的引用会被忽略，多退少补按原序兜底。
+ */
+export function applyVisibleOrder<T>(source: readonly T[], moved: readonly T[]): T[] {
+  const members = new Set(moved);
+  const queue = moved.filter((item) => source.includes(item));
+  let next = 0;
+
+  return source.map((item) => (members.has(item) && next < queue.length ? queue[next++] : item));
+}

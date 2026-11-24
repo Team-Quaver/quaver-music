@@ -13,8 +13,10 @@ interface Window {
   __player: any;
   /** 配置读写测试桥 */
   __cfg: any;
-  /** 曲库同步测试桥 */
-  __quaverSonglists: any;
+  /** 曲库同步测试桥：src/lib/playlists.ts 声明了同名钩子，scripts 工程经 verify 脚本
+   *  间接 import 到它 —— 全局 Window 合并要求两处类型逐字一致，这里直接引那份类型
+   *  （本文件其余钩子仍是 any：它们没有随包声明，不存在合并冲突）。 */
+  __quaverSonglists?: import("../src/lib/playlists").QuaverSonglistsBridge;
   /** 搜索框测试桥 */
   __sb: any;
   /** 「添加本地插件」流程的桩：消息记录 + 选择结果 */

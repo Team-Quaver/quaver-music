@@ -131,6 +131,32 @@ ok("换曲 / seek / 换设备同时清 EQ 滤波记忆",
   (src("../vendor/Liino/liino.go").match(/p\.outEQ\.Reset\(\)/g) ?? []).length >= 5,
   `${(src("../vendor/Liino/liino.go").match(/p\.outEQ\.Reset\(\)/g) ?? []).length} 处`);
 
+ok("Liino 自适应采样率从 create 配置直达 native（adaptive_rate）",
+  /adaptive_rate: adaptiveRate/.test(engine) && /json:"adaptive_rate"/.test(src("../vendor/Liino/capi/capi.go")));
+
+ok("自适应采样率只影响下一首（运行中不硬拆输出重时基）",
+  /func \(p \*Player\) SetAdaptiveRate\(on bool\)/.test(src("../vendor/Liino/liino.go"))
+    && /player\.setAdaptiveRate\(on\)/.test(engine));
+
+ok("切声卡时钟可独立关闭，并在慢切换时自动回退",
+  /func \(p \*Player\) SetSwitchDeviceRate\(on bool\)/.test(src("../vendor/Liino/liino.go"))
+    && /rateSwitchSlow/.test(src("../vendor/Liino/pipeline.go"))
+    && /700\*time\.Millisecond/.test(src("../vendor/Liino/pipeline.go"))
+    && /player\.setSwitchDeviceRate\(on\)/.test(engine));
+
+ok("PipeWire 输出按环形缓冲的时钟打开（换曲换采样率不送错帧）",
+  /Format:\s+pcm\.Format\{SampleRate: rate, Channels: outCh\}/.test(src("../vendor/Liino/pipeline.go"))
+    && /func \(p \*Player\) detachOutputForRate/.test(src("../vendor/Liino/pipeline.go"))
+    && /_ = staleOut\.Stop\(\)/.test(src("../vendor/Liino/pipeline.go")));
+
+ok("PipeWire 自适应采样率给流节点带 node.rate（只靠 EnumFormat 图不会切时钟）",
+  /add\("node\.rate"/.test(src("../vendor/Liino/third_party/purego-pipewire/internal/capi/properties.go"))
+    && /props\.Rate = p\.config\.SampleRate/.test(src("../vendor/Liino/third_party/purego-pipewire/internal/core/player.go")));
+
+ok("设置页在 Linux 提供固定 48 kHz / 跟随音源两档",
+  /id="liino-rate-cards"/.test(src("src/views/settings.ts"))
+    && /setAdaptiveRate\(v === "on"\)/.test(src("src/views/settings.ts")));
+
 ok("初始 start_ms 未落地时 Liino 引擎补一次普通 seek（切档不回到 0）",
   /private maybeResume\(player: LiinoPlayer\)/.test(engine)
     && /this\.resumeAt = startAt > 1 \? startAt : 0/.test(engine)

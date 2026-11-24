@@ -7,3 +7,5 @@ mac:
   category: public.app-category.music
   icon: build-res/icon.png
   identity: null
+  extendInfo:
+    NSMicrophoneUsageDescription: Quaver 使用麦克风采集周围声音，在本地计算音频指纹后用于听歌识曲。

@@ -138,19 +138,23 @@ ok("NativeDrop: 影子树里遗留的 title 在命中时就地归一成 data-too
   && /el\.removeAttribute\("title"\)/.test(nativeDrop)
   && /el\?\.closest\("\[title\]"\)/.test(nativeDrop));
 
-// Folia 顶部工具条是这套机制的第一个消费方：必须写 data-tooltip（title 只会走原生提示）。
+// Folia 的播放页只剩一颗返回钮（控制面已整条搬去走带控制），它仍在 shadow root 里，
+// 所以照样必须走 data-tooltip —— 原生 title 在影子树里只会弹 Chromium 自己的提示。
 {
   const foliaView = read("../vendor/Sparkle/marketplace/folia-visualizer/runtime/view.tsx");
+  const foliaCss = read("../vendor/Sparkle/marketplace/folia-visualizer/runtime/plugin.css");
 
-  ok("Folia: 顶部工具条用 data-tooltip（不再用原生 title）",
-    /data-tooltip="上一个歌词动效"/.test(foliaView)
-    && /data-tooltip="下一个歌词动效"/.test(foliaView)
-    && /data-tooltip="收回正在播放页"/.test(foliaView)
-    && !/title="(上一个歌词动效|下一个歌词动效|收回正在播放页)"/.test(foliaView));
+  ok("Folia: 播放页不再自绘控制条，只剩返回钮（data-tooltip，不用原生 title）",
+    /data-tooltip="收起播放页（Esc）"/.test(foliaView)
+    && !/fvr-toolbar/.test(foliaView)
+    && !/fvr-toolbar/.test(foliaCss)
+    && !/title="收起播放页/.test(foliaView));
 
-  // 悬停时工具条不能自己消失：宿主 .qtip 挂在 body 上，锚点不可见后会留在原位。
-  ok("Folia: 指针停在工具条上时不自动收起",
-    /toolbarHovered/.test(foliaView) && /pickerOpen \|\| toolbarHovered\.current/.test(foliaView));
+  // 控制面搬到播放条右侧的走带浮窗（宿主文档树里），样式与开合都归宿主。
+  ok("Folia: 控制面板挂在走带浮窗、页面靠偏好订阅即时跟上",
+    /registerTransportControl/.test(read("../vendor/Sparkle/marketplace/folia-visualizer/index.ts"))
+    && /useFoliaPrefs/.test(foliaView)
+    && /autoHideChrome/.test(foliaView));
 }
 
 ok("Playback controls: 画廊/桌面歌词/队列/上一首都有自绘提示源",

@@ -11,13 +11,13 @@ import type { Quality } from "../lib/api";
 import { resetCjkConverter } from "../lib/cjk-convert";
 import { cmyk2rgb, hsl2rgb, parseHex, rgb2cmyk, rgb2hsl, toHex } from "../lib/color";
 import type { RGB } from "../lib/color";
-import { configInfo, resetConfig, revealConfig } from "../lib/config";
+import { cfgSetAwait, configInfo, resetConfig, revealConfig } from "../lib/config";
 import { clearMusicCache, musicCacheStatus, setMusicCacheLimit } from "../lib/music-cache";
 import { desktopLyricsStateSync } from "../lib/desktop-lyrics";
 import { syncInhibit } from "../lib/inhibit";
 import { applyMenuGlass } from "../lib/menu-glass";
-import { BG_BLUR_MAX, BG_BLUR_MIN, BG_FLOW_MAX, BG_FLOW_MIN, FONT_CUSTOM, FONT_LABELS, FONT_PRESETS, TINT_DEFAULT_COLOR, fontKeyOf, getAutoCheck, getBackgroundBlur, getBackgroundFlow, getBackgroundImage, getBackgroundMode, getBackgroundRenderer, getNpBackgroundRenderer, getChineseConvert, getCloseAction, getControlBarMode, getDecode, getPlaylistMode,
-  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsLocked, getLyricTint, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getDesktopLyricsWeight, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMusicCacheLimitMB, getMenuBlur, getMprisLrc, getNpLyricLayout, getOnlineTtml, getPrevBehavior, getReportListenTime, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAutoCheck, setBackgroundBlur, setBackgroundFlow, setBackgroundImage, setBackgroundMode, setBackgroundRenderer, setNpBackgroundRenderer, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setMusicCacheLimitMB, setPlaylistMode, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsBorder, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsFontList, setDesktopLyricsFontPreset, setDesktopLyricsLocked, setDesktopLyricsShadow, setDesktopLyricsShadowBlur, setDesktopLyricsShadowOpacity, setDesktopLyricsShadowX, setDesktopLyricsShadowY, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setDesktopLyricsWeight, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricTint, setLyricFontPreset, setMenuBlur, setMprisLrc, setNpLyricLayout, setOnlineTtml, setPrevBehavior, setReportListenTime, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel, MUSIC_CACHE_MAX_MB } from "../lib/prefs";
+import { BG_BLUR_MAX, BG_BLUR_MIN, BG_FLOW_MAX, BG_FLOW_MIN, FONT_CUSTOM, FONT_LABELS, FONT_PRESETS, TINT_DEFAULT_COLOR, fontKeyOf, getAdaptiveRate, getAdaptiveRateSwitch, getAutoCheck, getBackgroundBlur, getBackgroundFlow, getBackgroundImage, getBackgroundMode, getBackgroundRenderer, getNpBackgroundRenderer, getChineseConvert, getCloseAction, getControlBarMode, getDecode, getPlaylistMode,
+  getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsLocked, getLyricTint, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getDesktopLyricsWeight, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMusicCacheDir, getMusicCacheLimitMB, getMenuBlur, getMprisLrc, getNpLyricLayout, getOnlineTtml, getPrevBehavior, getReportListenTime, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAdaptiveRate, setAdaptiveRateSwitch, setAutoCheck, setBackgroundBlur, setBackgroundFlow, setBackgroundImage, setBackgroundMode, setBackgroundRenderer, setNpBackgroundRenderer, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setMusicCacheLimitMB, setPlaylistMode, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsBorder, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsFontList, setDesktopLyricsFontPreset, setDesktopLyricsLocked, setDesktopLyricsShadow, setDesktopLyricsShadowBlur, setDesktopLyricsShadowOpacity, setDesktopLyricsShadowX, setDesktopLyricsShadowY, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setDesktopLyricsWeight, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricTint, setLyricFontPreset, setMenuBlur, setMprisLrc, setNpLyricLayout, setOnlineTtml, setPrevBehavior, setReportListenTime, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel, MUSIC_CACHE_MAX_MB } from "../lib/prefs";
 import type { BackgroundMode, BackgroundRenderer, ChineseConvert, CloseAction, ControlBarMode, DecorMode, PlaylistMode, DlColorMode, DlMode, FadePreset, FallbackSort, NpLyricLayout, PrevBehavior, ThemeMode, TintMode, UpdateChannel } from "../lib/prefs";
 import { applyTint } from "../lib/tint";
 import { TTML_DB_DEFAULT_URL, isTtmlDatabaseUrl } from "../lib/ttml";
@@ -26,6 +26,7 @@ import { checkAndPrompt, getPlatformInfo } from "../lib/updater";
 import { player } from "../player";
 import { sparkActivateTheme, sparkActiveThemeId } from "../sparkle/host";
 import { onSparkleChange, sparkleActiveTheme, sparkleThemes } from "../sparkle/registry";
+import { setSparkleMenuBarItemHidden, sparkleMenuBarEntries, sparkleMenuBarItemHidden } from "../sparkle/menubar";
 import { mountSparklePanel } from "../sparkle/settings";
 import { backgroundPolicyOf, backgroundRendererOf } from "../sparkle/theme-background";
 import { menuGlassPolicyOf } from "../sparkle/theme-menus";
@@ -55,6 +56,8 @@ const SETTINGS_GEAR = `
 // —— 设置页（对齐设计稿：外观设置 / 播放设置 / 调试 三区；不触碰侧栏与播放条） ——
 export default async function settingsView(root: HTMLElement) {
   const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
+  const isLinux = /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
+  const showDevicePicker = !isMac && !isLinux;
 
   const fontOptions = Object.entries(FONT_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")
     + `<option value="${FONT_CUSTOM}">个性化</option>`;
@@ -233,6 +236,16 @@ export default async function settingsView(root: HTMLElement) {
           </div>
           <ul class="nav-edit-list" id="nav-edit-list"></ul>
         </div>
+
+        <!-- 菜单栏调整区 · 插件选项：Sparkle registerMenuBarItem 注册的项（开关/动作）。
+             没有插件注册时整块收掉；显隐记在宿主 localStorage，与侧栏渲染共用一份判定。 -->
+        <div class="nav-edit" id="sparkle-menubar-edit" hidden>
+          <div class="nav-edit__head">
+            <span class="nav-edit__title">插件选项</span>
+            <span class="nav-edit__hint">插件注册到菜单栏的开关/动作；关闭后从侧栏隐藏</span>
+          </div>
+          <ul class="nav-edit-list" id="sparkle-menubar-list"></ul>
+        </div>
       </div>
 
       <!-- 花火面具：卡片由下方 renderSparkleThemes 动态填充（无插件主题时整组隐藏） -->
@@ -281,13 +294,29 @@ export default async function settingsView(root: HTMLElement) {
     </section>
 
     <section class="set-panel" data-panel="playback" hidden>
-      <div class="set-group" id="backend-device"${isMac ? " hidden" : ""}>
+      ${showDevicePicker ? `<div class="set-group" id="backend-device">
         <div class="set-label">音频设备</div>
         <div class="set-row"><span class="set-row__label">输出设备</span>
           <div class="set-row__ctrl"><select id="audio-backend" disabled><option>系统默认</option></select></div>
         </div>
         <p class="muted set-hint" id="audio-device-hint">原生播放引擎下，</p>
-      </div>
+      </div>` : ""}
+
+      ${isLinux ? `<div class="set-group" id="liino-rate">
+        <div class="set-label">Liino 采样率 <span class="set-note-inline">PipeWire</span></div>
+        <div class="set-row"><span class="set-row__label">输出采样率</span>
+          <div class="opt-cards" id="liino-rate-cards">
+            <button class="opt-card" data-opt="off" type="button">固定 48 kHz</button>
+            <button class="opt-card" data-opt="on" type="button">跟随音源（自适应）</button>
+          </div>
+        </div>
+        <div class="set-row"><span class="set-row__label">切换声卡时钟</span>
+          <div class="opt-cards" id="liino-rate-switch-cards">
+            <button class="opt-card" data-opt="off" type="button">关（立即出声）</button>
+            <button class="opt-card" data-opt="on" type="button">开（声卡跟随）</button>
+          </div>
+        </div>
+      </div>` : ""}
 
       <div class="set-group">
         <div class="set-label">播放引擎 <span class="set-note-inline" id="engine-note">${backendNote}</span></div>
@@ -574,6 +603,14 @@ export default async function settingsView(root: HTMLElement) {
             <span class="bg-blur-val" id="cache-limit-val"></span>
           </div>
         </div>
+        <div class="set-row"><span class="set-row__label">缓存位置</span>
+          <div class="set-row__ctrl">
+            <input id="cache-dir" readonly placeholder="系统默认缓存目录" />
+            <button class="ghost-btn" id="cache-dir-pick" type="button">选择目录…</button>
+            <button class="ghost-btn" id="cache-dir-clear" type="button">恢复默认</button>
+          </div>
+        </div>
+        <p class="muted set-hint" id="cache-dir-note"></p>
         <div class="set-debug">
           <button class="ghost-btn" id="clear-cache" type="button">清理音乐缓存</button>
           <span class="muted set-hint" id="cache-status"></span>
@@ -1401,6 +1438,59 @@ export default async function settingsView(root: HTMLElement) {
     navDragId = null;
   });
 
+  // —— 菜单栏调整区 · 插件选项（Sparkle registerMenuBarItem） ——
+  // 列表 = 当前注册的插件项；开关 = 宿主 localStorage 里的显隐名单（与侧栏渲染共用一份判定）。
+  // 插件项自己的勾选/开关状态由插件维护（checked()），这里只给用户「显不显示」的控制权。
+  const sbEditBox = wrap.querySelector<HTMLElement>("#sparkle-menubar-edit")!;
+  const sbEditList = wrap.querySelector<HTMLUListElement>("#sparkle-menubar-list")!;
+
+  const paintSparkleMenuBarEditor = () => {
+    const entries = sparkleMenuBarEntries();
+
+    sbEditBox.hidden = entries.length === 0;
+    sbEditList.replaceChildren();
+
+    for (const entry of entries) {
+      const hidden = sparkleMenuBarItemHidden(entry.pluginId, entry.item.id);
+      const row = document.createElement("li");
+      row.className = "nav-edit-row";
+      row.dataset.sbId = `${entry.pluginId}:${entry.item.id}`;
+
+      if (hidden) row.classList.add("is-hidden");
+
+      const ico = document.createElement("span");
+      ico.className = "nav-edit-ico";
+      ico.innerHTML = entry.item.iconSvg ?? sharedIcons.sparkles;
+
+      const name = document.createElement("span");
+      name.className = "nav-edit-name";
+      name.textContent = entry.item.label + (entry.item.slot === "foot" ? "（侧栏底部）" : "");
+      name.title = entry.item.hint ?? entry.item.label;
+
+      const sw = document.createElement("label");
+      sw.className = "nav-edit-switch";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = !hidden;
+      cb.setAttribute("aria-label", `${entry.item.label}：在菜单栏显示`);
+      const flag = document.createElement("span");
+      flag.className = "nav-edit-flag";
+      flag.textContent = cb.checked ? "显示" : "隐藏";
+      cb.addEventListener("change", () => {
+        setSparkleMenuBarItemHidden(entry.pluginId, entry.item.id, !cb.checked);
+        row.classList.toggle("is-hidden", !cb.checked);
+        flag.textContent = cb.checked ? "显示" : "隐藏";
+      });
+      sw.append(cb, flag);
+
+      row.append(ico, name, sw);
+      sbEditList.append(row);
+    }
+  };
+
+  paintSparkleMenuBarEditor();
+  const offMenuBar = onSparkleChange(paintSparkleMenuBarEditor);
+
   const paintPlaylistModePolicy = () => {
     const policy = playlistModePolicyOf(activeSparkTheme());
     const locked = policy.mode !== "host";
@@ -1483,6 +1573,10 @@ export default async function settingsView(root: HTMLElement) {
   const cacheLimitVal = wrap.querySelector<HTMLElement>("#cache-limit-val")!;
   const cacheStatus = wrap.querySelector<HTMLElement>("#cache-status")!;
   const clearCacheBtn = wrap.querySelector<HTMLButtonElement>("#clear-cache")!;
+  const cacheDirInput = wrap.querySelector<HTMLInputElement>("#cache-dir")!;
+  const cacheDirPick = wrap.querySelector<HTMLButtonElement>("#cache-dir-pick")!;
+  const cacheDirClear = wrap.querySelector<HTMLButtonElement>("#cache-dir-clear")!;
+  const cacheDirNote = wrap.querySelector<HTMLElement>("#cache-dir-note")!;
 
   const fmtBytes = (n: number) => n >= (1 << 30) ? `${(n / (1 << 30)).toFixed(1)} GiB` : `${Math.round(n / (1 << 20))} MiB`;
   const paintCacheStatus = (r?: { items?: number; bytes?: number }) => {
@@ -1499,7 +1593,20 @@ export default async function settingsView(root: HTMLElement) {
   };
 
   paintCacheLimit();
-  void musicCacheStatus().then(paintCacheStatus).catch(() => { cacheStatus.textContent = "缓存服务不可用"; });
+  // 位置回显以 sidecar 现读为准（它才是真正落盘的那一侧）：自定义值为空时显示平台默认目录，
+  // 而不是留一个空输入框让人以为「没设置就不缓存」。
+  const paintCacheDir = (effective?: string) => {
+    const custom = getMusicCacheDir();
+
+    cacheDirInput.value = custom || effective || "";
+    cacheDirClear.disabled = !custom;
+    setHint(cacheDirNote, custom ? "" : (effective ? `当前使用系统默认位置：${effective}` : ""));
+  };
+
+  paintCacheDir();
+  void musicCacheStatus()
+    .then((r) => { paintCacheStatus(r); paintCacheDir(r.dir); })
+    .catch(() => { cacheStatus.textContent = "缓存服务不可用"; });
   cacheLimit.addEventListener("input", () => {
     setMusicCacheLimitMB(Number(cacheLimit.value));
     void setMusicCacheLimit(Number(cacheLimit.value) * 1024 * 1024).catch(() => {});
@@ -1513,6 +1620,74 @@ export default async function settingsView(root: HTMLElement) {
     catch (e) { cacheStatus.textContent = `清理失败：${errText(e)}`; }
     finally { clearCacheBtn.disabled = false; }
   };
+
+  // 缓存位置：选目录走「本地音乐」页同一座桥（quaver:local pick-folder，purpose=cache-dir）。
+  // **只写配置键**，由主进程解析路径后下发给 sidecar（与 /api/bg 同一条「路径不从渲染层来」
+  // 红线：sidecar 的 /cache/music/dir 拒绝带 Sec-Fetch-Dest 的请求）。搬家可能耗时（跨盘复制），
+  // 期间禁按钮并给出「搬迁中」文案；结果以主进程回执为准。
+  if (!window.quaverLocal) {
+    cacheDirPick.disabled = true;
+    cacheDirPick.title = "浏览器 dev 没有原生选目录，请在桌面端设置";
+  }
+
+  const commitCacheDir = async (next: string) => {
+    const previous = getMusicCacheDir();
+
+    cacheDirPick.disabled = true;
+    cacheDirClear.disabled = true;
+    cacheStatus.textContent = "搬迁缓存中…";
+
+    try {
+      const r = await cfgSetAwait({ "Playing.MusicCacheDir": next });
+      const applied = r.cache;
+
+      if (!r.ok || (applied && !applied.ok)) {
+        const why = applied?.error ?? r.error ?? "未知原因";
+
+        cacheStatus.textContent = `换位置失败：${why}`;
+        toast(`缓存位置不可用：${why}`, "err");
+
+        // 配置已落盘但 sidecar 用不了这个位置：回滚到改动前的值，别让界面与磁盘各说一套
+        // （apply=false：sidecar 那边没换成，不用再搬一趟）
+        if (previous !== next) await cfgSetAwait({ "Playing.MusicCacheDir": previous }, false);
+        paintCacheDir();
+
+        return;
+      }
+
+      paintCacheDir(applied?.dir);
+      paintCacheStatus(applied ?? undefined);
+      toast(next ? "缓存位置已更新" : "缓存位置已恢复默认");
+    } catch (e) {
+      cacheStatus.textContent = `换位置失败：${errText(e)}`;
+      toast(`缓存位置不可用：${errText(e)}`, "err");
+      paintCacheDir();
+    } finally {
+      cacheDirPick.disabled = !window.quaverLocal;
+      cacheDirClear.disabled = !getMusicCacheDir();
+    }
+  };
+
+  cacheDirPick.onclick = async () => {
+    const bridge = window.quaverLocal;
+
+    if (!bridge) return;
+    cacheDirPick.disabled = true;
+
+    try {
+      const r = await bridge.pickFolder("cache-dir");
+
+      if (!r.ok) { toast(r.error ?? "选择目录失败", "err"); return; }
+
+      if (r.canceled || !r.path) return;
+      await commitCacheDir(r.path);
+    } finally {
+      cacheDirPick.disabled = false;
+    }
+  };
+
+  cacheDirClear.onclick = () => { void commitCacheDir(""); };
+
   // 应用更新：自动检查开关（[Update] AutoCheck，默认开）
   bindOptCards<"on" | "off">(
     wrap.querySelector<HTMLElement>("#upd-auto-cards")!,
@@ -1960,8 +2135,8 @@ export default async function settingsView(root: HTMLElement) {
 
   // —— 播放引擎：MPV 原生直出 / MPVCompat 原生（兼容）/ Blink 浏览器。热切换保留当前曲目进度。
   const radios = wrap.querySelectorAll<HTMLInputElement>("#decode-radios input");
-  const devSel = wrap.querySelector<HTMLSelectElement>("#audio-backend")!;
-  const devHint = wrap.querySelector<HTMLElement>("#audio-device-hint")!;
+  const devSel = wrap.querySelector<HTMLSelectElement>("#audio-backend");
+  const devHint = wrap.querySelector<HTMLElement>("#audio-device-hint");
   const engNote = wrap.querySelector<HTMLElement>("#engine-note")!;
 
   /** mpv 来源标签：随包运行时 / 系统 mpv / QUAVER_MPV 指定（排障时一眼看出跑的哪一份） */
@@ -1990,6 +2165,7 @@ export default async function settingsView(root: HTMLElement) {
   }
 
   async function paintDevices() {
+    if (!devSel || !devHint) return;
     devSel.disabled = true;
     devSel.onchange = null;
     const r = await player.listAudioDevices();
@@ -2008,6 +2184,33 @@ export default async function settingsView(root: HTMLElement) {
     devSel.disabled = false;
     devHint.textContent = "切换即时生效，无需重启。";
     devSel.onchange = () => { void player.selectAudioDevice(devSel.value); };
+  }
+
+  // Liino 采样率（仅 Linux）：跟随音源 = 解码 / 环形缓冲 / DSP / 输出共用源时钟；
+  // 固定 48 kHz = 沿用旧管线。偏好始终可改（切回 Liino 时照样有效），下一首 Open 生效。
+  const rateCards = wrap.querySelector<HTMLElement>("#liino-rate-cards");
+  const rateSwitchCards = wrap.querySelector<HTMLElement>("#liino-rate-switch-cards");
+
+  const paintRateSwitch = () => {
+    if (!rateSwitchCards) return;
+
+    rateSwitchCards.querySelectorAll<HTMLButtonElement>("[data-opt]").forEach((b) => { b.disabled = !getAdaptiveRate(); });
+  };
+
+  if (rateCards) {
+    bindOptCards<"on" | "off">(rateCards, () => (getAdaptiveRate() ? "on" : "off"), (v) => {
+      setAdaptiveRate(v === "on");
+      paintRateSwitch();
+    });
+  }
+
+  if (rateSwitchCards) {
+    bindOptCards<"on" | "off">(
+      rateSwitchCards,
+      () => (getAdaptiveRateSwitch() ? "on" : "off"),
+      (v) => setAdaptiveRateSwitch(v === "on"),
+    );
+    paintRateSwitch();
   }
 
   // EQ 浮窗按需加载（settings 本身已是动态路由；曲线渲染/APO 解析不必跟着设置页常驻）。
@@ -2079,7 +2282,7 @@ export default async function settingsView(root: HTMLElement) {
   const hotkeysPanel = wrap.querySelector<HTMLElement>('[data-panel="hotkeys"]')!;
   const offHotkeys = mountHotkeysPanel(hotkeysPanel);
 
-  return () => { sticky.off(); offSparkle(); offSparkleThemes(); offHotkeys(); };
+  return () => { sticky.off(); offSparkle(); offSparkleThemes(); offMenuBar(); offHotkeys(); };
 }
 
 // —— 调试：日志页面（壳层 electron-dev.log 尾部；由 relay.ts /api/log 提供） ——

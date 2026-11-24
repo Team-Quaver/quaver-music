@@ -283,7 +283,6 @@ export function QueuePanel(): HTMLElement {
     row.className = "qp-item" + (i === player.index ? " cur" : "");
     const pic = coverUrl(q, 90); // QQ 音乐 CDN 只认 90/150/300/500 等标准尺寸，64 会 404
     row.innerHTML = `
-      <span class="qi-grip" title="拖动调整播放顺序" aria-hidden="true">${icons.grip}</span>
       <span class="qi-thumb" title="${escapeHtml(songTitle(q))} — 点击定位">${pic ? `<img src="${pic}" alt="" loading="lazy" draggable="false"/>` : ""}</span>
       <span class="qi-i">${i === player.index ? (player.loading ? "…" : player.playing ? "♪" : "❚❚") : i + 1}</span>
       <span class="qi-main">
@@ -293,7 +292,7 @@ export function QueuePanel(): HTMLElement {
       <button class="qi-del" type="button" title="从播放列表移除" aria-label="从播放列表移除">${icons.close}</button>
     `;
     row.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).closest(".qi-grip, .qi-del")) return; // 把手/删除钮不触发切歌
+      if ((e.target as HTMLElement).closest(".qi-del")) return; // 删除钮不触发切歌
 
       if (suppressClick) return;
       player.jump(i);
@@ -353,8 +352,8 @@ export function QueuePanel(): HTMLElement {
     }
   }
 
-  /** 整行可拖（把手只是给个显式入口）：按住行体纵向拖同样能排序。
-   *  触屏上纵向手势归列表滚动（.qp-item 是 touch-action:pan-y），拖拽走把手（none）。 */
+  /** 整行可拖：按住行体（点击后直接拖）纵向移动即排序，不再渲染把手或拖拽提示。
+   *  触屏上纵向手势仍归列表滚动（.qp-item 是 touch-action:pan-y）。 */
   function bindDrag(row: HTMLElement, fromIdx: number) {
     row.addEventListener("pointerdown", (e) => {
       if (e.button !== 0) return;

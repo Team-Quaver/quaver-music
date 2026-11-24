@@ -24,6 +24,10 @@ export interface AudioEngineBoot {
   log: EngineLog;
   /** quaver.conf 的 [Playing] Backend 快照：Liino / MPV / MPVCompat / Chromium；空值走平台默认。 */
   backendPreference?: string;
+  /** quaver.conf 的 [Playing] AdaptiveRate 快照：Liino 按音源采样率输出（仅 Linux/PipeWire 生效）。 */
+  adaptiveRate?: boolean;
+  /** quaver.conf 的 [Playing] AdaptiveRateSwitch：同时请求 PipeWire 切声卡时钟。 */
+  adaptiveRateSwitch?: boolean;
 }
 
 /** 当前生效的后端（boot 之前为 null；诊断面板与信号收尾路径都读它）。 */
@@ -42,6 +46,19 @@ export function audioBackendName(): string {
 /** 诊断专用：直接读当前活跃引擎；调用方不得用它替代命令面。 */
 export function getAudioEngine(): AnyAudioEngine {
   return active ?? audioEngine;
+}
+
+/** 设置页改了 Liino 输出采样率策略：更新下次 boot / 热切换的快照，并转给正在运行的 Liino。
+ *  native 侧只写入会话配置，下一首 open 才生效。 */
+export function setAudioAdaptiveRate(on: boolean): void {
+  if (bootState) bootState.adaptiveRate = on;
+  if (active?.kind === "liino") active.setAdaptiveRate(on);
+}
+
+/** 设置页改了“切声卡时钟”策略：同样只写入会话配置，下一首 open 才生效。 */
+export function setAudioAdaptiveRateSwitch(on: boolean): void {
+  if (bootState) bootState.adaptiveRateSwitch = on;
+  if (active?.kind === "liino") active.setAdaptiveRateSwitch(on);
 }
 
 /** 主进程侧唯一的 `quaver:audio` 路由：普通命令交给 active，backend 命令先换引擎。 */
