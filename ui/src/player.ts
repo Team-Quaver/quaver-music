@@ -1712,7 +1712,7 @@ class Player {
       }
     }
 
-    return resolveStreamUrl(song, isQualityId(q) ? q : "auto");
+    return resolveStreamUrl(song, isQualityId(q) ? q : effectiveQuality());
   }
 
   /** getPlayUrl 语义的内部入口：预取命中用预取结果，否则现场协商；

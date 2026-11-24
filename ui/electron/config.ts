@@ -754,8 +754,8 @@ export const SCHEMA: SectionSpec[] = [
     keys: [
       {
         key: "DefaultQuality",
-        def: "Auto",
-        doc: ["默认音质：Auto｜96ogg｜128｜192ogg｜320｜320ogg｜flac｜640ogg｜atmos2｜atmos51｜atmos71｜master"],
+        def: "master",
+        doc: ["默认音质：96ogg｜128｜192ogg｜320｜320ogg｜flac｜640ogg｜atmos2｜atmos51｜atmos71｜master"],
         valid: (v: string) => ["Auto", "96ogg", "128", "192ogg", "320", "320ogg", "flac", "640ogg", "atmos2", "atmos51", "atmos71", "master"].includes(v),
       },
       {

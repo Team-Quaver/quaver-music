@@ -324,8 +324,8 @@ export function PlayerBar(): HTMLElement {
   const syncSel = () => qPop.querySelectorAll<HTMLElement>(".qp-q")
     .forEach((x) => x.classList.toggle("sel", x.dataset.q === cur()));
 
-  /** 档位 id → Quality；认不出（后端新增档位）时按 auto 处理。 */
-  const tierQuality = (id: string): Quality | "auto" => QUALITY_IDS.find((quality) => quality === id) ?? "auto";
+  /** 档位 id → Quality；认不出（后端新增档位）时返回 null。 */
+  const tierQuality = (id: string): Quality | null => QUALITY_IDS.find((quality) => quality === id) ?? null;
 
   function buildQPop() {
     qPop.innerHTML = "";
@@ -352,14 +352,16 @@ export function PlayerBar(): HTMLElement {
       b.dataset.q = id;
       b.innerHTML = `<span>${label}</span>${note ? `<i class="muted">${note}</i>` : ""}`;
       b.onclick = () => {
-        player.switchQuality(QUALITY_IDS.find((quality) => quality === id) ?? "auto");
+        const quality = QUALITY_IDS.find((q) => q === id);
+
+        if (!quality) return;
+        player.switchQuality(quality);
         el.classList.remove("q-open");
       };
 
       qPop.append(b);
     };
 
-    item("auto", "自动", "最高可播");
     // 只列这首歌实际有源的档位（上游 file 元数据判定；元数据缺失回退全量）。
     // 会员锁定的档不算「无源」：照常展示并标 🔒（选择后走自动回退）。
     const missing = songMissingTiers(player.current);
@@ -367,7 +369,7 @@ export function PlayerBar(): HTMLElement {
     for (const t of missing ? tierList.filter((x) => {
       const tier = tierQuality(x.id);
 
-      return tier === "auto" || !missing.has(tier);
+      return !tier || !missing.has(tier);
     }) : tierList)
       item(t.id, t.label, t.locked ? "🔒 自动回退" : "");
 

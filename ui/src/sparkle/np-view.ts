@@ -174,8 +174,8 @@ export function npViewCtx(): SparkleNpViewCtx {
     jumpTo: (offset) => player.jumpToOffset(offset),
     setVolume: (v) => player.setVolume(v),
     toggleMute: () => player.toggleMute(),
-    // SAFETY: SDK 的 id 来自上面 availableTiers()，表项由 QUALITY_IDS 构造，值域就是 Quality | "auto"。
-    switchQuality: (id) => player.switchQuality(id as Quality | "auto"),
+    // SAFETY: SDK 的 id 来自上面 availableTiers()，表项由 QUALITY_IDS 构造，值域就是 Quality。
+    switchQuality: (id) => player.switchQuality(id as Quality),
     toggleTrans: () => player.toggleTrans(),
     loved: (mid) => player.loved.has(mid),
     toggleLove: () => {

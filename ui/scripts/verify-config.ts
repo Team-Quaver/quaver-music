@@ -164,7 +164,7 @@ check("模板含全部段", ["[Style]", "[Window]", "[Playing]", "[Quality]", "[
 
 check("模板注释来自 schema", template().includes("可选 dark,light,follow-system"));
 
-eq("默认值与模板占位一致", (() => { const v = readValues().values; return v["Style.Style"] === "dark" && v["Playing.Backend"] === "Liino" && v["Quality.DefaultQuality"] === "Auto" && v["Quality.FallbackToQMAtmos"] === "False"; })(), true);
+eq("默认值与模板占位一致", (() => { const v = readValues().values; return v["Style.Style"] === "dark" && v["Playing.Backend"] === "Liino" && v["Quality.DefaultQuality"] === "master" && v["Quality.FallbackToQMAtmos"] === "False"; })(), true);
 
 eq("窗口装饰默认三平台统一 csd（macOS 走 hiddenInset 红绿灯）", [defaultDecor("darwin"), defaultDecor("linux"), defaultDecor("win32")], ["csd", "csd", "csd"]);
 
@@ -547,6 +547,8 @@ check("默认音质切换会重载当前流并保留播放态",
   /applyDefaultQuality\(\)\s*\{\s*setSessionQuality\(null\);[\s\S]{0,260}?const wasPlaying = !this\.transport\.paused;[\s\S]{0,220}?void this\.startCurrent\(at > 1 \? at : 0, wasPlaying\)/.test(playerSrc));
 
 check("设置页默认音质切换调用 applyDefaultQuality", settingsSrc.includes("player.applyDefaultQuality();"));
+
+check("设置页不再提供自动音质选项", !settingsSrc.includes('data-q="auto"'));
 
 // ——— 重置 ———
 section("重置");

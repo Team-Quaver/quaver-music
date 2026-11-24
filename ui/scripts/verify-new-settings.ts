@@ -1,4 +1,4 @@
-// 本次三项更改的验证：默认音质=auto、设置页两个新开关、播放条只读徽章移除、后端 deprioritize 参数
+// 本次三项更改的验证：默认音质=权限内最高档、设置页两个新开关、播放条只读徽章移除、后端 deprioritize 参数
 import puppeteer from "puppeteer-core";
 
 const BASE = "http://127.0.0.1:5173";
@@ -26,16 +26,17 @@ await page.goto(`${BASE}/index.html#/settings`, { waitUntil: "networkidle2" });
 
 await sleep(800);
 
-// 1) 干净 profile：默认音质 = auto（配置文件无覆盖时也选中「自动」）
-await step("默认音质=auto", async () => {
+// 1) 干净 profile：默认音质落到当前权限最高档，设置页不再提供「自动」
+await step("默认音质=权限内最高档", async () => {
   const st = await page.evaluate(() => window.__cfg.get("Quality.DefaultQuality"));
 
-  if (st !== "Auto") throw new Error("DefaultQuality=" + st);
+  if (st === "Auto") throw new Error("DefaultQuality=" + st);
   const sel = await page.$eval("#quality-grid .sel", (el) => el.getAttribute("data-q"));
 
-  if (sel !== "auto") throw new Error("selected=" + sel);
+  if (sel === "auto") throw new Error("selected=" + sel);
+  if (sel !== st) throw new Error(`selected=${sel} DefaultQuality=${st}`);
 
-  return "selected auto, conf stays Auto";
+  return `selected ${sel}`;
 });
 
 // 2) 设置页新开关
@@ -78,7 +79,7 @@ await step("播放条徽章移除（胶囊保留）", async () => {
   return "pill kept, badge gone";
 });
 
-// 4) 真实播放（默认 auto 档）：起播成功 + sub 行不再出徽章 + 胶囊反映实际档
+// 4) 真实播放（默认档）：起播成功 + sub 行不再出徽章 + 胶囊反映实际档
 const songs = await page.evaluate(async () => {
   const d = await (await fetch("/api/song/002Cvsvv1RVStG/detail")).json();
   const t = d.data.track ?? d.data;
@@ -86,7 +87,7 @@ const songs = await page.evaluate(async () => {
   return [{ id: t.id, mid: t.mid, name: t.name, type: t.type ?? 1, singer: t.singer, album: t.album, interval: t.interval, file: t.file }];
 });
 
-await step("auto 档真实起播，sub 无徽章，胶囊=实际档", async () => {
+await step("默认档真实起播，sub 无徽章，胶囊=实际档", async () => {
   await page.goto(`${BASE}/index.html#/`, { waitUntil: "networkidle2" });
   await sleep(600);
   await page.evaluate((s) => window.__quaverPlayer.playList(s, 0), songs);

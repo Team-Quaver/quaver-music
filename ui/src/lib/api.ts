@@ -203,34 +203,36 @@ export function isQualityId(id: string): id is Quality {
   return Object.prototype.hasOwnProperty.call(QUALITIES, id);
 }
 
-// 默认音质存在 quaver.conf 的 [Quality] DefaultQuality（Auto｜96ogg｜128｜192ogg｜320｜320ogg｜flac｜640ogg｜atmos2｜atmos51｜atmos71｜master）
+// 默认音质存在 quaver.conf 的 [Quality] DefaultQuality（96ogg｜128｜192ogg｜320｜320ogg｜flac｜640ogg｜atmos2｜atmos51｜atmos71｜master）
 // 表必须与后端 tierTable 全量对齐（getQuality 白名单 + 播放条菜单兜底数据源）：
-// 设置页列表是动态的（/stream/tiers all_tiers），点了一个表里没有的档，syncQ 回读会被白名单弹回「自动」。
-export function getQuality(): Quality | "auto" {
-  const q = cfg("Quality.DefaultQuality", "Auto");
+// 设置页列表是动态的（/stream/tiers all_tiers），点了一个表里没有的档，syncQ 回读会落到权限内最高档。
+export function getQuality(): Quality {
+  const q = cfg("Quality.DefaultQuality", "");
 
-  return q && q !== "Auto" && isQualityId(q) ? q : "auto";
+  if (q && isQualityId(q)) return clampQuality(q);
+
+  return maxQuality() ?? "master";
 }
 
-export function setQuality(q: Quality | "auto") {
-  cfgSet({ "Quality.DefaultQuality": q === "auto" ? "Auto" : q });
+export function setQuality(q: Quality) {
+  cfgSet({ "Quality.DefaultQuality": q });
 }
 
 // —— 播放条音质切换：会话级覆盖（不写入 localStorage；重启回到设置页默认）。
 //    选择永远带 Fallback（auto_downgrade）：高档不可及就沿回退链降到最优可播档，绝不 403 卡死播放链路。
-let sessionQuality: Quality | "auto" | null = null;
+let sessionQuality: Quality | null = null;
 export const getSessionQuality = () => sessionQuality;
-export const setSessionQuality = (q: Quality | "auto" | null) => { sessionQuality = q; };
+export const setSessionQuality = (q: Quality | null) => { sessionQuality = q; };
 
 /** 当前生效档位：播放条会话选择 > 设置页默认 */
-export const effectiveQuality = (): Quality | "auto" => sessionQuality ?? getQuality();
+export const effectiveQuality = (): Quality => sessionQuality ?? getQuality();
 
 /** 档位短标签（播放条音质胶囊用） */
 export const QUALITY_SHORT = {
-  auto: "自动", "96ogg": "流畅·Ogg", "128": "标准", "192ogg": "HQ192·Ogg", "320": "HQ",
+  "96ogg": "流畅·Ogg", "128": "标准", "192ogg": "HQ192·Ogg", "320": "HQ",
   "320ogg": "HQ·Ogg", flac: "SQ", "640ogg": "SQ·Ogg",
   atmos2: "臻品", atmos51: "全景", atmos71: "全景7.1", master: "母带",
-} satisfies Record<Quality | "auto", string>;
+} satisfies Record<Quality, string>;
 
 /** 任意字符串档位 id → 短标签（表外返回空串，调用方保留兜底文案）。 */
 export const qualityShortOf = (id: string): string =>
@@ -256,8 +258,44 @@ interface StreamTiers { membership: number; membership_label: string; tiers: Str
 
 let tiersCache: StreamTiers | null = null;
 
+/** 当前账号可及的最高档位；档位表未到时为 null。 */
+function maxQuality(): Quality | null {
+  const max = tiersCache?.max;
+
+  return max && isQualityId(max) ? max : null;
+}
+
+/** 超过当前权限的档位落到权限内最高档（显式选择的低档保持不变）。 */
+function clampQuality(q: Quality): Quality {
+  const max = maxQuality();
+  const tiers = tiersCache?.all_tiers;
+
+  if (!max || !tiers) return q;
+
+  const rankOf = (id: string) => tiers.find((t) => t.id === id)?.rank;
+  const qRank = rankOf(q);
+  const maxRank = rankOf(max);
+
+  return qRank !== undefined && maxRank !== undefined && qRank > maxRank ? max : q;
+}
+
+/** 旧配置的 Auto（或已无权限的档位）落到当前权限最高档，并写回配置。 */
+function adoptDefaultQuality(t: StreamTiers): void {
+  const max = t.max && isQualityId(t.max) ? t.max : null;
+
+  if (!max) return;
+
+  const q = cfg("Quality.DefaultQuality", "");
+  const locked = !!t.all_tiers.find((x) => x.id === q)?.locked;
+
+  if (!isQualityId(q) || locked) cfgSet({ "Quality.DefaultQuality": max });
+}
+
 export async function getStreamTiers(force = false): Promise<StreamTiers> {
-  if (!tiersCache || force) tiersCache = await api<StreamTiers>("/stream/tiers");
+  if (!tiersCache || force) {
+    tiersCache = await api<StreamTiers>("/stream/tiers");
+    adoptDefaultQuality(tiersCache);
+  }
 
   return tiersCache;
 }
@@ -352,7 +390,7 @@ function decodeWeiyunFileName(directUrl: string): string {
 
 /** 协商一条可播流：永远带 Fallback（auto_downgrade）——高档被会员/加密/无源挡住时沿回退链
  *  降到最优可播明文档，degraded 标记实际降档；配合播放条音质胶囊（会话级、不持久化）。 */
-export async function resolveStreamUrl(song: any, quality: Quality | "auto" = effectiveQuality()): Promise<StreamResult> {
+export async function resolveStreamUrl(song: any, quality: Quality = effectiveQuality()): Promise<StreamResult> {
   if (song?.directUrl && song?.cloud) {
     const cloudFileId = decodeWeiyunFileId(song.directUrl);
 
@@ -370,9 +408,8 @@ export async function resolveStreamUrl(song: any, quality: Quality | "auto" = ef
   }
 
   const mediaId: string = song.file?.media_mid ?? song.media_mid ?? song.mid;
-  let tier: string = quality;
+  const tier: string = quality;
 
-  if (tier === "auto") tier = (await getStreamTiers()).max ?? "128";
   // 回退排序开关（设置页）：默认不把「臻品全景声（5.1 / 7.1）」当作优先降档落点（压到链尾兜底）
   const deprioritize = getFallbackSort() === "no-atmos" ? ["atmos51", "atmos71"] : [];
 
@@ -396,6 +433,6 @@ export async function resolveStreamUrl(song: any, quality: Quality | "auto" = ef
   }
 }
 
-export async function getPlayUrl(song: any, quality: Quality | "auto" = effectiveQuality()): Promise<string> {
+export async function getPlayUrl(song: any, quality: Quality = effectiveQuality()): Promise<string> {
   return (await resolveStreamUrl(song, quality)).url;
 }

@@ -46,7 +46,7 @@ export interface SessionSnapshot {
   source?: string | null;
   /** 每一首自己的来源页，与 queue 同下标（插队进来的歌来源各不相同）；旧存档没有这一项。 */
   sources?: (string | null)[];
-  /** 播放条会话音质覆盖（Quality | "auto" | 未覆盖=null）。
+  /** 播放条会话音质覆盖（Quality | 未覆盖=null）。
    *  只在窗口重建接管时恢复 —— 冷启动仍回设置页默认（会话级语义不变） */
   quality?: string | null;
   /** 最近一次「已应用」的流档位（播放条音质胶囊数据源），与 quality 同步存取 */

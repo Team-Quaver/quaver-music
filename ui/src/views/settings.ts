@@ -374,9 +374,7 @@ export default async function settingsView(root: HTMLElement) {
 
       <div class="set-group">
         <div class="set-label">默认音质 <span class="set-note-inline" id="q-member-note"></span></div>
-        <div class="opt-cards" id="quality-grid">
-          <button class="opt-card q" data-q="auto" type="button">自动</button>
-        </div>
+        <div class="opt-cards" id="quality-grid"></div>
       </div>
 
       <div class="set-group">
@@ -2328,8 +2326,12 @@ export default async function settingsView(root: HTMLElement) {
 
   const bindQ = () => {
     qBox.querySelectorAll<HTMLButtonElement>("[data-q]").forEach((b) => {
-      if (!b.disabled) b.onclick = () => {
-        setQuality(QUALITY_IDS.find((quality) => quality === b.dataset.q) ?? "auto");
+      if (b.disabled) return;
+      b.onclick = () => {
+        const quality = QUALITY_IDS.find((q) => q === b.dataset.q);
+
+        if (!quality) return;
+        setQuality(quality);
         syncQ();
         // 默认档是「立即生效」：有当前曲就按原进度重新协商；播放条临时选择同时让位。
         player.applyDefaultQuality();

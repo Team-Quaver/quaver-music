@@ -101,7 +101,7 @@ eqSet("size_new 非数组：臻品系不误杀", mt.missingTiersOf(Q, { size_128
 
 eqSet("size_new 截短：缺席档不误杀", mt.missingTiersOf(Q, { size_128mp3: 10, size_new: [163778412] }), []);
 
-eqSet("全零：全部隐藏（选择器只剩自动）", mt.missingTiersOf(Q, { size_128mp3: 0, size_320mp3: 0, size_flac: 0, size_192ogg: 0, size_96ogg: 0, size_new: [0, 0, 0, 0, 0, 0, 0] }),
+eqSet("全零：全部隐藏", mt.missingTiersOf(Q, { size_128mp3: 0, size_320mp3: 0, size_flac: 0, size_192ogg: 0, size_96ogg: 0, size_new: [0, 0, 0, 0, 0, 0, 0] }),
   Q);
 
 // —— 档位全集来自调用方（api.ts 传 QUALITIES 的键）——
@@ -121,9 +121,9 @@ ok("api: songMissingTiers 用 QUALITIES 全集判定", /songMissingTiers\([\s\S]
 // PlayerBar：选择器过滤 + 换曲重建
 ok("bar: 引入 songMissingTiers", has(src.bar, "songMissingTiers"));
 
-ok("bar: 浮窗按无源档过滤（auto 恒在，锁定档不算无源）",
-  has(src.bar, `item("auto", "自动", "最高可播")`)
-  && /missing \? tierList\.filter\(\(x\) => \{[\s\S]{0,120}?!missing\.has\(tier\)/.test(src.bar));
+ok("bar: 浮窗按无源档过滤（无自动项，锁定档不算无源）",
+  !has(src.bar, `item("auto"`)
+  && /missing \? tierList\.filter\(\(x\) => \{[\s\S]{0,160}?!missing\.has\(tier\)/.test(src.bar));
 
 ok("bar: 换曲即重建浮窗（挂在 lastMarkKey 换曲判定上）",
   /if \(s\?\.mid !== lastMarkKey\) \{ lastMarkKey = s\?\.mid; player\.markActive\(\); buildQPop\(\); \}/.test(src.bar));
