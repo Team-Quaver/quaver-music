@@ -112,9 +112,18 @@ check("候选补 mid 的函数可调用", (await resolveQQMatches([])).length ==
 const mapped = recognitionSong({
   id: "123",
   mid: "003abc",
+  songId: 456,
+  type: 1,
   title: "歌",
-  artists: ["人", "另一位"],
+  artists: [
+    { name: "人", mid: "singer-a" },
+    { name: "另一位", mid: "singer-b" },
+  ],
   album: "碟",
+  albumMid: "album-mid",
+  albumPmid: "album-mid_1",
+  interval: 218,
+  file: { media_mid: "media-mid", size_128mp3: 1024 },
 }, 0);
 
 check("扁平候选直接映射成播放器 Song", mapped.song.name === "歌" && mapped.song.mid === "003abc");
@@ -123,10 +132,77 @@ check("候选 key 不含 NUL（否则 data 属性会被 HTML 解析器截断）"
 
 check("多歌手不丢字段", mapped.song.singer?.map((a) => a.name).join("/") === "人/另一位");
 
+check("歌手 mid 进入 Song（播放后可跳转歌手）", mapped.song.singer?.[0]?.mid === "singer-a");
+
+check("专辑 mid/pmid 进入 Song（封面与跳转专辑都依赖它）",
+  mapped.song.album?.mid === "album-mid" && mapped.song.album?.pmid === "album-mid_1");
+
+check("file.media_mid 进入 Song（高档位取链依赖它）", mapped.song.file?.media_mid === "media-mid");
+
+check("QQ 数字 id / type / interval 进入 Song",
+  mapped.song.id === 456 && mapped.song.type === 1 && mapped.song.interval === 218);
+
 check("搜索关键词由标题与歌手拼成", mapped.keyword === "歌 人 另一位");
 
 check("弹窗消费扁平候选而非 raw.song", !/raw\?\.song/.test(read("src/components/SongRecognitionDialog.ts"))
   && /recognitionSong\(candidate, index\)/.test(read("src/components/SongRecognitionDialog.ts")));
+
+console.log("\n=== QQ 回查字段 ===");
+
+const realFetch = globalThis.fetch;
+
+globalThis.fetch = async () => new Response(JSON.stringify({
+  code: 0,
+  data: {
+    song: [{
+      id: 987,
+      mid: "qq-mid",
+      type: 1,
+      name: "歌",
+      title: "歌",
+      interval: 218,
+      singer: [{ name: "人", mid: "singer-mid" }],
+      album: { name: "碟", mid: "album-mid", pmid: "album-mid_1" },
+      file: { media_mid: "media-mid", size_128mp3: 1024, size_flac: 4096, size_new: [1] },
+    }],
+  },
+}), { status: 200, headers: { "content-type": "application/json" } });
+
+try {
+  const [hit] = await resolveQQMatches(qq);
+  const hitId = Number(hit?.song.id);
+
+  const playable = hit
+    ? recognitionSong({
+      id: String(hit.song.id ?? ""),
+      mid: hit.song.mid,
+      songId: Number.isFinite(hitId) && hitId > 0 ? hitId : undefined,
+      type: hit.song.type,
+      title: hit.song.name,
+      artists: hit.song.artists,
+      album: hit.song.album.name,
+      albumMid: hit.song.album.mid,
+      albumPmid: hit.song.album.pmid,
+      cover: hit.song.album.picUrl,
+      interval: hit.song.interval,
+      file: hit.song.file,
+    }, 0)
+    : null;
+
+  check("回查命中后保留 QQ 数字 id / type / interval",
+    hit?.song.id === 987 && hit?.song.type === 1 && hit?.song.interval === 218);
+  check("回查命中后保留歌手 mid", hit?.song.artists[0]?.mid === "singer-mid");
+  check("回查命中后保留专辑 mid/pmid",
+    hit?.song.album.mid === "album-mid" && hit?.song.album.pmid === "album-mid_1");
+  check("回查命中后保留 file.media_mid 与档位 size", hit?.song.file?.media_mid === "media-mid"
+    && hit?.song.file?.size_128mp3 === 1024 && hit?.song.file?.size_flac === 4096);
+  check("回查结果映射到播放器后仍有封面/跳转/音源字段",
+    playable?.song.album?.mid === "album-mid"
+    && playable?.song.singer?.[0]?.mid === "singer-mid"
+    && playable?.song.file?.media_mid === "media-mid");
+} finally {
+  globalThis.fetch = realFetch;
+}
 
 console.log("\n=== 打包 ===");
 

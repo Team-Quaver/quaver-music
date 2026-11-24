@@ -2,16 +2,37 @@
 // Linux 的系统声音由主进程录默认输出的 monitor source；Windows 走 display-capture loopback。
 
 export type RecognitionPhase = "idle" | "capturing" | "fingerprinting" | "matching" | "done" | "error";
+
 export type RecognitionSource = "system" | "microphone";
+
+export type RecognitionArtist = { name: string; mid?: string; pmid?: string };
+
+/** QQ 曲目的 file 元数据（取链 media_mid / 档位 size）；未命中 QQ 时为空。 */
+export type RecognitionFile = {
+  media_mid?: string;
+  size_96ogg?: number;
+  size_128mp3?: number;
+  size_192ogg?: number;
+  size_320mp3?: number;
+  size_flac?: number;
+  size_new?: number[];
+};
 
 export type RecognitionCandidate = {
   id: string;
   /** QQ songmid；回查 QQ 曲库命中时可直接起播，缺失则走搜索。 */
   mid?: string;
+  /** QQ 曲目数字 id（听歌时长上报用）；与展示 stable key 的 id 分开。 */
+  songId?: number;
+  type?: number;
   title: string;
-  artists: string[];
+  artists: RecognitionArtist[];
   album?: string;
+  albumMid?: string;
+  albumPmid?: string;
   cover?: string;
+  interval?: number;
+  file?: RecognitionFile;
   startTimeMs?: number;
 };
 
@@ -25,9 +46,12 @@ type RecognitionCandidateWire = {
     id?: number | string;
     songId?: number | string;
     mid?: string;
+    type?: number;
     name?: string;
-    artists?: Array<{ name?: string }>;
-    album?: { name?: string; picUrl?: string };
+    interval?: number;
+    artists?: Array<{ name?: string; mid?: string; pmid?: string }>;
+    album?: { name?: string; mid?: string; pmid?: string; picUrl?: string };
+    file?: RecognitionFile;
   };
   startTime?: number;
 };
@@ -197,6 +221,7 @@ async function captureSystemFromHost(signal: AbortSignal): Promise<CapturedPcm |
   }
 
   if (r.status !== 501) {
+    // SAFETY: 同源中继返回固定 JSON 信封，解析后只读取 msg
     const body = await r.json().catch(() => null) as { msg?: string } | null;
 
     throw new Error(body?.msg || `系统声音采集失败 HTTP ${r.status}`);
@@ -224,7 +249,7 @@ async function captureSystemFromDisplay(signal: AbortSignal): Promise<CapturedPc
 
 /** 系统声音：Linux 走主进程 monitor，其他平台走 Electron loopback。 */
 async function captureSystem(signal: AbortSignal): Promise<CapturedPcm> {
-  const host = await captureSystemFromHost(signal).catch((error: unknown) => {
+  const host = await captureSystemFromHost(signal).catch((error) => {
     if (signal.aborted) throw error;
 
     return null;
@@ -383,14 +408,25 @@ export async function recognizeAudio(
         const candidates: RecognitionCandidate[] = songs.slice(0, 3).map((item, index) => {
           const song = item?.song ?? {};
           const artists = Array.isArray(song.artists) ? song.artists : [];
+          const songId = Number(song.id ?? song.songId);
 
           return {
             id: String(song.id ?? song.songId ?? `${index}`),
             mid: song.mid,
+            songId: Number.isFinite(songId) && songId > 0 ? songId : undefined,
+            type: song.type,
             title: String(song.name ?? "未知歌曲"),
-            artists: artists.map((a) => a.name ?? "").filter(Boolean),
+            artists: artists.flatMap((artist) => {
+              const name = String(artist?.name ?? "");
+
+              return name ? [{ name, mid: artist.mid, pmid: artist.pmid }] : [];
+            }),
             album: song.album?.name,
+            albumMid: song.album?.mid,
+            albumPmid: song.album?.pmid,
             cover: song.album?.picUrl,
+            interval: song.interval,
+            file: song.file,
             startTimeMs: Number(item?.startTime ?? 0) * 1000,
           };
         });

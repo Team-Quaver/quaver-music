@@ -31,14 +31,29 @@ type NeteaseMatch = {
   data?: { result?: NeteaseResultItem[] };
 };
 
-type QQArtist = { name?: string };
+type QQArtist = { name?: string; mid?: string; pmid?: string };
+
+/** QQ 曲目的 file 元数据：media_mid 决定高档位取链，size_* 决定档位选择器显隐。 */
+type QQFile = {
+  media_mid?: string;
+  size_96ogg?: number;
+  size_128mp3?: number;
+  size_192ogg?: number;
+  size_320mp3?: number;
+  size_flac?: number;
+  size_new?: number[];
+};
 
 type QQSearchSong = {
+  id?: number;
   mid?: string;
+  type?: number;
   name?: string;
   title?: string;
+  interval?: number;
   singer?: QQArtist[];
   album?: { name?: string; mid?: string; pmid?: string };
+  file?: QQFile;
 };
 
 /** 中继给渲染层的归一化候选：QQ 结果带 songmid。 */
@@ -46,9 +61,12 @@ export type RecognitionMatchCandidate = {
   song: {
     id?: number | string;
     mid?: string;
+    type?: number;
     name: string;
-    artists: Array<{ name: string }>;
-    album: { name: string; picUrl: string };
+    artists: Array<{ name: string; mid?: string; pmid?: string }>;
+    album: { name: string; mid?: string; pmid?: string; picUrl: string };
+    interval?: number;
+    file?: QQFile;
   };
   startTime: number;
   score: number;
@@ -249,6 +267,27 @@ function qqCover(song: QQSearchSong): string {
   return base ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${base}.jpg` : "";
 }
 
+/** 只保留取链与档位判断会用到的 file 字段，不把上游整包元数据挂到候选上。 */
+function qqFile(song: QQSearchSong): QQFile | undefined {
+  const file = song.file;
+
+  if (!file) return undefined;
+
+  const out: QQFile = {};
+
+  if (file.media_mid) out.media_mid = String(file.media_mid);
+
+  for (const key of ["size_96ogg", "size_128mp3", "size_192ogg", "size_320mp3", "size_flac"] as const) {
+    const value = file[key];
+
+    if (value !== undefined) out[key] = value;
+  }
+
+  if (Array.isArray(file.size_new)) out.size_new = file.size_new;
+
+  return Object.keys(out).length ? out : undefined;
+}
+
 /** 用标题 + 首位歌手查 QQ 曲库；失败只返回 null，不阻断识别结果展示。 */
 async function searchQQSong(candidate: RecognitionMatchCandidate): Promise<QQSearchSong | null> {
   const artist = candidate.song.artists[0]?.name ?? "";
@@ -291,21 +330,26 @@ export async function resolveQQMatches(candidates: RecognitionMatchCandidate[]):
       ? song.singer.flatMap((artist) => {
         const artistName = String(artist?.name ?? "");
 
-        return artistName ? [{ name: artistName }] : [];
+        return artistName ? [{ name: artistName, mid: artist.mid, pmid: artist.pmid }] : [];
       })
       : [];
 
     return {
       ...candidate,
       song: {
-        id: song.mid,
+        id: song.id ?? song.mid,
         mid: song.mid,
+        type: song.type,
         name: name || candidate.song.name,
         artists: singers.length ? singers : candidate.song.artists,
         album: {
           name: String(song.album?.name ?? candidate.song.album.name),
+          mid: String(song.album?.mid ?? candidate.song.album.mid ?? ""),
+          pmid: String(song.album?.pmid ?? candidate.song.album.pmid ?? ""),
           picUrl: qqCover(song) || candidate.song.album.picUrl,
         },
+        interval: song.interval,
+        file: qqFile(song),
       },
     };
   }));

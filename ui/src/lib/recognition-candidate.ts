@@ -17,15 +17,28 @@ export type RecognitionSong = {
  * @returns 播放器 Song 与搜索关键词
  */
 export function recognitionSong(candidate: RecognitionCandidate, index: number): RecognitionSong {
+  const singers = candidate.artists.map((artist) => ({
+    name: artist.name,
+    mid: artist.mid,
+    pmid: artist.pmid,
+  }));
+
   return {
     key: `${candidate.id || candidate.mid || candidate.title}#${index}`,
     song: {
       mid: candidate.mid ?? "",
+      id: candidate.songId,
+      type: candidate.type,
       name: candidate.title,
-      singer: candidate.artists.map((name) => ({ name })),
-      album: { name: candidate.album ?? "", mid: "", pmid: "" },
-      interval: 0,
+      singer: singers,
+      album: {
+        name: candidate.album ?? "",
+        mid: candidate.albumMid ?? "",
+        pmid: candidate.albumPmid ?? "",
+      },
+      interval: candidate.interval ?? 0,
+      file: candidate.file,
     },
-    keyword: [candidate.title, ...candidate.artists].filter(Boolean).join(" "),
+    keyword: [candidate.title, ...candidate.artists.map((artist) => artist.name)].filter(Boolean).join(" "),
   };
 }
