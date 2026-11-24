@@ -16,7 +16,7 @@
 export const TTML_DB_DEFAULT_URL = "https://amlldb.bikonoo.com/%p/%s.ttml";
 
 /** 平台 → AMLL TTML 数据库仓库的平台目录名。表里没有的平台 = 无身份可用，展开返回 null。 */
-export const TTML_PLATFORM_DIRS: Record<string, string> = {
+export const TTML_PLATFORM_DIRS = {
   qq: "qq-lyrics",
   ncm: "ncm-lyrics",
   netease: "ncm-lyrics",
@@ -25,7 +25,12 @@ export const TTML_PLATFORM_DIRS: Record<string, string> = {
   apple: "am-lyrics",
   itunes: "am-lyrics",
   spotify: "spotify-lyrics",
-};
+} satisfies Record<string, string>;
+
+/** 平台表查找（表外返回空串；调用方据此拒绝需要 %p 的模板）。 */
+function ttmlPlatformDir(platform: string): string {
+  return Object.entries(TTML_PLATFORM_DIRS).find(([id]) => id === platform)?.[1] ?? "";
+}
 
 /** 地址模板判据：http(s) 绝对地址、必须含 %s（%p 可选）、无空白/引号/尖括号/反斜杠/井号/竖线、≤512。 */
 export function isTtmlDatabaseUrl(v: string): boolean {
@@ -40,7 +45,7 @@ export function expandTtmlUrl(tpl: string, platform: string, id: string): string
   const sid = String(id ?? "").trim();
 
   if (!isTtmlDatabaseUrl(t) || !sid) return null;
-  const dir = TTML_PLATFORM_DIRS[String(platform ?? "").toLowerCase()] ?? "";
+  const dir = ttmlPlatformDir(String(platform ?? "").toLowerCase());
 
   if (t.includes("%p") && !dir) return null; // 模板要求平台目录但没有这个平台：别拿空目录打请求
 

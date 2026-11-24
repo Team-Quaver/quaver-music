@@ -27,7 +27,7 @@ function check(name: string, cond: boolean, detail = "") {
   else { fail++; console.log(`  ❌ ${name}${detail ? ` — ${detail}` : ""}`); }
 }
 
-const eq = (name: string, got: unknown, want: unknown) =>
+const eq = <G, W>(name: string, got: G, want: W) =>
   check(name, JSON.stringify(got) === JSON.stringify(want), `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
 
 /** 换到 dir 当 cwd 解析一次 vite 配置（preview 用的就是这组参数），随后还原 cwd。 */

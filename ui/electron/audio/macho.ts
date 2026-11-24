@@ -107,7 +107,7 @@ export function formatOsVersion(v: OsVer | null): string {
 }
 
 /** "14.5.2" / "14.5" → {major, minor, patch}；解析不出返回 null（段数不足按 0 补） */
-export function parseOsVersion(s: unknown): OsVer | null {
+export function parseOsVersion<T>(s: T): OsVer | null {
   const m = /^\s*(\d+)(?:\.(\d+))?(?:\.(\d+))?/.exec(String(s ?? ""));
 
   if (!m) return null;

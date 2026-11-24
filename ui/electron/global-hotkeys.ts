@@ -28,22 +28,22 @@ export const GLOBAL_CONF_KEYS = {
   voldown: "Hotkeys.Global.VolDown",
 };
 
-const ACTION_LABELS: Record<string, string> = {
+const ACTION_LABELS = {
   toggle: "暂停 / 播放",
   prev: "上一曲",
   next: "下一曲",
   volup: "音量加大",
   voldown: "音量减小",
-};
+} satisfies Record<string, string>;
 
 // 规范 accelerator（Ctrl+Alt+F5）→ XDG 快捷键串（CTRL+ALT+F5；字母小写 = XKB 基础层
 // 的那个键，大写字母是 Shift 层的另一个 keysym，不能混用）。
-const TRIGGER_KEYS: Record<string, string> = {
+const TRIGGER_KEYS = {
   Space: "space", Enter: "Return", Backspace: "BackSpace", PageUp: "Page_Up", PageDown: "Page_Down",
   Minus: "minus", Equal: "equal", Comma: "comma", Period: "period",
-};
+} satisfies Record<string, string>;
 
-const TRIGGER_MODS: Record<string, string> = { Ctrl: "CTRL", Alt: "ALT", Shift: "SHIFT", Super: "LOGO" };
+const TRIGGER_MODS = { Ctrl: "CTRL", Alt: "ALT", Shift: "SHIFT", Super: "LOGO" } satisfies Record<string, string>;
 
 /** 动作 → 键位表（缺失的动作 = 停用）。 */
 type HotkeyBindings = Record<string, string | undefined>;
@@ -56,9 +56,21 @@ interface GlobalShortcutLike {
 }
 
 /** 转发给渲染层 quaver:hotkey 通道的负载。 */
+export interface HotkeyFailure {
+  action: string;
+  accel?: string;
+  why?: string;
+  label?: string;
+}
+
 export interface HotkeyPayload {
   t: string;
-  [key: string]: unknown;
+  action?: string;
+  items?: HotkeyFailure[];
+  state?: string;
+  reason?: string;
+  missing?: string[];
+  wayland?: boolean;
 }
 
 /** 门户状态 + 本地「还没起会话」的 idle 初值，比 xdg-portal 的 PortalState 宽一档。 */
@@ -97,15 +109,32 @@ export function acceleratorToPortalTrigger(accel: string | null | undefined) {
   const parts = String(accel ?? "").trim().split("+").filter(Boolean);
 
   if (!parts.length) return "";
-  const key = parts.pop() as string; // parts 非空，pop 必有值
-  const mods = parts.map((m) => TRIGGER_MODS[m] ?? "");
+  const key = parts.pop();
+
+  if (key === undefined) return ""; // parts 非空时不会走到这里
+  const mods = parts.map((m) => modValue(m));
 
   if (mods.some((m) => !m)) return "";
-  let k = TRIGGER_KEYS[key] ?? key;
+  let k = triggerKey(key);
 
   if (/^[A-Z]$/.test(k)) k = k.toLowerCase();
 
   return [...mods, k].join("+");
+}
+
+/** 修饰键 → 门户串（认不出返回空串，调用方据此拒绝整条触发串）。 */
+function modValue(mod: string): string {
+  return Object.entries(TRIGGER_MODS).find(([name]) => name === mod)?.[1] ?? "";
+}
+
+/** accelerator 键名 → XKB keysym（特殊键查表，其余原样）。 */
+function triggerKey(key: string): string {
+  return Object.entries(TRIGGER_KEYS).find(([name]) => name === key)?.[1] ?? key;
+}
+
+/** 动作 → 展示文案（未知动作原样返回）。 */
+function actionLabel(action: string): string {
+  return Object.entries(ACTION_LABELS).find(([name]) => name === action)?.[1] ?? action;
 }
 
 /** 门户 BindShortcuts 的动作清单。Wayland 下忽略应用内键位，全部动作交给桌面门户绑定。 */
@@ -114,7 +143,7 @@ export function portalShortcutsFor(bindings: HotkeyBindings | null | undefined, 
 
   for (const action of GLOBAL_ACTIONS) {
     if (wayland) {
-      shortcuts.push({ id: action, description: ACTION_LABELS[action] ?? action, trigger: "" });
+      shortcuts.push({ id: action, description: actionLabel(action), trigger: "" });
       continue;
     }
 
@@ -125,7 +154,7 @@ export function portalShortcutsFor(bindings: HotkeyBindings | null | undefined, 
 
     if (!trigger) { onInvalidTrigger(accel); continue; }
 
-    shortcuts.push({ id: action, description: ACTION_LABELS[action] ?? action, trigger });
+    shortcuts.push({ id: action, description: actionLabel(action), trigger });
   }
 
   return shortcuts;
@@ -221,7 +250,7 @@ export function createGlobalHotkeys({
             notify({
               t: "partial",
               wayland,
-              items: st.missing.map((id) => ({ action: id, label: ACTION_LABELS[id] ?? id })),
+              items: st.missing.map((id) => ({ action: id, label: actionLabel(id) })),
             });
           } else if (st.state !== "ready" && st.state !== "connecting" && st.state !== "idle") {
             notify({ t: "status", state: st.state, reason: st.reason });

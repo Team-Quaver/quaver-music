@@ -254,10 +254,10 @@ function desync(body: Buffer): Buffer {
   return out.subarray(0, w);
 }
 
-const ID3V22_MAP: Record<string, string> = {
+const ID3V22_MAP = {
   TT2: "TIT2", TP1: "TPE1", TP2: "TPE2", TAL: "TALB", TYE: "TYER", TRK: "TRCK",
   TCO: "TCON", ULT: "USLT", PIC: "APIC",
-};
+} as const satisfies Record<string, string>;
 
 /** 找文本编码下的终止串末尾偏移：双字节编码找 \0\0，单字节找 \0。 */
 function findTerm(buf: Buffer, from: number, enc: number): number {
@@ -330,7 +330,7 @@ export function parseId3v2(buf: Buffer, off = 0): Id3v2Result | null {
     const rawId = buf.toString("latin1", p, p + idLen);
 
     if (!/^[A-Z0-9]+$/.test(rawId)) break; // padding（\0 起头）到此为止
-    const id = ID3V22_MAP[rawId] ?? rawId;
+    const id = Object.entries(ID3V22_MAP).find(([from]) => from === rawId)?.[1] ?? rawId;
     let fs: number;
     let fFlags = 0;
 
@@ -402,7 +402,7 @@ function mp3FrameAt(b: Buffer, i: number): Mp3Frame | null {
   const verBits = (b[i + 1] >> 3) & 0x03;
 
   if (verBits === 1) return null; // 保留位
-  const version = (verBits === 3 ? 0 : verBits === 2 ? 1 : 2) as 0 | 1 | 2;
+  const version: 0 | 1 | 2 = verBits === 3 ? 0 : verBits === 2 ? 1 : 2;
 
   if ((b[i + 1] & 0x06) !== 0x02) return null; // 只认 Layer III
   const brIdx = (b[i + 2] >> 4) & 0x0f;
@@ -555,7 +555,7 @@ export function parseFlacPicture(b: Buffer, off: number): EmbeddedPicture | null
 }
 
 /** FLAC native：fLaC + 元数据块链表。head 必须从 0 起。 */
-export function parseFlac(head: Buffer, out: FileTags): { needMore: boolean } {
+export function parseFlac(head: Buffer, out: FileTags) {
   let p = 4;
   let sawComment = false;
   let needMore = false;
@@ -600,7 +600,7 @@ export function parseFlac(head: Buffer, out: FileTags): { needMore: boolean } {
 
 /** Ogg：走页找 identification（vorbis/Opus/flac-in-ogg）与其后的注释头。
  *  只解析注释与封面；时长留给播放引擎（精确值要扫尾页，不做）。 */
-export function parseOgg(head: Buffer, out: FileTags): { needMore: boolean } {
+export function parseOgg(head: Buffer, out: FileTags) {
   let p = 0;
   let commentParsed = false;
   let sawId = false;
@@ -640,7 +640,7 @@ export function parseOgg(head: Buffer, out: FileTags): { needMore: boolean } {
 // —— MP4 / QuickTime ——
 interface Mp4Atom { type: string; payload: Buffer }
 
-function readAtom(buf: Buffer, off: number): { atom: Mp4Atom | null; next: number } {
+function readAtom(buf: Buffer, off: number) {
   if (off + 8 > buf.length) return { atom: null, next: buf.length };
   let size = u32be(buf, off);
   const type = str(buf, off + 4, 4);
@@ -858,7 +858,7 @@ export function parseId3v1(tail: Buffer): { title: string; artist: string; album
 }
 
 /** 文件名兜底："01. Artist - Title" / "Artist - Title" 之类。 */
-export function parseFilename(file: string): { title: string; artist: string; trackNo: number } {
+export function parseFilename(file: string) {
   let base = String(file ?? "");
   const dot = base.lastIndexOf(".");
 

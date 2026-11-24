@@ -13,6 +13,9 @@
     ".roo/**",
     ".windsurf/**",
     "tools/oxlint/anti-slop/**",
+    "resources/afp/**",
+    "**/*.tmp.mjs",
+    "**/*.tmp.ts",
     "dist/**",
     "release/**"
   ],

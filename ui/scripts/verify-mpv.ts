@@ -188,18 +188,25 @@ const playerSrc = readFileSync(join(UI, "src", "player.ts"), "utf8");
 section("loadfile：布局与异步");
 
 eq("parseMpvVersion 认 v0.41.0", parseMpvVersion("mpv v0.41.0"), { major: 0, minor: 41 });
+
 eq("parseMpvVersion 认 0.38.0-27-gabcdef", parseMpvVersion("mpv 0.38.0-27-gabcdef"), { major: 0, minor: 38 });
+
 eq("parseMpvVersion 认 1.2", parseMpvVersion("mpv 1.2"), { major: 1, minor: 2 });
+
 eq("parseMpvVersion 认不出返回 null", parseMpvVersion("mpv unknown"), null);
 
 check("0.38+ 需要 index 占位", mpvLoadfileWantsIndex("mpv v0.38.0") && mpvLoadfileWantsIndex("mpv v0.41.0"));
+
 check("0.37 及以下不需要 index 占位", !mpvLoadfileWantsIndex("mpv v0.37.0"));
+
 check("认不出版本先按旧布局发（被拒后自愈）", !mpvLoadfileWantsIndex("mpv unknown"));
 
 eq("无起点：三参布局（不带 options，少一种被拒的可能）",
   loadfileArgs("http://x/a.mp3", 0, true), ["loadfile", "http://x/a.mp3", "replace"]);
+
 eq("新布局：index=-1 + start= 字符串",
   loadfileArgs("http://x/a.mp3", 42, true), ["loadfile", "http://x/a.mp3", "replace", -1, "start=42"]);
+
 eq("旧布局：options 放第三位",
   loadfileArgs("http://x/a.mp3", 42, false), ["loadfile", "http://x/a.mp3", "replace", "start=42"]);
 
@@ -307,7 +314,7 @@ check("PCM 换输出显式重绑新路径并恢复 ao=pcm（只设 null 会让�
 
 check("PCM 重绑命令带短超时，卡死时快速回落整进程重启（不再吃满默认 8s）",
   /PCM_REBIND_TIMEOUT_MS = 1500/.test(ipcSrc)
-  && /message\)\.includes\("timeout"\)/.test(engineSrc));
+  && /e instanceof Error && e\.message\.includes\("timeout"\)/.test(engineSrc));
 
 check("歌词点击立即 seek，不等淡出/淡入",
   /opts\?\.immediate/.test(transportSrc)
@@ -502,6 +509,7 @@ function wavBytes(seconds: number, freq: number): Buffer {
     ipc.eventCb = (ev) => {
       if (ev.event !== "file-loaded") return;
       loaded++;
+
       while (waiters.length) waiters.shift()?.();
     };
 
@@ -511,10 +519,12 @@ function wavBytes(seconds: number, freq: number): Buffer {
       await ipc.setPropAsync("pause", false);
 
       const wantIndex = mpvLoadfileWantsIndex(ipc.mpvVersion);
+
       const waitLoaded = (want: number) => new Promise<void>((resolve, reject) => {
         if (loaded >= want) return resolve();
 
         const timer = setTimeout(() => reject(new Error(`等待第 ${want} 次 file-loaded 超时（已 ${loaded}）`)), 5000);
+
         const checkLoaded = () => {
           if (loaded < want) return;
           clearTimeout(timer);

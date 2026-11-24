@@ -185,10 +185,10 @@ export interface RemoteException {
 }
 
 /** catch 进来的 e 是否带 message 字段（两张脸：Error、或被抛的裸 JSON 对象）。 */
-const hasMessage = (e: unknown): e is RemoteException => {
+const hasMessage = <T>(e: T): e is T & RemoteException => {
   // SAFETY: 谓词是类型收口的正主（unknown → RemoteException 的唯一通道）；字段级判定，
   // 不做构成探测（in 只看字段在不在，不猜类型）。
-  if (typeof e === "object" && e !== null && "message" in e) {
+  if (e !== null && e !== undefined && "message" in Object(e)) {
     return true;
   }
 
@@ -196,7 +196,7 @@ const hasMessage = (e: unknown): e is RemoteException => {
 };
 
 /** catch 边界专用：unknown/Error → 可读字符串；字段缺失兜原值文本，不留 undefined。 */
-export function caught(e: unknown): string {
+export function caught<T>(e: T): string {
   if (hasMessage(e)) return String(e.message ?? "");
 
   return e === undefined || e === null ? "" : String(e);
@@ -232,7 +232,7 @@ function shelfFor(type: EqBandType): string {
 }
 
 /** IPC 边界统一走 normalizeEqState：越界夹紧、未知类型落 bell、段数封顶，再映射成 Liino 带型。 */
-export function liinoEqPlan(input: unknown): LiinoEqPlan {
+export function liinoEqPlan<T>(input: T): LiinoEqPlan {
   const state = normalizeEqState(input);
   const bands: LiinoEqBand[] = [];
 

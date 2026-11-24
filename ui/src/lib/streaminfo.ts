@@ -147,7 +147,7 @@ function parseMp3Frame(b: Uint8Array, off: number, totalSize: number, durationSe
 
   if (verBits === 1 || layerBits === 0 || brIdx === 0 || brIdx === 15 || srIdx === 3) return null;
   const mpeg = verBits === 3 ? 1 : verBits === 2 ? 2 : 25;
-  const sampleRates: Record<number, number[]> = { 1: [44100, 48000, 32000], 2: [22050, 24000, 16000], 25: [11025, 12000, 8000] };
+  const sampleRates = { 1: [44100, 48000, 32000], 2: [22050, 24000, 16000], 25: [11025, 12000, 8000] } satisfies Record<1 | 2 | 25, number[]>;
   const sampleRate = sampleRates[mpeg][srIdx];
   const channels = mode === 3 ? 1 : 2;
   const codec = layerBits === 1 ? "MP3" : `MPEG${mpeg === 25 ? "2.5" : mpeg} L${4 - layerBits}`;
@@ -266,7 +266,7 @@ async function fetchHead(url: string, start: number, end: number): Promise<{ byt
 
 /** 声道布局名。只列frequently 出现的包围盒排布（数 = LFE + 主 + 高度/后置），
  *  表外直接落「N 声道」——宁可少个布局名，也不要把 12ch 硬套成 7.1。 */
-const CH_LAYOUT: Record<number, string> = { 1: "单声道", 2: "立体声", 3: "3.0", 4: "4.0", 5: "5.0", 6: "5.1", 7: "6.1", 8: "7.1", 10: "5.1.4", 12: "7.1.4" };
+const CH_LAYOUT = { 1: "单声道", 2: "立体声", 3: "3.0", 4: "4.0", 5: "5.0", 6: "5.1", 7: "6.1", 8: "7.1", 10: "5.1.4", 12: "7.1.4" } satisfies Record<number, string>;
 
 export const fmtSampleRate = (hz?: number) =>
   hz && hz > 0 ? `${hz % 1000 ? (hz / 1000).toFixed(1) : hz / 1000} kHz` : "—";
@@ -276,8 +276,12 @@ export const fmtBitDepth = (bits?: number) => (bits && bits > 0 ? `${bits} bit` 
 export const fmtBitrate = (info: StreamInfo | null) =>
   info?.bitrate && info.bitrate > 0 ? `${info.bitrateApprox ? "≈" : ""}${Math.round(info.bitrate)} kbps` : "—";
 
-export const fmtChannels = (ch?: number) =>
-  ch && ch > 0 ? `${ch}${CH_LAYOUT[ch] ? `（${CH_LAYOUT[ch]}）` : " 声道"}` : "—";
+export const fmtChannels = (ch?: number) => {
+  if (!ch || ch <= 0) return "—";
+  const name = Object.entries(CH_LAYOUT).find(([id]) => Number(id) === ch)?.[1];
+
+  return `${ch}${name ? `（${name}）` : " 声道"}`;
+};
 
 // —— 小工具 ——
 

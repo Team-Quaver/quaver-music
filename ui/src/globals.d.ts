@@ -6,7 +6,7 @@ declare const __APP_VERSION__: string;
 type UpdateInvokeMsg =
   | { op: "platform" }
   | { op: "fetch-release"; channel: "stable" | "beta" | "nightly" }
-  | { op: "download"; id: string; url: string; mode: "replace-appimage" | "downloads" | "installer" }
+  | { op: "download"; id: string; url: string; mode: "replace-appimage" | "downloads" | "installer"; sha256?: string }
   | { op: "cancel-download"; id: string }
   | { op: "apply-appimage"; path: string }
   | { op: "install-windows"; path: string }
@@ -80,11 +80,26 @@ interface SparkleMarketIndex {
 // Sparkle 第三方插件桥（electron/preload.cts 暴露；浏览器 dev 下不存在）。
 // 本文件是 ambient 声明文件（无 import/export），Window 直接全局合并。
 interface Window {
+  /** 全局热键桥（electron/preload.cts 暴露）：主进程注册状态 + 动作转发。 */
+  quaverHotkeys?: {
+    onEvent(cb: (payload: import("../electron/bridge-types.ts").HotkeyEvent) => void): void;
+    info(): Promise<import("../electron/bridge-types.ts").HotkeyInfo>;
+    infoSync(): import("../electron/bridge-types.ts").HotkeyInfo | null;
+  };
+  /** 配置桥（electron/preload.cts 暴露；浏览器 dev 下由 lib/config 的 localStorage 兜底）。 */
+  quaverConfig?: {
+    boot?: { ok: boolean; crotchet?: boolean; redflag?: boolean };
+    all(): Promise<import("../electron/bridge-types.ts").ConfigAllReply>;
+    set(patch: Record<string, string>, apply?: boolean): Promise<import("../electron/bridge-types.ts").ConfigWriteReply>;
+    reset(): Promise<import("../electron/bridge-types.ts").ConfigWriteReply>;
+    reveal(): Promise<import("../electron/bridge-types.ts").BridgeReply>;
+    onChanged(cb: (p: import("../electron/bridge-types.ts").ConfigChangedPayload) => void): void;
+  };
   // 调试桥（设置 → 通用 → 调试）：开发者控制台开关 + 进程/内存自检。
   // 事实源在主进程（app.getAppMetrics / /proc），渲染层只负责摆出来。
   quaverDebug?: {
-    devtools(msg: Record<string, unknown>): Promise<any>;
-    metrics(): Promise<any>;
+    devtools(msg: import("../electron/bridge-types.ts").DebugRequest): Promise<import("../electron/bridge-types.ts").DebugReply>;
+    metrics(): Promise<import("../electron/bridge-types.ts").DebugMetricsReply>;
   };
 
   /** 开源致谢弹窗：只负责把 GitHub 仓库交给系统浏览器打开。 */
@@ -97,7 +112,7 @@ interface Window {
   };
 
   quaverUpdate?: {
-    invoke(msg: UpdateInvokeMsg): Promise<any>;
+    invoke(msg: UpdateInvokeMsg): Promise<import("../electron/bridge-types.ts").UpdateReply>;
     onProgress(cb: (p: UpdateProgressPayload) => void): void;
     onInstallDone?(cb: (p: UpdateInstallDonePayload) => void): void;
   };
@@ -114,12 +129,30 @@ interface Window {
   /** CSD 窗口控制桥（electron/preload.cts 暴露；浏览器 dev 下不存在）。
    *  这里只声明渲染层「判存在」会用到的那一个口子；调用侧仍按需取用完整对象。 */
   quaverCSD?: {
+    min?: () => void;
+    max?: () => void;
+    close?: () => void;
+    quit?: () => void;
+    fullscreen?: (on: boolean) => void;
+    isFullscreen?: () => boolean;
+    onFullscreen?: (cb: (on: boolean) => void) => (() => void) | void;
     setDecor?: (mode: "csd" | "ssd") => void;
+    setCloseAction?: (action: "tray" | "quit") => void;
   };
   /** Sparkle 安全模式（QUAVER_REDFLAG=1）：主进程读环境变量后经 preload 下发。
    *  加载策略见 src/sparkle/policy.ts；浏览器 dev 下不存在 → 恒 false。 */
   quaverRedflag?: boolean;
   /** 自定义背景图（设置→外观→背景）：选图与回显。图片本体走同源 /api/bg，不经这里。 */
+  /** Crotchet 调试模式（QUAVER_CROTCHET=1）：preload 在壳层启动时下发。 */
+  quaverCrotchet?: boolean;
+  /** 配置 dev 钩子（仅 `import.meta.env.DEV` 构建）：e2e / 调试直接读写内存快照。 */
+  __cfg?: {
+    all(): Record<string, string>;
+    get(key: string, fallback?: string): string;
+    set(patch: Record<string, string>): void;
+    info(): { dir: string; path: string; bridged: boolean; writable: boolean };
+    reload(): Promise<void>;
+  };
   quaverBackground?: {
     pick(): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
     info(): Promise<{ ok: boolean; path?: string; exists?: boolean; error?: string }>;

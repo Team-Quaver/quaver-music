@@ -48,8 +48,8 @@ export interface Rect {
 
 /** 窗口尺寸夹取范围：下限要容得下「最小字号的一行」（想压到极扁的人得有条活路），上限防遮屏；
  *  宽度上限给超宽屏留量。 */
-export const DL_SIZE_MIN: { width: number; height: number } = { width: 260, height: 44 };
-export const DL_SIZE_MAX: { width: number; height: number } = { width: 2560, height: 480 };
+export const DL_SIZE_MIN = { width: 260, height: 44 } as const satisfies { width: number; height: number };
+export const DL_SIZE_MAX = { width: 2560, height: 480 } as const satisfies { width: number; height: number };
 
 /** 覆盖层字号基准（px）：src/desktop-lyrics.ts 的 applyStyle 写 `--dl-font-size = 24 × Scale`，
  *  默认尺寸与它同源（verify-desktop-lyrics 有一条正则钉住那边的 24 字面量，改一处两处都会红）。 */
@@ -98,10 +98,18 @@ export function defaultHeightFor(scale: number, mode: DlMode = "single", aux = t
 }
 
 /** 初始整窗尺寸（默认值口径 = 字号 1 + 单行 + 辅助行开；调用方有设置时传 defaultSizeFor）。 */
-export const DL_DEFAULT_SIZE: { width: number; height: number } = {
+export const DL_DEFAULT_SIZE = {
   width: DL_DEFAULT_WIDTH,
   height: defaultHeightFor(1, "single", true),
-};
+} satisfies { width: number; height: number };
+
+/** 窗口尺寸提示（min/max 四轴）：见 sizeHintsFor 的机制说明。 */
+export interface SizeHints {
+  minWidth: number;
+  maxWidth: number;
+  minHeight: number;
+  maxHeight: number;
+}
 
 const TRUTHY = /^(true|1|yes)$/i;
 const FALSY = /^(false|0|no)$/i;
@@ -262,7 +270,7 @@ function usableSavedSize(b: Rect | null): Rect | null {
 /** 按当前设置给初始尺寸（主进程开窗用；渲染层改了字号/行数/辅助行后重开也走这条路）。
  *  这是「没有可用记忆」时的口径：宽 DL_DEFAULT_WIDTH、高按字号×行数贴合内容。
  *  记忆里有能用的尺寸时由 pickBounds 顶掉（用户拖过的宽和高都要留着）。 */
-export function defaultSizeFor(s: Pick<DlSettings, "scale" | "mode" | "aux">): { width: number; height: number } {
+export function defaultSizeFor(s: Pick<DlSettings, "scale" | "mode" | "aux">) {
   return { width: DL_DEFAULT_WIDTH, height: defaultHeightFor(s.scale, s.mode, s.aux) };
 }
 
@@ -290,9 +298,7 @@ export function defaultSizeFor(s: Pick<DlSettings, "scale" | "mode" | "aux">): {
  * 客户端本来就定不了自己的尺寸）。别把高度改成**区间**：提示里一旦没有相等的轴，
  * 窗会被重新平铺回布局给的格子，盒子和表面的错位就回来了。
  */
-export function sizeHintsFor(height: number): {
-  minWidth: number; maxWidth: number; minHeight: number; maxHeight: number;
-} {
+export function sizeHintsFor(height: number): SizeHints {
   const h = clampHeight(height);
 
   return { minWidth: DL_SIZE_MIN.width, maxWidth: DL_SIZE_MAX.width, minHeight: h, maxHeight: h };
@@ -306,9 +312,7 @@ export function sizeHintsFor(height: number): {
  * 而合成器的盒子仍是 560。两个值一脱钩，歌词就在那半张看不见的宽度里居中、进度条与把手也跑到框外。
  * 推提示（min == max）+ 合成器夹取是唯一让盒子跟上的路，所以拖动期间两条轴都钉，松手才放开宽度。
  */
-export function pinnedHintsFor(width: number, height: number): {
-  minWidth: number; maxWidth: number; minHeight: number; maxHeight: number;
-} {
+export function pinnedHintsFor(width: number, height: number): SizeHints {
   const h = clampHeight(height);
   const w = clampSize(width, h).width;
 
@@ -321,7 +325,7 @@ export function clampHeight(height: number): number {
 }
 
 /** 尺寸夹取（下限保证歌词可读，上限防遮屏）。 */
-export function clampSize(width: number, height: number): { width: number; height: number } {
+export function clampSize(width: number, height: number) {
   return {
     width: Math.min(DL_SIZE_MAX.width, Math.max(DL_SIZE_MIN.width, Math.round(width))),
     height: clampHeight(height),
@@ -374,7 +378,7 @@ export function pickBounds(
 }
 
 /** 配置写入补丁（边界 → 键值）。X/Y/W/H 分开存：readValues 的键级回落互不牵连。 */
-export function boundsToPatch(b: Rect): Record<string, string> {
+export function boundsToPatch(b: Rect) {
   return {
     "DesktopLyrics.X": String(Math.round(b.x)),
     "DesktopLyrics.Y": String(Math.round(b.y)),

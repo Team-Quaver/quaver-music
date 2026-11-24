@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import puppeteer from "puppeteer-core";
+import type { JsonValue } from "../src/lib/json-value.ts";
 
 declare global {
   interface Window {
@@ -31,13 +32,22 @@ try {
   await page.setContent('<style>body{margin:0;background:#12141b} .np{position:absolute;inset:0;background:#12141b} *{box-sizing:border-box}</style><div class="np"><div id="host"></div></div>');
   await page.evaluate(async (source) => {
     const plugin = (await import(URL.createObjectURL(new Blob([source], { type: "text/javascript" })))).default;
-    let view: { render(host: HTMLElement, ctx: Record<string, unknown>): () => void } | undefined;
+
+    interface LiveView {
+      render(host: HTMLElement, ctx: Record<string, JsonValue | ((...args: never[]) => void)>): () => void;
+    }
+
+    let view: LiveView | undefined;
     let notify = () => {};
     const state = { time: -0.2, karaoke: true, trans: true, rows: "1", radio: false, radioLoading: false, radioError: "" };
     const song = { mid: "fixture", name: "Tourdion of Silver Seagulls", singer: [{ name: "HOYO-MiX" }] };
     const neighbor = (mid: string, name: string) => ({ mid, name, singer: [{ name: "Fixture Artist" }] });
 
-    const neighbors: Record<number, ReturnType<typeof neighbor>> = {
+    interface NeighborMap {
+      [offset: number]: ReturnType<typeof neighbor>;
+    }
+
+    const neighbors: NeighborMap = {
       [-2]: neighbor("prev2", "上上首"),
       [-1]: neighbor("prev1", "上一首"),
       1: neighbor("next1", "下一首"),
@@ -118,8 +128,10 @@ try {
     await page.setViewport({ width, height: 800 });
     const highlighted: number[] = [];
 
+    // SAFETY: 时间轴夹具是本脚本写死的三个时刻，as const 只是保留字面量元组，不改变运行时值。
     for (const [time, expected] of [[-0.2, "0"], [0.8, "0.5"], [1.8, "1"]] as const) {
       await update({ time });
+      // SAFETY: .fs-ll.cur .kw 是 Flowscape 渲染出的 HTML 元素，读取其 --p 自定义属性。
       assert.equal(await page.$eval(".fs-ll.cur .kw", (el) => (el as HTMLElement).style.getPropertyValue("--p")), expected);
       const data = await capture(".fs-ll.cur .t1");
       let count = 0;
@@ -344,6 +356,7 @@ try {
   const waitingCard = await page.$eval('.fs-card[data-off="1"]', (el) => ({
     waiting: el.classList.contains("radio-wait"),
     empty: el.classList.contains("empty"),
+    // SAFETY: 选择器 .fs-card[data-off="1"] 在 Flowscape 里就是按钮卡片。
     disabled: (el as HTMLButtonElement).disabled,
   }));
 
@@ -351,6 +364,7 @@ try {
 
   if (snapshots) writeFileSync(`${snapshots}/infinite-radio-loading.png`, Buffer.from(await page.screenshot()));
   await update({ radioLoading: false, radio: false });
+  // SAFETY: #fs-radio 由插件渲染为 HTMLElement（hidden 是 Element 级属性）。
   assert.equal(await page.$eval("#fs-radio", (el) => (el as HTMLElement).hidden), true);
   console.log("PASS 无限电台：隐藏历史卡、保留前进卡与续轮状态");
 

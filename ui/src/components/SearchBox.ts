@@ -4,6 +4,7 @@
 // 交互：输入即联想（/search/complete，debounce）；Enter 或点联想词 → #/search?keyword=…
 //       视图内点任意联想词 = 按歌名直搜（服务端结果词面一致，忽略客户端高亮标签）。
 import { api } from "../lib/api";
+import { isJsonArray, jsonString, type JsonValue } from "../lib/json-value";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const untag = (s: string) => s.replace(/<\/?em>/gi, "");
@@ -13,9 +14,9 @@ const HISTORY_MAX = 10;
 
 export function readHistory(): string[] {
   try {
-    const raw = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+    const raw: JsonValue = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
 
-    return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string" && x.trim() !== "") : [];
+    return isJsonArray(raw) ? raw.map((x) => jsonString(x)).filter((x) => x.trim() !== "") : [];
   } catch {
     return [];
   }

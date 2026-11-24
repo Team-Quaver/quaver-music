@@ -9,6 +9,7 @@
 //
 // 注意：本模块不能 import player / views —— 它被 lib/tint.ts（被 shell 拉起）和设置页共用，
 // 只能往下依赖 lib/color.ts 的纯函数。
+import { isJsonObject, jsonString, type JsonValue } from "./json-value";
 
 /** 同源系统强调色端点（dev/preview = src/relay.ts，打包态 = electron/native-server.ts） */
 export const ACCENT_ROUTE = "/api/accent";
@@ -48,14 +49,16 @@ export async function refreshAccent(): Promise<SystemAccent | null> {
       const r = await fetch(ACCENT_ROUTE, { cache: "no-store" });
 
       if (!r.ok) return last;
-      const v = (await r.json()) as Partial<SystemAccent> | null;
+      const v: JsonValue = await r.json();
 
-      if (v && typeof v === "object" && (v.color === null || typeof v.color === "string")) {
+      if (isJsonObject(v) && (v.color === null || Object.prototype.toString.call(v.color) === "[object String]")) {
+        const color = jsonString(v.color);
+
         last = {
-          color: v.color && /^#[0-9a-f]{6}$/.test(v.color) ? v.color : null, // 探测端已规范过，这里再守一道
-          source: String(v.source ?? ""),
-          label: String(v.label ?? ""),
-          path: String(v.path ?? ""),
+          color: color && /^#[0-9a-f]{6}$/.test(color) ? color : null, // 探测端已规范过，这里再守一道
+          source: jsonString(v.source),
+          label: jsonString(v.label),
+          path: jsonString(v.path),
           mode: v.mode === "light" ? "light" : "dark",
         };
       }
@@ -99,14 +102,16 @@ export function watchAccent(onChange: (a: SystemAccent) => void): () => void {
 
 /** 值真的变了才广播（轮询空转不该把订阅方唤醒成 10s 一次的重绘）。 */
 function notify() {
-  const prev = notifyPrev;
   const now = last;
 
-  if (prev && now && prev.color === now.color && prev.source === now.source) return;
-  notifyPrev = now ? { ...now } : now;
+  if (!now) return;
+  const prev = notifyPrev;
+
+  if (prev && prev.color === now.color && prev.source === now.source) return;
+  notifyPrev = { ...now };
 
   for (const fn of listeners) {
-    try { fn(now as SystemAccent); } catch (e) { console.warn("accent listener failed", e); }
+    try { fn(now); } catch (e) { console.warn("accent listener failed", e); }
   }
 }
 

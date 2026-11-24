@@ -157,7 +157,7 @@ const pkg = JSON.parse(readFileSync(join(UI, "package.json"), "utf8"));
 
 function mergeConfig(base, patch) {
   for (const [key, value] of Object.entries(patch ?? {})) {
-    if (value && !Array.isArray(value) && typeof value === "object") {
+    if (value && !Array.isArray(value) && Object.prototype.toString.call(value) === "[object Object]") {
       base[key] = mergeConfig({ ...base[key] }, value);
     } else {
       base[key] = value;
@@ -286,6 +286,7 @@ check("Linux 托盘素材是应用图标集里的 256px（随包已有，无需�
 
   check("Linux 托盘素材在位且是 256² 正方形", !!img && img.width === 256 && img.height === 256,
     img ? `${img.width}x${img.height}` : "缺文件");
+
   if (img) {
     const st = opaqueStats(img);
     check("Linux 托盘素材带应用图标的深色底与图形（不是空白/单色图）",

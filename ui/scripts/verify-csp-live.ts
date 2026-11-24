@@ -19,11 +19,14 @@ const UI = import.meta.dirname.replace(/\/scripts$/, "");
 const DIST = join(UI, "dist");
 const CHROME = process.env.QUAVER_CHROME || "/usr/bin/google-chrome";
 
-const MIME: Record<string, string> = {
+const MIME = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".mjs": "text/javascript",
   ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json",
   ".png": "image/png", ".ico": "image/x-icon", ".woff2": "font/woff2",
-};
+} satisfies Record<string, string>;
+
+const mimeOf = (ext: string): string =>
+  Object.entries(MIME).find(([name]) => name === ext)?.[1] ?? "application/octet-stream";
 
 let pass = 0, fail = 0;
 const section = (t: string) => console.log(`\n=== ${t} ===`);
@@ -51,12 +54,13 @@ const server = createServer((req, res) => {
     res.writeHead(404); res.end("not found"); return;
   }
 
-  res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });
+  res.writeHead(200, { "content-type": mimeOf(extname(file)) });
   res.end(readFileSync(file));
 });
 
 await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
 
+// SAFETY: listen(..., "127.0.0.1") 成功后 address() 必为 AddressInfo（含 port）。
 const port = (server.address() as { port: number }).port;
 const BASE = `http://127.0.0.1:${port}`;
 
@@ -112,7 +116,7 @@ try {
   check("data: fetch 没有留下违规记录", violations().length === 0, violations().join(" | "));
 
   section("官方插件 chunk：运行期动态 import 走的是同源 script-src 'self'");
-  await page.waitForFunction(() => (window as any).__quaverSparkleProbe !== undefined || document.title !== "", { timeout: 2000 }).catch(() => {});
+  await page.waitForFunction(() => window.__quaverSparkleProbe !== undefined || document.title !== "", { timeout: 2000 }).catch(() => {});
   await new Promise((r) => setTimeout(r, 2500)); // 插件注册是异步的，给它一点时间
   check("插件加载日志出现（chunk 被 import 成功）",
     consoleLines.some((l) => l.includes("[sparkle:") && l.includes("loaded")), consoleLines.slice(-6).join(" | "));
@@ -126,8 +130,8 @@ try {
   await new Promise((r) => setTimeout(r, 600));
 
   const probe = await page.evaluate(() => ({
-    handler: (window as any).__cspInlineHit === 1,
-    script: (window as any).__cspInlineScript === 1,
+    handler: window.__cspInlineHit === 1,
+    script: window.__cspInlineScript === 1,
   }));
 
   check("内联事件属性（onerror=）被拦", !probe.handler);

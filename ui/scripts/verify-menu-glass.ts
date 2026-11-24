@@ -81,10 +81,10 @@ const ruleOf = (s: string, sel: string) => {
 section("归属策略（纯逻辑）");
 
 /** 造一个「只有 menus 不同」的主题；字段是第三方给的任意值，所以断言成 never 再传进去 */
-const mkTheme = (menus?: unknown) => {
-  const theme: { id: string; name: string; css: string; menus?: unknown } = { id: "t", name: "T", css: "" };
-
-  if (menus !== undefined) theme.menus = menus;
+const mkTheme = <T>(menus?: T) => {
+  const theme = menus === undefined
+    ? { id: "t", name: "T", css: "" }
+    : { id: "t", name: "T", css: "", menus };
 
   // SAFETY: 测试夹具故意带第三方任意值，never 只用于绕过策略入参的 SDK 形状约束
   return theme as never;

@@ -17,6 +17,7 @@
 import type { SparkleTheme } from "@quaver/sparkle";
 
 export type SparkBackgroundMode = "off" | "host";
+
 export type SparkBackgroundRenderer = "quaver" | "mesh";
 
 export interface SparkBackgroundPolicy {
@@ -39,9 +40,8 @@ const RENDERERS: readonly SparkBackgroundRenderer[] = ["quaver", "mesh"];
 export function backgroundPolicyOf(theme: SparkleTheme | null | undefined): SparkBackgroundPolicy {
   if (!theme) return { mode: "host", themeId: null, renderer: null };
   const b = theme.background;
-  const renderer = RENDERERS.includes(b?.renderer as SparkBackgroundRenderer)
-    ? b!.renderer as SparkBackgroundRenderer
-    : null;
+
+  const renderer = RENDERERS.find((id) => id === b?.renderer) ?? null;
 
   if (!b || b.mode !== "host") return { mode: "off", themeId: theme.id, renderer };
 

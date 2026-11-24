@@ -11,7 +11,7 @@
 //  - 「从歌单删除」只在**自己有写权限的歌单页**出现（别人歌单/我喜欢的删除由红心承担）。
 import { player } from "../player";
 import { copyText, songShareUrl, songSubtitle, songTitle, stripEm, upPic } from "../lib/api";
-import { importLocalCover, importLocalLyric, isLocalSong, pickFile, revertLocalLyric, setLocalMeta, triggerScrape, type SongWithLocal } from "../lib/local.ts";
+import { importLocalCover, importLocalLyric, isLocalSong, pickFile, revertLocalLyric, setLocalMeta, triggerScrape, type LocalSongFingerprint } from "../lib/local.ts";
 import {
   chooseCloudCoverFile, chooseCloudLyricFile, importCloudCover, importCloudLyric,
   revertCloudLyric, setCloudMeta, triggerCloudScrape, type CloudSongFingerprint,
@@ -49,8 +49,8 @@ export interface MenuItem {
   run?: () => void | Promise<void>;
 }
 
-const esc = (s: unknown) =>
-  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+const esc = (s: string | number | null | undefined) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] ?? c));
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, hi));
 
@@ -224,7 +224,9 @@ function openPanel(items: MenuItem[], depth: number, at: { x: number; y: number 
 
 // —— 关闭：位置是算好的，这几类变化一来就必须收 ——
 function onDocDown(e: PointerEvent) {
-  if (layer && !layer.contains(e.target as Node)) closeMenu();
+  const target = e.target instanceof Node ? e.target : null;
+
+  if (layer && target && !layer.contains(target)) closeMenu();
 }
 
 function onKey(e: KeyboardEvent) {
@@ -247,7 +249,7 @@ function onKey(e: KeyboardEvent) {
  */
 function onScroll(e: Event) {
   if (!layer) return;
-  const t = e.target as Node | null;
+  const t = e.target instanceof Node ? e.target : null;
 
   if (!t || t === document || t === document.documentElement || t === document.body) { closeMenu(); return; }
 
@@ -379,7 +381,7 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
   const song = ctx.song;
   const name = songTitle(song) || "这首歌";
   const sub = songSubtitle(song);
-  const local = isLocalSong(song) ? (song as SongWithLocal).local : null;
+  const local: LocalSongFingerprint | null = isLocalSong(song) ? song.local : null;
   const direct = !!song?.directUrl;
   const cloud: CloudSongFingerprint | null = song?.cloud ?? null;
 
@@ -390,9 +392,10 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
       disabled: player.radioActive,
       run: () => enqueueNextWithToast(song),
     },
-    // 加入歌单是 QQ 在线歌单概念：本地/微云直链曲目没有这条通路
-    ...(local || direct ? [] : [{ label: "加入歌单", sub: () => playlistItems(ctx) } as MenuItem]),
   ];
+
+  // 加入歌单是 QQ 在线歌单概念：本地/微云直链曲目没有这条通路
+  if (!local && !direct) items.push({ label: "加入歌单", sub: () => playlistItems(ctx) });
 
   if (ctx.playlist?.removable) {
     items.push({
@@ -410,20 +413,23 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
     ...(direct
       ? []
       : [{
-          label: "跳转至",
-          sub: () => [
-            { label: "歌手", sub: () => artistItems(song) },
-            { label: "专辑", sub: () => albumItems(song) },
-            {
-              label: "同名搜索",
-              note: name,
-              run: () => { location.hash = `#/search?keyword=${encodeURIComponent(stripEm(song.name) || name)}`; },
-            },
-          ],
-        } as MenuItem]),
+        label: "跳转至",
+        sub: () => [
+          { label: "歌手", sub: () => artistItems(song) },
+          { label: "专辑", sub: () => albumItems(song) },
+          {
+            label: "同名搜索",
+            note: name,
+            run: () => { location.hash = `#/search?keyword=${encodeURIComponent(stripEm(song.name) || name)}`; },
+          },
+        ],
+      } satisfies MenuItem]),
     {
       label: "更多操作",
-      sub: () => [
+      sub: () => {
+        // 这一支只组装菜单项；条件分支里的 null 由末尾 filter 收掉。
+        // SAFETY: 数组元素要么是 MenuItem，要么是条件分支的 null；末尾 filter 已剔除 null。
+        const more: (MenuItem | null)[] = [
         local
           ? {
               label: "复制文件路径",
@@ -545,7 +551,7 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
                   toast("已排入刮削队列");
                 },
               },
-            ].filter(Boolean) as MenuItem[])
+            ].filter((item) => item !== null) as MenuItem[])
           : cloud
           ? ([
               {
@@ -624,9 +630,12 @@ function buildItems(ctx: SongMenuContext): MenuItem[] {
                   toast("已排入刮削队列");
                 },
               },
-            ] as MenuItem[])
+            ].filter((item) => item !== null) as MenuItem[])
           : []),
-      ],
+        ];
+
+        return more.filter((item): item is MenuItem => item !== null);
+      },
     },
   );
   // Sparkle 插件追加项（SparkleMenuItem 与 MenuItem 同型；异常已在 registry 侧吞掉）
@@ -656,6 +665,7 @@ export function openPlayerCoverMenu(x: number, y: number, song: any, anchor?: HT
   /** 跳转类动作：收起正在播放页（其余路径由 NowPlaying 的 expanded 迁移统一退全屏并清画廊），再换路由。 */
   const jump = (hash: string) => {
     if (player.expanded) { player.expanded = false; player.notifyPublic(); }
+
     location.hash = hash;
   };
 
@@ -757,10 +767,9 @@ export function openSongMenu(x: number, y: number, ctx: SongMenuContext, anchor?
 /** 给一行挂右键菜单（行元素只需在触发时能提供上下文） */
 export function bindSongMenu(row: HTMLElement, get: () => SongMenuContext) {
   row.addEventListener("contextmenu", (e) => {
-    const me = e as MouseEvent;
-    me.preventDefault();
-    me.stopPropagation();
-    openSongMenu(me.clientX, me.clientY, get(), row);
+    e.preventDefault();
+    e.stopPropagation();
+    openSongMenu(e.clientX, e.clientY, get(), row);
   });
 }
 

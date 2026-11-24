@@ -12,6 +12,9 @@
 // 整队列原样序列化会顶到 localStorage 配额。只留渲染与重放需要的字段。
 import type { Mode, Song } from "../player";
 import { SONG_TIER_SIZE_KEYS } from "./songtiers";
+import { isJsonArray, isJsonObject, jsonBoolean, jsonNumber, jsonString, type JsonObject, type JsonValue } from "./json-value.ts";
+import type { CloudSongFingerprint } from "./cloud";
+import type { LocalSongFingerprint } from "./local";
 
 const KEY = "quaver.session.v1";
 
@@ -60,14 +63,14 @@ export interface SessionSnapshot {
  *  在音质选择器里只能回退全量列表。 */
 function slim(s: Song): Song | null {
   if (!s?.mid) return null;
-  const f = (s as any).file;
+  const f = s.file;
   const mediaMid = f?.media_mid;
 
-  let file = f
-    ? Object.fromEntries(SONG_TIER_SIZE_KEYS.filter((k) => f[k] !== undefined).map((k) => [k, f[k]]))
+  const keptFile: Song["file"] = f
+    ? Object.fromEntries(SONG_TIER_SIZE_KEYS.flatMap((k) => (f[k] === undefined ? [] : [[k, f[k]]])))
     : undefined;
 
-  if (mediaMid) (file ??= {}).media_mid = mediaMid;
+  const file: Song["file"] = mediaMid ? { ...keptFile, media_mid: mediaMid } : keptFile;
   const keepFile = file && Object.keys(file).length ? file : undefined;
 
   return {
@@ -75,21 +78,21 @@ function slim(s: Song): Song | null {
     id: s.id,
     type: s.type,
     // 本地曲目指纹必须随存档走：kind/hasCover/path 供冷启动后取流、封面与右键菜单（缺了它本地歌恢复成坏 QQ 歌）
-    local: (s as any).local,
+    local: s.local,
     // 微云直链必须随存档走；URL 是稳定的同源中继路径，sidecar 每次请求会重新换取短链。
     directUrl: s.directUrl,
     cloud: s.cloud,
     name: s.name,
-    title: (s as any).title,
-    subtitle: (s as any).subtitle,
+    title: s.title,
+    subtitle: s.subtitle,
     interval: s.interval,
     _key: s._key,
     file: keepFile,
-    singer: (s.singer ?? []).map((x: any) => ({ mid: x?.mid, name: x?.name, pmid: x?.pmid })),
+    singer: (s.singer ?? []).map((x) => ({ mid: x.mid, name: x.name, pmid: x.pmid })),
     album: s.album
-      ? { mid: (s.album as any).mid, pmid: (s.album as any).pmid, name: (s.album as any).name }
+      ? { mid: s.album.mid, pmid: s.album.pmid, name: s.album.name }
       : undefined,
-  } as Song;
+  };
 }
 
 export function saveSession(snap: {
@@ -147,56 +150,174 @@ export function saveSession(snap: {
   } catch { /* 配额/隐私模式：本次会话不存档，不影响播放 */ }
 }
 
+/** 存档里的 file 元数据：只认档位存在性判定与取链真正消费的键。 */
+function parseStoredFile(value: JsonObject): Song["file"] {
+  const sizeNew = isJsonArray(value.size_new)
+    ? value.size_new.flatMap((entry) => (jsonNumber(entry, Number.NaN) >= 0 ? [jsonNumber(entry)] : []))
+    : undefined;
+
+  const file: NonNullable<Song["file"]> = {
+    media_mid: jsonString(value.media_mid) || undefined,
+  };
+
+  for (const key of SONG_TIER_SIZE_KEYS) {
+    if (key === "size_new") continue;
+    const size = jsonNumber(value[key], Number.NaN);
+
+    if (Number.isFinite(size)) file[key] = size;
+  }
+
+  if (sizeNew) file.size_new = sizeNew;
+
+  return file;
+}
+
+/** 存档里的本地曲目指纹。 */
+function parseStoredLocal(value: JsonObject): LocalSongFingerprint | undefined {
+  const id = jsonString(value.id);
+
+  if (!id) return undefined;
+
+  return {
+    id,
+    kind: value.kind === "webdav" ? "webdav" : "folder",
+    hasCover: jsonBoolean(value.hasCover),
+    path: jsonString(value.path),
+    sourceName: jsonString(value.sourceName),
+    qqMid: jsonString(value.qqMid),
+    lyricImport: jsonBoolean(value.lyricImport),
+  };
+}
+
+/** 存档里的微云指纹。 */
+function parseStoredCloud(value: JsonObject): CloudSongFingerprint | undefined {
+  const key = jsonString(value.key);
+
+  if (!key) return undefined;
+
+  return {
+    key,
+    hasCover: jsonBoolean(value.hasCover),
+    lyricImport: jsonBoolean(value.lyricImport),
+    importFormat: jsonString(value.importFormat),
+  };
+}
+
+/** 存档里的一首歌：只认「有非空 mid」的对象，其余（旧档/脏数据）逐条丢弃。 */
+function parseStoredSong(value: JsonValue | undefined): Song | null {
+  if (!isJsonObject(value)) return null;
+  const mid = jsonString(value.mid);
+
+  if (!mid) return null;
+
+  const singer = isJsonArray(value.singer)
+    ? value.singer.flatMap((entry) => {
+      if (!isJsonObject(entry)) return [];
+      const name = jsonString(entry.name);
+
+      return name ? [{ mid: jsonString(entry.mid), name, pmid: jsonString(entry.pmid) }] : [];
+    })
+    : undefined;
+
+  const album = isJsonObject(value.album)
+    ? { mid: jsonString(value.album.mid), pmid: jsonString(value.album.pmid), name: jsonString(value.album.name) }
+    : undefined;
+
+  const file = isJsonObject(value.file) ? parseStoredFile(value.file) : undefined;
+  const local = isJsonObject(value.local) ? parseStoredLocal(value.local) : undefined;
+  const cloud = isJsonObject(value.cloud) ? parseStoredCloud(value.cloud) : undefined;
+  const id = jsonNumber(value.id, Number.NaN);
+  const type = jsonNumber(value.type, Number.NaN);
+  const interval = jsonNumber(value.interval, Number.NaN);
+  const directUrl = jsonString(value.directUrl);
+  const key = jsonString(value._key);
+  const title = jsonString(value.title);
+  const subtitle = jsonString(value.subtitle);
+
+  const song: Song = {
+    mid,
+    name: jsonString(value.name),
+  };
+
+  if (Number.isFinite(id)) song.id = id;
+
+  if (Number.isFinite(type)) song.type = type;
+
+  if (title) song.title = title;
+
+  if (subtitle) song.subtitle = subtitle;
+
+  if (singer) song.singer = singer;
+
+  if (album) song.album = album;
+
+  if (file) song.file = file;
+
+  if (Number.isFinite(interval)) song.interval = interval;
+
+  if (key) song._key = key;
+
+  if (local) song.local = local;
+
+  if (directUrl) song.directUrl = directUrl;
+
+  if (cloud) song.cloud = cloud;
+
+  return song;
+}
+
 export function loadSession(): SessionSnapshot | null {
   try {
     const raw = localStorage.getItem(KEY);
 
     if (!raw) return null;
-    const d = JSON.parse(raw) as SessionSnapshot;
+    const parsed: JsonValue = JSON.parse(raw);
 
-    if (!Array.isArray(d?.queue)) return null;
-    const radio = d.radio === true;
-    const rawSources = Array.isArray(d.sources) ? d.sources : [];
+    if (!isJsonObject(parsed) || !isJsonArray(parsed.queue)) return null;
+
+    const radio = jsonBoolean(parsed.radio);
+    const rawSources = isJsonArray(parsed.sources) ? parsed.sources : [];
     // 过滤器会丢条目，来源按同一判据保留，否则下标整体错位。
     const kept: number[] = [];
 
-    const queue = d.queue.filter((s, i) => {
-      const ok = !!s && typeof s.mid === "string" && !!s.mid;
+    const queue = parsed.queue.flatMap((entry, i) => {
+      const song = parseStoredSong(entry);
 
-      if (ok) kept.push(i);
+      if (song === null) return [];
+      kept.push(i);
 
-      return ok;
+      return [song];
     });
 
-    const sources = kept.map((i) => sourceHash(rawSources[i]));
+    const sources = kept.map((i) => sourceHash(jsonString(rawSources[i], "")));
+
+    const lastStream = isJsonObject(parsed.lastStream) && jsonString(parsed.lastStream.tier)
+      ? { tier: jsonString(parsed.lastStream.tier), label: jsonString(parsed.lastStream.label), degraded: jsonBoolean(parsed.lastStream.degraded) }
+      : null;
+
+    const rawRadioEnd = jsonNumber(parsed.radioEnd, -1) >= 0 ? jsonNumber(parsed.radioEnd, -1) : queue.length - 1;
+    const rawIndex = jsonNumber(parsed.index, 0);
+    const quality = jsonString(parsed.quality);
 
     // 普通空队列没有可恢复内容；电台态例外：首轮还在路上就退出时，至少把电台会话保留下来。
     if (!queue.length && !radio) return null;
     // 旧存档可能是已移除的「off（顺序播放）」：一律落回列表循环
-    const mode: Mode = d.mode === "one" ? "one" : "all";
-    const ls = d.lastStream;
-
-    const rawRadioEnd = Number.isFinite(d.radioEnd) && Number(d.radioEnd) >= 0
-      ? Number(d.radioEnd)
-      : queue.length - 1;
-
+    const mode: Mode = parsed.mode === "one" ? "one" : "all";
     const radioEnd = radio && queue.length ? Math.max(0, Math.min(rawRadioEnd, queue.length - 1)) : -1;
 
     return {
       queue,
-      index: queue.length
-        ? Number.isFinite(d.index) ? Math.max(0, Math.min(d.index, queue.length - 1)) : 0
-        : -1,
-      position: Number.isFinite(d.position) ? Math.max(0, d.position) : 0,
+      index: queue.length ? Math.max(0, Math.min(rawIndex, queue.length - 1)) : -1,
+      position: Math.max(0, jsonNumber(parsed.position)),
       mode,
-      shuffle: d.shuffle === true,
+      shuffle: jsonBoolean(parsed.shuffle),
       radio,
       radioEnd,
-      source: sourceHash(d.source),
+      source: sourceHash(jsonString(parsed.source)),
       sources,
-      quality: typeof d.quality === "string" ? d.quality : null,
-      lastStream: ls && typeof ls === "object" && typeof ls.tier === "string" ? ls : null,
-      at: Number(d.at) || 0,
+      quality: quality || null,
+      lastStream,
+      at: jsonNumber(parsed.at),
     };
   } catch {
     return null;

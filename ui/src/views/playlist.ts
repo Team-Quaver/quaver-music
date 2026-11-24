@@ -140,7 +140,7 @@ export default async function playlistView(root: HTMLElement, q: URLSearchParams
   const adopt = (songs: Song[], total?: number) => {
     all = songs;
 
-    if (typeof total === "number" && total > 0) songCount = total;
+    if (total !== undefined && total > 0) songCount = total;
     paintMeta();
     tools.repaint();
   };

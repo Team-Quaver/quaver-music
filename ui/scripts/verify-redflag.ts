@@ -67,6 +67,7 @@ check("清空合法（= 取消黑名单）", writeValues({ "Sparkle.Blacklist": 
 const src = {
   main: read("electron/main.ts"),
   preload: read("electron/preload.cts"),
+  bridge: read("electron/bridge-types.ts"),
   config: read("electron/config.ts"),
   fallback: read("src/lib/config.ts"),
   prefs: read("src/lib/prefs.ts"),
@@ -95,7 +96,8 @@ section("preload：开关下发渲染层");
 
 check("quaverRedflag 桥存在且读快照", src.preload.includes('exposeInMainWorld("quaverRedflag"') && src.preload.includes("configBoot.redflag === true"));
 
-check("configBoot 类型带 redflag", /configBoot: \{ ok: boolean; crotchet\?: boolean; redflag\?: boolean \}/.test(src.preload));
+check("configBoot 类型带 redflag",
+  /const configBoot = syncSnapshot<ConfigAllReply>\("quaver:config-sync"\)/.test(src.preload) && /redflag\?: boolean/.test(src.bridge));
 
 check("globals.d.ts 声明 quaverRedflag", src.globals.includes("quaverRedflag?: boolean"));
 
@@ -175,6 +177,7 @@ const ls = new Map();
 const mkClassList = () => ({ toggle: () => {}, add: () => {}, remove: () => {}, contains: () => false, });
 
 // 最小 DOM 桩（与 verify-prefs-map 同款）；这里 esbuild 打完是纯浏览器语义代码，缺 DOM 就起不来
+// SAFETY: 测试桩只实现被测配置层访问的 Storage 成员；缺的方法一旦被调用会当场 TypeError。
 globalThis.localStorage = ({
   getItem: (k) => (ls.has(k) ? ls.get(k) : null),
   setItem: (k, v) => void ls.set(k, String(v)),
@@ -183,6 +186,7 @@ globalThis.localStorage = ({
   key: (i) => [...ls.keys()][i] ?? null,
 }) as any;
 
+// SAFETY: 测试桩只实现被测配置层访问的 DOM 成员；缺的方法一旦被调用会当场 TypeError。
 globalThis.document = ({
   documentElement: { dataset: {}, classList: mkClassList(), style: { setProperty: () => {}, removeProperty: () => {}, getPropertyValue: () => "" } },
   body: { classList: mkClassList() },
@@ -191,6 +195,7 @@ globalThis.document = ({
   visibilityState: "visible",
 }) as any;
 
+// SAFETY: 测试桩只实现被测配置层访问的 Window 成员；缺的方法一旦被调用会当场 TypeError。
 globalThis.window = ({
   matchMedia: () => ({ matches: false, addEventListener: () => {} }),
   addEventListener: () => {},
@@ -205,7 +210,7 @@ const reason = (id, kind) => P.sparkBlockReason({ id, kind });
 
 section("裁决：正常模式 + 黑名单");
 
-(window as any).quaverRedflag = false;
+Object.assign(window, { quaverRedflag: false });
 
 await load({});
 
@@ -225,7 +230,7 @@ check("sparkIdBlacklisted 与裁决同源", P.sparkIdBlacklisted("flowscape") ==
 
 section("裁决：安全模式（QUAVER_REDFLAG=1）");
 
-(window as any).quaverRedflag = true;
+Object.assign(window, { quaverRedflag: true });
 
 await load({});
 
@@ -241,7 +246,7 @@ await load({ "Sparkle.Blacklist": "die-for-you" });
 
 check("安全模式 + 黑名单：预装被黑名单拦（两层各司其职）", (reason("die-for-you", "official") ?? "").includes("Blacklist"));
 
-(window as any).quaverRedflag = false;
+Object.assign(window, { quaverRedflag: false });
 
 await load({});
 

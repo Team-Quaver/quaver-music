@@ -29,12 +29,17 @@ function check(name: string, cond: boolean, detail = "") {
   else { fail++; console.log(`  ❌ ${name}${detail ? ` — ${detail}` : ""}`); }
 }
 
-const eq = (name: string, got: unknown, want: unknown) =>
+const eq = <G, W>(name: string, got: G, want: W) =>
   check(name, JSON.stringify(got) === JSON.stringify(want), `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
 
+/** CSP 指令表（指令名 → 来源列表）。 */
+interface CspDirectives {
+  [directive: string]: string[];
+}
+
 /** 把 CSP 头值折成「指令名 -> 来源列表」 */
-function parse(csp: string): Record<string, string[]> {
-  const out: Record<string, string[]> = {};
+function parse(csp: string): CspDirectives {
+  const out: CspDirectives = {};
 
   for (const part of csp.split(";")) {
     const cells = part.trim().split(/\s+/).filter(Boolean);
@@ -127,6 +132,7 @@ const fakeSession = (cap: Captured) => ({
 const cap: Captured = { filters: null, handler: null };
 const logs: string[] = [];
 
+// SAFETY: 测试替身只实现 installAppCsp 会调用的 webRequest.onHeadersReceived。
 eq("本机 http origin 挂得上", installAppCsp(fakeSession(cap) as any, ORIGIN, (m: string) => logs.push(m)), true);
 
 eq("过滤器只指向应用 origin", cap.filters?.urls, [`${ORIGIN}/*`]);
@@ -142,9 +148,11 @@ eq("回调交出的响应头里有 CSP", cbResult?.responseHeaders?.["Content-Se
 const capSkip: Captured = { filters: null, handler: null };
 
 eq("file:// 没有 HTTP 头可贴 → 返回 false 且不挂钩子",
+  // SAFETY: 同上，测试替身只覆盖 webRequest.onHeadersReceived。
   installAppCsp(fakeSession(capSkip) as any, "file://", () => {}) === false && capSkip.handler === null, true);
 
 eq("origin 带路径也不挂（过滤器会拼出无效 pattern）",
+  // SAFETY: 同上，测试替身只覆盖 webRequest.onHeadersReceived。
   installAppCsp(fakeSession(capSkip) as any, "http://127.0.0.1:4174/index.html", () => {}), false);
 
 // ——— ④ 反向自证：什么情况下 Electron 会重新报警 ———

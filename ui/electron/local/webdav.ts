@@ -91,12 +91,20 @@ export function parsePropfind(xml: string, baseUrl: string): DavEntry[] {
   return out;
 }
 
-function authHeaders(auth?: DavAuth): Record<string, string> {
-  if (!auth?.username) return {};
+/** 只承载 WebDAV 请求头的具名契约；具名后既不给 `Record` 放水，也能直接交给 fetch。 */
+interface DavHeaders {
+  [key: string]: string;
+}
+
+function authHeaders(auth?: DavAuth): DavHeaders {
+  const headers: DavHeaders = {};
+
+  if (!auth?.username) return headers;
   // Node 侧没有 btoa 的全局可用性问题（Node 18+ 有）；Buffer 更稳。
   const b = Buffer.from(`${auth.username}:${auth.password ?? ""}`, "utf8").toString("base64");
+  headers.authorization = `Basic ${b}`;
 
-  return { authorization: `Basic ${b}` };
+  return headers;
 }
 
 /** PROPFIND Depth:1；207/200 都算成功。 */
@@ -117,7 +125,7 @@ export async function propfind(url: string, auth?: DavAuth, signal?: AbortSignal
       redirect: "follow",
     });
   } catch (e) {
-    throw new DavError(`WebDAV 连接失败：${(e as Error).message}`);
+    throw new DavError(`WebDAV 连接失败：${e instanceof Error ? e.message : String(e)}`);
   }
 
   if (r.status !== 207 && r.status !== 200) {
@@ -153,6 +161,6 @@ export async function davReadRange(url: string, from: number, to: number, auth?:
   return buf.subarray(from, Math.min(buf.length, to));
 }
 
-export function davAuthHeaders(auth?: DavAuth): Record<string, string> {
+export function davAuthHeaders(auth?: DavAuth): DavHeaders {
   return authHeaders(auth);
 }

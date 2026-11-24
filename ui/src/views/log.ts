@@ -1,6 +1,7 @@
 // Quaver — 路由视图：log（由 src/views/index.ts 按需动态 import，不在首屏解析）
 import { api } from "../lib/api";
 import { errText, h } from "./_shared";
+import { isJsonObject, jsonString, type JsonValue } from "../lib/json-value";
 
 // —— 调试：日志页面（壳层 electron-dev.log 尾部；由 relay.ts /api/log 提供） ——
 export default async function logView(root: HTMLElement) {
@@ -20,8 +21,10 @@ export default async function logView(root: HTMLElement) {
       const r = await fetch("/api/log?tail=800");
 
       if (!r.ok) {
-        const j = (await r.json().catch(() => null)) as { msg?: string } | null;
-        throw new Error(j?.msg || `HTTP ${r.status}`);
+        const j: JsonValue = await r.json().catch(() => null);
+        const msg = isJsonObject(j) ? jsonString(j.msg) : "";
+
+        throw new Error(msg || `HTTP ${r.status}`);
       }
 
       pre.textContent = await r.text();

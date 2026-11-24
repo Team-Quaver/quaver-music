@@ -132,7 +132,7 @@ export function toHex(c: RGB): string {
 
 /** 合法颜色字面量？（比 electron/config.ts 的 schema 校验宽松：这里允许省略 `#` 与 3 位简写，
  *  因为它是「输入框里正在敲的东西」的判据。写盘的永远是 toHex 的规范形态。） */
-export const isHexColor = (v: unknown): boolean => parseHex(String(v ?? "")) !== null;
+export const isHexColor = <T>(v: T): boolean => parseHex(String(v ?? "")) !== null;
 
 /** RGB → CMYK（印刷四分色）。纯黑时分母为 0，按约定给「全 0 + K=100」。 */
 export function rgb2cmyk(c: RGB): CMYK {

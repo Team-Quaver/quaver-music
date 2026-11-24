@@ -166,7 +166,7 @@ try {
     const x = cv.getContext("2d")!; x.fillStyle = c; x.clearRect(0, 0, 1, 1); x.fillRect(0, 0, 1, 1);
     const d = Array.from(x.getImageData(0, 0, 1, 1).data);
 
-    return { rgb: d.slice(0, 3) as number[], a: (d[3] ?? 255) / 255 };
+    return { rgb: d.slice(0, 3), a: (d[3] ?? 255) / 255 };
   }, color);
 
   /** 底色 + 一个带 alpha 的前景色 → 合成后实际落在屏上的 rgb（CSS 在 sRGB 上做 src-over） */

@@ -21,15 +21,16 @@ let fails = 0;
 
 const step = async (name: string, fn: () => Promise<string | void>) => {
   try { const note = await fn(); console.log(`PASS ${name}${note ? " — " + note : ""}`); }
-  catch (e) { fails++; console.log(`FAIL ${name}: ${(e as Error).message}`); }
+  catch (e) { fails++; console.log(`FAIL ${name}: ${e instanceof Error ? e.message : e}`); }
 };
 
 await page.goto(`${BASE}/index.html#/`, { waitUntil: "networkidle2" });
+
 await sleep(1000);
 
 // 监听器计数探针：在任何渲染之前包住 addEventListener，数出「挂在行上」与「挂在容器上」的监听数
 await page.evaluate(() => {
-  const w = window as any;
+  const w = window;
 
   w.__lw = { row: 0, box: 0, other: 0 };
 
@@ -50,39 +51,41 @@ await page.evaluate(() => {
 const setup = await page.evaluate(async () => {
   const songsUrl: string = "/src/lib/songs.ts"; // dev-server 绝对 URL：既非包名也非相对路径，TS 解析不了，运行时由 Vite 命中源文件
   const m = await import(songsUrl);
-  (window as any).__songs = m;
+  window.__songs = m;
   const box = document.createElement("div");
 
   box.className = "rows";
   document.body.append(box);
+
   const mk = (n: number) => Array.from({ length: n }, (_, i) => ({
     mid: `mid${i}`, id: 1000 + i, title: `曲名${i}`, interval: 200 + i,
     singer: [{ mid: `sm${i}`, name: `歌手${i}` }], album: { mid: `am${i}`, name: `专辑${i}` },
   }));
 
-  (window as any).__mk = mk;
-  (window as any).__box = box;
-  (window as any).__calls = [] as string[];
+  window.__mk = mk;
+  window.__box = box;
+  window.__calls = [];
 
   const hooks = {
     showAlbum: true,
-    onPlay: (s: any, index: number, all: any[]) => (window as any).__calls.push(`play:${s.mid}:${index}:${all.length}`),
-    onLove: (s: any, loved: boolean) => (window as any).__calls.push(`love:${s.mid}:${loved}`),
+    onPlay: (s: any, index: number, all: any[]) => window.__calls.push(`play:${s.mid}:${index}:${all.length}`),
+    onLove: (s: any, loved: boolean) => window.__calls.push(`love:${s.mid}:${loved}`),
   };
 
-  (window as any).__hooks = hooks;
+  window.__hooks = hooks;
   m.renderSongRows(box, mk(400), hooks);
 
-  return { rows: box.querySelectorAll(".row").length };
+  return { rows: box.querySelectorAll<HTMLElement>(".row").length };
 });
 
 await step("400 行渲染完成", async () => `rows=${setup.rows}`);
 
 await step("逐行监听只剩右键菜单 1 个（委托生效）", async () => {
-  const lw = await page.evaluate(() => (window as any).__lw as { row: number; box: number; other: number });
+  const lw = await page.evaluate(() => window.__lw);
 
   // 400 行 × 1 个 contextmenu（bindSongMenu 契约要求挂在行上）+ 容器 2 个（click/dblclick）
   if (lw.row > 400) throw new Error(`行上挂了 ${lw.row} 个监听（应 ≤400：只剩 contextmenu）`);
+
   if (lw.box < 2) throw new Error(`容器上没有委托监听：box=${lw.box}`);
 
   return `行监听=${lw.row}（≤400，每行至多 1 个）容器监听=${lw.box}`;
@@ -91,13 +94,14 @@ await step("逐行监听只剩右键菜单 1 个（委托生效）", async () =>
 // —— 单击：选中 + prefetch ——
 await step("单击第 3 行 → 该行 .sel，其它行不带 .sel", async () => {
   await page.evaluate(() => {
-    const row = (window as any).__box.querySelectorAll(".row")[2] as HTMLElement;
-    row.querySelector(".rmeta")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const row = window.__box.querySelectorAll<HTMLElement>(".row")[2];
+    row.querySelector<HTMLElement>(".rmeta")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
-  const r = await page.evaluate(() => {
-    const box = (window as any).__box as HTMLElement;
 
-    return { sel: [...box.querySelectorAll(".row.sel")].length, idx: [...box.children].indexOf(box.querySelector(".row.sel")!) };
+  const r = await page.evaluate(() => {
+    const box = window.__box;
+
+    return { sel: [...box.querySelectorAll(".row.sel")].length, idx: [...box.children].indexOf(box.querySelector<HTMLElement>(".row.sel")!) };
   });
 
   if (r.sel !== 1 || r.idx !== 2) throw new Error(JSON.stringify(r));
@@ -108,15 +112,16 @@ await step("单击第 3 行 → 该行 .sel，其它行不带 .sel", async () =>
 // —— 双击：序号与整列以当时 DOM 为准（删过一行后不错位）——
 await step("双击第 5 行 → onPlay 收到当时的序号与整列", async () => {
   await page.evaluate(() => {
-    (window as any).__calls = [];
-    const row = (window as any).__box.querySelectorAll(".row")[4] as HTMLElement;
-    row.querySelector(".rmeta")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    window.__calls = [];
+    const row = window.__box.querySelectorAll<HTMLElement>(".row")[4];
+    row.querySelector<HTMLElement>(".rmeta")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
   });
-  const calls = await page.evaluate(() => (window as any).__calls as string[]);
+  const calls = await page.evaluate(() => window.__calls);
 
   const parts = calls[0]?.split(":") ?? [];
 
   if (calls.length !== 1) throw new Error("calls=" + JSON.stringify(calls));
+
   if (parts[1] !== "mid4" || parts[2] !== "4" || parts[3] !== "400") throw new Error(calls[0]);
 
   return calls[0];
@@ -124,15 +129,15 @@ await step("双击第 5 行 → onPlay 收到当时的序号与整列", async ()
 
 await step("删掉首行后再双击 → 序号按当时 DOM（不错位）", async () => {
   await page.evaluate(() => {
-    const box = (window as any).__box as HTMLElement;
+    const box = window.__box;
 
     box.querySelector(".row")!.remove();
-    (window as any).__calls = [];
+    window.__calls = [];
     // 现在 DOM 的第 5 行是 mid4 之后那一首（mid5）
-    (box.querySelectorAll(".row")[4] as HTMLElement).querySelector(".rmeta")!
+    (box.querySelectorAll<HTMLElement>(".row")[4]).querySelector<HTMLElement>(".rmeta")!
       .dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
   });
-  const calls = await page.evaluate(() => (window as any).__calls as string[]);
+  const calls = await page.evaluate(() => window.__calls);
   const parts = calls[0]?.split(":") ?? [];
 
   if (parts[1] !== "mid5" || parts[2] !== "4" || parts[3] !== "399") throw new Error(JSON.stringify(calls));
@@ -143,16 +148,16 @@ await step("删掉首行后再双击 → 序号按当时 DOM（不错位）", as
 // —— 红心：不冒泡选中，走 onLove ——
 await step("点红心 → 走收藏回调，且不把行选中", async () => {
   const r = await page.evaluate(async () => {
-    const w = window as any;
+    const w = window;
 
     w.__calls = [];
 
-    const box = w.__box as HTMLElement;
+    const box = w.__box;
 
     box.querySelectorAll(".row.sel").forEach((x) => x.classList.remove("sel"));
 
-    const row = box.querySelectorAll(".row")[2] as HTMLElement;
-    const btn = row.querySelector("[data-love]") as HTMLElement;
+    const row = box.querySelectorAll<HTMLElement>(".row")[2];
+    const btn = row.querySelector<HTMLElement>("[data-love]")!;
     const key = row.dataset.songkey;
 
     btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -160,10 +165,11 @@ await step("点红心 → 走收藏回调，且不把行选中", async () => {
     // 收藏是异步的（乐观改态 → 写接口 → 终态回调）：等 onLove 落地再判
     for (let i = 0; i < 60 && !w.__calls.length; i++) await new Promise((res) => setTimeout(res, 50));
 
-    return { calls: w.__calls as string[], sel: box.querySelectorAll(".row.sel").length, key };
+    return { calls: w.__calls, sel: box.querySelectorAll(".row.sel").length, key };
   });
 
   if (r.sel !== 0) throw new Error(`红心点击把行选中了: ${JSON.stringify(r)}`);
+
   if (!r.calls.some((c) => c.startsWith(`love:${r.key}:`))) throw new Error(`onLove 未按该行触发: ${JSON.stringify(r.calls)}`);
 
   return `${r.key} → ${JSON.stringify(r.calls)}`;
@@ -172,20 +178,22 @@ await step("点红心 → 走收藏回调，且不把行选中", async () => {
 // —— 歌手/专辑行内链：跳路由，不选中、不起播 ——
 await step("点行内歌手链 → 走路由跳转（不选中/不播）", async () => {
   await page.evaluate(() => {
-    (window as any).__calls = [];
+    window.__calls = [];
     location.hash = "#/";
-    const box = (window as any).__box as HTMLElement;
-    const row = box.querySelectorAll(".row")[1] as HTMLElement;
-    const a = row.querySelector('[data-link^="singer:"]') as HTMLElement;
+    const box = window.__box;
+    const row = box.querySelectorAll<HTMLElement>(".row")[1];
+    const a = row.querySelector<HTMLElement>('[data-link^="singer:"]')!;
 
     a.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
+
   const r = await page.evaluate(() => ({
     hash: location.hash,
-    sel: (window as any).__box.querySelectorAll(".row.sel").length,
+    sel: window.__box.querySelectorAll(".row.sel").length,
   }));
 
   if (!r.hash.startsWith("#/singer?mid=")) throw new Error("hash=" + r.hash);
+
   if (r.sel) throw new Error("跳链同时把行选中了: " + JSON.stringify(r));
 
   return r.hash;
@@ -194,8 +202,8 @@ await step("点行内歌手链 → 走路由跳转（不选中/不播）", async
 // —— markActive 分域 ——
 await step("markActive：高亮跟着当前曲走，旧高亮被清干净", async () => {
   const r = await page.evaluate(() => {
-    const player = (window as any).__quaverPlayer;
-    const box = (window as any).__box as HTMLElement;
+    const player = window.__quaverPlayer;
+    const box = window.__box;
     const setCurrent = (mid: string) => { player.queue = [{ mid }]; player.index = 0; };
 
     setCurrent("mid7");
@@ -214,7 +222,9 @@ await step("markActive：高亮跟着当前曲走，旧高亮被清干净", asyn
   });
 
   if (r.first.join() !== "mid7") throw new Error("首次高亮不对: " + JSON.stringify(r));
+
   if (r.second.join() !== "mid9") throw new Error("换曲后没跟着走: " + JSON.stringify(r));
+
   if (r.none !== 0) throw new Error("无当前曲时残留高亮: " + r.none);
 
   return `${r.first} → ${r.second} → 空`;
@@ -222,7 +232,7 @@ await step("markActive：高亮跟着当前曲走，旧高亮被清干净", asyn
 
 await step("markActive：同曲在多个列表里都点亮", async () => {
   const r = await page.evaluate(() => {
-    const m = (window as any).__songs; const w = window as any; const player = w.__quaverPlayer;
+    const m = window.__songs; const w = window; const player = w.__quaverPlayer;
     const box2 = document.createElement("div");
 
     box2.className = "rows";
@@ -231,7 +241,7 @@ await step("markActive：同曲在多个列表里都点亮", async () => {
     player.queue = [{ mid: "mid3" }]; player.index = 0;
     player.markActive();
 
-    const a = [...w.__box.querySelectorAll(".row.playing")].map((e) => e.dataset.songkey);
+    const a = [...w.__box.querySelectorAll<HTMLElement>(".row.playing")].map((e) => e.dataset.songkey);
     const b = [...box2.querySelectorAll<HTMLElement>(".row.playing")].map((e) => e.dataset.songkey);
 
     box2.remove();
@@ -248,8 +258,8 @@ await step("markActive：同曲在多个列表里都点亮", async () => {
 
 await step("markActive：同一首重复出现时两处都点亮", async () => {
   const r = await page.evaluate(() => {
-    const m = (window as any).__songs; const w = window as any; const player = w.__quaverPlayer;
-    const box = w.__box as HTMLElement;
+    const m = window.__songs; const w = window; const player = w.__quaverPlayer;
+    const box = w.__box;
     const dup = w.__mk(12); dup.push({ ...dup[2] }); // 同一个 mid 第二次出现（歌单顺序表允许）
     m.renderSongRows(box, dup, w.__hooks);
     player.queue = [{ mid: "mid2" }]; player.index = 0;
@@ -270,7 +280,7 @@ await step("markActive：同一首重复出现时两处都点亮", async () => {
 
 await step("双击同 mid 的两行 → 各自拿到自己的对象（不串台）", async () => {
   const r = await page.evaluate(() => {
-    const w = window as any; const box = w.__box as HTMLElement;
+    const w = window; const box = w.__box;
 
     w.__calls = [];
     const rows = [...box.querySelectorAll<HTMLElement>(".row[data-songkey]")];
@@ -294,5 +304,7 @@ await step("双击同 mid 的两行 → 各自拿到自己的对象（不串台�
 if (errors.length) { fails++; console.log("FAIL 页面异常:", errors.join(" | ")); }
 
 await browser.close();
+
 console.log(fails ? `\n${fails} FAILED` : "\nall passed");
+
 process.exit(fails ? 1 : 0);

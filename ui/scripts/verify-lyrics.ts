@@ -27,7 +27,7 @@ function check(name: string, cond: boolean, detail = "") {
   else { fail++; console.log(`  ❌ ${name}${detail ? ` — ${detail}` : ""}`); }
 }
 
-const eq = (name: string, got: unknown, want: unknown) =>
+const eq = <G, W>(name: string, got: G, want: W) =>
   check(name, JSON.stringify(got) === JSON.stringify(want), `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
 
 const ROOT = mkdtempSync(join(tmpdir(), "quaver-lyrics-"));
@@ -161,6 +161,7 @@ const stub = createServer((req, res) => {
 
 await new Promise<void>((r) => stub.listen(0, "127.0.0.1", r));
 
+// SAFETY: listen(..., "127.0.0.1") 成功后 address() 必为 AddressInfo（含 port）。
 const base = `http://127.0.0.1:${(stub.address() as { port: number }).port}`;
 
 eq("命中返回全文", await fetchTtml(`${base}/ok.ttml`), TTML_SAMPLE);
@@ -232,6 +233,7 @@ const lapi = createServer((req, res) => {
 
 await new Promise<void>((r) => lapi.listen(0, "127.0.0.1", r));
 
+// SAFETY: listen(..., "127.0.0.1") 成功后 address() 必为 AddressInfo（含 port）。
 const lbase = `http://127.0.0.1:${(lapi.address() as { port: number }).port}`;
 
 // 与渲染层 api() 同构：信封 {code,msg,data} 要解包后再断言

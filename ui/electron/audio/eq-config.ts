@@ -54,9 +54,9 @@ const round = (v: number, digits: number) => {
 const freqNum = (v: number) => round(clamp(Number.isFinite(v) ? v : 1000, EQ_MIN_FREQ, EQ_MAX_FREQ), 2);
 const gainNum = (v: number) => round(clamp(Number.isFinite(v) ? v : 0, -EQ_GAIN_LIMIT, EQ_GAIN_LIMIT), 1);
 const qNum = (v: number) => round(clamp(Number.isFinite(v) ? v : 1, EQ_MIN_Q, EQ_MAX_Q), 2);
-const isRecord = (v: unknown): v is { [key: string]: JsonValue } => typeof v === "object" && v !== null && !Array.isArray(v);
-const isNumber = (v: unknown): v is number => typeof v === "number";
-const isString = (v: unknown): v is string => typeof v === "string";
+const isRecord = <T>(v: T): v is T & { [key: string]: JsonValue } => Object.prototype.toString.call(v) === "[object Object]";
+const isNumber = <T>(v: T): v is T & number => Object.prototype.toString.call(v) === "[object Number]";
+const isString = <T>(v: T): v is T & string => Object.prototype.toString.call(v) === "[object String]";
 
 export function isEqBandType(v: unknown): v is EqBandType {
   return v === "bell" || v === "lowShelf" || v === "highShelf" || v === "lowPass" || v === "highPass";
@@ -72,8 +72,8 @@ export function isPassFilter(type: EqBandType): boolean {
 }
 
 /** IPC / 配置文件 / 手改 JSON 的统一入口：坏字段就地兜底，永不把 NaN 或超长数组带进 mpv。 */
-export function normalizeEqState(input: unknown): EqState {
-  const raw = isRecord(input) ? input : {};
+export function normalizeEqState<T>(input: T): EqState {
+  const raw: { [key: string]: JsonValue } = isRecord(input) ? input : {};
   const bandValue = raw.bands;
   const hasBands = Array.isArray(bandValue);
   const rawBands: readonly unknown[] = hasBands ? bandValue : [];

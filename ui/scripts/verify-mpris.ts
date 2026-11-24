@@ -10,9 +10,11 @@ import {
   extrapolatePositionUs,
   trackPath,
   type MprisCommand,
+  type MprisPlayerOptions,
   type MprisPlayerInstance,
   type MprisState,
 } from "../electron/mpris.ts";
+import type { JsonValue } from "../src/lib/json-value.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const repo = join(root, "..");
@@ -30,8 +32,8 @@ function ok(name: string, condition: boolean, note = "") {
 }
 
 class FakePlayer implements MprisPlayerInstance {
-  listeners = new Map<string, Set<(...args: unknown[]) => void>>();
-  metadata: Record<string, unknown> = {};
+  listeners = new Map<string, Set<(...args: (JsonValue | undefined)[]) => void>>();
+  metadata: MprisPlayerInstance["metadata"] = {};
   playbackStatus = "Stopped";
   loopStatus = "None";
   shuffle = false;
@@ -43,23 +45,23 @@ class FakePlayer implements MprisPlayerInstance {
   canSeek = false;
   canControl = false;
   hasTrackList = false;
-  tracks?: Record<string, unknown>[];
-  options: Record<string, unknown>;
+  tracks?: MprisPlayerInstance["tracks"];
+  options: MprisPlayerOptions;
   seekedAt: number | null = null;
   disconnected = false;
   _bus = { disconnect: () => { this.disconnected = true; } };
 
-  constructor(options: Record<string, unknown>) {
+  constructor(options: MprisPlayerOptions) {
     this.options = options;
   }
 
-  on(event: string, cb: (...args: unknown[]) => void): void {
+  on(event: string, cb: (...args: (JsonValue | undefined)[]) => void): void {
     const set = this.listeners.get(event) ?? new Set();
     set.add(cb);
     this.listeners.set(event, set);
   }
 
-  emit(event: string, ...args: unknown[]): void {
+  emit(event: string, ...args: (JsonValue | undefined)[]): void {
     for (const cb of this.listeners.get(event) ?? []) cb(...args);
   }
 
@@ -108,7 +110,7 @@ const track = {
   durationSec: 180,
 };
 
-const state: MprisState = {
+const state = {
   v: 1,
   t: "state",
   status: "Playing",
@@ -119,7 +121,7 @@ const state: MprisState = {
   track: { ...track, asText: "第一句\n第二句" },
   queue: [track, { ...track, mid: "MID002", key: "KEY002", name: "第二首" }],
   can: { next: true, prev: true, play: true, pause: true, seek: true, control: true },
-};
+} satisfies MprisState;
 
 clockMs = 20_000;
 
@@ -203,7 +205,7 @@ ok("destroy 释放 D-Bus 连接", player()?.disconnected === true);
 // —— 接线与依赖残留 ——
 const main = read(join(root, "electron", "main.ts"));
 const mprisSrc = read(join(root, "electron", "mpris.ts"));
-const pkg = JSON.parse(read(join(root, "package.json"))) as { dependencies?: Record<string, string> };
+const pkg: { dependencies?: Record<string, string> } = JSON.parse(read(join(root, "package.json")));
 const builder = readRepo("packages/electron-builder-base.yml");
 const gitmodules = readRepo(".gitmodules");
 const workflows = readRepo(".github/workflows/build.yml");

@@ -194,11 +194,15 @@ P.setCloseAction("quit"); eq("CloseAction 键名", conf()["Window.CloseAction"],
 P.setAudioDevice("pipewire"); eq("AudioDevice 键名", conf()["Playing.AudioDevice"], "pipewire");
 
 P.setAdaptiveRate(true); eq("AdaptiveRate 键名", conf()["Playing.AdaptiveRate"], "True");
+
 eq("AdaptiveRate 读回 true", P.getAdaptiveRate(), true);
+
 P.setAdaptiveRate(false); eq("AdaptiveRate 关回落 False", conf()["Playing.AdaptiveRate"], "False");
 
 P.setAdaptiveRateSwitch(true); eq("AdaptiveRateSwitch 键名", conf()["Playing.AdaptiveRateSwitch"], "True");
+
 eq("AdaptiveRateSwitch 读回 true", P.getAdaptiveRateSwitch(), true);
+
 P.setAdaptiveRateSwitch(false); eq("AdaptiveRateSwitch 关回落 False", conf()["Playing.AdaptiveRateSwitch"], "False");
 
 P.setFade("long");      eq("Fade 键名", conf()["Playing.Fade"], "long");
@@ -331,6 +335,7 @@ eq("底部 → bottom", [P.getControlBarMode(), conf()["Style.ControlBar"]], ["b
 
 check("body 底部 class/data 属性同步", !bodyClasses.has("control-bar-floating") && bodyDataset.controlBar === "bottom", JSON.stringify({cls:[...bodyClasses], ds:bodyDataset}));
 
+// SAFETY: 故意传非法值，验证配置层白名单回落（不是类型证据丢失）。
 P.setControlBarMode("bad" as any);
 
 eq("非法写入回落 bottom", [P.getControlBarMode(), conf()["Style.ControlBar"]], ["bottom", "bottom"]);
@@ -351,6 +356,7 @@ await settle();
 
 check("body 菜单栏 class/data 属性同步", !bodyClasses.has("playlist-collection") && bodyDataset.playlistMode === "menu", JSON.stringify({cls:[...bodyClasses], ds:bodyDataset}));
 
+// SAFETY: 故意传非法值，验证配置层白名单回落（不是类型证据丢失）。
 P.setPlaylistMode("bad" as any);
 
 eq("非法写入回落 menu", [P.getPlaylistMode(), conf()["Style.PlaylistMode"]], ["menu", "menu"]);

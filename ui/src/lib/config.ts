@@ -7,6 +7,8 @@
 // 所以 main.ts 必须在 applyTheme/applyFonts 之前 await loadConfig()。
 // （旧实现直接把 localStorage 当真相来源，打包态每次启动都是新 origin → 设置全丢。）
 import { defaultEqState } from "../../electron/audio/eq-config.ts";
+import { isJsonObject, jsonString, type JsonValue } from "./json-value.ts";
+import type { ConfigChangedPayload } from "../../electron/bridge-types.ts";
 
 /** 拍平的配置表：键为 "Section.Key"，值恒为字符串（与 electron/config.ts 的 schema 对齐）。 */
 export type ConfigSnapshot = Record<string, string>;
@@ -27,7 +29,7 @@ export function defaultBackend(): "MPV" | "Liino" {
 
 // 与 electron/config.ts 的 SCHEMA 默认值保持一致（浏览器 dev 兜底 / 文件缺键时用；
 // 桌面端主进程 readValues() 已补齐全量，这里只是不让两种环境的行为分叉）。改一处要改两处。
-const FALLBACK: ConfigSnapshot = {
+const FALLBACK = {
   "Style.Style": "dark",
   "Style.DefaultUIFonts": "Source Han Sans,Microsoft Yahei UI",
   "Style.DefaultLyricsFonts": "Source Han Serif",
@@ -123,21 +125,59 @@ const FALLBACK: ConfigSnapshot = {
   "Update.AutoCheck": "True",
   "Update.Channel": "stable",
   "Update.LastNotified": "",
-};
+} satisfies ConfigSnapshot;
 
-let values: ConfigSnapshot = { ...FALLBACK };
+/** 运行期配置表：键 → 字符串值（FALLBACK 打底，桥/localStorage 覆盖）。 */
+const values = new Map<string, string>(Object.entries(FALLBACK));
 let info = { dir: "", path: "", bridged: false, writable: true };
 
-const bridge = (): any => (window as any).quaverConfig;
+const bridge = () => window.quaverConfig;
 
 function saveLocal() {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(values)); } catch { /* 隐私模式/配额满：只在本次会话内生效 */ }
+  try { localStorage.setItem(LS_KEY, JSON.stringify(Object.fromEntries(values))); } catch { /* 隐私模式/配额满：只在本次会话内生效 */ }
 }
 
-function adopt(r: any): boolean {
-  if (!r?.ok || !r.values) return false;
-  values = { ...FALLBACK, ...r.values };
-  info = { dir: r.dir ?? "", path: r.path ?? "", bridged: true, writable: r.writable !== false };
+/** 主进程快照 → 内存表：只收字符串值，其余（坏档/旧版）按缺省回落。 */
+function configValues(value: JsonValue | undefined): ConfigSnapshot | null {
+  if (!isJsonObject(value)) return null;
+
+  const out: Record<string, string> = {};
+
+  for (const [key, entry] of Object.entries(value)) {
+    const text = jsonString(entry, "\u0000");
+
+    if (text !== "\u0000") out[key] = text;
+  }
+
+  return out;
+}
+
+/** localStorage 里的旧快照：同样是「键 → 字符串」，坏档当空表。 */
+function localValues(raw: string | null): ConfigSnapshot {
+  if (raw === null) return {};
+
+  try {
+    return configValues(JSON.parse(raw)) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/** 整表替换：先回默认值，再叠加载入的快照（缺键仍走默认）。 */
+function replaceValues(snapshot: Record<string, string>): void {
+  values.clear();
+
+  for (const [key, value] of Object.entries(FALLBACK)) values.set(key, value);
+
+  for (const [key, value] of Object.entries(snapshot)) values.set(key, value);
+}
+
+function adopt(reply: { ok: boolean; values?: JsonValue; dir?: string; path?: string; writable?: boolean }): boolean {
+  const snapshot = configValues(reply.values);
+
+  if (!reply.ok || snapshot === null) return false;
+  replaceValues(snapshot);
+  info = { dir: reply.dir ?? "", path: reply.path ?? "", bridged: true, writable: reply.writable !== false };
 
   return true;
 }
@@ -155,21 +195,12 @@ function adopt(r: any): boolean {
  * 增量合并（广播携带新值），不做整表重载：重载 = 再发一次 IPC + 与本页在途的
  * 防抖写入打架；合并只认「已在快照里的键」，不接收广播投喂的未知键。
  */
-function mergeFromBroadcast(payload: unknown): void {
-  const p = payload as { all?: boolean; values?: ConfigSnapshot } | null;
+function mergeFromBroadcast(payload: ConfigChangedPayload): void {
+  if ("all" in payload) { void loadConfig(); return; }
 
-  if (p?.all) { void loadConfig(); return; }
-
-  const vs = p?.values;
-
-  if (!vs || typeof vs !== "object") return;
-
-  for (const [k, v] of Object.entries(vs)) {
-    if (!(k in values)) continue;
-    const s = String(v);
-
-    if (values[k] === s) continue;
-    values[k] = s;
+  for (const [k, v] of Object.entries(payload.values)) {
+    if (!values.has(k) || values.get(k) === v) continue;
+    values.set(k, v);
   }
 }
 
@@ -181,7 +212,7 @@ function mergeFromBroadcast(payload: unknown): void {
   if (b?.boot && adopt(b.boot)) return;
 
   try {
-    values = { ...FALLBACK, ...(JSON.parse(localStorage.getItem(LS_KEY) ?? "{}") as ConfigSnapshot) };
+    replaceValues(localValues(localStorage.getItem(LS_KEY)));
   } catch { /* 坏 JSON：用默认值 */ }
 })();
 
@@ -202,21 +233,19 @@ export async function loadConfig(): Promise<void> {
     }
   }
 
-  try {
-    values = { ...FALLBACK, ...(JSON.parse(localStorage.getItem(LS_KEY) ?? "{}") as ConfigSnapshot) };
-  } catch { /* 忽略 */ }
+  replaceValues(localValues(localStorage.getItem(LS_KEY)));
 }
 
 /** 读一项（同步）。未配置时返回默认值。 */
-export const cfg = (key: string, fallback = ""): string => values[key] ?? fallback;
+export const cfg = (key: string, fallback = ""): string => values.get(key) ?? fallback;
 
 /** 内存先行：只把真正变化的键挑出来（值没变就别产生一次写盘）。 */
 function applyPatch(patch: ConfigSnapshot): ConfigSnapshot | null {
   const changed: ConfigSnapshot = {};
 
   for (const [k, v] of Object.entries(patch)) {
-    if (values[k] === v) continue;
-    values[k] = v;
+    if (values.get(k) === v) continue;
+    values.set(k, v);
     changed[k] = v;
   }
 
@@ -228,7 +257,7 @@ function flush(patch: ConfigSnapshot) {
 
   if (b?.set) {
     // 不 await：UI 不该等磁盘。失败只记日志 —— 配置丢一项不影响这次会话的使用。
-    void Promise.resolve(b.set(patch)).catch((e: unknown) => console.warn("quaver: 配置写入失败", e));
+    void Promise.resolve(b.set(patch)).catch((e: Error | string) => console.warn("quaver: 配置写入失败", e));
   } else {
     saveLocal();
   }
@@ -311,12 +340,12 @@ export async function resetConfig(): Promise<void> {
   if (b?.reset) {
     const r = await b.reset();
 
-    if (r?.ok) values = { ...FALLBACK, ...r.values };
+    if (r?.ok && r.values) replaceValues(r.values);
 
     return;
   }
 
-  values = { ...FALLBACK };
+  replaceValues({});
   saveLocal();
 }
 
@@ -324,8 +353,8 @@ export async function resetConfig(): Promise<void> {
 // 注意这是**唯一**能改到内存快照的入口 —— 配置在启动时装载一次，往 localStorage 里塞值
 // 不会影响当前会话（下次启动才读），改完要 reload 才行。
 if (import.meta.env.DEV) {
-  (window as any).__cfg = {
-    all: () => ({ ...values }),
+  window.__cfg = {
+    all: () => Object.fromEntries(values),
     get: cfg,
     set: cfgSet,
     info: configInfo,

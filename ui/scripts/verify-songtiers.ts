@@ -116,14 +116,14 @@ for (const k of ["size_128mp3", "size_320mp3", "size_flac", "size_192ogg", "size
 // api.ts：档位全集对接（songMissingTiers 委托零依赖模块，键序与 QUALITIES 对齐）
 ok("api: 引入 missingTiersOf", has(src.api, `import { missingTiersOf } from "./songtiers"`));
 
-ok("api: songMissingTiers 用 QUALITIES 全集判定", /songMissingTiers\(song: any\)[\s\S]*?missingTiersOf\(Object\.keys\(QUALITIES\), song\?\.file\)/.test(src.api));
+ok("api: songMissingTiers 用 QUALITIES 全集判定", /songMissingTiers\([\s\S]*?missingTiersOf\(QUALITY_IDS, song\?\.file\)/.test(src.api));
 
 // PlayerBar：选择器过滤 + 换曲重建
 ok("bar: 引入 songMissingTiers", has(src.bar, "songMissingTiers"));
 
 ok("bar: 浮窗按无源档过滤（auto 恒在，锁定档不算无源）",
   has(src.bar, `item("auto", "自动", "最高可播")`)
-  && /missing \? tierList\.filter\(\(x\) => !missing\.has\(x\.id as Quality\)\) : tierList/.test(src.bar));
+  && /missing \? tierList\.filter\(\(x\) => \{[\s\S]{0,120}?!missing\.has\(tier\)/.test(src.bar));
 
 ok("bar: 换曲即重建浮窗（挂在 lastMarkKey 换曲判定上）",
   /if \(s\?\.mid !== lastMarkKey\) \{ lastMarkKey = s\?\.mid; player\.markActive\(\); buildQPop\(\); \}/.test(src.bar));
@@ -131,9 +131,9 @@ ok("bar: 换曲即重建浮窗（挂在 lastMarkKey 换曲判定上）",
 // session.ts：存档瘦身保留判定消费的字段（旧存档没有 → 全量列表，新存档必须带上）
 ok("session: 引入 SONG_TIER_SIZE_KEYS", has(src.session, `import { SONG_TIER_SIZE_KEYS } from "./songtiers"`));
 
-ok("session: slim 按 SONG_TIER_SIZE_KEYS 保留 size 字段", has(src.session, "SONG_TIER_SIZE_KEYS.filter"));
+ok("session: slim 按 SONG_TIER_SIZE_KEYS 保留 size 字段", has(src.session, "SONG_TIER_SIZE_KEYS.flatMap"));
 
-ok("session: slim 保留 media_mid（高档取链依赖）", has(src.session, ".media_mid = mediaMid"));
+ok("session: slim 保留 media_mid（高档取链依赖）", has(src.session, "media_mid: mediaMid"));
 
 console.log(`\n${fails ? `✗ ${fails} 项失败` : "✓ 全部通过"}（${checks} checks）`);
 

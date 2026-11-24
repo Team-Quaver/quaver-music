@@ -94,6 +94,7 @@ ok("NativeDrop: Tooltip 命中从 Element 向上找宿主（图标 <svg>/<path> 
     { left: 74, top: 642 },
     { left: -116, top: 642 },
   ];
+
   const coverPick = pickTooltipSpot(spots, 129, 31.39, 1000, 700);
 
   ok("NativeDrop: 贴左/贴底目标优先上方（不会退到右侧盖住播放条歌名）",

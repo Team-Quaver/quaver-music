@@ -241,6 +241,7 @@ section("差分对照：与 SPlayer-Dev/lyric-kit 的实现逐字节一致（可
       if (JSON.stringify(kit.parseKanaUnits(tag)) !== JSON.stringify(parseKanaUnits(tag))) { diff++; console.log("  units 不一致:", tag); }
 
       const a = mkLines(), b = mkLines();
+      // SAFETY: 上游 kit 与宿主 parse 使用同构行对象；测试行均由 mkLines() 生成，字段形状一致。
       kit.applyKanaToLines(a as any, tag); applyKanaToLines(b, tag);
 
       if (dump(a) !== dump(b)) { diff++; console.log("  apply 不一致:", tag, dump(a), dump(b)); }

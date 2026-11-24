@@ -36,7 +36,7 @@ export const BAND_MIN_PX = 20;
  * 条带（clip-path inset 开的可见窗口）：高 = 文字块高 + 上下各 pad，且**恒居中于视口**。
  * 因为块心钉在视口中心（alignFor），条带中心 = 视口中心 → 上下余量对称，块不会「挂」在下半。
  */
-export function bandFor(viewH: number, blockH: number, pad: number): { top: number; h: number } {
+export function bandFor(viewH: number, blockH: number, pad: number) {
   const h = Math.max(BAND_MIN_PX, Math.min(viewH, Math.round(blockH + pad * 2)));
   let top = Math.round((viewH - h) / 2);
 
@@ -74,6 +74,7 @@ export interface TimedLyricLine {
  * 歌词缓存拿到的仍是原始时间，不受影响。返回新数组/新行/新词，绝不原地改输入。
  */
 export function sequenceOverlappingLines<T extends TimedLyricLine>(lines: readonly T[]): T[] {
+  // SAFETY: 展开的仍是 T 自身字段，只把 words 换成本类型的浅拷贝；不增删字段，故仍是 T。
   const out = lines.map((line) => ({
     ...line,
     words: line.words?.map((word) => ({ ...word })),

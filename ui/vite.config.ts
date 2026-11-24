@@ -26,7 +26,7 @@ function appVersion(): string {
   try {
     return execSync('git describe --tags --abbrev=0 --match "v*"', { cwd: root, encoding: "utf8" }).trim();
   } catch {
-    return "v" + (JSON.parse(readFileSync(root + "package.json", "utf8")).version as string);
+    return "v" + String(JSON.parse(readFileSync(root + "package.json", "utf8")).version ?? "");
   }
 }
 
@@ -34,6 +34,7 @@ function appVersion(): string {
 const PAGES = ["index", "guess", "daily", "liked", "playlist", "playlists", "user", "settings", "login", "desktop-lyrics"];
 
 function attachRelay(server: ViteDevServer | PreviewServer) {
+  // SAFETY: Vite 的 dev/preview server 都带 connect 风格的 middlewares；这里只挂 /api 前缀。
   (server.middlewares as Connect.Server).use("/api", apiRelay());
 }
 
@@ -44,12 +45,19 @@ function attachRelay(server: ViteDevServer | PreviewServer) {
 function chunkGraphPlugin() {
   let outDir = "dist";
 
+  /** chunk-graph.json 的一条：谁装的模块、各占多少字节。 */
+  interface ChunkGraphEntry {
+    kind: string;
+    bytes: number;
+    modules: { id: string; bytes: number }[];
+  }
+
   return {
     name: "quaver-chunk-graph",
     apply: "build",
     configResolved(cfg: any) { outDir = resolve(cfg.root ?? ".", cfg.build?.outDir ?? "dist"); },
     writeBundle(_opts: any, bundle: any) {
-      const graph: Record<string, unknown> = {};
+      const graph: Record<string, ChunkGraphEntry> = {};
 
       for (const [file, item] of Object.entries<any>(bundle)) {
         if (item.type !== "chunk") continue;

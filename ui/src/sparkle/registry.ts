@@ -290,6 +290,7 @@ export function sparkRegisterTransportControl(pluginId: string, control: Sparkle
     pluginId,
     control: { ...control, id, label: control.label.trim(), hint: control.hint?.trim() || undefined },
   };
+
   transportControls.push(entry);
   teardownOf(pluginId).push(() => {
     const at = transportControls.indexOf(entry);
@@ -317,6 +318,7 @@ export function sparkRegisterMenuBarItem(pluginId: string, item: SparkleMenuBarI
     pluginId,
     item: { ...item, id, label: item.label.trim(), hint: item.hint?.trim() || undefined },
   };
+
   menuBarItems.push(entry);
   teardownOf(pluginId).push(() => {
     const at = menuBarItems.indexOf(entry);
@@ -434,6 +436,7 @@ export const sparkleIsThemeOnly = (pluginId: string): boolean => {
     && !owns(transportControls) && !owns(menuBarItems)
     && !owns(streamSources) && !owns(karaokeProviders) && ![...pluginViews.values()].some((e) => e.pluginId === pluginId);
 };
+
 export const sparkleNpWidgets = (): NpWidgetEntry[] => npWidgets;
 
 /** 正在播放页接管视图（首个注册者；无 = 宿主走默认 np 布局）。
@@ -480,7 +483,7 @@ function collectMenuItems<C>(
 
   for (const e of entries) {
     try {
-      out.push(typeof e.item === "function" ? (e.item as (c: C) => SparkleMenuItem)(ctx) : e.item);
+      out.push(e.item instanceof Function ? e.item(ctx) : e.item);
     } catch (err) {
       console.warn(`[sparkle:${e.pluginId}] 菜单项生成失败`, err);
     }

@@ -210,7 +210,7 @@ ok("session：快照带 shuffle", /shuffle\?: boolean;/.test(sess));
 
 ok("session：写入 shuffle", /shuffle: !!snap\.shuffle,/.test(sess));
 
-ok("session：读回 shuffle（旧存档缺字段按 false）", /shuffle: d\.shuffle === true,/.test(sess));
+ok("session：读回 shuffle（旧存档缺字段按 false）", /shuffle: jsonBoolean\(parsed\.shuffle\),/.test(sess));
 
 ok("player：还原时读 shuffle", /this\.shuffle = !!snap\.shuffle;/.test(player));
 

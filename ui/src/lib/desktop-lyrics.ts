@@ -158,9 +158,7 @@ function syncAccentWatch(on: boolean): void {
 }
 
 /** 覆盖层命令的执行端（与 MPRIS / mediaSession 同一语义面：prev 走 prevPress 遵循 PrevReplay）。 */
-function handleCmd(msg: unknown): void {
-  const cmd = (msg ?? {}) as DlCmd & Record<string, unknown>;
-
+function handleCmd(cmd: DlCmd): void {
   switch (cmd.cmd) {
     case "playpause":
       player.toggle();

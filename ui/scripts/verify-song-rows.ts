@@ -96,4 +96,5 @@ ok("views: 用工具条重画列表的页面都跟着调 markActive",
   "搜索/排序重画后行换了位置，不补一次就会丢高亮");
 
 console.log(fails ? `\n${checks - fails}/${checks} passed — ${fails} FAILED` : `\n${checks}/${checks} passed`);
+
 process.exit(fails ? 1 : 0);

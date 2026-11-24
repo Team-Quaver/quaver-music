@@ -37,23 +37,26 @@ export function applyHotkeyAction(action: HotkeyAction): void {
       break;
     }
 
-    case "quit": (window as any).quaverCSD?.quit?.(); break; // 浏览器 dev 无壳层桥：no-op
+    case "quit": window.quaverCSD?.quit?.(); break; // 浏览器 dev 无壳层桥：no-op
   }
 }
 
 export function startHotkeysBridge(): void {
   // —— 全局热键回程（Electron 壳层才有桥）——
-  const hk = (window as any).quaverHotkeys;
+  const hk = window.quaverHotkeys;
 
   if (hk?.onEvent) {
-    hk.onEvent((payload: { t?: string; action?: HotkeyAction; state?: string; reason?: string; wayland?: boolean; items?: { action: string; accel: string; label?: string; why?: string }[] }) => {
-      if (payload?.t === "action" && payload.action) applyHotkeyAction(payload.action);
-      else if (payload?.t === "failed" && payload.items?.length) {
+    hk.onEvent((payload) => {
+      if (payload.t === "action") {
+        const action = FOCUS_HOTKEY_ACTIONS.find((name) => name === payload.action);
+
+        if (action) applyHotkeyAction(action);
+      } else if (payload.t === "failed" && payload.items?.length) {
         toast("全局热键注册失败：" + payload.items.map((x) => `${x.accel}（${x.why ?? "未知原因"}）`).join("、"), "err");
-      } else if (payload?.t === "partial" && payload.items?.length) {
+      } else if (payload.t === "partial" && payload.items?.length) {
         const fix = payload.wayland ? "请在桌面快捷键设置中检查" : "可在设置里换键";
         toast(`部分全局热键未生效（可能被其他应用占用，${fix}）：` + payload.items.map((x) => x.label ?? x.action).join("、"), "err");
-      } else if (payload?.t === "status" && payload.state === "failed") {
+      } else if (payload.t === "status" && payload.state === "failed") {
         toast("全局快捷键会话中断：" + (payload.reason || "未知原因"), "err");
       }
       // status=unsupported（桌面环境没有门户）在设置页有静态说明，不弹打扰式 toast

@@ -246,6 +246,7 @@ export function QueuePanel(): HTMLElement {
       clear.dataset.tooltip = clearTip;
       clear.setAttribute("aria-label", clearTip);
     }
+
     clear.disabled = !player.queue.length;
 
     cnt.textContent = player.queue.length ? `${player.queue.length} 首` : "";
@@ -292,7 +293,7 @@ export function QueuePanel(): HTMLElement {
       <button class="qi-del" type="button" title="从播放列表移除" aria-label="从播放列表移除">${icons.close}</button>
     `;
     row.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).closest(".qi-del")) return; // 删除钮不触发切歌
+      if (e.target instanceof Element && e.target.closest(".qi-del")) return; // 删除钮不触发切歌
 
       if (suppressClick) return;
       player.jump(i);
@@ -324,7 +325,7 @@ export function QueuePanel(): HTMLElement {
   const DRAG_THRESHOLD = 6; // 纵向位移超过它才算拖（点了不走 = 切歌）
 
   const reduceMotion = () =>
-    typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.matchMedia instanceof Function && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   /** 视口坐标 → 列表内容坐标（滚动位置变化时两者会漂，做差之前先统一到这一把尺子上） */
   const contentY = (viewportY: number) => viewportY - list.getBoundingClientRect().top + list.scrollTop;
@@ -358,7 +359,7 @@ export function QueuePanel(): HTMLElement {
     row.addEventListener("pointerdown", (e) => {
       if (e.button !== 0) return;
 
-      if ((e.target as HTMLElement).closest(".qi-del")) return; // 删除钮：不参与拖拽
+      if (e.target instanceof Element && e.target.closest(".qi-del")) return; // 删除钮：不参与拖拽
 
       if (dragRow) return; // 一次只拖一行
       const pid = e.pointerId;
@@ -378,7 +379,7 @@ export function QueuePanel(): HTMLElement {
 
       /** 落点变了才动 DOM；动就走 squeeze，让被挤开的邻行滑过去 */
       const reorder = () => {
-        const kids = [...list.children] as HTMLElement[];
+        const kids = [...list.children].filter((child): child is HTMLElement => child instanceof HTMLElement);
         const at = kids.indexOf(row);
         const boxes = kids.map((el) => { const r = el.getBoundingClientRect(); return { top: r.top, height: r.height }; });
         const slot = dropSlot(boxes, at, lastY);
@@ -434,9 +435,9 @@ export function QueuePanel(): HTMLElement {
 
       /** 松手后列表已重建：把落在最终槽位的新行从松手位置滑回去（否则是硬闪一下） */
       const settle = (to: number, fromTop: number) => {
-        const el = list.children[to] as HTMLElement | undefined;
+        const el = list.children[to];
 
-        if (!el || reduceMotion()) return;
+        if (!(el instanceof HTMLElement) || reduceMotion()) return;
         const d = fromTop - contentY(el.getBoundingClientRect().top);
 
         if (Math.abs(d) < 1) return;
@@ -469,7 +470,7 @@ export function QueuePanel(): HTMLElement {
       const onKey = (ev: KeyboardEvent) => {
         if (ev.key !== "Escape") return;
         ev.preventDefault();
-        const kids = [...list.children] as HTMLElement[];
+        const kids = [...list.children].filter((child): child is HTMLElement => child instanceof HTMLElement);
         const at = kids.indexOf(row);
 
         if (at !== fromIdx) {

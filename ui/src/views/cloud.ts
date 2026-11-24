@@ -144,6 +144,7 @@ export default async function cloudView(root: HTMLElement) {
           }</i>
           ${item.coverManual ? `<i class="cloud-pill">封面</i>` : ""}
           ${item.lyricImport ? `<i class="cloud-pill">导入歌词</i>` : ""}
+          ${item.lyricLrclib ? `<i class="cloud-pill">LRCLIB 歌词</i>` : ""}
           ${item.editedMeta ? `<i class="cloud-pill">已校正</i>` : ""}
           ${item.scrapedAt > 0 ? `<i class="cloud-pill">已刮削</i>` : ""}
           ${item.hasLyric ? `<i class="cloud-pill">歌词</i>` : ""}

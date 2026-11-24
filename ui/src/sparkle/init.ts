@@ -6,15 +6,16 @@ import { isSparkleRetired, listInstalledThirdParty, loadOfficial, loadThirdParty
 import { registerBuiltinLyrics } from "../lyrics/builtin";
 import { sparkBlockReason, sparkRedflag } from "./policy";
 import { initStyleLayer } from "./style-layer";
+import { isJsonArray, jsonString, type JsonValue } from "../lib/json-value";
 
 const OFFICIAL_KNOWN_KEY = "quaver.sparkle.official-known.v1";
 
 /** localStorage 里那份 string[] 名单的安全读（坏 JSON = 空表，绝不炸启动） */
 function readIds(key: string): string[] {
   try {
-    const v = JSON.parse(localStorage.getItem(key) ?? "[]");
+    const v: JsonValue = JSON.parse(localStorage.getItem(key) ?? "[]");
 
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+    return isJsonArray(v) ? v.map((x) => jsonString(x)).filter(Boolean) : [];
   } catch {
     return [];
   }

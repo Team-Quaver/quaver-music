@@ -324,6 +324,7 @@ export function pickTooltipSpot(spots: TipSpot[], w: number, h: number, vw: numb
   const inside = (p: TipSpot) =>
     p.left >= VIEW_PAD && p.top >= VIEW_PAD
     && p.left + w <= vw - VIEW_PAD && p.top + h <= vh - VIEW_PAD;
+
   const vertical = (p: TipSpot) => p.top >= VIEW_PAD && p.top + h <= vh - VIEW_PAD;
 
   return spots.slice(0, 2).find(inside)

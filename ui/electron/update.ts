@@ -146,7 +146,7 @@ function xdgOpen(path: string) {
 
     try {
       child = spawn("xdg-open", [path], { detached: true, stdio: "ignore" });
-    } catch (e) { finish(e as Error); return; }
+    } catch (e) { finish(e instanceof Error ? e : new Error(String(e))); return; }
 
     child.once("error", finish);
     child.once("spawn", () => { child.unref(); finish(null); });
@@ -351,7 +351,8 @@ async function downloadTo(id: string, url: string, dest: string, log: (...args: 
     let received = 0;
     let lastPct = -1;
     await pipeline(
-      Readable.fromWeb(res.body as unknown as Parameters<typeof Readable.fromWeb>[0]),
+      // SAFETY: fetch 的 ReadableStream 与 node:stream/web 的同构，fromWeb 只用到 getReader。
+      Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]),
       new Transform({
         transform(chunk, _enc, cb) {
           received += chunk.length;
@@ -386,7 +387,7 @@ async function downloadTo(id: string, url: string, dest: string, log: (...args: 
     await rmQuiet(dest);
     const canceled = ctl.signal.aborted;
 
-    return { ok: false, canceled, error: canceled ? "下载已取消" : String((e as Error)?.message ?? e) };
+    return { ok: false, canceled, error: canceled ? "下载已取消" : e instanceof Error ? e.message : String(e) };
   } finally {
     downloads.delete(id);
   }
@@ -675,9 +676,9 @@ export function setupUpdaterIPC({ log }: { log: (...args: unknown[]) => void }) 
 
       return { ok: false, error: `未知 op: ${op}` };
     } catch (e) {
-      log(`[quaver] update op ${op} failed:`, String((e as Error)?.stack || e));
+      log(`[quaver] update op ${op} failed:`, e instanceof Error ? e.stack ?? e.message : String(e));
 
-      return { ok: false, error: String((e as Error)?.message ?? e) };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   });
 }

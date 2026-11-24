@@ -470,7 +470,7 @@ check("memory 模式的警告要讲清楚「没有退回明文这一档」",
 check("凭证信息 IPC 只回状态不回凭证",
   mainSrc.includes('ipcMain.handle("quaver:credential-info"') && !/credential-info[\s\S]{0,400}?credentialStore\.read\(\)/.test(mainSrc));
 
-check("preload 暴露的是只读 info()", read("electron/preload.cts").includes('info: () => ipcRenderer.invoke("quaver:credential-info")'));
+check("preload 暴露的是只读 info()", /info: \(\) => ask<CredentialInfoReply>\("quaver:credential-info"\)/.test(read("electron/preload.cts")));
 
 check("keyring.ts 不 import electron（保证可单测）", !/from "electron"/.test(keyringSrc));
 
@@ -487,6 +487,7 @@ check("用户可见文案不再提 credential.json / 0600（登录页与设置�
 
 check("登录页写明凭证存在系统密钥管理器",
   /系统(指定的)?密钥(管理器|环)/.test(viewsSource()));
+
 check("verify:keyring 已挂进 verify:static", pkg.scripts["verify:static"].includes("verify-keyring.ts") && !!pkg.scripts["verify:keyring"]);
 
 for (const d of TMP_DIRS) rmSync(d, { recursive: true, force: true });

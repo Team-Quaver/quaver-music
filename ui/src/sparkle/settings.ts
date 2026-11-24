@@ -26,6 +26,13 @@ import {
 
 type MarketEntry = SparkleMarketPluginEntry;
 
+/** Marketplace 面板的三态视图（一次索引拉取一处消费）。 */
+interface MarketView {
+  loading: boolean;
+  error: string | null;
+  entries: MarketEntry[];
+}
+
 /** 索引条目分类；未知/缺省/旧 extension 一律按 plugin（主题是显式声明才有的分类） */
 type MarketCategory = "theme" | "plugin";
 
@@ -39,9 +46,9 @@ const CAT_LABEL: Record<MarketCategory, string> = { theme: "主题", plugin: "�
 // （待在「插件」标签里的当然是插件），不在文字里重复。Marketplace 目录那几行反过来 ——
 // 它回答的是「这是什么」，所以仍只打分类徽标。
 const OFFICIAL_AUTHOR = "team quaver";
-const isTeamQuaver = (author: unknown) => String(author ?? "").trim().toLowerCase() === OFFICIAL_AUTHOR;
+const isTeamQuaver = (author: string | null | undefined) => String(author ?? "").trim().toLowerCase() === OFFICIAL_AUTHOR;
 
-const sourceBadge = (author: unknown): { cls: string; text: string } =>
+const sourceBadge = (author: string | null | undefined): { cls: string; text: string } =>
   isTeamQuaver(author) ? { cls: "official", text: "官方" } : { cls: "third-party", text: "第三方" };
 
 // —— Marketplace 更新偏好 ——
@@ -59,10 +66,10 @@ const setAutoUpdateEnabled = (on: boolean) => {
   } catch { /* localStorage 不可用时保持默认关闭 */ }
 };
 
-const isNewerVersion = (a: unknown, b: unknown) => (compareSparkleVersions(a, b) ?? -1) > 0;
+const isNewerVersion = (a: string | null | undefined, b: string | null | undefined) => (compareSparkleVersions(a, b) ?? -1) > 0;
 
-const esc = (s: unknown) =>
-  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+const esc = (s: string | number | null | undefined) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] ?? c);
 
 const base64ToBytes = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 
@@ -164,13 +171,11 @@ export function mountSparklePanel(section: HTMLElement): () => void {
 
   let installedThird: InstalledPlugin[] = [];
   /** 一次索引拉取一处消费：loading（拉取中）/ error（拉取失败原因）/ entries */
-  let market: { loading: boolean; error: string | null; entries: MarketEntry[] } = { loading: true, error: null, entries: [] };
+  let market: MarketView = { loading: true, error: null, entries: [] };
   /** Marketplace 标签内部的分类筛选（all = 全量；条目本身始终带分类徽标） */
   let mcat: "all" | MarketCategory = "all";
 
-  const installedCategory = (inst: InstalledPlugin): MarketCategory => catOf(
-    typeof inst.manifest?.category === "string" ? inst.manifest.category : undefined,
-  );
+  const installedCategory = (inst: InstalledPlugin): MarketCategory => catOf(inst.manifest?.category);
 
   /** 打开某插件的设置弹窗：把该插件注册的设置区渲染进弹窗（关闭时统一清理） */
   const openSettings = (pluginId: string, name: string) => {
@@ -382,6 +387,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
     if (!bridge) { toast("当前环境不支持花火插件功能", "err"); return; }
 
     if (wasActive) disableSparklePlugin(entry.id);
+
     if (button) { button.disabled = true; button.textContent = "更新中…"; }
 
     try {
@@ -397,6 +403,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
 
       if (!res?.ok) {
         toast(res?.error || "更新失败", "err");
+
         // 更新失败时旧文件仍在盘上：把刚停下的插件按旧版本拉起来，别让一次网络错误
         // 悄悄改变启用状态
         if (wasActive && !sparkRecordOf(entry.id)) {
@@ -412,7 +419,9 @@ export function mountSparklePanel(section: HTMLElement): () => void {
         if (wasActive && inst) {
           try {
             await enableSparklePlugin(await loadThirdParty(inst)); // loadSeq cache-bust：拿新文件并重跑顶层
+
             if (keepStyle) activateStyle(keepStyle, style.variantId ?? undefined);
+
             if (activeThemeId) applySparkleTheme();
             toast(`${entry.name || entry.id} 已更新到 v${entry.version} 并重载`);
           } catch (e) {
@@ -425,6 +434,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
       }
     } finally {
       if (button) { button.disabled = false; button.textContent = "更新"; }
+
       renderRows();
       renderMarket();
     }
@@ -628,6 +638,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
         if (await installMarketEntry(entry, cat)) {
           toast(`已安装 ${entry.name || entry.id}${cat === "theme" ? "，已在外观设置中启用" : `（默认关闭，可在「${CAT_LABEL[cat]}」标签开启）`}`);
         }
+
         renderRows();
         renderMarket();
       } catch (e) {
@@ -648,6 +659,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
       upd.textContent = `更新（v${entry.version}）`;
       upd.title = `当前 v${installed?.manifest?.version ?? "?"} → v${entry.version}`;
       upd.onclick = () => { void updateMarketEntry(entry, upd); };
+
       actions.append(upd);
     }
 
@@ -838,7 +850,7 @@ export function mountSparklePanel(section: HTMLElement): () => void {
   marketGroup.querySelectorAll<HTMLButtonElement>(".sparkle-mkt-chip").forEach((chip) => {
     chip.onclick = () => {
       if (chip.classList.contains("is-active")) return;
-      mcat = chip.dataset.mcat as "all" | MarketCategory;
+      mcat = chip.dataset.mcat === "theme" ? "theme" : chip.dataset.mcat === "plugin" ? "plugin" : "all";
       marketGroup.querySelectorAll(".sparkle-mkt-chip").forEach((x) => x.classList.toggle("is-active", x === chip));
       renderMarket();
     };

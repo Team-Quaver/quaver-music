@@ -36,6 +36,15 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+/** 桌面歌词窗的只读状态快照（ipc quaver:dl-control 的 get-state 回包）。 */
+export interface DesktopLyricsState {
+  open: boolean;
+  enabled: boolean;
+  scale: number;
+  locked: boolean;
+  canLock: boolean;
+}
+
 
 /** 主进程注入的依赖：拿主窗引用 / 应用 URL / 日志 / 托盘刷新 / 退出标志（窗口生命周期归本模块）。 */
 export interface DlDeps {
@@ -178,7 +187,7 @@ export class DesktopLyricsController {
     return !!this.win && !this.win.isDestroyed() && this.win.webContents === sender;
   }
 
-  private toDl(channel: string, payload: unknown): void {
+  private toDl<T>(channel: string, payload: T): void {
     if (this.win && !this.win.isDestroyed()) this.win.webContents.send(channel, payload);
   }
 
@@ -190,7 +199,7 @@ export class DesktopLyricsController {
 
   // ——— 对外状态 ———
 
-  state(): { open: boolean; enabled: boolean; scale: number; locked: boolean; canLock: boolean } {
+  state(): DesktopLyricsState {
     return {
       open: !!this.win && !this.win.isDestroyed(),
       enabled: this.settings.enabled,

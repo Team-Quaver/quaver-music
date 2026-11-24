@@ -10,8 +10,9 @@ interface SparkleVersion {
 
 const VERSION_RE = /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
-export function parseSparkleVersion(value: unknown): SparkleVersion | null {
-  if (typeof value !== "string") return null;
+export function parseSparkleVersion(value: string | null | undefined): SparkleVersion | null {
+  if (!value) return null;
+
   const m = VERSION_RE.exec(value.trim());
 
   if (!m) return null;
@@ -25,7 +26,7 @@ export function parseSparkleVersion(value: unknown): SparkleVersion | null {
 }
 
 /** 返回负数、0、正数，分别表示 a 小于、等于、大于 b。 */
-export function compareSparkleVersions(a: unknown, b: unknown): number | null {
+export function compareSparkleVersions(a: string | null | undefined, b: string | null | undefined): number | null {
   const left = parseSparkleVersion(a);
   const right = parseSparkleVersion(b);
 
@@ -66,7 +67,7 @@ export function compareSparkleVersions(a: unknown, b: unknown): number | null {
 
 /** nightly 构建（CI 版本 = <包版本>-<短sha>-nightly，产物名形态省略 -nightly 后缀）。
  *  prerelease 段与 update-core.ts 的 parseVersion 同一口径：短 commit id（十六进制 7-10 位）。 */
-export function isSparkleNightly(value: unknown): boolean {
+export function isSparkleNightly(value: string | null | undefined): boolean {
   // 裸 "nightly"：滚动 tag 名。老构建的 git describe 命中过它，把 "nightly" 原样注入
   // __APP_VERSION__ —— 与 update-core 的口径对齐，认作 nightly 而不是「解析失败的版本」。
   if (value === "nightly") return true;
@@ -75,7 +76,7 @@ export function isSparkleNightly(value: unknown): boolean {
   return !!v?.prerelease.length && /^([0-9a-f]{7,10})(-nightly)?$/.test(v.prerelease.join("-"));
 }
 
-export function isSparkleVersionAtLeast(current: unknown, minimum: unknown, allowBeta = false): boolean {
+export function isSparkleVersionAtLeast(current: string | null | undefined, minimum: string | null | undefined, allowBeta = false): boolean {
   const comparison = compareSparkleVersions(current, minimum);
 
   if (comparison !== null && comparison >= 0) return true;
@@ -96,17 +97,15 @@ export function isSparkleVersionAtLeast(current: unknown, minimum: unknown, allo
   return (["major", "minor", "patch"] as const).every((key) => currentVersion[key] === minimumVersion?.[key]);
 }
 
-export function isSparkleVersionValid(value: unknown): value is string {
+export function isSparkleVersionValid(value: string | null | undefined): value is string {
   return parseSparkleVersion(value) !== null;
 }
 
 /** 返回用户可直接展示的最低宿主版本错误；没有声明最低版本时返回 null。 */
-export function getSparkleHostVersionError(current: unknown, minimum: unknown, allowBeta = false): string | null {
+export function getSparkleHostVersionError(current: string | null | undefined, minimum: string | null | undefined, allowBeta = false): string | null {
   if (minimum === undefined) return null;
 
-  if (typeof minimum !== "string" || !isSparkleVersionValid(minimum)) return "插件最低本体版本号不合法";
-
-  if (typeof allowBeta !== "boolean") return "插件 Beta 版本开关不合法";
+  if (!isSparkleVersionValid(minimum)) return "插件最低本体版本号不合法";
 
   if (isSparkleVersionAtLeast(current, minimum, allowBeta)) return null;
 

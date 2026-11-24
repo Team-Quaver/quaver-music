@@ -15,7 +15,7 @@ import type { SparkleNpView, SparkleNpViewCtx, SparkleQualityTier, SparkleSongSn
 import { player, type Song } from "../player";
 import { pickAux } from "../lyric";
 import {
-  coverUrl, effectiveQuality, getLastStream, getStreamTiers, QUALITY_SHORT, songMissingTiers,
+  coverUrl, effectiveQuality, getLastStream, getStreamTiers, qualityShortOf, songMissingTiers,
   songTitle, stripEm, type Quality,
 } from "../lib/api";
 import { isLocalSong, localSongStreamUrl } from "../lib/local";
@@ -51,11 +51,11 @@ function availableTiers(): SparkleQualityTier[] {
   if (isLocalSong(player.current)) return [];
 
   if (!tierCache?.length) return [];
-  const missing = songMissingTiers(player.current);
+  const missing: ReadonlySet<string> | null = songMissingTiers(player.current);
 
   if (!missing) return tierCache;
 
-  return tierCache.filter((t) => !missing.has(t.id as Quality));
+  return tierCache.filter((t) => !missing.has(t.id));
 }
 
 // —— 曲目快照 ——
@@ -149,7 +149,9 @@ export function npViewCtx(): SparkleNpViewCtx {
       const fallback = player.playbackFallback;
 
       if (fallback?.local) return "本地文件";
+
       if (fallback?.directUrl) return "微云文件";
+
       if (isLocalSong(player.current)) return localSongStreamUrl(player.current).label;
 
       if (player.current?.directUrl) return "微云文件";
@@ -157,8 +159,8 @@ export function npViewCtx(): SparkleNpViewCtx {
       const ls = getLastStream();
 
       return player.current && ls
-        ? (ls.degraded ? "↓" : "") + (QUALITY_SHORT[ls.tier] ?? ls.label)
-        : (QUALITY_SHORT[effectiveQuality()] ?? "音质");
+        ? (ls.degraded ? "↓" : "") + (qualityShortOf(ls.tier) || ls.label)
+        : (qualityShortOf(effectiveQuality()) || "音质");
     },
     lastStream: () => getLastStream(),
     qualityTiers: () => availableTiers(),
@@ -172,6 +174,7 @@ export function npViewCtx(): SparkleNpViewCtx {
     jumpTo: (offset) => player.jumpToOffset(offset),
     setVolume: (v) => player.setVolume(v),
     toggleMute: () => player.toggleMute(),
+    // SAFETY: SDK 的 id 来自上面 availableTiers()，表项由 QUALITY_IDS 构造，值域就是 Quality | "auto"。
     switchQuality: (id) => player.switchQuality(id as Quality | "auto"),
     toggleTrans: () => player.toggleTrans(),
     loved: (mid) => player.loved.has(mid),

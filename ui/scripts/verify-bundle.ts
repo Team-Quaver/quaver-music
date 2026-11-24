@@ -27,7 +27,7 @@ function check(name: string, cond: boolean, detail = "") {
   else { fail++; console.log(`  ❌ ${name}${detail ? ` — ${detail}` : ""}`); }
 }
 
-const eq = (name: string, got: unknown, want: unknown) =>
+const eq = <G, W>(name: string, got: G, want: W) =>
   check(name, JSON.stringify(got) === JSON.stringify(want), `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
 
 const kb = (n: number) => `${(n / 1024).toFixed(1)}KB`;
@@ -56,10 +56,12 @@ if (stale) {
   await build({ configFile: join(UI, "vite.config.ts"), logLevel: "error" });
 }
 
+// SAFETY: manifest.json 由 Vite 在本次 build 里生成，形状由 Vite 的 manifest 契约保证。
 const manifest = JSON.parse(readFileSync(MANIFEST, "utf8")) as Record<string, {
   file?: string; isEntry?: boolean; imports?: string[]; dynamicImports?: string[]; css?: string[]; src?: string;
 }>;
 
+// SAFETY: chunk-graph.json 由本仓 vite.config.ts 的 quaver-chunk-graph 插件写出，形状同下。
 const graph = JSON.parse(readFileSync(GRAPH, "utf8")) as Record<string, {
   kind: string; bytes: number; modules: { id: string; bytes: number }[];
 }>;
@@ -102,7 +104,10 @@ check("两个真入口都在（SPA 壳 + 桌面歌词覆盖层）",
 // 重复写占位 DOM）+ 清掉 icons 里四个无人引用的死图标；实测闭包 212,619B，只余 ~0.4KB。
 // 2026-11-10 本地/微云封面统一走 coverUrl，实测 212,972B，余 20B。
 // 再涨就要按 probe-bundle 的模块归属真拆（NowPlaying / QueuePanel 仍静态常驻），别继续加预算。
-const BUDGET: Record<string, number> = { "index.html": 250_992, "desktop-lyrics.html": 520_000 };
+const BUDGET = { "index.html": 250_992, "desktop-lyrics.html": 520_000 } satisfies Record<string, number>;
+
+const budgetOf = (entry: string): number =>
+  Object.entries(BUDGET).find(([name]) => name === entry)?.[1] ?? 0;
 
 section("首屏静态闭包预算（入口 + 它静态引到的一切）");
 
@@ -113,7 +118,7 @@ for (const e of entries) {
   const js = closures[e]!.reduce((s, f) => s + bytesOf(f), 0);
   const css = [...new Set(closures[e]!.flatMap((f) => manifest[keyByFile.get(f)!]?.css ?? []))];
   const cssBytes = css.reduce((s, f) => s + bytesOf(f), 0);
-  check(`${e} 首屏 JS ${kb(js)} ≤ ${kb(BUDGET[e] ?? 0)}`, js <= (BUDGET[e] ?? 0));
+  check(`${e} 首屏 JS ${kb(js)} ≤ ${kb(budgetOf(e))}`, js <= budgetOf(e));
   check(`${e} 首屏 CSS ${kb(cssBytes)} ≤ ${kb(84_000)}`, cssBytes <= 84_000);
   console.log(`      ${closures[e]!.map((f) => `${f.split("/").pop()}=${(bytesOf(f) / 1024).toFixed(0)}k`).join(" ")}`);
 }
@@ -126,11 +131,13 @@ const dlClosure = closures["desktop-lyrics.html"] ?? [];
 
 section("重量级依赖必须在懒加载侧（主窗口）");
 
-for (const [label, re] of [
+const heavyDeps: Array<[string, RegExp]> = [
   ["AMLL 歌词引擎（@applemusic-like-lyrics）", /@applemusic-like-lyrics/],
   ["繁简词典（opencc-js）", /opencc-js/],
   ["更新链路（lib/updater.ts）", /lib\/updater\.ts/],
-] as [string, RegExp][]) {
+];
+
+for (const [label, re] of heavyDeps) {
   check(`主窗首屏不含 ${label}`, !mainModules.some((id) => re.test(id)));
 }
 

@@ -130,6 +130,7 @@ export function songListTools(opts: SongListToolsOptions): SongListTools {
 
   for (const b of sortBtns) {
     b.addEventListener("click", () => {
+      // SAFETY: sortBtns 只收本组件上面写死的那三个 [data-sort] 按钮，值域就是 RowSortKey。
       const key = b.dataset.sort as RowSortKey;
 
       if (key === sortKey) { if (key !== "default") desc = !desc; } // 同一个键再点 = 正/倒对调

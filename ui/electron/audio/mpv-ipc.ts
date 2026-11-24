@@ -91,7 +91,7 @@ export class MpvIpc {
   buf: string;
   eventCb: ((ev: MpvEvent) => void) | null;
   dead: boolean;
-  exitCb: ((code: unknown) => void) | null;
+  exitCb: ((code: number | null) => void) | null;
   /** start() 里探测到的 mpv 版本串；未拉起时为空串（展示侧按「空 = 未知」处理）。 */
   mpvVersion = "";
 
@@ -254,7 +254,7 @@ export class MpvIpc {
   /** 上面 setEncoding("utf8") 之后 data 事件在运行期给的是已解码字符串；但 @types/node
    *  不感知 setEncoding，仍按 Buffer 建模 —— 入参收宽成两者，统一归一成串再拼接。 */
   onData(chunk: string | Buffer): void {
-    this.buf += typeof chunk === "string" ? chunk : chunk.toString();
+    this.buf += Buffer.isBuffer(chunk) ? chunk.toString() : chunk;
     let i;
 
     while ((i = this.buf.indexOf("\n")) >= 0) {

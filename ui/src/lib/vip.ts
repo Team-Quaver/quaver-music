@@ -52,7 +52,7 @@ const pad = (n: number) => String(n).padStart(2, "0");
  *  **必须回读校验**：`Date.parse("2026-02-31T00:00:00+08:00")` 在 V8 里不报错，而是静默进位成
  *  03-03（实测 1772467200000）—— 少了这一步，"2026-02-31" 这种脏值会被当成一个合法的到期日
  *  显示出来。回读墙钟三段（年/月/日，含时分秒）与原串逐项对齐，对不上就是脏值。 */
-export function parseVipTime(s: unknown, edge: "start" | "end" = "start"): number | null {
+export function parseVipTime<T>(s: T, edge: "start" | "end" = "start"): number | null {
   const raw = String(s ?? "").trim().replace("T", " ");
 
   if (!raw || raw === "0") return null;
@@ -87,7 +87,7 @@ export function fmtVipWall(ms: number): string {
 }
 
 /** 上游墙钟串 → 展示形态；解析不出来给空串 */
-export const fmtVipTime = (s: unknown): string => {
+export const fmtVipTime = <T>(s: T): string => {
   const ms = parseVipTime(s);
 
   return ms === null ? "" : fmtVipWall(ms);
@@ -101,7 +101,12 @@ export function vipDaysLeft(endMs: number, now: number): number {
 }
 
 /** 到期状态：未过期「6 天后到期」/「今天到期」，已过期「已过期 3 天」 */
-export function vipExpiryState(endMs: number, now: number): { expired: boolean; text: string } {
+export interface VipExpiryState {
+  expired: boolean;
+  text: string;
+}
+
+export function vipExpiryState(endMs: number, now: number): VipExpiryState {
   const d = vipDaysLeft(endMs, now);
 
   if (endMs <= now) return { expired: true, text: d < 0 ? `已过期 ${-d} 天` : "今天已过期" };

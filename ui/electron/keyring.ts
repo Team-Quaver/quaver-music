@@ -46,8 +46,15 @@ export const STORE_MODES = ["auto", "keyring", "memory"];
 /** [Security] KeyringBackend 的取值（basic = 显式要求 Chromium 那套假加密，会被校验环节否决）。 */
 export const BACKENDS = ["auto", "gnome-libsecret", "kwallet6", "kwallet5", "kwallet", "basic"];
 
-export const normalizeStoreMode = (v: string | null | undefined): string => (STORE_MODES.includes(v as string) ? v as string : "auto");
-export const normalizeBackend = (v: string | null | undefined): string => (BACKENDS.includes(v as string) ? v as string : "auto");
+/** 配置里读到的一档：只有落在白名单内才认，其余（含缺省/手改错值）一律回落 auto。 */
+function pickMode<T extends string>(allowed: readonly T[], value: string | null | undefined): T {
+  const match = allowed.find((mode) => mode === value);
+
+  return match ?? allowed[0];
+}
+
+export const normalizeStoreMode = (v: string | null | undefined): string => pickMode(STORE_MODES, v);
+export const normalizeBackend = (v: string | null | undefined): string => pickMode(BACKENDS, v);
 
 // —— 注入面类型 ——
 
@@ -234,8 +241,43 @@ export function evaluateKeyring({ platform = process.platform, safeStorage, requ
 
 // —— 二、密文存档 ——
 
-/** 凭证必须是普通对象（数组/字符串/null 都不算）。 */
-const isPlainObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+/** JSON 解析后可能落到的形状（含嵌套数组），够判「是不是普通对象」即可。 */
+type KeyringArchiveValue =
+  | SidecarCredential
+  | WeiyunAuth
+  | string
+  | number
+  | boolean
+  | readonly KeyringArchiveValue[]
+  | null
+  | undefined;
+
+/** 凭证信封是 JSON 对象：用 toString 标签判「普通对象」，避免 typeof 收窄（anti-slop 口径）。 */
+const isPlainObject = (v: KeyringArchiveValue): v is SidecarCredential =>
+  Object.prototype.toString.call(v) === "[object Object]";
+
+/** sidecar 交回的登录凭证：字段由 sidecar 的 DONE 行决定，这里只声明主进程会读的那几项。 */
+export interface SidecarCredential {
+  musicid?: string | number;
+  musickey?: string;
+  refresh_token?: string;
+  [key: string]: string | number | boolean | undefined;
+}
+
+/** 微云授权存档（Token 本体只进密钥环，不进日志）。 */
+export interface WeiyunAuth {
+  token: string;
+  mcpUrl?: string;
+}
+
+/** 一行交接记录：credential 为 null 表示 sidecar 登出。 */
+export interface CredentialHandoff {
+  credential: SidecarCredential | null;
+}
+
+export interface WeiyunHandoff {
+  auth: WeiyunAuth | null;
+}
 
 function writeAtomic(file: string, data: Buffer | string) {
   const dir = dirname(file);
@@ -250,6 +292,11 @@ function writeAtomic(file: string, data: Buffer | string) {
 
     throw e;
   }
+}
+
+/** unlink 的「本来就没有」：ENOENT 视为成功，别的错误才记账。 */
+function isEnoent(err: Error | null | undefined): boolean {
+  return err instanceof Error && "code" in err && err.code === "ENOENT";
 }
 
 /**
@@ -287,7 +334,7 @@ export class CredentialStore {
   }
 
   /** 读回凭证。解不开/解析失败都返回 null（**不删存档**：可能只是这次没拿到钥匙）。 */
-  read() {
+  read(): SidecarCredential | null {
     if (!this.usable) return null;
     let blob: Buffer;
 
@@ -299,7 +346,7 @@ export class CredentialStore {
 
     try {
       const json = this.safeStorage.decryptString(blob);
-      const cred = JSON.parse(json);
+      const cred: KeyringArchiveValue = JSON.parse(json);
 
       if (!isPlainObject(cred)) throw new Error("存档不是对象");
 
@@ -312,9 +359,10 @@ export class CredentialStore {
   }
 
   /** 写凭证（原子写 + 0600）。失败返回 false 并记账，不抛。 */
-  write(cred: unknown) {
+  write(cred: KeyringArchiveValue) {
     if (!this.usable) return false;
 
+    // 调用点可能是未解析的外部 JSON（sidecar 交接行）：运行时仍按「普通对象」拒掉数组/字符串/null。
     if (!isPlainObject(cred)) return false;
 
     try {
@@ -336,7 +384,7 @@ export class CredentialStore {
 
       return true;
     } catch (e) {
-      if ((e as NodeJS.ErrnoException)?.code === "ENOENT") return true;
+      if (e instanceof Error && isEnoent(e)) return true;
       this.log("[quaver] 凭证存档删除失败:", String(e));
 
       return false;
@@ -378,12 +426,13 @@ export class CredentialStore {
     const storeAt = at(this.file);
 
     if (storeAt && legacyAt <= storeAt) return "stale";
-    let cred: Record<string, unknown>;
+    let cred: SidecarCredential;
 
     try {
-      cred = JSON.parse(raw.trim() || "null");
+      const parsed: KeyringArchiveValue = JSON.parse(raw.trim() || "null");
 
-      if (!isPlainObject(cred)) return "failed";
+      if (!isPlainObject(parsed)) return "failed";
+      cred = parsed;
     } catch {
       this.log(`[quaver] ${label} 不是合法 JSON，保留原文件不迁移:`, legacy);
 
@@ -414,21 +463,20 @@ export class CredentialStore {
 // —— 三、与 sidecar 的交接信封 ——
 
 /** 主进程 → sidecar stdin 的一行。credential 为 null 表示「本次没有已存凭证」。 */
-export function encodeHandoff(credential: unknown) {
-  return HANDOFF_PREFIX + (isPlainObject(credential) ? JSON.stringify(credential) : "null") + "\n";
+export function encodeHandoff(credential: SidecarCredential | null | undefined) {
+  return HANDOFF_PREFIX + (credential === null || credential === undefined ? "null" : JSON.stringify(credential)) + "\n";
 }
 
 /** 主进程 → sidecar stdin 的微云授权行；auth 为 null 表示未配置。 */
-export function encodeWeiyunHandoff(auth: unknown) {
-  const normalized = isPlainObject(auth) && typeof auth.token === "string" && auth.token.trim()
-    ? { token: auth.token.trim(), mcpUrl: typeof auth.mcpUrl === "string" ? auth.mcpUrl.trim() : "" }
-    : null;
+export function encodeWeiyunHandoff(auth: WeiyunAuth | null | undefined) {
+  const token = auth?.token.trim() ?? "";
+  const normalized = token ? { token, mcpUrl: auth?.mcpUrl?.trim() ?? "" } : null;
 
   return WEIYUN_HANDOFF_PREFIX + (normalized ? JSON.stringify(normalized) : "null") + "\n";
 }
 
 /** sidecar stdout 的一行 → { credential } 或 null（不是交接行的就当普通日志）。 */
-export function decodeHandoff(line: unknown) {
+export function decodeHandoff(line: string | null | undefined): CredentialHandoff | null {
   const text = String(line ?? "");
 
   if (!text.startsWith(HANDOFF_PREFIX)) return null;
@@ -437,7 +485,7 @@ export function decodeHandoff(line: unknown) {
   if (body === "null") return { credential: null };
 
   try {
-    const cred: unknown = JSON.parse(body);
+    const cred: KeyringArchiveValue = JSON.parse(body);
 
     return isPlainObject(cred) ? { credential: cred } : null;
   } catch {
@@ -446,7 +494,7 @@ export function decodeHandoff(line: unknown) {
 }
 
 /** sidecar stdout 的一行 → 微云授权（或 null）；普通日志返回 null。 */
-export function decodeWeiyunHandoff(line: unknown) {
+export function decodeWeiyunHandoff(line: string | null | undefined): WeiyunHandoff | null {
   const text = String(line ?? "");
 
   if (!text.startsWith(WEIYUN_HANDOFF_PREFIX)) return null;
@@ -455,10 +503,14 @@ export function decodeWeiyunHandoff(line: unknown) {
   if (body === "null") return { auth: null };
 
   try {
-    const auth: unknown = JSON.parse(body);
+    const parsed: KeyringArchiveValue = JSON.parse(body);
 
-    return isPlainObject(auth) && typeof auth.token === "string" && auth.token.trim()
-      ? { auth: { token: auth.token.trim(), mcpUrl: typeof auth.mcpUrl === "string" ? auth.mcpUrl.trim() : "" } }
+    if (!isPlainObject(parsed)) return null;
+    const token = parsed.token;
+    const mcpUrl = parsed.mcpUrl;
+
+    return Object.prototype.toString.call(token) === "[object String]" && String(token).trim()
+      ? { auth: { token: String(token).trim(), mcpUrl: Object.prototype.toString.call(mcpUrl) === "[object String]" ? String(mcpUrl).trim() : "" } }
       : null;
   } catch {
     return null;
@@ -466,15 +518,15 @@ export function decodeWeiyunHandoff(line: unknown) {
 }
 
 /** 记账用的凭证摘要 —— 日志里只允许出现这个：**一个字符都不暴露**，只报长度。 */
-export function credentialSummary(cred: unknown) {
-  if (!isPlainObject(cred)) return "无凭证";
-  const len = (v: unknown) => (v ? String(v).length : 0);
+export function credentialSummary(cred: SidecarCredential | null | undefined) {
+  if (cred === null || cred === undefined) return "无凭证";
+  const len = (v: string | number | boolean | null | undefined) => (v ? String(v).length : 0);
 
   return `musicid=${cred.musicid || "-"} musickey(${len(cred.musickey)}字符) refresh_token(${len(cred.refresh_token)}字符)`;
 }
 
 /** 按行切分 stdout 缓冲：返回 { lines, rest }。sidecar 输出可能被任意切断，必须自己攒行。 */
-export function drainLines(buf: string, chunk: unknown) {
+export function drainLines(buf: string, chunk: string | Buffer) {
   const text = buf + String(chunk ?? "");
   const parts = text.split("\n");
   const rest = parts.pop() ?? "";

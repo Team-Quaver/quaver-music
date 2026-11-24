@@ -21,6 +21,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { defaultEqState, EQ_MAX_BANDS, normalizeEqState } from "./audio/eq-config.ts";
+import { isJsonArray, isJsonObject, type JsonValue } from "../src/lib/json-value.ts";
 
 export const APP_DIR_NAME = "Quaver Music"; // Windows / macOS 用
 export const APP_DIR_NAME_POSIX = "quaver-music"; // Linux（XDG 风格小写）
@@ -54,9 +55,9 @@ function isNavIdList(v: string, allowEmpty: boolean): boolean {
 /** 配置文件里的 EQ 是整段 JSON：结构合法 + 规范化后段数不超上限。 */
 function isEqConfigValue(v: string): boolean {
   try {
-    const parsed = JSON.parse(v) as { bands?: unknown; preamp?: unknown };
+    const parsed: JsonValue = JSON.parse(v);
 
-    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.bands)) return false;
+    if (!isJsonObject(parsed) || !isJsonArray(parsed.bands)) return false;
 
     if (parsed.bands.length > EQ_MAX_BANDS) return false;
     normalizeEqState(parsed);
@@ -175,7 +176,7 @@ export class IniDoc {
     this.lines = lines;
   }
 
-  static parse(text: unknown): IniDoc {
+  static parse(text: string | null | undefined): IniDoc {
     const t = String(text ?? "").replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
 
     if (!t) return new IniDoc([]);
@@ -229,7 +230,7 @@ export class IniDoc {
   }
 
   /** 只在键已存在时改写取值，返回是否命中（用于「不主动把默认值写进用户文件」）。 */
-  setExisting(section: string, key: string, value: unknown): boolean {
+  setExisting(section: string, key: string, value: string | number | boolean | null | undefined): boolean {
     const [s, e] = this.sectionRange(section);
 
     if (s < 0) return false;
@@ -250,7 +251,7 @@ export class IniDoc {
   }
 
   /** 写值：命中就改那一行；段内没有就追加到段尾（跳过段尾空行）；段不存在就补段头。 */
-  set(section: string, key: string, value: unknown): this {
+  set(section: string, key: string, value: string | number | boolean | null | undefined): this {
     const text = String(value ?? "");
 
     if (this.setExisting(section, key, text)) return this;
@@ -272,8 +273,8 @@ export class IniDoc {
   }
 
   /** 收集全部键值 → { "Section.Key": value }（段名与键名保持文件里的原样）。 */
-  values(): Record<string, string> {
-    const out: Record<string, string> = {};
+  values(): IniValueTable {
+    const out: IniValueTable = {};
     let cur: string | null = null;
 
     for (const line of this.lines) {
@@ -291,6 +292,11 @@ export class IniDoc {
 
     return out;
   }
+}
+
+/** INI 文件里的键值表：键为 "Section.Key"，值为剥掉行内注释后的原文。 */
+export interface IniValueTable {
+  [key: string]: string;
 }
 
 // —— schema（段 / 键 / 默认值 / 可选值域 / 文件内注释）——
@@ -311,7 +317,7 @@ const HK_MOD = /^(Ctrl|Alt|Shift|Super)$/;
 
 // 导出给 global-hotkeys.ts：Electron 的 globalShortcut 没有注册前的格式探测 API，
 // shortcut 模式的「格式不合法」判定与 schema 值域用同一个函数，保证两侧不漂移。
-export const isHotkey = (v: unknown): boolean => {
+export const isHotkey = (v: string | null | undefined): boolean => {
   const s = String(v ?? "").trim();
 
   if (!s) return true; // 空 = 停用
@@ -368,7 +374,7 @@ const isIntOrEmpty = (v: string): boolean => v.trim() === "" || (Number.isFinite
 export const SPARKLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 /** [Sparkle] Blacklist 的取值 = 逗号分隔的插件 id 列表（空串 = 无黑名单）。 */
-export function parsePluginIdList(raw: unknown): string[] {
+export function parsePluginIdList(raw: string | null | undefined): string[] {
   return String(raw ?? "")
     .split(",")
     .map((s) => s.trim())
@@ -1129,16 +1135,17 @@ export const SCHEMA: SectionSpec[] = [
 ];
 
 /** 拍平为 { "Section.Key": { def, valid, doc } }。 */
-export function schemaIndex(): Record<string, KeySpec> {
+export function schemaIndex() {
   const idx: Record<string, KeySpec> = {};
 
   for (const sec of SCHEMA) for (const k of sec.keys) idx[`${sec.section}.${k.key}`] = k;
 
+  // SAFETY: idx 的键集完全由 SCHEMA 生成，每个值就是该键的 KeySpec（同一循环里成对写入）。
   return idx;
 }
 
 /** 默认值表 { "Section.Key": default }。platform 可注入，便于测试 macOS 的装饰默认值。 */
-export function defaults(platform: string = process.platform): Record<string, string> {
+export function defaults(platform: string = process.platform) {
   const out: Record<string, string> = {};
 
   for (const sec of SCHEMA) for (const k of sec.keys) out[`${sec.section}.${k.key}`] = k.def;
@@ -1146,6 +1153,7 @@ export function defaults(platform: string = process.platform): Record<string, st
   out["Window.Decor"] = defaultDecor(platform);
   out["Playing.Backend"] = defaultBackend(platform);
 
+  // SAFETY: out 的键集与 SCHEMA 一一对应，值都是字符串默认值（上面两条是平台相关覆盖）。
   return out;
 }
 
@@ -1229,7 +1237,7 @@ export function readDoc(env: Env = process.env, platform: string = process.platf
 export function readValues(
   env: Env = process.env,
   platform: string = process.platform,
-): { values: Record<string, string>; warnings: string[] } {
+) {
   const idx = schemaIndex();
   const values = defaults(platform);
   const warnings: string[] = [];
@@ -1251,7 +1259,7 @@ export function readValues(
 }
 
 /** 批量写值；未知键忽略。返回实际写入的键。 */
-export function writeValues(patch: Record<string, unknown>, env: Env = process.env): string[] {
+export function writeValues(patch: Record<string, string | number | boolean | null | undefined>, env: Env = process.env): string[] {
   const idx = schemaIndex();
   const doc = readDoc(env);
   const written: string[] = [];

@@ -6,7 +6,7 @@ import { showDebugDialog } from "../components/DebugDialog";
 import { toast } from "../lib/toast";
 import { currentAccent, refreshAccent } from "../lib/accent";
 import { applyBackground } from "../lib/ambient";
-import { escHtml, getQuality, getStreamTiers, setQuality } from "../lib/api";
+import { QUALITY_IDS, escHtml, getQuality, getStreamTiers, setQuality } from "../lib/api";
 import type { Quality } from "../lib/api";
 import { resetCjkConverter } from "../lib/cjk-convert";
 import { cmyk2rgb, hsl2rgb, parseHex, rgb2cmyk, rgb2hsl, toHex } from "../lib/color";
@@ -16,7 +16,7 @@ import { clearMusicCache, musicCacheStatus, setMusicCacheLimit } from "../lib/mu
 import { desktopLyricsStateSync } from "../lib/desktop-lyrics";
 import { syncInhibit } from "../lib/inhibit";
 import { applyMenuGlass } from "../lib/menu-glass";
-import { BG_BLUR_MAX, BG_BLUR_MIN, BG_FLOW_MAX, BG_FLOW_MIN, FONT_CUSTOM, FONT_LABELS, FONT_PRESETS, TINT_DEFAULT_COLOR, fontKeyOf, getAdaptiveRate, getAdaptiveRateSwitch, getAutoCheck, getBackgroundBlur, getBackgroundFlow, getBackgroundImage, getBackgroundMode, getBackgroundRenderer, getNpBackgroundRenderer, getChineseConvert, getCloseAction, getControlBarMode, getDecode, getPlaylistMode,
+import { BG_BLUR_MAX, BG_BLUR_MIN, BG_FLOW_MAX, BG_FLOW_MIN, FONT_CUSTOM, FONT_LABELS, TINT_DEFAULT_COLOR, fontKeyOf, presetCss, getAdaptiveRate, getAdaptiveRateSwitch, getAutoCheck, getBackgroundBlur, getBackgroundFlow, getBackgroundImage, getBackgroundMode, getBackgroundRenderer, getNpBackgroundRenderer, getChineseConvert, getCloseAction, getControlBarMode, getDecode, getPlaylistMode,
   getDecor, getDesktopLyrics, getDesktopLyricsBackdrop, getDesktopLyricsBorder, getDesktopLyricsColor, getDesktopLyricsColorMode, getDesktopLyricsFontList, getDesktopLyricsLocked, getLyricTint, getDesktopLyricsShadow, getDesktopLyricsShadowBlur, getDesktopLyricsShadowOpacity, getDesktopLyricsShadowX, getDesktopLyricsShadowY, getDesktopLyricsMode, getDesktopLyricsOpacity, getDesktopLyricsScale, getDesktopLyricsSingleCenter, getDesktopLyricsWeight, getFade, getFallbackSort, getInhibitSleep, getLyricFontList, getMusicCacheDir, getMusicCacheLimitMB, getMenuBlur, getMprisLrc, getNpLyricLayout, getOnlineTtml, getPrevBehavior, getReportListenTime, getTheme, getTintColor, getTintMode, getTtmlDatabase, getTtmlLibrary, getUiFontList, getUpdateChannel, normalizeFontList, setAdaptiveRate, setAdaptiveRateSwitch, setAutoCheck, setBackgroundBlur, setBackgroundFlow, setBackgroundImage, setBackgroundMode, setBackgroundRenderer, setNpBackgroundRenderer, setChineseConvert, setCloseAction, setControlBarMode, setDecor, setMusicCacheLimitMB, setPlaylistMode, setDesktopLyrics, setDesktopLyricsBackdrop, setDesktopLyricsBorder, setDesktopLyricsColor, setDesktopLyricsColorMode, setDesktopLyricsFontList, setDesktopLyricsFontPreset, setDesktopLyricsLocked, setDesktopLyricsShadow, setDesktopLyricsShadowBlur, setDesktopLyricsShadowOpacity, setDesktopLyricsShadowX, setDesktopLyricsShadowY, setDesktopLyricsMode, setDesktopLyricsOpacity, setDesktopLyricsScale, setDesktopLyricsSingleCenter, setDesktopLyricsWeight, setFallbackSort, setInhibitSleep, setLyricFontList, setLyricTint, setLyricFontPreset, setMenuBlur, setMprisLrc, setNpLyricLayout, setOnlineTtml, setPrevBehavior, setReportListenTime, setTheme, setTintColor, setTintMode, setTtmlDatabase, setTtmlLibrary, setUiFontList, setUiFontPreset, setUpdateChannel, MUSIC_CACHE_MAX_MB } from "../lib/prefs";
 import type { BackgroundMode, BackgroundRenderer, ChineseConvert, CloseAction, ControlBarMode, DecorMode, PlaylistMode, DlColorMode, DlMode, FadePreset, FallbackSort, NpLyricLayout, PrevBehavior, ThemeMode, TintMode, UpdateChannel } from "../lib/prefs";
 import { applyTint } from "../lib/tint";
@@ -705,17 +705,49 @@ export default async function settingsView(root: HTMLElement) {
     el.hidden = !text;
   };
 
+  const THEME_MODES = ["system", "light", "dark"] as const satisfies readonly ThemeMode[];
+  const DECOR_MODES = ["csd", "ssd"] as const satisfies readonly DecorMode[];
+  const CLOSE_ACTIONS = ["tray", "quit"] as const satisfies readonly CloseAction[];
+  const ON_OFF = ["on", "off"] as const;
+  const FALLBACK_SORTS = ["no-atmos", "rank"] as const satisfies readonly FallbackSort[];
+  const PREV_BEHAVIORS = ["replay", "previous"] as const satisfies readonly PrevBehavior[];
+  const FADE_PRESET_KEYS = ["off", "short", "normal", "long"] as const satisfies readonly FadePreset[];
+  const UPDATE_CHANNELS = ["stable", "nightly", "beta"] as const satisfies readonly UpdateChannel[];
+  const NP_LYRIC_LAYOUTS_UI = ["default", "full", "hide-played", "full-hide-played"] as const satisfies readonly NpLyricLayout[];
+  const CHINESE_CONVERTS = ["off", "simplified", "traditional"] as const satisfies readonly ChineseConvert[];
+  const MPRIS_LRC_FORMATS = ["lrc", "plain"] as const;
+  const DL_MODES = ["single", "dual"] as const satisfies readonly DlMode[];
+  const DL_COLOR_MODES_UI = ["default", "cover", "system", "custom"] as const satisfies readonly DlColorMode[];
+  const BG_MODES = ["off", "cover", "custom"] as const satisfies readonly BackgroundMode[];
+  const BG_RENDERERS = ["quaver", "mesh"] as const satisfies readonly BackgroundRenderer[];
+  const TINT_MODES_UI = ["default", "cover", "system", "custom"] as const satisfies readonly TintMode[];
+  const CONTROL_BAR_MODES_UI = ["bottom", "floating"] as const satisfies readonly ControlBarMode[];
+  const PLAYLIST_MODES_UI = ["menu", "collection"] as const satisfies readonly PlaylistMode[];
+
+  /** 卡片按钮的 `data-opt` 是模板里手写的字符串：按白名单解析成领域取值，未知值返回 null。 */
+  function optionOf<T extends string>(el: HTMLElement, allowed: readonly T[]): T | null {
+    const raw = el.dataset.opt ?? "";
+
+    return allowed.find((value) => value === raw) ?? null;
+  }
+
   /** 通用「卡片选项组」绑定：点击写偏好 + 原地同步选中态（外观/装饰/关闭行为/Fallback/淡入淡出共用） */
-  function bindOptCards<K extends string>(box: HTMLElement, get: () => K, set: (v: K) => void) {
+  function bindOptCards<K extends string>(box: HTMLElement, allowed: readonly K[], get: () => K, set: (v: K) => void) {
     const sync = () => syncSel(box, "opt", get());
     box.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
-      b.onclick = () => { set(b.dataset.opt as K); sync(); };
+      b.onclick = () => {
+        const next = optionOf(b, allowed);
+
+        if (next === null) return;
+        set(next);
+        sync();
+      };
     });
     sync();
   }
 
   // 外观模式：跟随系统 / 明镜白 / 玄幻黑（prefs 写 html[data-theme]，style.css 响应）
-  bindOptCards<ThemeMode>(wrap.querySelector<HTMLElement>("#theme-cards")!, getTheme, setTheme);
+  bindOptCards(wrap.querySelector<HTMLElement>("#theme-cards")!, THEME_MODES, getTheme, setTheme);
 
   // —— 背景（默认主题的环境色层）：关闭背景 / 专辑封面 / 自定义图片 + 模糊强度 ——
   // 选图走主进程的原生对话框（路径落进 quaver.conf，图片本体由同源 /api/bg 端点交给界面，
@@ -802,7 +834,9 @@ export default async function settingsView(root: HTMLElement) {
 
   bgCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
     b.onclick = async () => {
-      const next = b.dataset.opt as BackgroundMode;
+      const next = optionOf(b, BG_MODES);
+
+      if (next === null) return;
 
       // 选「自定义」但还没有图：这一档点下去的意图就是去选图，直接弹对话框；
       // 取消就停在原来的档位（不切到一个「自定义但没有图」的空状态）
@@ -854,14 +888,23 @@ export default async function settingsView(root: HTMLElement) {
 
   bgRendererCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
     b.onclick = () => {
-      setBackgroundRenderer(b.dataset.opt as BackgroundRenderer);
+      const next = optionOf(b, BG_RENDERERS);
+
+      if (next === null) return;
+      setBackgroundRenderer(next);
       applyBackground();
       paintBgRenderers();
       paintBgMode();
     };
   });
   npBgRendererCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
-    b.onclick = () => { setNpBackgroundRenderer(b.dataset.opt as BackgroundRenderer); paintBgRenderers(); };
+    b.onclick = () => {
+      const next = optionOf(b, BG_RENDERERS);
+
+      if (next === null) return;
+      setNpBackgroundRenderer(next);
+      paintBgRenderers();
+    };
   });
 
   /** 浏览器 dev 没有选图桥时只保留一句功能提示；桌面端不显示通用描述。 */
@@ -1006,7 +1049,13 @@ export default async function settingsView(root: HTMLElement) {
   };
 
   tintModes.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => {
-    b.onclick = () => { colorMode = b.dataset.mode as ColorMode; renderFields(); };
+    b.onclick = () => {
+      const next = (["hsl", "cmyk", "rgb"] as const).find((mode) => mode === b.dataset.mode);
+
+      if (!next) return;
+      colorMode = next;
+      renderFields();
+    };
   });
   tintFields.addEventListener("input", () => {
     const cur = channelValues(colorMode);
@@ -1081,6 +1130,7 @@ export default async function settingsView(root: HTMLElement) {
       b.innerHTML = `${sw}${escHtml(p.label)}`;
       b.onclick = () => {
         sparkSetTintChoice(themeId, p.id);
+
         if (p.color === TINT_PRESET_CUSTOM) openSparkCustomPicker(themeId);
         applyTint();       // 换了方案立刻重写 CSS 变量
         paintTintPolicy(); // 同步选中态
@@ -1120,6 +1170,7 @@ export default async function settingsView(root: HTMLElement) {
     const rgb = parseHex(hex) ?? { r: 103, g: 80, b: 164 };
     sparkCustomSw.style.background = hex;
     sparkCustomCode.textContent = hex;
+
     if (document.activeElement !== sparkCustomHex) sparkCustomHex.value = hex;
     sparkCustomHue.value = String(Math.round(rgb2hsl(rgb).h));
   };
@@ -1138,6 +1189,7 @@ export default async function settingsView(root: HTMLElement) {
   };
 
   sparkCustomBox.querySelector<HTMLButtonElement>(".tint-pop__fold")!.onclick = () => { sparkCustomBox.hidden = true; };
+
   sparkCustomHue.addEventListener("input", () => {
     const id = sparkCustomBox.dataset.themeId;
 
@@ -1218,7 +1270,9 @@ export default async function settingsView(root: HTMLElement) {
 
   tintCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
     b.onclick = () => {
-      const next = b.dataset.opt as TintMode;
+      const next = optionOf(b, TINT_MODES_UI);
+
+      if (next === null) return;
       setTintMode(next);
       applyTint(); // 档位换了要立刻重写 CSS 变量（封面档还会去取当前曲封面）
 
@@ -1295,7 +1349,10 @@ export default async function settingsView(root: HTMLElement) {
 
   controlBarCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
     b.onclick = () => {
-      setControlBarMode(b.dataset.opt as ControlBarMode);
+      const next = optionOf(b, CONTROL_BAR_MODES_UI);
+
+      if (next === null) return;
+      setControlBarMode(next);
       paintControlBarPolicy();
     };
   });
@@ -1505,7 +1562,10 @@ export default async function settingsView(root: HTMLElement) {
 
   playlistModeCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
     b.onclick = () => {
-      setPlaylistMode(b.dataset.opt as PlaylistMode);
+      const next = optionOf(b, PLAYLIST_MODES_UI);
+
+      if (next === null) return;
+      setPlaylistMode(next);
       paintPlaylistModePolicy();
     };
   });
@@ -1549,21 +1609,23 @@ export default async function settingsView(root: HTMLElement) {
   renderSparkleThemes();
   const offSparkleThemes = onSparkleChange(renderSparkleThemes);
   // 窗口装饰：CSD（右上角自绘按钮簇）/ SSD（系统标题栏）。Electron 桥重建窗口；浏览器仅隐藏按钮簇。
-  bindOptCards<DecorMode>(wrap.querySelector<HTMLElement>("#decor-cards")!, getDecor, setDecor);
+  bindOptCards(wrap.querySelector<HTMLElement>("#decor-cards")!, DECOR_MODES, getDecor, setDecor);
   // 关闭按钮行为：缩放到托盘 / 退出程序（Electron 桥同步主进程；浏览器 dev 无效果）
-  bindOptCards<CloseAction>(wrap.querySelector<HTMLElement>("#close-cards")!, getCloseAction, setCloseAction);
+  bindOptCards(wrap.querySelector<HTMLElement>("#close-cards")!, CLOSE_ACTIONS, getCloseAction, setCloseAction);
   // Fallback 排序：默认「不优先全景声」（母带优先，atmos51 压链尾兜底）；改动自下一首协商起生效
-  bindOptCards<FallbackSort>(wrap.querySelector<HTMLElement>("#atmos-fallback-cards")!, getFallbackSort, setFallbackSort);
+  bindOptCards(wrap.querySelector<HTMLElement>("#atmos-fallback-cards")!, FALLBACK_SORTS, getFallbackSort, setFallbackSort);
   // 上一首按钮行为：重放当前曲（默认）/ 直接跳到队列里的上一首（播放条按钮与媒体键共用，即时生效）
-  bindOptCards<PrevBehavior>(wrap.querySelector<HTMLElement>("#prev-behavior-cards")!, getPrevBehavior, setPrevBehavior);
+  bindOptCards(wrap.querySelector<HTMLElement>("#prev-behavior-cards")!, PREV_BEHAVIORS, getPrevBehavior, setPrevBehavior);
   // 播放音频时睡眠禁止（[Playing] InhibitSleep，默认开）：开关即时对齐 sidecar 持有态
-  bindOptCards<"on" | "off">(
+  bindOptCards(
     wrap.querySelector<HTMLElement>("#inhibit-sleep-cards")!,
+    ON_OFF,
     () => (getInhibitSleep() ? "on" : "off"),
     (v) => { setInhibitSleep(v === "on"); syncInhibit(); },
   );
-  bindOptCards<"on" | "off">(
+  bindOptCards(
     wrap.querySelector<HTMLElement>("#listen-report-cards")!,
+    ON_OFF,
     () => (getReportListenTime() ? "on" : "off"),
     (v) => setReportListenTime(v === "on"),
   );
@@ -1579,10 +1641,12 @@ export default async function settingsView(root: HTMLElement) {
   const cacheDirNote = wrap.querySelector<HTMLElement>("#cache-dir-note")!;
 
   const fmtBytes = (n: number) => n >= (1 << 30) ? `${(n / (1 << 30)).toFixed(1)} GiB` : `${Math.round(n / (1 << 20))} MiB`;
+
   const paintCacheStatus = (r?: { items?: number; bytes?: number }) => {
     if (!r) return;
     cacheStatus.textContent = r.items ? `${r.items} 首 · ${fmtBytes(Number(r.bytes ?? 0))}` : "暂无缓存";
   };
+
   const paintCacheLimit = () => {
     const v = getMusicCacheLimitMB() || 2048;
 
@@ -1593,6 +1657,7 @@ export default async function settingsView(root: HTMLElement) {
   };
 
   paintCacheLimit();
+
   // 位置回显以 sidecar 现读为准（它才是真正落盘的那一侧）：自定义值为空时显示平台默认目录，
   // 而不是留一个空输入框让人以为「没设置就不缓存」。
   const paintCacheDir = (effective?: string) => {
@@ -1689,8 +1754,9 @@ export default async function settingsView(root: HTMLElement) {
   cacheDirClear.onclick = () => { void commitCacheDir(""); };
 
   // 应用更新：自动检查开关（[Update] AutoCheck，默认开）
-  bindOptCards<"on" | "off">(
+  bindOptCards(
     wrap.querySelector<HTMLElement>("#upd-auto-cards")!,
+    ON_OFF,
     () => (getAutoCheck() ? "on" : "off"),
     (v) => setAutoCheck(v === "on"),
   );
@@ -1714,7 +1780,9 @@ export default async function settingsView(root: HTMLElement) {
 
   channelCards.querySelectorAll<HTMLElement>("[data-opt]").forEach((b) => {
     b.onclick = () => {
-      const next = b.dataset.opt as UpdateChannel;
+      const next = optionOf(b, UPDATE_CHANNELS);
+
+      if (next === null) return;
       const was = getUpdateChannel();
       setUpdateChannel(next);
       syncChannel();
@@ -1760,8 +1828,9 @@ export default async function settingsView(root: HTMLElement) {
     if (!checkBtn.disabled) updStatus.textContent = `当前 ${describeBuild(buildVer)}`;
   });
   // 淡入淡出预设：持久化 + 立即下发时长（引擎侧做振幅包络；Blink 后端无此项）
-  bindOptCards<FadePreset>(
+  bindOptCards(
     wrap.querySelector<HTMLElement>("#fade-cards")!,
+    FADE_PRESET_KEYS,
     getFade,
     (p) => { void player.setFadePreset(p); },
   );
@@ -1779,7 +1848,7 @@ export default async function settingsView(root: HTMLElement) {
     sel.value = fontKeyOf(current);
     sel.onchange = () => {
       if (sel.value === FONT_CUSTOM) return; // 「自定义」= 保持输入框现有内容，不动配置
-      input.value = FONT_PRESETS[sel.value]?.css ?? "";
+      input.value = presetCss(sel.value) ?? "";
       pickPreset(sel.value);
     };
 
@@ -1808,32 +1877,37 @@ export default async function settingsView(root: HTMLElement) {
 
   // —— 歌词面板（[Lyrics]）：歌词染色 / 歌词列布局 / 繁简转换 / 在线 TTML 开关 / 数据库地址 / 本地 TTML 歌词库目录 ——
   // 歌词染色：只切 <html data-lyric-tint>，CSS 侧决定 AMLL 高亮色（Tint 或默认 white）。
-  bindOptCards<"on" | "off">(
+  bindOptCards(
     wrap.querySelector<HTMLElement>("#lyric-tint-cards")!,
+    ON_OFF,
     () => (getLyricTint() ? "on" : "off"),
     (v) => setLyricTint(v === "on"),
   );
   // 歌词列布局只切正在播放页的 DOM class；notifyPublic 让已展开的页面立即读到新档。
-  bindOptCards<NpLyricLayout>(
+  bindOptCards(
     wrap.querySelector<HTMLElement>("#np-lyric-layout-cards")!,
+    NP_LYRIC_LAYOUTS_UI,
     getNpLyricLayout,
     (v) => { setNpLyricLayout(v); player.notifyPublic(); },
   );
   // 三项「取词计划」类开关共用一条收尾：写偏好 → resetCjkConverter（仅档位项需要）→ player.reloadLyric()。
   // 歌词管线默认只在换曲时重判顺序，而这些设置改的正是顺序 —— 不重拉当前曲就是假即时生效。
-  bindOptCards<ChineseConvert>(
+  bindOptCards(
     wrap.querySelector<HTMLElement>("#cjk-cards")!,
+    CHINESE_CONVERTS,
     getChineseConvert,
     (v) => { setChineseConvert(v); resetCjkConverter(); player.reloadLyric(); },
   );
   // asText 格式只影响「已经解析好的行」如何序列化：重排本地内存即可，不重拉歌词。
-  bindOptCards<"lrc" | "plain">(
+  bindOptCards(
     wrap.querySelector<HTMLElement>("#mpris-lrc-cards")!,
+    MPRIS_LRC_FORMATS,
     () => (getMprisLrc() ? "lrc" : "plain"),
     (v) => { setMprisLrc(v === "lrc"); player.refreshMprisLyrics(); },
   );
-  bindOptCards<"on" | "off">(
+  bindOptCards(
     wrap.querySelector<HTMLElement>("#ttml-online-cards")!,
+    ON_OFF,
     () => (getOnlineTtml() ? "on" : "off"),
     (v) => { setOnlineTtml(v === "on"); player.reloadLyric(); },
   );
@@ -1917,8 +1991,9 @@ export default async function settingsView(root: HTMLElement) {
   // —— 桌面歌词（[DesktopLyrics]）——
   // 开关只写配置：主进程 config set 处理器看到 DesktopLyrics.* 落盘即 syncFromConf()
   // 开/关覆盖层窗（electron/main.ts），本窗无需再经 control() 走第二条写盘路。
-  bindOptCards<"on" | "off">(
+  bindOptCards(
     wrap.querySelector<HTMLElement>("#dl-enable-cards")!,
+    ON_OFF,
     () => (getDesktopLyrics() ? "on" : "off"),
     (v) => setDesktopLyrics(v === "on"),
   );
@@ -1928,14 +2003,15 @@ export default async function settingsView(root: HTMLElement) {
   dlLockRow.hidden = !desktopLyricsStateSync()?.canLock;
   const dlLockCards = wrap.querySelector<HTMLElement>("#dl-lock-cards")!;
   const syncDlLock = () => syncSel(dlLockCards, "opt", getDesktopLyricsLocked() ? "on" : "off");
-  bindOptCards<"on" | "off">(
+  bindOptCards(
     dlLockCards,
+    ON_OFF,
     () => (getDesktopLyricsLocked() ? "on" : "off"),
     (v) => setDesktopLyricsLocked(v === "on"),
   );
   // 托盘改了锁定态 → 主进程广播配置增量；设置页跟着回填，别留一个过期勾选。
-  (window as any).quaverConfig?.onChanged?.((p: { all?: boolean; values?: Record<string, string> } | null) => {
-    if (p?.all || Object.prototype.hasOwnProperty.call(p?.values ?? {}, "DesktopLyrics.Locked")) syncDlLock();
+  window.quaverConfig?.onChanged?.((p) => {
+    if ("all" in p || Object.prototype.hasOwnProperty.call(p.values, "DesktopLyrics.Locked")) syncDlLock();
   });
   // 桌面歌词字体：独立存 [DesktopLyrics] Font，不碰 [Style] DefaultLyricsFonts。
   bindFont(
@@ -1944,21 +2020,24 @@ export default async function settingsView(root: HTMLElement) {
     setDesktopLyricsFontList, setDesktopLyricsFontPreset, getDesktopLyricsFontList(),
   );
   // 阴影总开关：关闭后仍保留描边，两个效果互不绑定。
-  bindOptCards<"on" | "off">(
+  bindOptCards(
     wrap.querySelector<HTMLElement>("#dl-shadow-cards")!,
+    ON_OFF,
     () => (getDesktopLyricsShadow() ? "on" : "off"),
     (v) => setDesktopLyricsShadow(v === "on"),
   );
   // 行数：single=只当前句（裁切条带一条），dual=多带下一句 —— 纯偏好，覆盖层经广播现读现换
-  bindOptCards<DlMode>(
+  bindOptCards(
     wrap.querySelector<HTMLElement>("#dl-mode-cards")!,
+    DL_MODES,
     getDesktopLyricsMode,
     (v) => setDesktopLyricsMode(v),
   );
   // 颜色四档：default=白字｜cover=封面染色｜system=系统染色｜custom=自选 HEX。
   // cover/system 的取色源随曲目镜像到覆盖层（主窗侧算好带过去），这里只管档位本身。
-  bindOptCards<DlColorMode>(
+  bindOptCards(
     wrap.querySelector<HTMLElement>("#dl-color-cards")!,
+    DL_COLOR_MODES_UI,
     getDesktopLyricsColorMode,
     (v) => { setDesktopLyricsColorMode(v); paintDlColorRow(); },
   );
@@ -1966,8 +2045,9 @@ export default async function settingsView(root: HTMLElement) {
   const dlCenterRow = wrap.querySelector<HTMLElement>("#dl-center-row")!;
   const paintDlCenterRow = () => { dlCenterRow.hidden = getDesktopLyricsMode() !== "single"; };
 
-  bindOptCards<"on" | "off">(
+  bindOptCards(
     wrap.querySelector<HTMLElement>("#dl-center-cards")!,
+    ON_OFF,
     () => (getDesktopLyricsSingleCenter() ? "on" : "off"),
     (v) => setDesktopLyricsSingleCenter(v === "on"),
   );
@@ -2140,7 +2220,14 @@ export default async function settingsView(root: HTMLElement) {
   const engNote = wrap.querySelector<HTMLElement>("#engine-note")!;
 
   /** mpv 来源标签：随包运行时 / 系统 mpv / QUAVER_MPV 指定（排障时一眼看出跑的哪一份） */
-  const MPV_SOURCE_LABEL: Record<string, string> = { bundled: "随包运行时", path: "系统 mpv", env: "QUAVER_MPV/QUAVER_LIINO 指定", vendor: "vendor/Liino 构建", packaged: "随包 libliino" };
+  const MPV_SOURCE_LABEL = {
+    bundled: "随包运行时", path: "系统 mpv", env: "QUAVER_MPV/QUAVER_LIINO 指定",
+    vendor: "vendor/Liino 构建", packaged: "随包 libliino",
+  } as const;
+
+  /** 运行时来源 → 中文说明；未知来源（新版后端）原样显示。 */
+  const sourceLabel = (source: string): string =>
+    Object.entries(MPV_SOURCE_LABEL).find(([key]) => key === source)?.[1] ?? source;
 
   async function paintBackend() {
     const st = await player.probeEngine();
@@ -2154,7 +2241,7 @@ export default async function settingsView(root: HTMLElement) {
         void player.setBackend(v).then(paintAll);
       };
     });
-    const src = MPV_SOURCE_LABEL[st.source] ?? "";
+    const src = st.source ? sourceLabel(st.source) : "";
     engNote.textContent = player.backend === "liino"
       ? `- Liino 原生直出运行中${src ? "（" + src + "）" : ""}${isMac ? "（实验性）" : ""}`
       : player.backend === "mpv"
@@ -2198,15 +2285,16 @@ export default async function settingsView(root: HTMLElement) {
   };
 
   if (rateCards) {
-    bindOptCards<"on" | "off">(rateCards, () => (getAdaptiveRate() ? "on" : "off"), (v) => {
+    bindOptCards(rateCards, ON_OFF, () => (getAdaptiveRate() ? "on" : "off"), (v) => {
       setAdaptiveRate(v === "on");
       paintRateSwitch();
     });
   }
 
   if (rateSwitchCards) {
-    bindOptCards<"on" | "off">(
+    bindOptCards(
       rateSwitchCards,
+      ON_OFF,
       () => (getAdaptiveRateSwitch() ? "on" : "off"),
       (v) => setAdaptiveRateSwitch(v === "on"),
     );
@@ -2241,7 +2329,7 @@ export default async function settingsView(root: HTMLElement) {
   const bindQ = () => {
     qBox.querySelectorAll<HTMLButtonElement>("[data-q]").forEach((b) => {
       if (!b.disabled) b.onclick = () => {
-        setQuality(b.dataset.q as Quality | "auto");
+        setQuality(QUALITY_IDS.find((quality) => quality === b.dataset.q) ?? "auto");
         syncQ();
         // 默认档是「立即生效」：有当前曲就按原进度重新协商；播放条临时选择同时让位。
         player.applyDefaultQuality();

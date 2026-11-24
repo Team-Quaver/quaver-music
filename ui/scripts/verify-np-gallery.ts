@@ -77,7 +77,13 @@ page.on("pageerror", (e) => console.log("[pageerror]", String(e)));
 let flip = false;
 let failCover1500 = false;
 const coverRequests: string[] = [];
-const inhibitCalls: Record<string, unknown>[] = [];
+
+interface InhibitCall {
+  mode?: string;
+  active?: boolean;
+}
+
+const inhibitCalls: InhibitCall[] = [];
 
 await page.setRequestInterception(true);
 

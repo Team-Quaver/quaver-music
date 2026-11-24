@@ -38,7 +38,7 @@ function check(name: string, cond: boolean, detail = "") {
   else { fail++; console.log(`  ❌ ${name}${detail ? ` — ${detail}` : ""}`); }
 }
 
-const eq = (name: string, got: unknown, want: unknown) =>
+const eq = <G, W>(name: string, got: G, want: W) =>
   check(name, JSON.stringify(got) === JSON.stringify(want), `got=${JSON.stringify(got)} want=${JSON.stringify(want)}`);
 
 // ——— 1. 固定/鼠标透穿：平台闸门 + 原生落地 ———
@@ -143,7 +143,7 @@ eq("confBool 未识别回落默认", confBool("maybe", true), true);
 
 section("pickBounds / clampSize / defaultBounds");
 
-const AREA_MAIN: { x: number; y: number; width: number; height: number } = { x: 0, y: 0, width: 1920, height: 1080 };
+const AREA_MAIN = { x: 0, y: 0, width: 1920, height: 1080 };
 const AREA_SUB = { x: 1920, y: 0, width: 1280, height: 1024 };
 const remembered = pickBounds({ x: 2000, y: 300, width: 640, height: 120 }, [AREA_MAIN, AREA_SUB]);
 
@@ -861,7 +861,7 @@ section("src/main.ts 启动");
 
 check("主窗启动桥（Electron 壳层外 no-op）", /startDesktopLyricsBridge\(\)/.test(src("src/main.ts")));
 
-check("lib/config 订阅广播做增量合并（未知键不接收）", /mergeFromBroadcast[\s\S]*?if \(!\(k in values\)\) continue/.test(src("src/lib/config.ts")));
+check("lib/config 订阅广播做增量合并（未知键不接收）", /mergeFromBroadcast[\s\S]*?!values\.has\(k\)/.test(src("src/lib/config.ts")));
 
 // ——— 10. package.json ———
 section("package.json：verify 脚本与总闸");

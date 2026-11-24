@@ -21,6 +21,7 @@ const MIN_DB = -100;
 const MAX_DB = -18;
 
 type FrameListener = (frame: SparkleSpectrumFrame) => void;
+
 type SpectrumSource = "web" | "pcm" | "native" | "";
 
 class AudioSpectrum {
@@ -241,7 +242,7 @@ class AudioSpectrum {
     if (m.paused) {
       void m.play().catch((e) => {
         // 快速换曲时前一次 play() 会以 AbortError 收线，不能把新歌误标成不可用。
-        if ((e as Error)?.name !== "AbortError" && player.current && !player.paused) this.setState("unavailable");
+        if (!(e instanceof Error && e.name === "AbortError") && player.current && !player.paused) this.setState("unavailable");
       });
     }
   }

@@ -58,8 +58,14 @@ const GTK_BG_KEYS = ["window_bg_color", "theme_bg_color", "view_bg_color"];
 /** 子进程返回值的可读字段：真 spawnSync 的 SpawnSyncReturns 是它的超集，单测给最小假对象即可。 */
 type Spawnish = { status?: number | null; stdout?: string | Buffer | null; stderr?: string | Buffer | null; error?: Error | null };
 
+/** 子进程调用选项：本模块只用到这两项（编码 + 超时）。 */
+export interface SpawnOpts {
+  encoding?: "utf8";
+  timeout?: number;
+}
+
 /** 注入用的 spawnSync 替身（位置参数与真函数一致，opts 只透传不解读）。 */
-type SpawnFn = (bin: string, args: readonly string[], opts?: any) => Spawnish;
+type SpawnFn = (bin: string, args: readonly string[], opts?: SpawnOpts) => Spawnish;
 
 /** 探测函数的注入口（全部可选）：单测传假路径 / 假子进程用，生产调用一律缺省。 */
 export interface ProbeOpts {
@@ -157,7 +163,7 @@ export function isLightHex(hex: string): boolean | null {
 
 /** gsettings 的 color-scheme 原始输出 → 深浅。
  *  只有 'prefer-dark' / 'prefer-light' 算表态；'default'（= 没偏好）返回 null 让它继续往下问。 */
-export function parseColorScheme(raw: unknown): "dark" | "light" | null {
+export function parseColorScheme(raw: string | Buffer | null | undefined): "dark" | "light" | null {
   const v = String(raw ?? "").trim().replace(/^['"]|['"]$/g, "");
 
   if (v === "prefer-dark") return "dark";
@@ -316,7 +322,7 @@ const globalPrefsPath = () => join(homedir(), "Library", "Preferences", ".Global
 
 /** `defaults read -g AppleInterfaceStyle` 的输出 → "dark" | "light"（纯函数，可单测）。
  *  键存在时值是 "Dark"；键不存在（浅色）时输出为空 —— 空即浅色。 */
-export function parseAppleInterfaceStyle(stdout: unknown): "dark" | "light" {
+export function parseAppleInterfaceStyle(stdout: string | Buffer | null | undefined): "dark" | "light" {
   return /dark/i.test(String(stdout ?? "")) ? "dark" : "light";
 }
 
@@ -375,7 +381,7 @@ const WIN_WATCH_INTERVAL_MS = 2000;
 
 /** `reg query ...\Themes\Personalize` 的输出 → "light" | "dark"（外壳），认不出返回 null。
  *  只看 SystemUsesLightTheme（任务栏/通知区域 = 托盘所在的那层）；0x0 = 深色外壳，0x1 = 浅色外壳。 */
-export function parseWindowsPersonalize(output: unknown): "dark" | "light" | null {
+export function parseWindowsPersonalize(output: string | Buffer | null | undefined): "dark" | "light" | null {
   const m = /systemuseslighttheme\s+REG_DWORD\s+0x([0-9a-fA-F]+)/i.exec(String(output ?? ""));
 
   if (!m) return null;
@@ -428,7 +434,7 @@ export function watchWindowsShellTheme(onChange: (theme: "dark" | "light") => vo
 //   cd ui && node electron/systheme.ts
 // 托盘图标选错素材时先跑它：一眼看出是哪一层给了错值，还是所有层都没表态。
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
-  const show = (label: string, v: unknown) => console.log(`${label.padEnd(22)}${v ?? "(无)"}`);
+  const show = (label: string, v: string | number | boolean | null | undefined) => console.log(`${label.padEnd(22)}${v ?? "(无)"}`);
   const cssNewest = gtkCssNewest(gtkCssDirs());
   console.log(`XDG_CURRENT_DESKTOP    ${process.env.XDG_CURRENT_DESKTOP || "(空)"}`);
   show("kdeglobals →", kdeTheme(readText(kdeGlobalsPath())));

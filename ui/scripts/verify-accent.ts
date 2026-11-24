@@ -296,6 +296,7 @@ check("探测模块复用 systheme 的既定口径（iniValue / gtkCssNewest / r
   ["iniValue", "gtkCssNewest", "readSystemTheme"].every((f) => eAccent.includes(f)));
 
 // —— 安全口径：候选路径写死，不接受渲染层传路径 ——
+// SAFETY: 测试只注入 run 桩，用来证明探测入口不读渲染层参数；其余探测依赖均为默认可选。
 check("候选路径全写死：accentPayload 不接受路径参数（渲染层传不进来）",
   accentPayload.length === 0
   && accentPayload({ run: ((_c: string, _a: string[]) => ({ stdout: "", error: true })) as never }).ok === true);

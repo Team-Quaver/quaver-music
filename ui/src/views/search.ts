@@ -73,7 +73,7 @@ export default async function searchView(root: HTMLElement, q: URLSearchParams) 
 
     // 注意：响应各分类字段恒在（其余类为空数组），必须按当前 tab 显式取，不能用 ?? 链
     if (tab.type === "0") {
-      const list = (d.song ?? []) as (Song & { album?: { name?: string } })[];
+      const list: Song[] = d.song ?? [];
 
       if (!list.length) { box.innerHTML = `<div class="muted">没有找到相关内容</div>`; return; }
 
@@ -89,25 +89,27 @@ export default async function searchView(root: HTMLElement, q: URLSearchParams) 
       // 双击 = 立即插队播放：马上切过去播这一首（只带这一首进队列，其余搜索结果不入列）
       renderSongRows(box, list, { showAlbum: true, onPlay: (s) => playNowWithToast(s) });
     } else {
-      const list: SearchSinger[] | SearchAlbum[] | SearchSonglist[] =
-        tab.type === "1" ? d.singer ?? [] : tab.type === "2" ? d.album ?? [] : d.songlist ?? [];
+      const list = tab.type === "1" ? d.singer ?? [] : tab.type === "2" ? d.album ?? [] : d.songlist ?? [];
 
       if (!list.length) { box.innerHTML = `<div class="muted">没有找到相关内容</div>`; return; }
 
       if (tab.type === "1") {
         box.classList.add("grid");
-        box.innerHTML = (list as SearchSinger[]).map((x) => `<a class="card" href="#/singer?mid=${encodeURIComponent(x.mid ?? "")}&name=${encodeURIComponent(stripEm(x.name) || "歌手")}">
+        const singers: SearchSinger[] = d.singer ?? [];
+        box.innerHTML = singers.map((x) => `<a class="card" href="#/singer?mid=${encodeURIComponent(x.mid ?? "")}&name=${encodeURIComponent(stripEm(x.name) || "歌手")}">
           <div class="art round">${x.pic ? `<img src="${thumbPic(x.pic, 300)}" alt="" loading="lazy"/>` : ""}</div>
           <div class="name">${stripEm(x.name) || "歌手"}</div><div class="sub">${x.song_num ? `${x.song_num} 首` : ""}</div></a>`).join("");
       } else if (tab.type === "2") {
         box.classList.add("grid");
-        box.innerHTML = (list as SearchAlbum[]).map((x) => `<a class="card" href="#/album?mid=${encodeURIComponent(x.mid ?? "")}">
+        const albums: SearchAlbum[] = d.album ?? [];
+        box.innerHTML = albums.map((x) => `<a class="card" href="#/album?mid=${encodeURIComponent(x.mid ?? "")}">
           <div class="art">${x.pic ? `<img src="${thumbPic(x.pic, 300)}" alt="" loading="lazy"/>` : ""}</div>
           <div class="name">${stripEm(x.name) || "专辑"}</div>
           <div class="sub">${stripEm(x.singer)}${x.time_public ? ` · ${x.time_public}` : ""}</div></a>`).join("");
       } else {
         box.className = "grid playlist-grid";
-        box.innerHTML = (list as SearchSonglist[]).map((x) => `<a class="card" href="#/playlist?id=${encodeURIComponent(x.id ?? x.dirid ?? "")}&name=${encodeURIComponent(stripEm(x.title) || "歌单")}">
+        const songlists: SearchSonglist[] = d.songlist ?? [];
+        box.innerHTML = songlists.map((x) => `<a class="card" href="#/playlist?id=${encodeURIComponent(x.id ?? x.dirid ?? "")}&name=${encodeURIComponent(stripEm(x.title) || "歌单")}">
           <div class="art">${x.picurl ? `<img src="${thumbPic(x.picurl, 300)}" alt="" loading="lazy"/>` : ""}</div>
           <div class="name">${stripEm(x.title) || "歌单"}</div>
           <div class="sub">${x.nickname ? stripEm(x.nickname) + " 创建" : ""}${x.songnum ? ` · ${x.songnum} 首` : ""}</div></a>`).join("");
@@ -124,7 +126,10 @@ export default async function searchView(root: HTMLElement, q: URLSearchParams) 
       const pager = h("div", "pager");
 
       const mk = (label: string, p: number, cls: string, disabled = false) => {
-        const b = h("button", cls, label) as HTMLButtonElement;
+        const b = document.createElement("button");
+
+        b.className = cls;
+        b.textContent = label;
         b.type = "button";
         b.disabled = disabled;
 

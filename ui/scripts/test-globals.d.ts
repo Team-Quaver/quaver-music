@@ -34,7 +34,18 @@ interface Window {
   /** CSP 内联脚本命中检测 */
   __cspInlineScript: any;
   __cspInlineHit: any;
+  /** 歌曲行探针（scripts/probe-song-rows.ts）注入的夹具与计数 */
+  __box: HTMLElement;
+  __calls: string[];
+  __mk: (n: number) => Array<{ mid: string; id: number; title: string; interval: number; singer: Array<{ mid: string; name: string }>; album: { mid: string; name: string } }>;
+  __hooks: { showAlbum: boolean; onPlay: (song: { mid: string }, index: number, all: unknown[]) => void; onLove: (song: { mid: string }, loved: boolean) => void };
+  __songs: { renderSongRows: (box: HTMLElement, songs: unknown[], hooks: import("../src/lib/songs").RowHooks) => void };
+  __lw: { row: number; box: number; other: number };
+  /** 插件探针 / 释放钩子（verify-sparkle 系列脚本） */
+  __quaverSparkleProbe: any;
+  __dispose: any;
   /** 主进程桥在渲染层的名字（浏览器 dev 下由脚本自己造假对象） */
   quaverMpris: any;
   quaverConfig: any;
+  quaverRedflag: any;
 }

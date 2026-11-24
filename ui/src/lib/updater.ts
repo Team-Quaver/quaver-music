@@ -20,9 +20,10 @@ import {
 import { getAutoCheck, getUpdateChannel, getLastNotified, type UpdateChannel } from "./prefs";
 import { showUpdateDialog } from "../components/UpdateDialog";
 import { toast } from "./toast";
+import type { JsonValue } from "./json-value";
 
-const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
-const bridge = () => (window as any).quaverUpdate;
+const errText = <T>(e: T) => (e instanceof Error ? e.message : String(e));
+const bridge = () => window.quaverUpdate;
 
 // ——— 平台档案 ———
 
@@ -51,11 +52,40 @@ export interface PlatformInfo {
 export async function getPlatformInfo(): Promise<PlatformInfo | null> {
   const r = await bridge()?.invoke?.({ op: "platform" }).catch(() => null);
 
-  return r?.ok ? (r as PlatformInfo) : null;
+  if (!r || r.ok !== true) return null;
+
+  const info = platformInfoOf(r);
+
+  return info;
+}
+
+/** 主进程 platform 分支 → PlatformInfo（字段逐项取，缺项按 null/false 兜底）。 */
+function platformInfoOf(r: import("../../electron/bridge-types.ts").UpdateReply): PlatformInfo | null {
+  if (!r.platform) return null;
+
+  return {
+    platform: r.platform,
+    arch: r.arch ?? "",
+    appimage: r.appimage ?? null,
+    pkg: pkgKindOf(r.pkg),
+    store: storeKindOf(r.store),
+    packaged: r.packaged === true,
+    version: r.version ?? "",
+  };
+}
+
+/** 包型白名单：主进程只回这四档（或 null）。 */
+function pkgKindOf(value: string | null | undefined): PlatformInfo["pkg"] {
+  return value === "deb" || value === "rpm" || value === "pacman" || value === "flatpak" ? value : null;
+}
+
+/** 商店托管白名单：spark / linglong（或 null）。 */
+function storeKindOf(value: string | null | undefined): PlatformInfo["store"] {
+  return value === "spark" || value === "linglong" ? value : null;
 }
 
 /** 浏览器 dev（无桥）的兜底识别：够 check 用，下载/安装反正无桥不可用。 */
-function guessPlatform(): { platform: string; arch: string } {
+function guessPlatform() {
   const ua = navigator.userAgent;
   const platform = /Win/.test(ua) ? "win32" : /Mac/.test(ua) ? "darwin" : "linux";
   const arch = /(aarch64|arm64)/i.test(ua) ? "arm64" : "x64";
@@ -99,7 +129,7 @@ const noReleaseText = (channel: UpdateChannel): string =>
 
 /** GitHub API 请求 → 归一化后的目标 ReleaseInfo。
  *  stable/nightly 各是一个固定接口；beta 没有「latest prerelease」接口，取列表后按 tag + prerelease 自己挑。 */
-async function fetchChannelRelease(channel: UpdateChannel, raw: unknown): Promise<{ release?: ReleaseInfo; error?: string }> {
+async function fetchChannelRelease(channel: UpdateChannel, raw: JsonValue): Promise<{ release?: ReleaseInfo; error?: string }> {
   if (channel !== "beta") return { release: normalizeRelease(raw) };
   const release = pickBetaRelease(raw);
 
@@ -111,14 +141,14 @@ export async function checkUpdate(channel: UpdateChannel = getUpdateChannel()): 
     const b = bridge();
     // 平台档案与 release 请求互不依赖，并发发出去（平台档案还要定「当前构建渠道」）
     const pfP: Promise<PlatformInfo | null> = b?.invoke ? getPlatformInfo() : Promise.resolve(null);
-    let raw: any;
+    let raw: JsonValue = null;
 
     if (b?.invoke) {
       const r = await b.invoke({ op: "fetch-release", channel });
 
       if (!r?.ok) return { status: "error", channel, error: r?.error ?? "GitHub API 请求失败" };
       // beta 走列表（主进程不认版本号，原样递上来由渲染层挑）；其余是单个 release
-      raw = channel === "beta" ? r.releases : r.release;
+      raw = (channel === "beta" ? r.releases : r.release) ?? null;
     } else {
       // 浏览器 dev：api.github.com 允许跨域，检查这一步仍然能跑（下载/安装需壳层）
       // stable=latest（自动排除 prerelease）；nightly=精确 tag；beta=releases 列表
@@ -249,18 +279,22 @@ export function downloadUpdate(
 
   const promise = (async () => {
     try {
-      if (!bridge()?.invoke) throw new Error("下载更新需要在桌面端运行");
+      const ipc = bridge();
+
+      if (!ipc?.invoke) throw new Error("下载更新需要在桌面端运行");
       progressCbs.set(id, onProgress);
       const pf = await getPlatformInfo();
-      const kind = info.picked!.kind;
+      const picked = info.picked;
 
-      const mode = kind === "appimage" && pf?.appimage ? "replace-appimage"
-        : isPackageKind(kind) ? "downloads"
+      if (!picked) throw new Error("没有可下载的安装包");
+
+      const mode = picked.kind === "appimage" && pf?.appimage ? "replace-appimage"
+        : isPackageKind(picked.kind) ? "downloads"
         : "installer";
 
-      const r = await bridge().invoke({
-        op: "download", id, url: info.picked!.asset.url, mode,
-        sha256: info.picked!.asset.sha256 || undefined,
+      const r = await ipc.invoke({
+        op: "download", id, url: picked.asset.url, mode,
+        sha256: picked.asset.sha256 || undefined,
       });
 
       if (!r?.ok) throw new Error(r?.error ?? "下载失败");
@@ -279,8 +313,9 @@ export function downloadUpdate(
 }
 
 /** 走「下载 → 终端包管理器」的包型（AppImage 原位替换、exe/dmg 各有各的路）。 */
-export const isPackageKind = (k: AssetKind): boolean =>
-  k === "deb" || k === "rpm" || k === "pacman" || k === "flatpak";
+export function isPackageKind(k: AssetKind): k is "deb" | "rpm" | "pacman" | "flatpak" {
+  return k === "deb" || k === "rpm" || k === "pacman" || k === "flatpak";
+}
 
 export type InstallStep =
   | { type: "appimage-replaced" }
@@ -294,10 +329,17 @@ export type InstallStep =
 /** 下载完成后的收尾：AppImage 原位替换；exe 等用户点「退出并安装」；
  *  deb/rpm/pacman/flatpak 在用户终端里跑包管理器（装好自动删包）；dmg 交给系统挂载。 */
 export async function finalizeInstall(info: UpdateInfo, path: string, id = ""): Promise<InstallStep> {
-  const kind = info.picked!.kind;
+  const picked = info.picked;
+  const ipc = bridge();
+
+  if (!picked) throw new Error("没有可安装的包");
+
+  if (!ipc?.invoke) throw new Error("安装更新需要在桌面端运行");
+
+  const kind = picked.kind;
 
   if (kind === "appimage") {
-    const r = await bridge().invoke({ op: "apply-appimage", path });
+    const r = await ipc.invoke({ op: "apply-appimage", path });
 
     if (!r?.ok) throw new Error(r?.error ?? "AppImage 替换失败");
 
@@ -309,7 +351,7 @@ export async function finalizeInstall(info: UpdateInfo, path: string, id = ""): 
   // deb/rpm/pacman/flatpak：起用户终端里的包管理器。安装结果（成功即删包）经 onInstallDone 回来；
   // 没有可用终端时退化成「手动执行这条命令」。
   if (isPackageKind(kind)) {
-    const r = await bridge().invoke({ op: "install-linux-package", kind, path, id });
+    const r = await ipc.invoke({ op: "install-linux-package", kind, path, id });
 
     if (r?.ok) return { type: "package-installing", path, command: String(r.command ?? "") };
 
@@ -319,7 +361,7 @@ export async function finalizeInstall(info: UpdateInfo, path: string, id = ""): 
     throw new Error(r?.error ?? "无法启动安装");
   }
 
-  const r = await bridge().invoke({ op: "open-path", path });
+  const r = await ipc.invoke({ op: "open-path", path });
 
   if (!r?.ok) throw new Error(r?.error ?? "无法打开安装包");
 
@@ -328,10 +370,14 @@ export async function finalizeInstall(info: UpdateInfo, path: string, id = ""): 
 
 /** Windows：拉起 NSIS 静默安装并退出应用（安装器装完会自行启动新版）。 */
 export async function quitAndInstallWindows(path: string): Promise<void> {
-  const r = await bridge().invoke({ op: "install-windows", path });
+  const ipc = bridge();
+
+  if (!ipc?.invoke) throw new Error("安装更新需要在桌面端运行");
+
+  const r = await ipc.invoke({ op: "install-windows", path });
 
   if (!r?.ok) throw new Error(r?.error ?? "无法启动安装程序");
-  await bridge().invoke({ op: "quit" });
+  await ipc.invoke({ op: "quit" });
 }
 
 export function relaunchApp(): void {
@@ -345,8 +391,10 @@ export function quitApp(): void {
 
 /** 打开发布页（找不到对应平台安装包 / 不支持应用内更新时的出口）。 */
 export async function openReleases(channel: UpdateChannel): Promise<void> {
-  if (bridge()?.invoke) {
-    await bridge().invoke({ op: "open-releases", channel });
+  const ipc = bridge();
+
+  if (ipc?.invoke) {
+    await ipc.invoke({ op: "open-releases", channel });
 
     return;
   }

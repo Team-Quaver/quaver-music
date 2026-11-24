@@ -15,6 +15,7 @@
 // 与桌面内功能不一致处由播放页自行承担。
 import { player } from "./player";
 import { coverUrl, songTitle } from "./lib/api";
+import type { MprisCommand, MprisState } from "../electron/mpris.ts";
 
 // MPRIS 的 artwork 是报给**外部**播放器的 URL：同源相对路径（本地曲目的 /api/local/cover/…）
 // 必须绝对化成应用 origin，别家播放器拿到相对路径只会画不出图。
@@ -22,8 +23,8 @@ const absArt = (u: string) => (!u ? "" : /^https?:/i.test(u) ? u : location.orig
 
 
 type MprisBridge = {
-  send(state: unknown): void;
-  onCommand(cb: (msg: { cmd: string; [k: string]: unknown }) => void): void;
+  send(state: MprisSnapshot): void;
+  onCommand(cb: (msg: MprisCommand) => void): void;
 };
 
 declare global {
@@ -40,7 +41,10 @@ function currentKey(): string {
   return c ? String(c._key ?? c.mid) : "";
 }
 
-function snapshot(seeked = false) {
+/** 渲染层投影给主进程的快照：形状由 electron/mpris.ts 的 MprisState 约束。 */
+type MprisSnapshot = MprisState;
+
+function snapshot(seeked = false): MprisSnapshot {
   const c = player.current;
   const status = player.playing ? "Playing" : player.current && player.time > 0 ? "Paused" : "Stopped";
 
@@ -59,7 +63,7 @@ function snapshot(seeked = false) {
           key: currentKey(),
           name: songTitle(c),
           artists: (c.singer ?? []).map((s) => s.name),
-          album: (c.album as { name?: string } | undefined)?.name ?? "",
+          album: c.album?.name ?? "",
           artUrl: absArt(coverUrl(c, 300)),
           durationSec: c.interval ?? player.duration ?? 0,
           // 扩展元数据（Dank Material Shell / Noctalia 的媒体控件）：由当前歌词派生的纯文本，
@@ -72,7 +76,7 @@ function snapshot(seeked = false) {
       key: String(s._key ?? s.mid),
       name: songTitle(s),
       artists: (s.singer ?? []).map((x) => x.name),
-      album: (s.album as { name?: string } | undefined)?.name ?? "",
+      album: s.album?.name ?? "",
       artUrl: absArt(coverUrl(s, 300)),
       durationSec: s.interval ?? 0,
     })),
@@ -131,7 +135,7 @@ function makeMediaSessionPush(): ((s: ReturnType<typeof snapshot>) => void) | nu
     ms.setActionHandler("seekto", (d) => {
       const pos = d.seekTime;
 
-      if (typeof pos === "number" && isFinite(pos)) player.seek(pos);
+      if (Object.prototype.toString.call(pos) === "[object Number]" && isFinite(Number(pos))) player.seek(Number(pos));
     });
   } catch (e) {
     console.warn("mediaSession action handler failed", e);

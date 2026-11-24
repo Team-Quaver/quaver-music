@@ -29,6 +29,7 @@ export interface LocalMatchView {
   albumPmid: string;
   coverQq: boolean;
   lyricQq: boolean;
+  lyricLrclib: boolean;
   scrapedAt: number;
 }
 
@@ -57,7 +58,7 @@ export interface LocalTrackView {
   coverManual: boolean;
   editedMeta: boolean;
   coverRel: string;
-  lyricSource: "" | "file" | "embed" | "qq" | "import";
+  lyricSource: "" | "file" | "embed" | "qq" | "lrclib" | "import";
   lyricRel: string;
   match: LocalMatchView | null;
 }
@@ -100,7 +101,7 @@ let pollTimer: number | null = null;
 const listeners = new Set<() => void>();
 
 function emit() {
-  for (const fn of [...listeners]) {
+  for (const fn of Array.from(listeners)) {
     try { fn(); } catch (e) { console.warn(e); }
   }
 }
@@ -277,6 +278,7 @@ export interface LocalSongFingerprint {
 export type SongWithLocal = Song & { local?: LocalSongFingerprint };
 
 export function isLocalSong(s: unknown): s is SongWithLocal & { local: LocalSongFingerprint } {
+  // SAFETY: 调用方传入的只会是 Song 形状；这里仅读取可选的 local 指纹。
   const song = s as SongWithLocal | null | undefined;
 
   return !!song?.local?.id;
@@ -290,7 +292,7 @@ export function trackToSong(t: LocalTrackView, snapshotSources?: LocalSourceView
   // 所以只有单歌手曲目才信任这个 mid；合唱曲留空，按各自姓名解析。
   const matchedSingerMid = artists.length === 1 ? (t.match?.singerMid ?? "") : "";
 
-  return {
+  const song: SongWithLocal = {
     mid: "local:" + t.id,
     name: t.title || t.relPath.split("/").pop() || t.relPath,
     title: t.title,
@@ -305,11 +307,19 @@ export function trackToSong(t: LocalTrackView, snapshotSources?: LocalSourceView
       qqMid: t.match?.qqMid ?? "",
       lyricImport: t.lyricSource === "import",
     },
-  } as SongWithLocal;
+  };
+
+  return song;
+}
+
+export interface LocalStreamInfo {
+  url: string;
+  tier: "local" | "nas";
+  label: string;
 }
 
 /** 队列/会话恢复出来的 Song 只有 local 指纹；封面/取流都够用（hasCover 随存档走）。 */
-export function localSongStreamUrl(song: SongWithLocal): { url: string; tier: string; label: string } {
+export function localSongStreamUrl(song: SongWithLocal): LocalStreamInfo {
   const kind = song.local?.kind ?? "folder";
 
   return {

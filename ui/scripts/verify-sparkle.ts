@@ -362,7 +362,7 @@ ok("np-view: 生效 = 挂载 且 np 展开（插件启用不该藏播放条）",
 
 ok("np-view: render 返回 undefined 视为成功（无清理 ≠ 渲染失败）", re(noComments(src.npView), /const cleanup = want\.render\(box, npViewCtx\(\)\) \?\? null;[\s\S]{0,80}?mounted = \{ view: want, host: box, cleanup \};/));
 
-ok("player: neighbors/songAtOffset/jumpToOffset 与播放推进同源（neighbors 走 stepInOrder；±N 走 walk，见 verify-shuffle）", has(src.player, "neighbors(): { prev: number; next: number }") && has(src.player, "songAtOffset(offset: number)") && has(src.player, "return step(this.orderOf(), this.index, dir, true);"));
+ok("player: neighbors/songAtOffset/jumpToOffset 与播放推进同源（neighbors 走 stepInOrder；±N 走 walk，见 verify-shuffle）", has(src.player, "neighbors()") && has(src.player, "return { prev: this.stepInOrder(-1), next: this.stepInOrder(1) };") && has(src.player, "songAtOffset(offset: number)") && has(src.player, "return step(this.orderOf(), this.index, dir, true);"));
 
 ok("player: songAtOffset 对非整数有界、且与 jumpToOffset 同走回绕（队首的上一首 = 队尾；超大 offset 由 walk 取模夹紧，不空转）", re(src.player, /if \(!Number\.isInteger\(offset\)\) return undefined;/) && has(src.player, "return i < 0 ? undefined : this.queue[i];") && re(src.shuffle, /Math\.min\(steps, n\)/) && re(noComments(src.player), /songAtOffset[\s\S]{0,700}?walk\(this\.orderOf\(\), this\.index, Math\.abs\(offset\), dir, true\)/));
 

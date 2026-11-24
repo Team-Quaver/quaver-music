@@ -327,7 +327,7 @@ const mainBg = after(main, 'ipcMain.handle("quaver:background"', 2400);
 check("主进程有 quaver:background 处理器", mainBg.includes("backgroundInfo()"), mainBg.slice(0, 120));
 
 check("选图走原生对话框 + 同一份格式白名单",
-  mainBg.includes("dialog.showOpenDialog") && mainBg.includes("BG_DIALOG_EXTENSIONS"));
+  mainBg.includes("await openDialog(") && main.includes("dialog.showOpenDialog") && mainBg.includes("BG_DIALOG_EXTENSIONS"));
 
 check("选中的路径写进 quaver.conf", mainBg.includes('"Style.BackgroundImage"'));
 
@@ -369,10 +369,10 @@ check("渲染层 FALLBACK 与 schema 同步（改一处要改两处）",
 section("主题交接策略（纯逻辑）");
 
 /** 造一个「只有 background 不同」的主题；字段是第三方给的任意值，所以断言成 never 再传进去 */
-const mkTheme = (background?: unknown) => {
-  const theme: { id: string; name: string; css: string; background?: unknown } = { id: "t", name: "T", css: "" };
-
-  if (background !== undefined) theme.background = background;
+const mkTheme = <T>(background?: T) => {
+  const theme = background === undefined
+    ? { id: "t", name: "T", css: "" }
+    : { id: "t", name: "T", css: "", background };
 
   // SAFETY: 测试夹具故意带第三方任意值，never 只用于绕过策略入参的 SDK 形状约束
   return theme as never;

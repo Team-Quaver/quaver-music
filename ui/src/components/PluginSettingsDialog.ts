@@ -6,9 +6,10 @@
 //
 // 关闭语义：Esc / 点遮罩 / 「关闭」= 收起并调用 render 返回的清理函数。
 import "./dialog.css";
+
 let layer: HTMLElement | null = null;
 
-const esc = (s: unknown) =>
+const esc = <T>(s: T) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 /** 打开插件设置弹窗。render 在弹窗 body 内挂设置区（无可配置时调用方自己渲染空态），

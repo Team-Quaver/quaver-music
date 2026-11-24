@@ -10,7 +10,7 @@ import type { Song } from "../player";
 import type { ToplistDetailResp, ToplistInfo } from "./_shared";
 import { compactCount, errText, h, mountHead, mountStickyBar, playAllButton } from "./_shared";
 
-const plainText = (s: unknown) => String(s ?? "")
+const plainText = <T>(s: T) => String(s ?? "")
   .replace(/<br\s*\/?>/gi, " ")
   .replace(/<[^>]*>/g, " ")
   .replace(/&nbsp;/gi, " ")
@@ -93,6 +93,7 @@ export default async function toplistView(root: HTMLElement, q: URLSearchParams)
 
   const periodBox = h("label", "top-period");
   periodBox.innerHTML = `<span class="top-period__label">期次</span>`;
+  // SAFETY: h("select", …) 创建的就是 <select> 元素。
   const select = h("select", "top-period__select") as HTMLSelectElement;
   select.setAttribute("aria-label", "选择榜单期次");
   periodBox.append(select);

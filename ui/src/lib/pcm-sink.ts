@@ -13,6 +13,7 @@ import { getEqualizerState, getFadeMs } from "./prefs";
 import { EngineTransport, type EngineBridge } from "./transport";
 import { pcmSpectrumAnalyser, setPcmSpectrumAnalyser } from "./pcm-analyser";
 import type { EqBandType, EqState } from "../../electron/audio/eq-config.ts";
+import type { AudioCommand } from "../../electron/bridge-types.ts";
 
 const PCM_RATE = 48000;
 const PCM_CHANNELS = 2;
@@ -434,7 +435,7 @@ export class PcmSink {
 // 不为兼容模式付一分钱。世代（epoch）校验也在这里做：旧 MPV 会话在途的尾巴一律丢弃。
 
 export interface PcmControllerOpts {
-  invoke: (cmd: Record<string, unknown>) => Promise<any>;
+  invoke: (cmd: AudioCommand) => Promise<any>;
   /** 当前 PCM 世代（transport 的 pcmEpoch；窗口重建/热切时会跟主进程对齐） */
   epoch(): number;
   /** 引擎侧已挂流且在播时为 true（驱动 10Hz 进度上报）。 */

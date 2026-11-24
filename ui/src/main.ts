@@ -94,4 +94,4 @@ void import("./lib/inhibit").then((m) => m.startInhibitBridge());
 window.setTimeout(() => { void import("./lib/updater").then((m) => m.runAutoUpdateCheck()); }, 3000);
 
 // dev 钩子：e2e/调试可直接驱动播放器状态（生产构建不含）
-if (import.meta.env.DEV) (window as any).__player = player;
+if (import.meta.env.DEV) Object.assign(window, { __player: player });

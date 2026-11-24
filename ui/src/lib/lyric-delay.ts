@@ -22,6 +22,8 @@ export const LYRIC_DELAY_MAX_MS = 10_000;
 
 type DelayMap = Record<string, number>;
 
+type StoredDelay = { readonly [key: string]: string | number | boolean | null };
+
 let cache: DelayMap | null = null;
 
 function load(): DelayMap {
@@ -29,12 +31,12 @@ function load(): DelayMap {
   let out: DelayMap = {};
 
   try {
-    const raw = JSON.parse(localStorage.getItem(LS_KEY) || "{}");
+    const raw: StoredDelay = JSON.parse(localStorage.getItem(LS_KEY) || "{}");
 
-    if (raw && typeof raw === "object") {
-      for (const [k, v] of Object.entries(raw)) {
-        if (typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= LYRIC_DELAY_MAX_MS) out[k] = Math.round(v);
-      }
+    for (const [k, v] of Object.entries(raw)) {
+      const ms = Number(v);
+
+      if (Object.prototype.toString.call(v) === "[object Number]" && Number.isFinite(ms) && Math.abs(ms) <= LYRIC_DELAY_MAX_MS) out[k] = Math.round(ms);
     }
   } catch { /* 坏档 / 隐私模式：从空表开始，不影响播放 */ }
 
@@ -52,7 +54,7 @@ export function getLyricDelayMs(s: { mid?: string } | null | undefined): number 
   if (!k) return 0;
   const v = load()[k];
 
-  return typeof v === "number" ? v : 0;
+  return v ?? 0;
 }
 
 /** 写入（钳到 ±值域并对齐 0.1s 粒度；0 = 删条目保持表干净）。

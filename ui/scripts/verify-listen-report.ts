@@ -1,5 +1,5 @@
 // 听歌时长上报累加器：纯逻辑单测（假时钟 + 假发送端，不跑浏览器/网络）。
-import { ListenTimeReporter, type ListenReportTarget } from "../src/lib/listen-report.ts";
+import { ListenTimeReporter, type ListenReportBody, type ListenReportTarget } from "../src/lib/listen-report.ts";
 
 let pass = 0;
 let fail = 0;
@@ -9,7 +9,7 @@ const check = (name: string, cond: boolean, detail = "") => {
   else { fail++; console.log(`FAIL ${name}${detail ? ` — ${detail}` : ""}`); }
 };
 
-const eq = (name: string, got: unknown, want: unknown) =>
+const eq = <G, W>(name: string, got: G, want: W) =>
   check(name, JSON.stringify(got) === JSON.stringify(want), `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
 
 const target = (n: number): ListenReportTarget => ({
@@ -25,7 +25,7 @@ const target = (n: number): ListenReportTarget => ({
 
 let now = 0;
 let enabled = true;
-const sends: Record<string, any>[] = [];
+const sends: ListenReportBody[] = [];
 
 const reporter = new ListenTimeReporter({
   now: () => now,

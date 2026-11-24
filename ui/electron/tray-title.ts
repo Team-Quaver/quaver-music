@@ -62,7 +62,7 @@ export function charCols(ch: string): 0 | 1 | 2 {
 }
 
 /** 字符串的显示列宽（汉字/全角/emoji 记 2，其余记 1）。按码点走，不劈开代理对。 */
-export function displayCols(text: unknown): number {
+export function displayCols<T>(text: T): number {
   let n = 0;
 
   for (const ch of String(text ?? "")) n += charCols(ch);
@@ -77,7 +77,7 @@ export function displayCols(text: unknown): number {
  * @param {number} [maxCols]
  * @returns {string}
  */
-export function clampCols(text: unknown, maxCols: number = TRAY_TITLE_MAX_COLS): string {
+export function clampCols<T>(text: T, maxCols: number = TRAY_TITLE_MAX_COLS): string {
   const s = String(text ?? "");
 
   if (maxCols <= 0) return "";
@@ -103,7 +103,7 @@ export function clampCols(text: unknown, maxCols: number = TRAY_TITLE_MAX_COLS):
 
 /** 压成一行：换行/连续空白（含上游漏出来的 \n、全角空格周围的乱空）统一成一个空格。
  *  菜单标签里的 \n 在 win/mac 上会真的画成两行（菜单变高），顺手一起收掉。 */
-const oneLine = (s: unknown): string => String(s ?? "").replace(/\s+/g, " ").trim();
+const oneLine = <T>(s: T): string => String(s ?? "").replace(/\s+/g, " ").trim();
 
 /** 渲染层快照里的曲目（标题行只消费 name / artists 两个字段）。 */
 export interface TrayTrack {

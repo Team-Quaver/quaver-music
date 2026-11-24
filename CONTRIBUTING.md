@@ -89,7 +89,7 @@ Quaver Music 基于 AGPLv3 Only 协议自由开源，该协议作为辅助协议
 ### 提交约定
 
 - 注释：中/英都行
-- 检查：需通过 `pnpm verify:static` 与 `pnpm verify:bundle`
+- 检查：需通过 `pnpm verify:static` 与 `pnpm verify:bundle`，以及 `pnpm lint` 的测试
 - 提交信息：使用惯例提交法，`<提交类别>: <摘要>`，单行标题，推荐单次单一改动，单次提交，若一个提交有多个改动，请使用 ` Change A // Change B ` 方式，支持使用 Gitmoji。包括以下类别：`Feat` / `Fix` / `Refactor` / `Perf` / `Doc` / `CI` / `Chore` / `Other`
 
 ## 代码版权所属

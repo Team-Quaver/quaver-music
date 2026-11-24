@@ -24,6 +24,15 @@ export interface MyPlaylist {
   songnum?: number;
 }
 
+interface CreatedPlaylistWire {
+  id?: number | string;
+  dirid?: number | string;
+  title?: string;
+  picurl?: string;
+  bigpic_url?: string;
+  songnum?: number | string;
+}
+
 const LOVED_DIRID = 201;
 
 let items: MyPlaylist[] | null = null; // null = 尚未加载
@@ -38,9 +47,9 @@ export async function loadMySonglists(force = false): Promise<MyPlaylist[]> {
 
   if (inflight) return inflight;
   inflight = (async () => {
-    const d: any = await api("/user/created-songlists");
+    const d: { playlists?: CreatedPlaylistWire[] } = await api("/user/created-songlists");
 
-    return ((d?.playlists ?? []) as any[])
+    return (d.playlists ?? [])
       .filter((p) => Number(p?.dirid) !== LOVED_DIRID && p?.dirid)
       .map((p) => ({
         id: Number(p.id),
@@ -61,7 +70,7 @@ export async function loadMySonglists(force = false): Promise<MyPlaylist[]> {
 }
 
 /** 写接口需要的歌曲引用；缺 song_id 就没法写（部分上下文不带数字 id） */
-function songRef(song: any): { song_id: number; song_type: number } {
+function songRef(song: any) {
   if (!song?.id) throw new Error("这首歌缺少 song_id，无法写入歌单");
 
   return { song_id: Number(song.id), song_type: Number(song.type ?? 1) };

@@ -25,6 +25,7 @@ export default async function homeView(root: HTMLElement) {
   const { thumbPic } = await thumbs;
 
   const scroller = routeScroller(root);
+
   const homeHead = h("div", "sticky-head home-pagehead", `
     <h1 class="page-title">首页</h1>
     <p class="muted">从歌单和新歌开始，开启今日</p>`);
@@ -151,6 +152,7 @@ export default async function homeView(root: HTMLElement) {
   const quickLinks = h("div", "home-quick__links");
 
   const addQuickAction = (label: string, icon: string, run: () => void) => {
+    // SAFETY: h() 按第一个参数 createElement("button")，返回节点类型就是 HTMLButtonElement。
     const btn = h("button", "home-quick__item",
       `<span class="home-quick__icon" aria-hidden="true">${icon}</span><span class="home-quick__label">${label}</span>`) as HTMLButtonElement;
 
@@ -171,6 +173,7 @@ export default async function homeView(root: HTMLElement) {
   const newest = h("section", "home-panel");
   const newHead = h("div", "sec-head sec-head--split");
   newHead.innerHTML = `<div class="sec-head__title"><h2>新歌速递</h2><span class="muted">最新发行</span></div>`;
+  // SAFETY: h("button", …) 创建的就是 <button> 元素。
   const playNew = h("button", "ghost-btn", "播放全部") as HTMLButtonElement;
   playNew.type = "button";
   playNew.disabled = true;
@@ -193,6 +196,7 @@ export default async function homeView(root: HTMLElement) {
     <h2><span class="home-ai__icon" aria-hidden="true">${icons.sparkles}</span>AI 歌单</h2>
     <span class="muted">顺着你的口味继续</span>
   </div>`;
+  // SAFETY: h("button", …) 创建的就是 <button> 元素。
   const aiRefresh = h("button", "ghost-btn home-ai__refresh", "换一批") as HTMLButtonElement;
   aiRefresh.type = "button";
   aiRefresh.disabled = true;
@@ -229,6 +233,7 @@ export default async function homeView(root: HTMLElement) {
   ];
 
   const railItems = railSections.map(({ target, label, head }) => {
+    // SAFETY: h("button", …) 创建的就是 <button> 元素。
     const item = h("button", "home-rail__item", `<span>${label}</span><i class="home-rail__tick" aria-hidden="true"></i>`) as HTMLButtonElement;
 
     item.type = "button";
@@ -246,6 +251,7 @@ export default async function homeView(root: HTMLElement) {
       });
       syncRail();
     };
+
     rail.append(item);
 
     return { item, head: head ?? target, label };
@@ -275,6 +281,7 @@ export default async function homeView(root: HTMLElement) {
       const offset = x.head.getBoundingClientRect().top - top;
 
       if (offset > anchor) break;
+
       // 并排区块 top 相同：保留先出现的；点了谁由 railPin 决定
       if (offset > activeTop) {
         active = x;

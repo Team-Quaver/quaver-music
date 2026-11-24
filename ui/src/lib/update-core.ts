@@ -198,7 +198,7 @@ export function normalizeRelease(raw: any): ReleaseInfo {
  * 只认 tag 含「beta」（不区分大小写）**且** prerelease=true 的，按完整 semver（含 prerelease 段）
  * 取最大者（beta.2 > beta.1；高的次版本优先）。返回归一化后的 ReleaseInfo；没有符合的返回 null。
  */
-export function pickBetaRelease(raws: unknown): ReleaseInfo | null {
+export function pickBetaRelease<T>(raws: T): ReleaseInfo | null {
   let best: { rel: ReleaseInfo; v: ParsedVersion } | null = null;
 
   for (const raw of Array.isArray(raws) ? raws : []) {
@@ -393,11 +393,11 @@ export function installCommandFor(
 }
 
 /** 各运行架构对应的产物名写法（CI：AppImage=x86_64/aarch64，NSIS=x64/arm64，dmg=arm64）。 */
-const ARCH_WORDS: Record<string, RegExp> = {
+const ARCH_WORDS = {
   x64: /(?:\bx64\b|x86_64|amd64)/,
   arm64: /(?:\barm64\b|aarch64)/,
   loong64: /(?:\bloong64\b|loongarch64)/,
-};
+} satisfies Record<string, RegExp>;
 
 /**
  * 从 release assets 里挑出当前平台/架构的安装包。
@@ -415,7 +415,7 @@ const ARCH_WORDS: Record<string, RegExp> = {
 export function pickAsset(
   platform: string, arch: string, assets: ReleaseAsset[], prefer?: AssetKind | null,
 ): { asset: ReleaseAsset; kind: AssetKind } | null {
-  const re = ARCH_WORDS[arch];
+  const re = Object.entries(ARCH_WORDS).find(([id]) => id === arch)?.[1];
 
   if (!re) return null;
 

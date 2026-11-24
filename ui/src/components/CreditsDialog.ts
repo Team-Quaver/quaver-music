@@ -21,7 +21,7 @@ const CREDITS: Credit[] = [
 ];
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const errText = <T>(e: T) => (e instanceof Error ? e.message : String(e));
 
 let layer: HTMLElement | null = null;
 
@@ -94,7 +94,7 @@ export function showCreditsDialog(): void {
 
       void bridge.open(url).then((r) => {
         if (!r?.ok) toast(`无法打开 GitHub：${r?.error ?? "未知错误"}`, "err");
-      }).catch((e: unknown) => toast(`无法打开 GitHub：${errText(e)}`, "err"));
+      }).catch((e) => toast(`无法打开 GitHub：${errText(e)}`, "err"));
     };
   });
 

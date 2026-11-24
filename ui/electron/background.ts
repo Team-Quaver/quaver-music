@@ -19,7 +19,7 @@ import { BG_IMAGE_EXTS, configFile, readValues, type Env } from "./config.ts";
 /** 单张背景图上限 40MB：4K 壁纸绰绰有余，再大基本是误选了。 */
 export const BACKGROUND_MAX_BYTES = 40 * 1024 * 1024;
 
-const MIME: Record<string, string> = {
+const MIME = {
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".png": "image/png",
@@ -27,11 +27,13 @@ const MIME: Record<string, string> = {
   ".gif": "image/gif",
   ".bmp": "image/bmp",
   ".avif": "image/avif",
-};
+} satisfies Record<string, string>;
 
 /** 扩展名（小写、带点）→ mime；不在白名单里返回 null（= 这个文件不许走背景图通路）。 */
 export function backgroundMime(file: string): string | null {
-  return MIME[extname(String(file ?? "")).toLowerCase()] ?? null;
+  const ext = extname(String(file ?? "")).toLowerCase();
+
+  return Object.entries(MIME).find(([name]) => name === ext)?.[1] ?? null;
 }
 
 /** 原生「选择图片」对话框的扩展名过滤器：与 schema 的白名单同源，别各写一份。 */
@@ -100,7 +102,11 @@ export function backgroundResponse(env: Env = process.env): BackgroundResponse {
   if (!info.exists) return jsonBody(404, info.error ?? "不可用");
 
   try {
-    return { status: 200, type: backgroundMime(info.path) as string, body: readFileSync(info.path) };
+    const type = backgroundMime(info.path);
+
+    if (!type) return jsonBody(415, "不支持的背景图格式");
+
+    return { status: 200, type, body: readFileSync(info.path) };
   } catch (e) {
     return jsonBody(500, String(e));
   }

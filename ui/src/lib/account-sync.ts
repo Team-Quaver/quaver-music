@@ -116,5 +116,5 @@ export function stopAccountSync(): void {
 
 // 开发钩子：不打开 DevTools 也能手动触发一轮，便于本地验证手机端改动是否上屏。
 if (import.meta.env?.DEV) {
-  (window as any).__quaverRefreshAccount = refreshAccountData;
+  Object.assign(window, { __quaverRefreshAccount: refreshAccountData });
 }

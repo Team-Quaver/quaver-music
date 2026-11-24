@@ -779,7 +779,7 @@ export class LiinoEngine {
         if (!player || this.dead) return { ok: false, error: "liino 会话未运行" };
 
         try {
-          return { ok: true, payload: this.parseJSON(player.level()) ?? {} };
+          return { ok: true, payload: this.parseJSON<RemoteJson>(player.level()) ?? {} };
         } catch (e) { return { ok: false, error: caught(e) }; }
       }
 

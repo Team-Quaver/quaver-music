@@ -31,6 +31,7 @@ export interface CloudItem {
   editedMeta: boolean;
   coverManual: boolean;
   lyricImport: boolean;
+  lyricLrclib: boolean;
   importFormat: string;
   scrapedAt: number;
   hasCover: boolean;

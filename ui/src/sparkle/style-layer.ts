@@ -23,7 +23,6 @@ import type { SparkleStyleLayer, SparkleStyleState, SparkleThemePack } from "@qu
 import {
   onSparkleChange, sparkRegisterStyleLayer, sparkUnregisterStyleLayer,
   sparkleStyleLayers, sparkleThemePacks,
-  type StyleLayerEntry,
 } from "./registry";
 
 // —— 持久化 ——
@@ -67,7 +66,7 @@ function plan(): { key: string; css: string; order: number; seq: number }[] {
   let seq = 0;
 
   // 常驻层：全部注入（除非总闸拉下）
-  for (const e of sparkleStyleLayers() as StyleLayerEntry[]) {
+  for (const e of sparkleStyleLayers()) {
     const css = cssOf(e.layer.css);
 
     if (!css) continue;
@@ -78,8 +77,7 @@ function plan(): { key: string; css: string; order: number; seq: number }[] {
   const st = state();
 
   if (st.packId && !st.suspended) {
-    const entry = (sparkleThemePacks() as { pluginId: string; pack: SparkleThemePack }[])
-      .find((e) => e.pack.id === st.packId);
+    const entry = sparkleThemePacks().find((e) => e.pack.id === st.packId);
 
     if (entry) {
       const v = entry.pack.variants.find((x) => x.id === st.variantId) ?? entry.pack.variants[0];
@@ -108,12 +106,12 @@ function apply() {
   const wantKeys = new Set(want.map((w) => w.key));
 
   // 摘掉不再需要的（含切走的风格、被停用插件的层、孤儿回落）
-  for (const key of [...injected.keys()]) {
+  for (const key of injected.keys()) {
     if (!wantKeys.has(key)) dropStyle(key);
   }
 
   // 全摘重挂（保序）
-  for (const key of [...injected.keys()]) injected.get(key)!.remove();
+  for (const key of injected.keys()) injected.get(key)!.remove();
   injected.clear();
 
   for (const w of want) {
@@ -145,8 +143,7 @@ function syncScheme() {
     return;
   }
 
-  const entry = (sparkleThemePacks() as { pluginId: string; pack: SparkleThemePack }[])
-    .find((e) => e.pack.id === st.packId);
+  const entry = sparkleThemePacks().find((e) => e.pack.id === st.packId);
 
   const v = entry?.pack.variants.find((x) => x.id === st.variantId) ?? entry?.pack.variants[0];
 
@@ -161,17 +158,16 @@ const listeners = new Set<(s: SparkleStyleState) => void>();
 const emit = () => {
   const st = state();
 
-  for (const cb of [...listeners]) { try { cb(st); } catch (e) { console.warn("[sparkle] 样式订阅回调抛错", e); } }
+  for (const cb of listeners) { try { cb(st); } catch (e) { console.warn("[sparkle] 样式订阅回调抛错", e); } }
 };
 
 export const styleState = (): SparkleStyleState => state();
 
 export const stylePacks = (): { pluginId: string; pack: SparkleThemePack }[] =>
-  (sparkleThemePacks() as { pluginId: string; pack: SparkleThemePack }[]).map((e) => ({ ...e }));
+  sparkleThemePacks().map((e) => ({ ...e }));
 
 export function activateStyle(packId: string, variantId?: string): SparkleStyleState {
-  const entry = (sparkleThemePacks() as { pluginId: string; pack: SparkleThemePack }[])
-    .find((e) => e.pack.id === packId);
+  const entry = sparkleThemePacks().find((e) => e.pack.id === packId);
 
   // 目标不存在：静默回落当前态（插件可能正基于旧状态做判断，不该被 activate 抛崩）
   if (!entry) return state();

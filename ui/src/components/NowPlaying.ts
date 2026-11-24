@@ -24,7 +24,7 @@
 // + 深色渐变压暗 + .np 固体底色兜底；进度与控制由常驻播放条承担。
 import { player, type Song } from "../player";
 import { pickAux } from "../lyric";
-import { coverUrl, coverUrlCandidates, songTitle, stripEm, QUALITY_SHORT, effectiveQuality, getLastStream } from "../lib/api";
+import { coverUrl, coverUrlCandidates, songTitle, stripEm, qualityShortOf, effectiveQuality, getLastStream } from "../lib/api";
 import type { StreamInfo } from "../lib/streaminfo";
 import { icons } from "../lib/icons";
 import { getLyricScale, setLyricScale, LYRIC_SCALE_MAX, LYRIC_SCALE_MIN, LYRIC_SCALE_STEP, LYRIC_AUX_MODES, npLyricFullHeight, npLyricHidePlayed, getNpBackgroundRenderer, type LyricAuxMode, type BackgroundRenderer } from "../lib/prefs";
@@ -107,7 +107,7 @@ export function NowPlaying(): HTMLElement {
   let spectrumExitTimer = 0;
 
   const reduceMotion = () =>
-    typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.matchMedia instanceof Function && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   function disposeSpectrumLayer(layer: SpectrumLayer) {
     if (!spectrumLayers.delete(layer)) return;
@@ -326,7 +326,7 @@ export function NowPlaying(): HTMLElement {
   const MENU_CLOSE_MS = 140;
 
   function onDocDownMore(e: PointerEvent) {
-    const t = e.target as Node;
+    const t = e.target instanceof Node ? e.target : null;
 
     if (!moreMenu.contains(t) && !moreBtn.contains(t) && !singerPanel?.contains(t)) closeMoreMenu();
   }
@@ -422,6 +422,7 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
   let closeTimer = 0;
   const cancelClose = () => window.clearTimeout(closeTimer);
   const keepOpen = () => { cancelClose(); toggle(true); };
+
   const scheduleClose = () => {
     cancelClose();
     closeTimer = window.setTimeout(() => toggle(false), 120);
@@ -663,7 +664,7 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
   };
 
   function onDocDownQ(e: PointerEvent) {
-    const t = e.target as Node;
+    const t = e.target instanceof Node ? e.target : null;
 
     if (!qInfo.contains(t) && !qPill.contains(t)) closeQInfo();
   }
@@ -718,9 +719,18 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
     return d;
   }
 
+  /** 流信息 → 指纹（4Hz 重建判定用）：只取展示字段，缺项按空串。 */
+  function streamInfoSig(info: StreamInfo): string {
+    return `${info.codec}|${info.sampleRate ?? ""}|${info.bitDepth ?? ""}|${Math.round(info.bitrate ?? 0)}|${info.channels ?? ""}`;
+  }
+
   function fillQInfo(url: string, info: StreamInfo | null | "none" | "pending") {
-    const sig = url + "|" + (typeof info === "string" ? info
-      : info ? `${info.codec}|${info.sampleRate ?? ""}|${info.bitDepth ?? ""}|${Math.round(info.bitrate ?? 0)}|${info.channels ?? ""}` : "null");
+    let infoSig = "null";
+
+    if (info === "none" || info === "pending") infoSig = info;
+    else if (info !== null) infoSig = streamInfoSig(info);
+
+    const sig = url + "|" + infoSig;
 
     if (sig === qFillSig && qInfo.childElementCount) return; // notify 4Hz：内容没变不重建 DOM
     qFillSig = sig;
@@ -786,7 +796,7 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape" || e.defaultPrevented) return;
 
-    if ((e.target as HTMLElement | null)?.closest?.("input, textarea")) return;
+    if (e.target instanceof Element && e.target.closest("input, textarea")) return;
 
     if (!player.expanded) return;
     player.expanded = false;
@@ -1326,8 +1336,8 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
         ? "本地"
         : fallback?.directUrl
         ? "微云"
-        : (ls.degraded ? "↓" : "") + (QUALITY_SHORT[ls.tier] ?? ls.label)
-      : (QUALITY_SHORT[effectiveQuality()] ?? "音质");
+        : (ls.degraded ? "↓" : "") + (qualityShortOf(ls.tier) || ls.label)
+      : (qualityShortOf(effectiveQuality()) || "音质");
 
     if (qLabel !== lastQLabel) {
       lastQLabel = qLabel;
@@ -1392,7 +1402,7 @@ function singerSubmenu(singers: NonNullable<Song["singer"]>) {
 
     lastLyricState = st;
     setTitle(s ? songTitle(s) : "未在播放");
-    const albumName = (s as any)?.album?.name ?? "";
+    const albumName = s?.album?.name ?? "";
     setArtist(s ? [(s.singer ?? []).map((x) => x.name).join(" / "), albumName].filter(Boolean).join(" - ") : "");
 
     // 高亮当前歌词行 + 滚动居中（翻阅模式暂停自动跟随；3s 静默或点击行号恢复；逐字模式由渲染器接管）

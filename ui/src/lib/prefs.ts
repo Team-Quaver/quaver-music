@@ -17,14 +17,21 @@ export type ThemeMode = "system" | "light" | "dark";
 
 export type DecorMode = "csd" | "ssd";
 
+/** 配置取值 → 内部枚举：白名单外的值（手改错/旧版）一律回落 fallback。 */
+function lookup<T extends string>(table: Readonly<Record<string, T>>, key: string, fallback: T): T {
+  const hit = table[key];
+
+  return hit ?? fallback;
+}
+
 // —— 外观模式 ——
 // 配置文件取值：dark / light / follow-system（未来还有自定义主题的 kebab-case 名）。
 // 自定义主题系统未上线前，未知取值的主题名按「跟随系统」处理（不至于把人锁在坏值上）。
-const CONF_TO_THEME: Record<string, ThemeMode> = { dark: "dark", light: "light", "follow-system": "system" };
-const THEME_TO_CONF: Record<ThemeMode, string> = { system: "follow-system", light: "light", dark: "dark" };
+const CONF_TO_THEME = { dark: "dark", light: "light", "follow-system": "system" } as const satisfies Record<string, ThemeMode>;
+const THEME_TO_CONF = { system: "follow-system", light: "light", dark: "dark" } as const satisfies Record<ThemeMode, string>;
 
 export function getTheme(): ThemeMode {
-  return CONF_TO_THEME[cfg("Style.Style", "dark")] ?? "system";
+  return lookup(CONF_TO_THEME, cfg("Style.Style", "dark"), "system");
 }
 
 const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -49,12 +56,12 @@ mq.addEventListener("change", () => { if (getTheme() === "system") applyTheme();
 // 空值 = 不覆盖，走 style.css 的 --font-default 内置栈。设置页给的是预设，选中后把对应列表写进配置。
 export interface FontPreset { label: string; css: string }
 
-export const FONT_PRESETS: Record<string, FontPreset> = {
+export const FONT_PRESETS = {
   system: { label: "系统默认", css: "" },
   sans: { label: "黑体（无衬线）", css: '"Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' },
   serif: { label: "宋体（衬线）", css: '"Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", SimSun, serif' },
   mono: { label: "等宽", css: 'ui-monospace, "JetBrains Mono", "Noto Sans Mono CJK SC", monospace' },
-};
+} as const satisfies Record<string, FontPreset>;
 
 export const FONT_LABELS: Record<string, string> = Object.fromEntries(
   Object.entries(FONT_PRESETS).map(([k, v]) => [k, v.label]),
@@ -101,7 +108,14 @@ export function fontCssOf(value: string): string {
 
   if (!v) return "";
 
-  return v in FONT_PRESETS ? FONT_PRESETS[v].css : v;
+  return presetCss(v) ?? v;
+}
+
+/** 预设键 → CSS 族列表；不是预设（用户直接写了族名）返回 null。 */
+export function presetCss(key: string): string | null {
+  const hit = Object.entries(FONT_PRESETS).find(([preset]) => preset === key)?.[1];
+
+  return hit ? hit.css : null;
 }
 
 export const getUiFont = () => fontKeyOf(cfg("Style.DefaultUIFonts"));
@@ -126,12 +140,12 @@ export function setLyricFontList(css: string) {
 /** 下拉选预设：把该预设的族列表写进配置（FONT_CUSTOM = 保持输入框现有内容，不动配置）。 */
 export function setUiFontPreset(key: string) {
   if (key === FONT_CUSTOM) return;
-  setUiFontList(FONT_PRESETS[key]?.css ?? "");
+  setUiFontList(presetCss(key) ?? "");
 }
 
 export function setLyricFontPreset(key: string) {
   if (key === FONT_CUSTOM) return;
-  setLyricFontList(FONT_PRESETS[key]?.css ?? "");
+  setLyricFontList(presetCss(key) ?? "");
 }
 
 export function applyFonts() {
@@ -155,10 +169,10 @@ export type BackgroundMode = "off" | "cover" | "custom";
 /** 背景呈现风格：quaver = Quaver Design 封面模糊铺底（默认）；mesh = AMLL 网格流动渐变。 */
 export type BackgroundRenderer = "quaver" | "mesh";
 
-const CONF_TO_BG: Record<string, BackgroundMode> = { off: "off", cover: "cover", custom: "custom" };
+const CONF_TO_BG = { off: "off", cover: "cover", custom: "custom" } as const satisfies Record<string, BackgroundMode>;
 
 export function getBackgroundMode(): BackgroundMode {
-  return CONF_TO_BG[cfg("Style.Background", "off")] ?? "off";
+  return lookup(CONF_TO_BG, cfg("Style.Background", "off"), "off");
 }
 
 export function setBackgroundMode(m: BackgroundMode) {
@@ -173,11 +187,11 @@ export function setBackgroundImage(path: string) {
   cfgSet({ "Style.BackgroundImage": (path ?? "").trim() });
 }
 
-const CONF_TO_BG_RENDERER: Record<string, BackgroundRenderer> = { quaver: "quaver", mesh: "mesh" };
+const CONF_TO_BG_RENDERER = { quaver: "quaver", mesh: "mesh" } as const satisfies Record<string, BackgroundRenderer>;
 
 /** 首页（主窗环境层）的背景风格。 */
 export function getBackgroundRenderer(): BackgroundRenderer {
-  return CONF_TO_BG_RENDERER[cfg("Style.BackgroundRenderer", "quaver")] ?? "quaver";
+  return lookup(CONF_TO_BG_RENDERER, cfg("Style.BackgroundRenderer", "quaver"), "quaver");
 }
 
 export function setBackgroundRenderer(r: BackgroundRenderer) {
@@ -208,11 +222,11 @@ export function setBackgroundBlur(v: number) {
 
 /** 正在播放页（歌词页）的背景风格 —— 与首页互不影响。 */
 export function getNpBackgroundRenderer(): BackgroundRenderer {
-  return CONF_TO_BG_RENDERER[cfg("Style.NpBackgroundRenderer", "quaver")] ?? "quaver";
+  return lookup(CONF_TO_BG_RENDERER, cfg("Style.NpBackgroundRenderer", "quaver"), "quaver");
 }
 
 export function setNpBackgroundRenderer(r: BackgroundRenderer) {
-  cfgSet({ "Style.NpBackgroundRenderer": CONF_TO_BG_RENDERER[r] ?? "quaver" });
+  cfgSet({ "Style.NpBackgroundRenderer": r });
 }
 
 export const BG_FLOW_MIN = 0;
@@ -287,12 +301,10 @@ export function setSpectrumMode(id: string) {
 // 这些令牌或按 body[data-control-bar="floating"] 重画形态，不需要改渲染层。
 export type ControlBarMode = "bottom" | "floating";
 
-const CONTROL_BAR_MODES: readonly string[] = ["bottom", "floating"];
+const CONTROL_BAR_MODES = ["bottom", "floating"] as const satisfies readonly ControlBarMode[];
 
 export function getControlBarMode(): ControlBarMode {
-  const v = cfg("Style.ControlBar");
-
-  return CONTROL_BAR_MODES.includes(v) ? (v as ControlBarMode) : "bottom";
+  return CONTROL_BAR_MODES.find((mode) => mode === cfg("Style.ControlBar")) ?? "bottom";
 }
 
 export function applyControlBarMode(mode: ControlBarMode = getControlBarMode()) {
@@ -301,7 +313,7 @@ export function applyControlBarMode(mode: ControlBarMode = getControlBarMode()) 
 }
 
 export function setControlBarMode(m: ControlBarMode) {
-  cfgSet({ "Style.ControlBar": CONTROL_BAR_MODES.includes(m) ? m : "bottom" });
+  cfgSet({ "Style.ControlBar": CONTROL_BAR_MODES.find((mode) => mode === m) ?? "bottom" });
   applyControlBarMode();
 }
 
@@ -311,12 +323,10 @@ export function setControlBarMode(m: ControlBarMode) {
 // 接管（策略在 src/sparkle/theme-playlist-mode.ts，应用入口在 src/lib/playlist-mode.ts）。
 export type PlaylistMode = "menu" | "collection";
 
-const PLAYLIST_MODES: readonly string[] = ["menu", "collection"];
+const PLAYLIST_MODES = ["menu", "collection"] as const satisfies readonly PlaylistMode[];
 
 export function getPlaylistMode(): PlaylistMode {
-  const v = cfg("Style.PlaylistMode");
-
-  return PLAYLIST_MODES.includes(v) ? (v as PlaylistMode) : "menu";
+  return PLAYLIST_MODES.find((mode) => mode === cfg("Style.PlaylistMode")) ?? "menu";
 }
 
 // 切换形态走「淡出 → 换布局 → 淡入」两拍：两态之间差的正是 display:none 的整块撤走/回来、
@@ -380,20 +390,18 @@ export function setPlaylistMode(m: PlaylistMode) {
 // 写 CSS 变量的 DOM 侧在 src/lib/tint.ts（prefs 被 player/api 反向依赖，不能反过来 import 渲染层模块）。
 export type TintMode = "default" | "cover" | "system" | "custom";
 
-const TINT_MODES: readonly string[] = ["default", "cover", "system", "custom"];
+const TINT_MODES = ["default", "cover", "system", "custom"] as const satisfies readonly TintMode[];
 
 /** 默认档的固定色 —— 就是主题里那条「播放进度条青色」（style.css 的 --cyan）。
  *  它是本功能的出厂色：不跟封面跑，也不随明暗主题换色相（只有亮度锚在主题 token 上）。 */
 export const TINT_DEFAULT_COLOR = "#19c2d8";
 
 export function getTintMode(): TintMode {
-  const v = cfg("Style.Tint", "default");
-
-  return TINT_MODES.includes(v) ? (v as TintMode) : "default";
+  return TINT_MODES.find((mode) => mode === cfg("Style.Tint", "default")) ?? "default";
 }
 
 export function setTintMode(m: TintMode) {
-  cfgSet({ "Style.Tint": TINT_MODES.includes(m) ? m : "default" });
+  cfgSet({ "Style.Tint": TINT_MODES.find((mode) => mode === m) ?? "default" });
 }
 
 /** 自定义色。读回来一律是规范小写 6 位（手改 conf 写 `#0ff` 也归一）；
@@ -601,6 +609,7 @@ export function getMusicCacheLimitMB(): number {
   const v = Number(cfg("Playing.MusicCacheLimitMB", "2048"));
 
   if (!Number.isInteger(v) || v < 0) return 2048;
+
   return Math.min(v, MUSIC_CACHE_MAX_MB);
 }
 
@@ -700,13 +709,13 @@ export type NpLyricLayout = "default" | "full" | "hide-played" | "full-hide-play
 export const NP_LYRIC_LAYOUTS: NpLyricLayout[] = ["default", "full", "hide-played", "full-hide-played"];
 
 export function getNpLyricLayout(): NpLyricLayout {
-  const raw = cfg("Style.LyricLayout", "default").trim().toLowerCase() as NpLyricLayout;
+  const raw = cfg("Style.LyricLayout", "default").trim().toLowerCase();
 
-  return NP_LYRIC_LAYOUTS.includes(raw) ? raw : "default";
+  return NP_LYRIC_LAYOUTS.find((layout) => layout === raw) ?? "default";
 }
 
 export function setNpLyricLayout(v: NpLyricLayout) {
-  cfgSet({ "Style.LyricLayout": NP_LYRIC_LAYOUTS.includes(v) ? v : "default" });
+  cfgSet({ "Style.LyricLayout": v });
 }
 
 /** 全高档：歌词/逐字歌词容器铺满安全高度。 */
@@ -744,11 +753,11 @@ export function setLyricTint(v: boolean) {
 
 export type ChineseConvert = "off" | "simplified" | "traditional";
 
-const CONF_CHINESE: Record<string, ChineseConvert> = { off: "off", simplified: "simplified", traditional: "traditional" };
+const CONF_CHINESE = { off: "off", simplified: "simplified", traditional: "traditional" } as const satisfies Record<string, ChineseConvert>;
 
 export function getChineseConvert(): ChineseConvert {
   // 未知/瞎写回落 off：转换是锦上添花，坏值宁可显示原文也别拿一套没验证的词典去改歌词
-  return CONF_CHINESE[cfg("Lyrics.ChineseConvert", "off").trim().toLowerCase()] ?? "off";
+  return lookup(CONF_CHINESE, cfg("Lyrics.ChineseConvert", "off").trim().toLowerCase(), "off");
 }
 
 export function setChineseConvert(v: ChineseConvert) {
@@ -906,9 +915,9 @@ export type DlColorMode = "default" | "cover" | "system" | "custom";
 const DL_COLOR_MODES: DlColorMode[] = ["default", "cover", "system", "custom"];
 
 export function getDesktopLyricsColorMode(): DlColorMode {
-  const raw = cfg("DesktopLyrics.ColorMode", "default").trim() as DlColorMode;
+  const raw = cfg("DesktopLyrics.ColorMode", "default").trim();
 
-  return DL_COLOR_MODES.includes(raw) ? raw : "default";
+  return DL_COLOR_MODES.find((mode) => mode === raw) ?? "default";
 }
 
 export function setDesktopLyricsColorMode(v: DlColorMode) {
@@ -977,7 +986,7 @@ export function setDesktopLyricsFontList(css: string) {
 
 export function setDesktopLyricsFontPreset(key: string) {
   if (key === FONT_CUSTOM) return;
-  setDesktopLyricsFontList(FONT_PRESETS[key]?.css ?? "");
+  setDesktopLyricsFontList(presetCss(key) ?? "");
 }
 
 export const DL_BORDER_MIN = 0;
@@ -1083,14 +1092,14 @@ export function getCloseAction(): CloseAction {
 
 export function setCloseAction(v: CloseAction) {
   cfgSet({ "Window.CloseAction": v });
-  const bridge = (window as any).quaverCSD;
+  const bridge = window.quaverCSD;
 
   if (bridge?.setCloseAction) bridge.setCloseAction(v);
 }
 
 // 启动时把已存偏好推给主进程（Electron 壳层）；浏览器 dev 下为 no-op
 export function syncCloseAction() {
-  const bridge = (window as any).quaverCSD;
+  const bridge = window.quaverCSD;
 
   if (bridge?.setCloseAction) bridge.setCloseAction(getCloseAction());
 }
@@ -1169,17 +1178,22 @@ export function setHotkey(scope: HotkeyScope, action: HotkeyAction, accel: strin
   cfgSet({ [hotkeyConfKey(scope, action)]: accel });
 }
 
+const KEY_NAMES = {
+  " ": "Space", ArrowLeft: "Left", ArrowRight: "Right", ArrowUp: "Up", ArrowDown: "Down",
+  "-": "Minus", "=": "Equal", ",": "Comma", ".": "Period",
+} as const;
+
+/** 特殊键的 accelerator 名；普通键返回空串（交给后面的字符/功能键判定）。 */
+function keyName(raw: string): string {
+  return Object.entries(KEY_NAMES).find(([key]) => key === raw)?.[1] ?? "";
+}
+
 /** KeyboardEvent → 规范化 accelerator；不可录制的组合返回 null（纯键名 / 无修饰键 / 未知键）。 */
 export function acceleratorFromEvent(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "altKey" | "shiftKey" | "metaKey">): string | null {
-  const KEY_NAMES: Record<string, string> = {
-    " ": "Space", ArrowLeft: "Left", ArrowRight: "Right", ArrowUp: "Up", ArrowDown: "Down",
-    "-": "Minus", "=": "Equal", ",": "Comma", ".": "Period",
-  };
-
   const raw = e.key;
 
   if (!raw) return null;
-  let key = KEY_NAMES[raw] ?? "";
+  let key = keyName(raw);
 
   if (/^[a-zA-Z]$/.test(raw)) key = raw.toUpperCase();
   else if (/^[0-9]$/.test(raw)) key = raw;

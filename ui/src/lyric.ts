@@ -183,13 +183,13 @@ export const fmtDur = (sec: number) => {
 // —— 导入歌词的宿主兜底转换（用户手动导入 QRC/TTML 而内置引擎解不动时）——
 // 内置 AMLL 在场就走它的 parse（词级时间轴全保留）；这里只保证「行级也一定有词」：
 // 把 TTML <p begin=…> 或 QRC [st,dur]<w …> 拍平成 LRC 文本，再喂给 parseLrc。
-const ENT: Record<string, string> = { lt: "<", gt: ">", quot: '"', apos: "'", amp: "&", nbsp: " " };
+const ENT = { lt: "<", gt: ">", quot: '"', apos: "'", amp: "&", nbsp: " " } satisfies Record<string, string>;
 
 function decodeEnt(s: string): string {
   return s
     .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
     .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
-    .replace(/&(\w+);/g, (m, k) => ENT[k] ?? m);
+    .replace(/&(\w+);/g, (m, k) => Object.entries(ENT).find(([name]) => name === k)?.[1] ?? m);
 }
 
 /** 上游 QRC XML 信封里的歌词属性。

@@ -8,11 +8,13 @@
 // 崩溃后引擎标记 dead 并复位，下一次命令自动重拉（重试语义交给播放器的错误态，不无限自愈）。
 import { app, type BrowserWindow } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
+import type { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { probeRuntime, resolveMpv } from "./bins.ts";
 import { formatOsVersion, machOMinOs, osVersionGt, parseOsVersion } from "./macho.ts";
 import { MpvIpc, PCM_REBIND_TIMEOUT_MS, type MpvEvent, type MpvObject, type MpvValue } from "./mpv-ipc.ts";
+import { jsonNumber, type JsonValue } from "../../src/lib/json-value.ts";
 import { PcmPipe } from "./pcm-pipe.ts";
 import { eqFilterString, normalizeEqState, type EqState } from "./eq-config.ts";
 import { loadfileArgs, mpvLoadfileWantsIndex } from "./mpv-loadfile.ts";
@@ -68,10 +70,25 @@ export interface EngineState {
 /** 引擎日志口（main.ts 的 log 同此形态：字符串与其它值混着传）。 */
 export type EngineLog = (...a: unknown[]) => void;
 
-/** 渲染层经 contextBridge 传来的命令：结构化克隆后的任意 JSON，字段在各个 case 里就地窄化。
+/** 渲染层经 contextBridge 传来的命令：结构化克隆后的 JSON，字段在各个 case 里就地解析。
  *  刻意不建全量判别联合 —— 命令集随功能长，收益撑不起维护成本；这里是 IPC 边界，非法字段
  *  由各 case 的取值/默认值兜住。 */
-type EngineCmd = Record<string, any>;
+type EngineCmd = { [key: string]: JsonValue };
+
+/** 引擎 → 渲染层的广播事件（`quaver:audio-event`）。 */
+interface EngineEvent {
+  t: string;
+  pos?: number;
+  dur?: number;
+  paused?: boolean;
+  buffering?: boolean;
+  idle?: boolean;
+  epoch?: number;
+  message?: string;
+  value?: number;
+  state?: EqState;
+  data?: Uint8Array;
+}
 
 /** 淡出收尾时要执行的动作；null = 无。 */
 type AfterFade = (() => void) | null;
@@ -213,7 +230,7 @@ export class AudioEngine {
     this.wired = true;
   }
 
-  send(ev: unknown): void {
+  send(ev: EngineEvent): void {
     const wc = this.getWin()?.webContents;
 
     if (wc && !wc.isDestroyed()) { try { wc.send("quaver:audio-event", ev); } catch (e) { this.log("[audio] send failed:", String(e)); } }
@@ -299,7 +316,7 @@ export class AudioEngine {
       } catch (e) {
         // idle 下 stop 的非致命错误可以继续；超时/进程死说明核心卡住，
         // 立刻走整进程重启，不再把后续 setProperty 排在死命令后面。
-        if (mpv.dead || String((e as Error)?.message).includes("timeout")) throw e;
+        if (mpv.dead || (e instanceof Error && e.message.includes("timeout"))) throw e;
       }
 
       // stop 成功后再关旧读端：AO 线程即使还没完全退出，写端也会立刻拿到
@@ -619,8 +636,11 @@ export class AudioEngine {
 
       wd.unref();          // 不挡主进程退出
       // 管道写端同理（unref 只摘事件循环引用，fd 仍握着不断开）；@types/node 的 Writable
-      // 没声明 unref（运行期管道其实是 Socket），类型上补个可选口子
-      (wd.stdin as { unref?: () => void } | null)?.unref?.();
+      // 没声明 unref（运行期管道其实是 Socket），按可选方法调用。
+      // SAFETY: spawn 的 stdio "pipe" 在运行期是 Socket（有 unref），只是 Writable 类型没声明。
+      const stdin = wd.stdin as Writable & { unref?: () => void };
+
+      stdin.unref?.();
       this.watchdog = wd;
       this.log("[audio] watchdog armed, mpv pid", pid);
     } catch (e) {
@@ -715,8 +735,10 @@ export class AudioEngine {
       try {
         const v = await mpv.getProp(prop);
 
-        // get_property 的应答是任意 JSON；出口处已按 typeof 逐项校验，这里只管透传
-        return v === null || v === undefined ? dflt : (v as number | boolean);
+        // get_property 的应答是任意 JSON；只接受标量，其余（null/数组/对象）一律回落默认值。
+        if (v === null || v === undefined || Array.isArray(v) || Object.prototype.toString.call(v) === "[object Object]") return dflt;
+
+        return Object.prototype.toString.call(v) === "[object Boolean]" ? v === true : Number(v);
       } catch { return dflt; }
     };
 
@@ -728,8 +750,8 @@ export class AudioEngine {
     return {
       paused: !!pause,
       idle: !!idle,
-      dur: typeof dur === "number" && isFinite(dur) ? dur : 0,
-      pos: typeof pos === "number" && isFinite(pos) ? pos : 0,
+      dur: isFinite(Number(dur)) ? Number(dur) : 0,
+      pos: isFinite(Number(pos)) ? Number(pos) : 0,
       // volume 不回读：mpv 那边是「目标 × 淡入淡出包络」，回读会把包络当成用户音量
       volume: this.st.volume,
       muted: !!mute,
@@ -738,8 +760,9 @@ export class AudioEngine {
   }
 
   private entryIdOf(value: MpvValue): number {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
-    const n = Number(value.playlist_entry_id);
+    if (value === null || value === undefined || Object.prototype.toString.call(value) !== "[object Object]") return 0;
+    // SAFETY: 上一步已按 toString 标签确认是普通对象；MpvObject 的值域就是 JSON 标量/嵌套。
+    const n = Number((value as MpvObject).playlist_entry_id);
 
     return Number.isFinite(n) ? n : 0;
   }
@@ -853,7 +876,7 @@ export class AudioEngine {
         case 1: // time-pos（idle 时为 null）
           // pcm 模式的时间轴以 renderer 实际消费的样本为准；mpv 的 time-pos 会被
           // `ao_pcm` 的无时钟解码/管道预写带偏，只留给快照兜底，不用于 UI。
-          if (this.mode !== "pcm") this.st.pos = typeof d === "number" && isFinite(d) ? d : 0;
+          if (this.mode !== "pcm") this.st.pos = isFinite(Number(d)) ? Number(d) : 0;
           this.maybeResumeMpv(source);
           this.pushState();
           break;
@@ -861,7 +884,7 @@ export class AudioEngine {
           // mpv 回 idle 时会先把 duration 报成 0；PCM 尾巴还在 renderer 里播，
           // 这时保留当前曲时长，别让进度条在最后一秒失去总长。
           if (!(this.mode === "pcm" && (this.pcmEnding || this.pcmReloading) && Number(d) === 0)) {
-            this.st.dur = typeof d === "number" && isFinite(d) ? d : 0;
+            this.st.dur = isFinite(Number(d)) ? Number(d) : 0;
           }
 
           this.pushState(true);
@@ -879,6 +902,7 @@ export class AudioEngine {
             this.pushState(true);
             break;
           }
+
         case 4:
           // pcm 模式的真实缓冲在 renderer AudioBuffer 队列里；mpv 的
           // paused-for-cache 会被 ao_pcm 背压误触发，不能拿它卡住 loading。
@@ -907,11 +931,13 @@ export class AudioEngine {
               // ending：尾音还在 renderer 队列；reloading：切歌/seek 的 stop→重绑间隙。
               // 两种都不能让 idle 事件清掉播放态。
               this.st.idle = false;
+
               if (this.pcmEnding) this.st.buffering = false;
             }
 
             this.pushState(true);
           }
+
           break;
       }
 
@@ -965,6 +991,7 @@ export class AudioEngine {
         break;
       case "end-file": {
         const endEntryForGate = Number(ev.playlist_entry_id ?? 0) || 0;
+
         // 正常事件必须先见 start-file；但 loadfile 直接失败时 mpv 可能只回
         // end-file(error)，没有 start-file。entry id 与本次回执一致时放行这条错误，
         // 别让用户干等 12s 的载入看门狗。
@@ -1014,6 +1041,7 @@ export class AudioEngine {
 
         break;
       }
+
       case "__exit__":
         this.log("[audio] mpv exited:", ev.code);
         this.cancelLoadWatchdog();
@@ -1493,7 +1521,7 @@ export class AudioEngine {
       }
 
       case "fade": {
-        const clamp = (n: unknown): number => Math.max(0, Math.min(3000, Math.round(Number(n) || 0)));
+        const clamp = (n: JsonValue | undefined): number => Math.max(0, Math.min(3000, Math.round(jsonNumber(n))));
         this.fade = { inMs: clamp(cmd.inMs), outMs: clamp(cmd.outMs) };
 
         // 关掉淡入淡出时别把音量卡在半路上（只在淡入方向兜底；淡出途中说明有 pending 动作，别打断）
@@ -1516,7 +1544,7 @@ export class AudioEngine {
           try {
             await this.applyEqualizer(this.mpv);
           } catch (e) {
-            return { ok: false, error: String((e as Error)?.message ?? e), state: this.eq };
+            return { ok: false, error: e instanceof Error ? e.message : String(e), state: this.eq };
           }
         }
 
@@ -1532,7 +1560,7 @@ export class AudioEngine {
           current: String(current ?? "auto"),
           devices: (Array.isArray(list) ? list : []).map((d) => {
             // SAFETY: mpv 的 audio-device-list 每项都是 {name, description} 对象；非对象条目兜底成空
-            const o = (d && typeof d === "object" ? d : {}) as MpvObject;
+            const o: MpvObject = d !== null && Object.prototype.toString.call(d) === "[object Object]" ? (d as MpvObject) : {};
 
             return { id: String(o.name), desc: String(o.description ?? o.name) };
           }),

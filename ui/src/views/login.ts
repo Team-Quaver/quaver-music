@@ -4,6 +4,11 @@ import type { LoginChannel, QrResp, QrStatusResp } from "./_shared";
 import { errText } from "./_shared";
 import type { QQQuickResp } from "./_shared";
 
+const LOGIN_CHANNELS: readonly LoginChannel[] = ["mobile", "qq", "wx"];
+
+const loginChannelOf = (value: string | undefined): LoginChannel =>
+  LOGIN_CHANNELS.find((channel) => channel === value) ?? "mobile";
+
 // —— 登录页：本机 QQ 快速登录优先，二维码作兜底 ——
 export default async function loginView(root: HTMLElement) {
   root.classList.add("login-host");
@@ -46,7 +51,7 @@ export default async function loginView(root: HTMLElement) {
   const lstate = qrPanel.querySelector<HTMLElement>("#lstate")!;
   const qrFallback = qrPanel.querySelector<HTMLButtonElement>("#qr-fallback")!;
   const tabs = [...qrPanel.querySelectorAll<HTMLButtonElement>("#channel .tag")];
-  let channel = (tabs[0]?.dataset.ch ?? "mobile") as LoginChannel;
+  let channel = loginChannelOf(tabs[0]?.dataset.ch);
   let timer: number | undefined;
   let quickTimer: number | undefined;
   let stopped = false;
@@ -56,8 +61,10 @@ export default async function loginView(root: HTMLElement) {
 
   async function detect() {
     const current = ++generation;
+
     try {
       const d = await api<QQQuickResp>("/login/qq-quick");
+
       if (stopped || current !== generation) return;
 
       if (!d.available) throw new Error("unavailable");
@@ -90,8 +97,10 @@ export default async function loginView(root: HTMLElement) {
         if (stopped) return;
         button.disabled = true;
         error.textContent = "正在登录…";
+
         try {
-          await postJson("/login/qq-quick", { uin: d.uin });
+          await postJson("/login/qq-quick", { uin: d.uin ?? 0 });
+
           if (stopped) return;
           error.textContent = "✅ 登录成功，正在返回…";
           setTimeout(() => { if (!stopped) location.href = "/index.html"; }, 800);
@@ -101,6 +110,7 @@ export default async function loginView(root: HTMLElement) {
           error.textContent = `登录失败：${errText(e)}，可改用二维码登录`;
         }
       };
+
       if (!stopped && !showingQR) fallback.hidden = false;
     } catch {
       if (stopped) return;
@@ -196,7 +206,7 @@ export default async function loginView(root: HTMLElement) {
   // 换标签 = 换通道：立刻重开一张二维码（旧轮询在 start 里 clearInterval 掉，不会串台）
   for (const b of tabs) {
     b.addEventListener("click", () => {
-      const ch = b.dataset.ch as LoginChannel;
+      const ch = loginChannelOf(b.dataset.ch);
 
       if (ch === channel) return; // 重复点当前档不重开
       channel = ch;

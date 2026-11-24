@@ -20,18 +20,28 @@ import { hotkeyRecorder } from "../lib/hotkeys";
 const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
 const isLinux = /Linux/.test(navigator.userAgent);
 
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] ?? c));
 
 const emptyText = () => "未设置";
 
 type HotkeyInfo = { state?: string; reason?: string; wayland?: boolean } | null;
 
+/** 按钮上的 data-scope / data-action 是模板里写死的字符串：按清单解析成领域取值。 */
+function scopeOf(el: HTMLElement): HotkeyScope | null {
+  return el.dataset.scope === "Global" ? "Global" : el.dataset.scope === "Focus" ? "Focus" : null;
+}
+
+function actionOf(el: HTMLElement): HotkeyAction | null {
+  const raw = el.dataset.action ?? "";
+  const hit = [...GLOBAL_HOTKEY_ACTIONS, ...FOCUS_HOTKEY_ACTIONS].find((action) => action === raw);
+
+  return hit ?? null;
+}
+
 export function mountHotkeysPanel(host: HTMLElement): () => void {
   const conf = configInfo();
 
-  const hotkeyInfo = conf.bridged
-    ? ((window as any).quaverHotkeys?.infoSync?.() as HotkeyInfo)
-    : null;
+  const hotkeyInfo: HotkeyInfo = conf.bridged ? (window.quaverHotkeys?.infoSync?.() ?? null) : null;
 
   const wayland = hotkeyInfo?.wayland === true;
 
@@ -82,8 +92,8 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
   // 既保留排障信息，也不把已被桌面接管的键位重新包装成应用内设置。
   const portalLine = host.querySelector<HTMLElement>('[data-hint]')!; // 全局提示（或门户说明）的第一条 hint
 
-  if (conf.bridged && !isMac && (window as any).quaverHotkeys?.info) {
-    void Promise.resolve((window as any).quaverHotkeys.info()).then((info: HotkeyInfo) => {
+  if (conf.bridged && !isMac && window.quaverHotkeys?.info) {
+    void Promise.resolve(window.quaverHotkeys.info()).then((info) => {
       if (!info?.state || ["idle", "ready"].includes(info.state)) return;
       const base = wayland ? waylandHint : globalHint;
       portalLine.textContent = base + `（当前门户状态：${info.state}${info.reason ? " — " + info.reason : ""}）`;
@@ -96,7 +106,11 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
 
   const paint = () => {
     host.querySelectorAll<HTMLButtonElement>(".hk-btn").forEach((btn) => {
-      const accel = getHotkey(btn.dataset.scope as HotkeyScope, btn.dataset.action as HotkeyAction);
+      const scope = scopeOf(btn);
+      const action = actionOf(btn);
+
+      if (scope === null || action === null) return;
+      const accel = getHotkey(scope, action);
 
       if (btn === recording) { btn.textContent = recordLabel; btn.classList.add("capturing"); btn.classList.toggle("empty", !accel); }
       else {
@@ -114,7 +128,7 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
 
   const baseHints = new Map<HotkeyScope, string>();
 
-  for (const scope of ["Global", "Focus"] as HotkeyScope[]) {
+  for (const scope of ["Global", "Focus"] as const) {
     const el = groupHint(scope);
 
     if (el) baseHints.set(scope, el.textContent ?? "");
@@ -157,8 +171,10 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
     e.stopPropagation();
 
     if (e.repeat) return;
-    const scope = recording.dataset.scope as HotkeyScope;
-    const action = recording.dataset.action as HotkeyAction;
+    const scope = scopeOf(recording);
+    const action = actionOf(recording);
+
+    if (scope === null || action === null) { stopRecording(); return; }
 
     if (e.key === "Escape") { stopRecording(); return; }
 
@@ -179,7 +195,8 @@ export function mountHotkeysPanel(host: HTMLElement): () => void {
   };
 
   host.addEventListener("click", (e) => {
-    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".hk-btn");
+    const target = e.target instanceof Element ? e.target : null;
+    const btn = target?.closest<HTMLButtonElement>(".hk-btn") ?? null;
 
     if (!btn) return;
 

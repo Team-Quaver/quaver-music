@@ -14,13 +14,13 @@ export interface FavPlaylist {
   id: number | string;
   title?: string;
   picurl?: string;
+  bigpic_url?: string;
   songnum?: number;
   /** 歌单创建者（收藏别人的歌单时展示来源） */
   nickname?: string;
   uin?: number;
   dirid?: number;
   order_time?: number;
-  [k: string]: any;
 }
 
 const PAGE_SIZE = 100;

@@ -6,7 +6,7 @@
 //      浮窗锚在音量钮正上方（跟着钮走，不跟着 Bar 右缘走）；滚轮在整条上 = 微调音量
 import { player, type Mode } from "../player";
 import { getPrevBehavior, setDesktopLyrics } from "../lib/prefs";
-import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQuality, QUALITY_SHORT, QUALITIES, songMissingTiers, songTitle, type Quality } from "../lib/api";
+import { coverUrl, getLastStream, getStreamTiers, getSessionQuality, effectiveQuality, qualityShortOf, QUALITY_IDS, QUALITY_SHORT, songMissingTiers, songTitle, type Quality } from "../lib/api";
 // getLastStream 仍由 paintQ 使用（胶囊显示实际已应用档位）
 import { fmtDur } from "../lyric";
 import { icons } from "../lib/icons";
@@ -264,13 +264,15 @@ export function PlayerBar(): HTMLElement {
   }
 
   document.addEventListener("pointerdown", (e) => {
-    const t = e.target as HTMLElement;
+    const t = e.target instanceof Element ? e.target : null;
 
-    if (!el.contains(t) || !t.closest("#pb-mute, #pb-volpop")) el.classList.remove("vol-open");
+    const outside = !t || !el.contains(t);
 
-    if (!el.contains(t) || !t.closest("#pb-quality, #pb-qpop")) el.classList.remove("q-open");
+    if (outside || !t.closest("#pb-mute, #pb-volpop")) el.classList.remove("vol-open");
 
-    if (!el.contains(t) || !t.closest("#pb-loop, #pb-lpop")) closeLPop();
+    if (outside || !t.closest("#pb-quality, #pb-qpop")) el.classList.remove("q-open");
+
+    if (outside || !t.closest("#pb-loop, #pb-lpop")) closeLPop();
   });
 
   // —— 音质切换（音频控制区右侧、收藏红心之前）——
@@ -294,6 +296,7 @@ export function PlayerBar(): HTMLElement {
 
     // 有已应用的流 → 实际档位（↓=被回退降档）；否则显示当前生效选择（未选=设置页默认）
     const fallback = player.playbackFallback;
+
     const label = fallback?.local
       ? "本地"
       : fallback?.directUrl
@@ -301,8 +304,8 @@ export function PlayerBar(): HTMLElement {
       : player.current?.directUrl
       ? "微云"
       : player.current && ls
-      ? (ls.degraded ? "↓" : "") + (QUALITY_SHORT[ls.tier] ?? ls.label)
-      : (QUALITY_SHORT[want ?? effectiveQuality()] ?? "音质");
+      ? (ls.degraded ? "↓" : "") + (qualityShortOf(ls.tier) || ls.label)
+      : (qualityShortOf(want ?? effectiveQuality()) || "音质");
 
     const sig = label + "|" + (want ?? "");
 
@@ -321,17 +324,22 @@ export function PlayerBar(): HTMLElement {
   const syncSel = () => qPop.querySelectorAll<HTMLElement>(".qp-q")
     .forEach((x) => x.classList.toggle("sel", x.dataset.q === cur()));
 
+  /** 档位 id → Quality；认不出（后端新增档位）时按 auto 处理。 */
+  const tierQuality = (id: string): Quality | "auto" => QUALITY_IDS.find((quality) => quality === id) ?? "auto";
+
   function buildQPop() {
     qPop.innerHTML = "";
 
     // 本地/NAS/微云直链：文件本身就是那一档，没有在线档位阶梯可换
-    if (player.current && ((player.current as { local?: unknown }).local || player.current.directUrl || player.playbackFallback)) {
+    if (player.current && (player.current.local || player.current.directUrl || player.playbackFallback)) {
       const ls = getLastStream();
+
       const source = player.playbackFallback?.local
         ? "本地库同曲文件"
         : player.playbackFallback?.directUrl
         ? "微云同曲原文件"
         : ls?.label ?? "本地文件";
+
       qPop.innerHTML = `<div class="qp-note">${source}：无在线档位可切（音质即文件本身）</div>`;
 
       return;
@@ -344,7 +352,7 @@ export function PlayerBar(): HTMLElement {
       b.dataset.q = id;
       b.innerHTML = `<span>${label}</span>${note ? `<i class="muted">${note}</i>` : ""}`;
       b.onclick = () => {
-        player.switchQuality(id as Quality | "auto");
+        player.switchQuality(QUALITY_IDS.find((quality) => quality === id) ?? "auto");
         el.classList.remove("q-open");
       };
 
@@ -356,7 +364,11 @@ export function PlayerBar(): HTMLElement {
     // 会员锁定的档不算「无源」：照常展示并标 🔒（选择后走自动回退）。
     const missing = songMissingTiers(player.current);
 
-    for (const t of missing ? tierList.filter((x) => !missing.has(x.id as Quality)) : tierList)
+    for (const t of missing ? tierList.filter((x) => {
+      const tier = tierQuality(x.id);
+
+      return tier === "auto" || !missing.has(tier);
+    }) : tierList)
       item(t.id, t.label, t.locked ? "🔒 自动回退" : "");
 
     if (el.classList.contains("q-open")) syncSel();
@@ -370,7 +382,7 @@ export function PlayerBar(): HTMLElement {
       // ?? [] 兜底：sidecar 残了回 {code:0,data:{}} 时不让 for..of undefined 炸穿渲染层
       tierList = t.all_tiers ?? [];
     } catch {
-      tierList = Object.entries(QUALITIES).map(([id, label]) => ({ id, label }));
+      tierList = QUALITY_IDS.map((id) => ({ id, label: QUALITY_SHORT[id] ?? id }));
     }
 
     qReady = true;
@@ -391,7 +403,9 @@ export function PlayerBar(): HTMLElement {
   // 浮窗上把滚轮还给菜单自身的 overflow-y 滚动（这里 preventDefault 会杀掉原生滚动）；
   // 胶囊/按钮上无内容可滚也不该动音量，吞掉即可（.frame overflow:hidden，吞掉不会漏滚页面）。
   el.addEventListener("wheel", (e) => {
-    const t = e.target as HTMLElement;
+    const t = e.target instanceof Element ? e.target : null;
+
+    if (!t) return;
 
     if (t.closest("#pb-qpop, #pb-lpop")) return;
     e.preventDefault();
@@ -416,9 +430,9 @@ export function PlayerBar(): HTMLElement {
   };
 
   el.addEventListener("pointerdown", (e) => {
-    const t = e.target as HTMLElement;
+    const t = e.target instanceof Element ? e.target : null;
 
-    if (t.closest("button, input, .pb-volpop, .pb-qpop, .pb-lpop")) return; // 控件区不吞点击
+    if (t?.closest("button, input, .pb-volpop, .pb-qpop, .pb-lpop")) return; // 控件区不吞点击
 
     if (!player.duration) return;
     dragging = true;

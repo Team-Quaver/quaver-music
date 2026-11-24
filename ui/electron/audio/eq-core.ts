@@ -10,6 +10,14 @@ export * from "./eq-config.ts";
 
 const EQ_SAMPLE_RATE = 48000;
 
+/** APO Filter 行里可能出现的参数（只列解析器会消费的四种）。 */
+interface FilterAttrs {
+  freq?: number;
+  gain?: number;
+  q?: number;
+  bw?: number;
+}
+
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const finite = (v: number, dflt = 0) => Number.isFinite(v) ? v : dflt;
 
@@ -241,7 +249,7 @@ export function parseApoPreset(text: string, mode: EqImportMode = "auto"): EqImp
 
     if (!enabled) continue;
     const body = fm[3];
-    const attrs: { freq?: number; gain?: number; q?: number; bw?: number } = {};
+    const attrs: FilterAttrs = {};
 
     for (const am of body.matchAll(/\b(Fc|Frequency|Gain|Q|BW)\s*[:=]?\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))/gi)) {
       const key = am[1].toLowerCase();

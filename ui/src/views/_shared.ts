@@ -15,10 +15,8 @@ export const h = (tag: string, cls: string, html = "") => {
   return el;
 };
 
-/** catch (e: unknown) 统一取文案：ApiError/Error 取 message，其余原样转串 */
-
-export /** catch (e: unknown) 统一取文案：ApiError/Error 取 message，其余原样转串 */
-const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** catch 统一取文案：Error 取 message，其余原样转串（catch 变量的类型由各工程决定）。 */
+export const errText = <T>(e: T) => (e instanceof Error ? e.message : String(e));
 
 /** 模块级订阅槽：同一时刻只保留最新的一个 player 订阅（见 settingsView 的用法） */
 
@@ -169,7 +167,10 @@ function mountHead(root: HTMLElement, opts: {
     // 截断检测在下一帧做（-webkit-line-clamp 生效后 scrollHeight 才可比）
     requestAnimationFrame(() => {
       if (desc.scrollHeight - desc.clientHeight <= 2) return; // 两行内放得下：不需要按钮
-      const btn = h("button", "pl-expand", "展开") as HTMLButtonElement;
+      const btn = document.createElement("button");
+
+      btn.className = "pl-expand";
+      btn.textContent = "展开";
       btn.type = "button";
       btn.onclick = () => {
         const open = desc.classList.toggle("open");
@@ -213,13 +214,11 @@ function mountStickyBar(root: HTMLElement, opts: { artHtml?: string; round?: boo
 /** 吸顶条最右侧的「播放全部」：整队列替换、从第一首开播。
  *  getVisible() 返回**此刻实际可见**的列表（搜索筛后 / 排序后 / 当前 Tag 面板），
  *  所以按钮天然尊重排序与分类；空列表置灰，调用方在重画后调 sync() 刷新可用态。 */
+export function playAllButton(getVisible: () => Song[]) {
+  const btn = document.createElement("button");
 
-export /** 吸顶条最右侧的「播放全部」：整队列替换、从第一首开播。
- *  getVisible() 返回**此刻实际可见**的列表（搜索筛后 / 排序后 / 当前 Tag 面板），
- *  所以按钮天然尊重排序与分类；空列表置灰，调用方在重画后调 sync() 刷新可用态。 */
-function playAllButton(getVisible: () => Song[]) {
-  const btn = h("button", "ghost-btn sticky-playall",
-    `<span class="sp-ico" aria-hidden="true">${icons.play}</span>播放全部`) as HTMLButtonElement;
+  btn.className = "ghost-btn sticky-playall";
+  btn.innerHTML = `<span class="sp-ico" aria-hidden="true">${icons.play}</span>播放全部`;
 
   btn.type = "button";
   const sync = () => { btn.disabled = !getVisible().length; };
@@ -257,6 +256,7 @@ export function mountListFabs(
         <path d="M12 19.2V6.4M6.2 11.8 12 6l5.8 5.8"/>
       </svg>
     </button>`);
+
   const locate = fabs.querySelector<HTMLButtonElement>(".list-fab--locate")!;
   const top = fabs.querySelector<HTMLButtonElement>(".list-fab--top")!;
 
@@ -280,11 +280,13 @@ export function mountListFabs(
   const syncLocate = () => {
     setHidden(locate, !playingRow());
   };
+
   const syncTop = () => { setHidden(top, getScroller().scrollTop <= 8); };
   const sync = () => { syncLocate(); syncTop(); };
 
   locate.addEventListener("click", () => {
     const matches = getRows().filter((item) => !item.hidden && item.dataset.songkey === String(player.current?.mid ?? ""));
+
     const row = matches.find((item) => item.classList.contains("playing"))
       ?? matches[0]
       ?? playingRow();
@@ -312,6 +314,7 @@ export function mountListFabs(
     syncLocate();
     syncTop();
   });
+
   const onScroll = () => syncTop();
 
   const scrollTargets = [...new Set(getScrollTargets())];
@@ -325,6 +328,7 @@ export function mountListFabs(
     off() {
       mutations.disconnect();
       offPlayer();
+
       for (const target of scrollTargets) target.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
       fabs.remove();
@@ -415,9 +419,9 @@ function trackStuck(el: HTMLElement, scroller: HTMLElement) {
 // —— 首页：大标题 + 推荐歌单卡片网格（官方推荐 CGI，无需登录态） ——
 // 上游歌单简介夹带 <br> 等展示标记；首页精选只取纯文本，避免把接口 HTML 带进页面。
 
-export // —— 首页：大标题 + 推荐歌单卡片网格（官方推荐 CGI，无需登录态） ——
+// —— 首页：大标题 + 推荐歌单卡片网格（官方推荐 CGI，无需登录态） ——
 // 上游歌单简介夹带 <br> 等展示标记；首页精选只取纯文本，避免把接口 HTML 带进页面。
-const plainText = (s: unknown) => String(s ?? "")
+export const plainText = (s: string | number | null | undefined) => String(s ?? "")
   .replace(/<br\s*\/?>/gi, " ")
   .replace(/<[^>]*>/g, " ")
   .replace(/&nbsp;/gi, " ")
@@ -429,7 +433,7 @@ const plainText = (s: unknown) => String(s ?? "")
   .trim();
 
 
-export const compactCount = (value: unknown) => {
+export const compactCount = (value: string | number | null | undefined) => {
   const n = Number(value ?? 0);
 
   if (!Number.isFinite(n) || n <= 0) return "";
@@ -484,11 +488,11 @@ function navCard(
       ${play ? `<button type="button" class="card-play" aria-label="播放" data-tooltip="播放">${PLAY_SVG}</button>` : ""}</div>
     <div class="name">${escHtml(title)}</div><div class="sub">${escHtml(sub)}</div>`;
   el.addEventListener("click", (e) => {
-    if ((e.target as HTMLElement).closest(".card-play")) return;
+    if (e.target instanceof Element && e.target.closest(".card-play")) return;
     location.hash = href;
   });
   el.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.target as HTMLElement) === el) { e.preventDefault(); location.hash = href; }
+    if (e.key === "Enter" && e.target === el) { e.preventDefault(); location.hash = href; }
   });
   const pb = el.querySelector(".card-play");
 
@@ -502,8 +506,8 @@ export const PLAY_SVG = `<svg viewBox="0 0 24 24" width="18" height="18" fill="c
 
 // 区块错误/空态：标题 + 说明 + 可选重试
 
-export // 区块错误/空态：标题 + 说明 + 可选重试
-function homeStatus(box: HTMLElement, title: string, note: string, retry?: () => void) {
+// 区块错误/空态：标题 + 说明 + 可选重试
+export function homeStatus(box: HTMLElement, title: string, note: string, retry?: () => void) {
   box.innerHTML = "";
 
   const status = h("div", "home-status", `
@@ -511,7 +515,10 @@ function homeStatus(box: HTMLElement, title: string, note: string, retry?: () =>
     <p class="muted">${escHtml(note)}</p>`);
 
   if (retry) {
-    const btn = h("button", "ghost-btn", "重试") as HTMLButtonElement;
+    const btn = document.createElement("button");
+
+    btn.className = "ghost-btn";
+    btn.textContent = "重试";
     btn.type = "button";
     btn.onclick = retry;
     status.append(btn);
@@ -566,7 +573,7 @@ async function favSonglistButton(meta: {
       console.warn("收藏歌单失败", e);
       btn.dataset.fail = "1";
       btn.classList.add("failed");
-      btn.dataset.tooltip = errText(e);
+      btn.dataset.tooltip = e instanceof Error ? e.message : String(e);
       btn.removeAttribute("title");
       btn.innerHTML = `<span class="fb-ic">!</span><span>收藏失败</span>`;
       window.setTimeout(() => {
@@ -622,7 +629,7 @@ async function fetchSingerAlbums(mid: string, pageSize = 30): Promise<SingerAlbu
       const batch = d.album_list ?? [];
       albums.push(...batch);
 
-      if (typeof d.total === "number") total = d.total;
+      if (Object.prototype.toString.call(d.total) === "[object Number]") total = Number(d.total);
 
       // total 缺失或为 0 时继续请求，直到接口返回空页，避免漏掉后续专辑。
       if (!batch.length || (total > 0 && albums.length >= total)) break;
@@ -662,7 +669,7 @@ const ME_OUT_MS = 180; // 与 .me.leaving 的动画时长对齐
 
 
 export const reduceMotion = () =>
-  typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  window.matchMedia instanceof Function && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** 我的页离场：加 .leaving 等动画结束。动画只是观感，**绝不能挡住跳转** —— 
  *  用户关了动效（动画被媒体查询去掉、animationend 永不触发）或事件丢失时按超时兜底。 */

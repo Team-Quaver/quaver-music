@@ -11,6 +11,7 @@
 // 让整个 Linux 系统集成静默消失。Windows/macOS 仍由渲染层 navigator.mediaSession
 // 直驱（见 src/mpris.ts），本模块在这两个平台直接返回 null。
 import { createRequire } from "node:module";
+import { isJsonArray, isJsonObject, jsonBoolean, jsonNumber, jsonString, type JsonValue } from "../src/lib/json-value.ts";
 
 const requireFromHere = createRequire(import.meta.url);
 
@@ -62,8 +63,9 @@ export type MprisCommand =
   | { v: 1; t: "cmd"; cmd: "openUri"; uri: string };
 
 export interface MprisPlayerInstance {
-  on(event: string, cb: (...args: unknown[]) => void): void;
-  metadata: Record<string, unknown>;
+  /** mpris-service 的事件回调：参数是总线侧的原始值（字符串/数字/对象），按事件各自解析。 */
+  on(event: string, cb: (...args: (JsonValue | undefined)[]) => void): void;
+  metadata: Partial<MprisMetadata>;
   playbackStatus: string;
   loopStatus: string;
   shuffle: boolean;
@@ -75,7 +77,7 @@ export interface MprisPlayerInstance {
   canSeek: boolean;
   canControl: boolean;
   hasTrackList: boolean;
-  tracks?: Record<string, unknown>[];
+  tracks?: MprisMetadata[];
   getPosition(): number;
   seeked(posUs: number): void;
   objectPath(sub: string): string;
@@ -94,11 +96,21 @@ interface MprisBus {
 }
 
 export interface MprisPlayerFactory {
-  (opts: Record<string, unknown>): MprisPlayerInstance;
+  (opts: MprisPlayerOptions): MprisPlayerInstance;
+}
+
+/** mpris-service 的构造参数：只列本模块真正传的那几项。 */
+export interface MprisPlayerOptions {
+  name: string;
+  identity: string;
+  desktopEntry: string;
+  supportedUriSchemes: string[];
+  supportedMimeTypes: string[];
+  supportedInterfaces: string[];
 }
 
 export interface MprisBridge {
-  applyState(state: unknown): void;
+  applyState(state: JsonValue): void;
   destroy(): void;
 }
 
@@ -119,7 +131,16 @@ const DESKTOP_ENTRY = process.env.FLATPAK_ID || "red.0w0.quaver";
 const MPRIS_PATH = "/org/mpris/MediaPlayer2";
 const NO_TRACK_PATH = "/org/mpris/MediaPlayer2/TrackList/NoTrack";
 
-type MprisMetadata = Record<string, unknown>;
+/** D-Bus Metadata：只放本应用真的会写的键（MPRIS 规范的 mpris:/xesam: 两组）。 */
+interface MprisMetadata {
+  "mpris:trackid": string;
+  "mpris:length"?: number;
+  "xesam:title": string;
+  "xesam:artist": string[];
+  "xesam:album"?: string;
+  "mpris:artUrl"?: string;
+  "xesam:asText"?: string;
+}
 
 function monotonicMs(): number {
   return Number(process.hrtime.bigint() / 1_000_000n);
@@ -131,17 +152,86 @@ function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
-function errorText(error: unknown): string {
-  return String((error as Error)?.message ?? error);
+function errorText(error: Error | string | null | undefined): string {
+  return error instanceof Error ? error.message : String(error ?? "");
 }
 
 /** dbus-next 在 socket 已关闭、但 `end` 事件还没落地时会直接 throw。 */
-function isClosedBusError(error: unknown): boolean {
+function isClosedBusError(error: Error | string | null | undefined): boolean {
   return /cannot send message, stream is closed|tried to write a message to a closed stream|write (?:epipe|after end)|econnreset|enotconn/i.test(errorText(error));
 }
 
 function normalizeLoop(value: string, fallback: MprisLoop): MprisLoop {
   return value === "Track" || value === "Playlist" || value === "None" ? value : fallback;
+}
+
+function isMprisStatus(value: JsonValue | undefined): value is MprisStatus {
+  return value === "Playing" || value === "Paused" || value === "Stopped";
+}
+
+function isMprisLoop(value: JsonValue | undefined): value is MprisLoop {
+  return value === "None" || value === "Track" || value === "Playlist";
+}
+
+/** 队列项 / 当前曲目：只取本应用自己投影的那几个字段。 */
+function parseTrack(value: JsonValue | undefined): MprisTrack | null {
+  if (!isJsonObject(value)) return null;
+
+  const artists = isJsonArray(value.artists)
+    ? value.artists.flatMap((artist) => (Object.prototype.toString.call(artist) === "[object String]" ? [String(artist)] : []))
+    : [];
+
+  return {
+    mid: jsonString(value.mid),
+    key: jsonString(value.key),
+    name: jsonString(value.name),
+    artists,
+    album: jsonString(value.album),
+    artUrl: jsonString(value.artUrl),
+    durationSec: jsonNumber(value.durationSec),
+    asText: jsonString(value.asText),
+  };
+}
+
+/**
+ * 渲染层快照（quaver:mpris IPC）→ 领域状态。
+ * 版本/状态/循环档不合法或队列缺失时返回 null（调用方按「不兼容快照」丢弃）。
+ */
+function parseMprisState(raw: JsonValue): MprisState | null {
+  if (!isJsonObject(raw)) return null;
+
+  if (raw.t !== "state" || jsonNumber(raw.v) !== PROTOCOL_VERSION) return null;
+
+  if (!isJsonObject(raw.can) || !isJsonArray(raw.queue)) return null;
+
+  if (!isMprisStatus(raw.status) || !isMprisLoop(raw.loop)) return null;
+
+  const can = raw.can;
+
+  return {
+    v: PROTOCOL_VERSION,
+    t: "state",
+    status: raw.status,
+    posUs: jsonNumber(raw.posUs),
+    volume: jsonNumber(raw.volume),
+    loop: raw.loop,
+    shuffle: jsonBoolean(raw.shuffle),
+    seeked: jsonBoolean(raw.seeked),
+    track: parseTrack(raw.track),
+    queue: raw.queue.flatMap((track) => {
+      const parsed = parseTrack(track);
+
+      return parsed === null ? [] : [parsed];
+    }),
+    can: {
+      next: jsonBoolean(can.next),
+      prev: jsonBoolean(can.prev),
+      play: jsonBoolean(can.play),
+      pause: jsonBoolean(can.pause),
+      seek: jsonBoolean(can.seek),
+      control: jsonBoolean(can.control),
+    },
+  };
 }
 
 /** mpris:trackid 对象路径：/org/quaver/track/<key 安全化>。 */
@@ -192,6 +282,8 @@ function trackMetadata(track: MprisTrack, durationUs?: number): MprisMetadata {
 }
 
 function loadFactory(): MprisPlayerFactory {
+  // SAFETY: mpris-service 无类型声明，但 factory 的调用形状就是本文件 MprisPlayerOptions 那几项
+  // （见 node_modules/mpris-service 的构造实现），返回实例由 MprisPlayerInstance 约束其使用面。
   return requireFromHere("mpris-service") as MprisPlayerFactory;
 }
 
@@ -226,7 +318,7 @@ export function createMprisBridge({
 
   let failed = false;
 
-  const fail = (error: unknown): void => {
+  const fail = (error: Error | string | null | undefined): void => {
     if (failed) return;
     failed = true;
     const reason = errorText(error);
@@ -240,7 +332,7 @@ export function createMprisBridge({
   // 这里只包住这一条发送路径；其它异常照旧抛出，不掩盖真正的协议错误。
   const bus = player._bus;
 
-  if (bus && typeof bus.send === "function") {
+  if (bus?.send instanceof Function) {
     try {
       const send = bus.send.bind(bus);
 
@@ -250,22 +342,24 @@ export function createMprisBridge({
         try {
           send(msg);
         } catch (e) {
-          if (!isClosedBusError(e)) throw e;
-          fail(e);
+          const text = errorText(e instanceof Error ? e : String(e));
+
+          if (!isClosedBusError(text)) throw e;
+          fail(text);
         }
       };
     } catch (e) {
-      log("[mpris] bus send guard unavailable:", errorText(e));
+      log("[mpris] bus send guard unavailable:", errorText(e instanceof Error ? e : String(e)));
     }
   }
 
   player.on("error", (e) => {
     // 无会话总线（headless / SSH 无 DBUS_SESSION_BUS_ADDRESS）不是致命错误：
     // 应用继续可用，只是系统媒体控件缺席。
-    const reason = errorText(e);
-    log("[mpris] dbus error:", reason);
+    const text = errorText(e instanceof Error ? e : String(e));
+    log("[mpris] dbus error:", text);
 
-    if (isClosedBusError(e)) fail(e);
+    if (isClosedBusError(text)) fail(text);
   });
 
   player.canControl = true;
@@ -314,49 +408,25 @@ export function createMprisBridge({
     emit({ v: 1, t: "cmd", cmd: "seek", deltaUs: Number.isFinite(delta) ? Math.floor(delta) : 0 });
   });
   player.on("position", (event) => {
-    const e = event as { trackId?: unknown; position?: unknown };
-    const posUs = Number(e.position);
+    const payload = isJsonObject(event) ? event : {};
+    const posUs = jsonNumber(payload.position);
     emit({
       v: 1,
       t: "cmd",
       cmd: "seekTo",
       posSec: Number.isFinite(posUs) ? Math.floor(posUs) / 1e6 : 0,
-      trackId: String(e.trackId ?? ""),
+      trackId: jsonString(payload.trackId),
     });
   });
   player.on("open", (event) => {
-    const e = event as { uri?: unknown };
-    emit({ v: 1, t: "cmd", cmd: "openUri", uri: String(e.uri ?? "") });
+    emit({ v: 1, t: "cmd", cmd: "openUri", uri: jsonString(isJsonObject(event) ? event.uri : undefined) });
   });
   player.on("goTo", (trackId) => emit({ v: 1, t: "cmd", cmd: "jump", trackId: String(trackId ?? "") }));
 
-  const applyStateUnsafe = (raw: unknown): void => {
-    if (!raw || typeof raw !== "object") return;
-    const state = raw as Partial<MprisState>;
+  const applyStateUnsafe = (raw: JsonValue): void => {
+    const state = parseMprisState(raw);
 
-    if (state.t !== "state" || state.v !== PROTOCOL_VERSION) {
-      log("[mpris] ignored incompatible state:", String(state.v ?? "?"));
-
-      return;
-    }
-
-    if (!state.can || !Array.isArray(state.queue)) {
-      log("[mpris] ignored incomplete state");
-
-      return;
-    }
-
-    if (state.status !== "Playing" && state.status !== "Paused" && state.status !== "Stopped") {
-      log("[mpris] ignored invalid status:", String(state.status));
-
-      return;
-    }
-
-    if (state.loop !== "None" && state.loop !== "Track" && state.loop !== "Playlist") {
-      log("[mpris] ignored invalid loop:", String(state.loop));
-
-      return;
-    }
+    if (state === null) return;
 
     playing = state.status === "Playing";
     baseUs = Math.max(0, Math.floor(Number(state.posUs) || 0));
@@ -431,14 +501,16 @@ export function createMprisBridge({
     }
   };
 
-  const applyState = (raw: unknown): void => {
+  const applyState = (raw: JsonValue): void => {
     if (failed) return;
 
     try {
       applyStateUnsafe(raw);
     } catch (e) {
-      if (isClosedBusError(e)) fail(e);
-      else log("[mpris] state projection failed:", errorText(e));
+      const text = errorText(e instanceof Error ? e : String(e));
+
+      if (isClosedBusError(text)) fail(text);
+      else log("[mpris] state projection failed:", text);
     }
   };
 

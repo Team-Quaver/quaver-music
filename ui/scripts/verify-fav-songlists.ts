@@ -132,6 +132,7 @@ await step("歌单页收藏按钮（在线写接口 like/unlike 来回）", asyn
     () => [...document.querySelectorAll("#playlists .pl-group")].some((g) => g.textContent.includes("收藏的歌单")),
     { timeout: 30000 },
   );
+  // SAFETY: .fav-btn 由 playlists 视图渲染成 <button data-plid>，Puppeteer $eval 交回的就是该元素。
   const before = await page.$eval(".fav-btn", (b) => ({ txt: b.textContent.trim(), on: b.classList.contains("on"), id: (b as HTMLElement).dataset.plid }));
 
   if (before.on) throw new Error("初始状态应为未收藏：" + JSON.stringify(before));

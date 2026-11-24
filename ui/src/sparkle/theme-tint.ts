@@ -21,6 +21,7 @@
 // 它做单测，而 Node 的类型剥离不做路径改写（`import type` 会被整条擦除，所以 SDK 那个可以不带）。
 import type { SparkleTheme, SparkleTintPreset } from "@quaver/sparkle";
 import { parseHex, toHex } from "../lib/color.ts";
+import { isJsonObject, jsonString, type JsonObject, type JsonValue } from "../lib/json-value.ts";
 
 export type SparkTintMode = "off" | "host" | "presets";
 
@@ -38,6 +39,16 @@ export const TINT_PRESET_COVER = "cover";
  *  色值按主题 id 分档存储 —— 主题只需声明这一档，不需要自己提供取色 UI。 */
 export const TINT_PRESET_CUSTOM = "custom";
 
+/** 主题交来的方案项（第三方代码，字段可能缺/类型不对）。 */
+type SparkleTintPresetInput =
+  | Partial<SparkleTintPreset>
+  | Readonly<Record<string, string | number | boolean | null | undefined>>
+  | string
+  | number
+  | boolean
+  | null
+  | undefined;
+
 export interface SparkTintPolicy {
   mode: SparkTintMode;
   /** 校验过的方案列表（仅 mode="presets" 时非空） */
@@ -51,25 +62,44 @@ export interface SparkTintPolicy {
  * "system"（= 跟随系统强调色）。主题是第三方代码，这些值会进 DOM（style 属性）与 CSS 变量
  * —— 一律先校验再信。
  */
-export function validPresets(list: unknown): SparkleTintPreset[] {
+export function validPresets(list: readonly SparkleTintPresetInput[] | SparkleTintPresetInput): SparkleTintPreset[] {
   if (!Array.isArray(list)) return [];
+
   const out: SparkleTintPreset[] = [];
   const seen = new Set<string>();
 
   for (const raw of list) {
-    const p = raw as Partial<SparkleTintPreset> | null | undefined;
+    const preset = presetOf(raw);
 
-    if (!p || typeof p.id !== "string" || !p.id || seen.has(p.id)) continue;
-
-    if (typeof p.label !== "string" || !p.label) continue;
-
-    if (typeof p.color !== "string" ||
-        (p.color !== TINT_PRESET_SYSTEM && p.color !== TINT_PRESET_COVER && p.color !== TINT_PRESET_CUSTOM && !parseHex(p.color))) continue;
-    seen.add(p.id);
-    out.push({ id: p.id, label: p.label, color: p.color });
+    if (preset === null || seen.has(preset.id)) continue;
+    seen.add(preset.id);
+    out.push(preset);
   }
 
   return out;
+}
+
+/** 主题给的一套方案：id/label 必须是非空字符串，color 必须是哨兵值或可解析的颜色字面量。 */
+function presetOf(raw: SparkleTintPresetInput): SparkleTintPreset | null {
+  if (!raw || Object.prototype.toString.call(raw) !== "[object Object]") return null;
+
+  // SAFETY: 上一步已确认是普通对象；下面逐字段按 string 校验后才写入返回值。
+  const candidate: Partial<SparkleTintPreset> = raw as Partial<SparkleTintPreset>;
+  const id = candidate.id;
+  const label = candidate.label;
+  const color = candidate.color;
+
+  if (Object.prototype.toString.call(id) !== "[object String]" || !id) return null;
+
+  if (Object.prototype.toString.call(label) !== "[object String]" || !label) return null;
+
+  if (Object.prototype.toString.call(color) !== "[object String]") return null;
+
+  const text = String(color);
+
+  if (text !== TINT_PRESET_SYSTEM && text !== TINT_PRESET_COVER && text !== TINT_PRESET_CUSTOM && !parseHex(text)) return null;
+
+  return { id: String(id), label: String(label), color: text };
 }
 
 /**
@@ -133,68 +163,84 @@ export function pickPreset(presets: SparkleTintPreset[], chosenId: string | null
 const PRESET_KEY = "quaver.sparkle.tint.v1";
 
 /** themeId → presetId 的选择表（一份文件装所有主题的选择，切来切去不丢） */
-function readChoices(): Record<string, string> {
+function readChoices(): Map<string, string> {
   try {
     const raw = globalThis.localStorage?.getItem(PRESET_KEY) ?? "{}";
-    const v = JSON.parse(raw) as unknown;
+    const v: JsonValue = JSON.parse(raw);
 
-    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, string>) : {};
+    return isJsonObject(v) ? storedStrings(v) : new Map();
   } catch {
-    return {};
+    return new Map();
   }
+}
+
+/** 存储表只留字符串值（其它形状当作没写过）。 */
+function storedStrings(value: JsonObject): Map<string, string> {
+  const out = new Map<string, string>();
+
+  for (const [key, entry] of Object.entries(value)) {
+    const text = jsonString(entry, "\u0000");
+
+    if (text !== "\u0000") out.set(key, text);
+  }
+
+  return out;
 }
 
 /** 用户在某个主题下选过的方案 id（没选过 = null，调用方回落到第一个）。 */
 export function sparkTintChoice(themeId: string | null): string | null {
   if (!themeId) return null;
-  const v = readChoices()[themeId];
+  const v = readChoices().get(themeId);
 
-  return typeof v === "string" ? v : null;
+  return v ?? null;
 }
 
 /** 主题自定义源色（仅当主题声明 customTint 时才有意义）：themeId → HEX。 */
 const CUSTOM_KEY = "quaver.sparkle.tint.custom.v1";
 
-function readCustom(): Record<string, string> {
+function readCustom(): Map<string, string> {
   try {
     const raw = globalThis.localStorage?.getItem(CUSTOM_KEY) ?? "{}";
-    const v = JSON.parse(raw) as unknown;
+    const v: JsonValue = JSON.parse(raw);
 
-    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, string>) : {};
+    return isJsonObject(v) ? storedStrings(v) : new Map();
   } catch {
-    return {};
+    return new Map();
   }
 }
 
 export function sparkCustomTint(themeId: string | null): string | null {
   if (!themeId) return null;
-  const v = readCustom()[themeId];
+  const v = readCustom().get(themeId);
 
-  return typeof v === "string" && parseHex(v) ? v : null;
+  return v && parseHex(v) ? v : null;
 }
 
 export function sparkSetCustomTint(themeId: string, hex: string | null): void {
   if (!themeId) return;
   const all = readCustom();
 
-  if (hex && parseHex(hex)) all[themeId] = toHex(parseHex(hex)!);
-  else delete all[themeId];
+  const parsed = hex ? parseHex(hex) : null;
+
+  if (parsed) all.set(themeId, toHex(parsed));
+  else all.delete(themeId);
 
   try {
-    globalThis.localStorage?.setItem(CUSTOM_KEY, JSON.stringify(all));
+    globalThis.localStorage?.setItem(CUSTOM_KEY, JSON.stringify(Object.fromEntries(all)));
   } catch {
     /* 隐私模式 / 配额满：本次会话内仍然生效 */
   }
 }
+
 export function sparkSetTintChoice(themeId: string, presetId: string | null): void {
   if (!themeId) return;
   const all = readChoices();
 
-  if (presetId) all[themeId] = presetId;
-  else delete all[themeId];
+  if (presetId) all.set(themeId, presetId);
+  else all.delete(themeId);
 
   try {
-    globalThis.localStorage?.setItem(PRESET_KEY, JSON.stringify(all));
+    globalThis.localStorage?.setItem(PRESET_KEY, JSON.stringify(Object.fromEntries(all)));
   } catch {
     /* 隐私模式 / 配额满：本次会话内仍然生效 */
   }

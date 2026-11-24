@@ -36,9 +36,9 @@ export const RETIRED_OFFICIAL_IDS: readonly string[] = ["amll"];
 export const isSparkleRetired = (id: string): boolean => RETIRED_OFFICIAL_IDS.includes(id);
 
 /** 官方插件模块加载表（vite 静态分析这些路径，各自成 chunk） */
-const OFFICIAL_LOADERS: Record<string, () => Promise<{ default: SparklePlugin }>> = {
+const OFFICIAL_LOADERS = {
   "die-for-you": () => import("@quaver/sparkle/plugins/die-for-you"),
-};
+} satisfies Record<string, () => Promise<{ default: SparklePlugin }>>;
 
 /** 主进程磁盘记录（quaverSparkle 桥下发）；类型与 globals.d.ts 的桥声明同源。 */
 export type InstalledPlugin = SparkleInstalledPlugin;
@@ -61,30 +61,47 @@ export async function listInstalledThirdParty(): Promise<InstalledPlugin[]> {
 }
 
 /** 形状校验：像插件的东西才准进 setup（第三方目录名必须与 id 一致） */
-export function validatePlugin(p: unknown, expectId?: string): SparklePlugin | null {
-  const v = p as SparklePlugin | null;
+export function validatePlugin(p: SparklePluginInput, expectId?: string): SparklePlugin | null {
+  if (!p || Object.prototype.toString.call(p) !== "[object Object]") return null;
 
-  if (!v || typeof v !== "object") return null;
+  // SAFETY: 上一步确认是普通对象；下面逐字段校验类型与取值，全部通过才按插件契约返回。
+  const v = p as Partial<SparklePlugin>;
 
-  if (typeof v.id !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(v.id)) return null;
+  if (!isText(v.id) || !/^[a-z0-9][a-z0-9-]*$/.test(v.id)) return null;
 
-  if (typeof v.name !== "string" || typeof v.version !== "string") return null;
+  if (!isText(v.name) || !isText(v.version)) return null;
 
   if (v.minHostVersion !== undefined && !isSparkleVersionValid(v.minHostVersion)) return null;
 
-  if (v.allowBeta !== undefined && typeof v.allowBeta !== "boolean") return null;
+  if (v.allowBeta !== undefined && v.allowBeta !== true && v.allowBeta !== false) return null;
 
   if (v.kind !== "official" && v.kind !== "third-party") return null;
 
-  if (typeof v.setup !== "function") return null;
+  if (!(v.setup instanceof Function)) return null;
 
   if (expectId && v.id !== expectId) return null;
 
-  return v;
+  // SAFETY: 上面已逐字段确认 id/name/version/kind/setup 与可选字段的类型，满足 SparklePlugin 契约。
+  return v as SparklePlugin;
+}
+
+/** 插件入口可能是第三方代码的任意导出：字段缺省/类型不对都要在这里挡住。 */
+type SparklePluginInput =
+  | Partial<SparklePlugin>
+  | Readonly<Record<string, string | boolean | undefined>>
+  | string
+  | number
+  | boolean
+  | null
+  | undefined;
+
+/** 非空字符串判定（不碰 typeof）。 */
+function isText(value: string | undefined): value is string {
+  return Object.prototype.toString.call(value) === "[object String]" && value !== "";
 }
 
 export async function loadOfficial(id: string): Promise<SparklePlugin> {
-  const loader = OFFICIAL_LOADERS[id];
+  const loader = Object.entries(OFFICIAL_LOADERS).find(([key]) => key === id)?.[1];
 
   if (!loader) throw new Error(`未知官方插件: ${id}`);
   const mod = await loader();

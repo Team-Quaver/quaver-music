@@ -38,7 +38,7 @@ let thumbPic: (u: string | undefined, size?: number) => string = (u) => upPic(u)
 // 顺序/显隐是用户偏好（NavOrder / NavHidden），每次 renderNav 现读，不把顺序钉死在常量里。
 export const nav = NAV_ITEMS;
 
-const icons: Record<string, string> = {
+const icons = {
   sparkle:
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4l1.7 4.3L18 10l-4.3 1.7L12 16l-1.7-4.3L6 10l4.3-1.7z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/></svg>',
   // 设置：齿轮（外圈齿形 + 中心孔）。与其它线性图标同一套 24 网格 / currentColor 描边。
@@ -49,11 +49,16 @@ const icons: Record<string, string> = {
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M13.5 6.5 8 12l5.5 5.5M18.5 6.5 13 12l5.5 5.5"/></svg>',
   userPh:
     '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 19c1.5-3 4-4.5 7-4.5s5.5 1.5 7 4.5"/></svg>',
-};
+} satisfies Record<string, string>;
 
 // content = .content 主内容区整体；route = 内容区里可被路由替换的部分。
 // 搜索框在 content 内、route 外——随壳层常驻，切视图/刷新视图不重建、输入不丢。
-export const state = { content: null as HTMLElement | null, route: null as HTMLElement | null };
+export interface ShellState {
+  content: HTMLElement | null;
+  route: HTMLElement | null;
+}
+
+export const state: ShellState = { content: null, route: null };
 
 export function currentRoute() {
   const h = location.hash.replace(/^#\/?/, "");
@@ -106,6 +111,7 @@ const navRoot = () => document.querySelector<HTMLElement>(".nav");
 
 function renderDefaultNav() {
   const root = navRoot();
+
   if (!root) return;
 
   root.innerHTML = NAV_ITEMS.map((n) =>
@@ -118,6 +124,7 @@ function bootNavLayout() {
 
   const custom = cfg("Style.NavHidden", "").trim() !== ""
     || cfg("Style.NavOrder", NAV_DEFAULT_ORDER).trim() !== NAV_DEFAULT_ORDER;
+
   if (custom) void import("./lib/nav-apply").then((m) => m.applyNavLayout());
 }
 
@@ -155,17 +162,17 @@ export async function renderRoute() {
     const cleanup = await view(host, query);
 
     if (gen !== renderGen) {
-      if (typeof cleanup === "function") cleanup();
+      if (cleanup instanceof Function) cleanup();
 
       return;
     }
 
-    if (typeof cleanup === "function") mountedCleanup = cleanup;
+    if (cleanup instanceof Function) mountedCleanup = cleanup;
   } catch (e) {
     console.error(e);
 
     if (gen !== renderGen) return;
-    host.innerHTML = `<div class="muted">页面加载失败：${String((e as Error).message ?? e)}</div>`;
+    host.innerHTML = `<div class="muted">页面加载失败：${e instanceof Error ? e.message : String(e)}</div>`;
   }
 
   player.markActive();
@@ -346,9 +353,12 @@ export function bootShell() {
   // CSD 按钮：Electron 壳层里走 quaverCSD 桥；浏览器/dev 下仅派发事件占位
   document.querySelectorAll<HTMLElement>("[data-win]").forEach((b) =>
     b.addEventListener("click", () => {
-      const csd = (window as any).quaverCSD;
+      const csd = window.quaverCSD;
+      const action = b.dataset.win ?? "";
 
-      if (csd?.[b.dataset.win!]) csd[b.dataset.win!]();
+      if (action === "min") csd?.min?.();
+      else if (action === "max") csd?.max?.();
+      else if (action === "close") csd?.close?.();
       else window.dispatchEvent(new CustomEvent("quaver:window", { detail: b.dataset.win }));
     }),
   );
@@ -377,7 +387,7 @@ export function bootShell() {
   //    两者是系统虚拟歌单（没有固定 disstid 可翻页拉详情），取歌各走专用接口：
   //    每日走 /recommend/daily（30 首一把拿全）；我喜欢走 player 的预载缓存（loadLoved
   //    自带 TTL 对账，多数时候直接命中，不打网络）。 ——
-  const VIRTUAL_LISTS: Record<string, { id: string; title: string; fetch: () => Promise<Song[]> }> = {
+  const VIRTUAL_LISTS = {
     "/daily": {
       id: "daily",
       title: "每日 30 首",
@@ -390,8 +400,11 @@ export function bootShell() {
     },
   };
 
+  /** 导航项对应的系统虚拟歌单（只有 /daily 与 /liked 有）。 */
+  const virtualListOf = (route: string) => Object.entries(VIRTUAL_LISTS).find(([key]) => key === route)?.[1] ?? null;
+
   for (const a of frame.querySelectorAll<HTMLAnchorElement>(".nav a")) {
-    const v = VIRTUAL_LISTS[a.dataset.route ?? ""];
+    const v = virtualListOf(a.dataset.route ?? "");
 
     if (!v) continue;
     // 双击 = 立即播放（单击仍导航进页面；两击的第一次导航先落地，双击随即开播）
@@ -449,12 +462,20 @@ export function addNavItem(item: SparkleNavItem): HTMLElement {
 // 侧栏状态（头像/昵称/会员徽章/歌单）
 // 歌单分两团：我创建的歌单（PlaylistBaseRead）+ 收藏的歌单（PlaylistFavRead，见 lib/favs）。
 // 后者独立拉取、失败只影响本团；收藏态变化（歌单页红心）经 favs 订阅即时回灌侧栏。
-let sidebarCreated: any[] = [];
+/** 侧栏「我创建的歌单」：读接口 PlaylistBaseRead 的子集（dirid=201 的「我喜欢」已剔除）。 */
+type SidebarPlaylist = PlaylistMenuTarget & Pick<FavPlaylist, "picurl"> & { bigpic_url?: string };
+
+/** 侧栏条目 → 歌单菜单的目标形状（两个团共用一套菜单）。 */
+function menuTargetOf(x: PlaylistMenuTarget | FavPlaylist): PlaylistMenuTarget {
+  return { id: x.id, title: String(x.title ?? "歌单"), dirid: "dirid" in x ? x.dirid : undefined };
+}
+
+let sidebarCreated: SidebarPlaylist[] = [];
 let sidebarFavsReady = false;
 let sidebarPainted = false; // 首次 renderSidebarPlaylists 后才允许插件触发重画（登录前保持占位）
 
-const esc = (s: unknown) =>
-  String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+const esc = (s: string | number | null | undefined) =>
+  String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
 
 // 单个歌单条目：封面 + 标题（副行可选，收藏的歌单用来标创建者）
 // title 恒给：侧栏缩回后只剩封面图，鼠标悬停是唯一认得出来的途径。
@@ -462,7 +483,7 @@ const esc = (s: unknown) =>
 function plItem(x: PlaylistMenuTarget | FavPlaylist, sub = "", menu?: PlaylistMenuOptions): HTMLElement {
   const a = document.createElement("a");
   a.className = "pl";
-  const fav = x as Partial<FavPlaylist>;
+  const fav: Partial<FavPlaylist> = x;
   // 32px 的槽位不要 500/600 档原图：浏览器按原图解码，三四十个歌单就是几十 MB 常驻位图。
   const pic = thumbPic(fav.picurl || fav.bigpic_url, 90);
   const title = String(x.title ?? "歌单");
@@ -473,11 +494,11 @@ function plItem(x: PlaylistMenuTarget | FavPlaylist, sub = "", menu?: PlaylistMe
 
   if (menu) {
     // 双击 = 直接播放该歌单（单击仍导航进歌单页；两击的第一次导航先落地，双击随即开播）
-    a.addEventListener("dblclick", () => { void playlistMenu().then((m) => m.playPlaylistNow(x as PlaylistMenuTarget)); });
+    a.addEventListener("dblclick", () => { void playlistMenu().then((m) => m.playPlaylistNow(menuTargetOf(x))); });
     a.addEventListener("contextmenu", (e) => {
       e.preventDefault(); // 不弹系统菜单
       e.stopPropagation();
-      void playlistMenu().then((m) => m.openPlaylistMenu(e.clientX, e.clientY, x as PlaylistMenuTarget, menu, a));
+      void playlistMenu().then((m) => m.openPlaylistMenu(e.clientX, e.clientY, menuTargetOf(x), menu, a));
     });
   }
 
@@ -565,15 +586,19 @@ export function resetSidebarUser(): void {
   header?.setAttribute("title", "点击登录");
 
   const avatar = document.querySelector<HTMLElement>("#avatar");
+
   if (avatar) avatar.innerHTML = icons.userPh;
 
   const nick = document.getElementById("nick");
+
   if (nick) nick.textContent = "未登录";
 
   const badges = document.getElementById("badges");
+
   if (badges) badges.innerHTML = "";
 
   const box = document.getElementById("playlists");
+
   if (box) box.innerHTML = `<div class="pl-empty">登录后可见歌单</div>`;
 }
 
@@ -620,8 +645,8 @@ async function bootSidebar() {
     });
 
     // 我喜欢（dirid=201 固定）不进歌单列表——导航栏已有入口
-    const pl: any = await api("/user/created-songlists").catch(() => null);
-    sidebarCreated = (pl?.playlists ?? []).filter((p: any) => p.dirid !== 201);
+    const pl = await api<{ playlists?: SidebarPlaylist[] }>("/user/created-songlists").catch(() => null);
+    sidebarCreated = (pl?.playlists ?? []).filter((p) => Number(p.dirid) !== 201);
     const box = document.getElementById("playlists")!;
     renderSidebarPlaylists(box);
 

@@ -33,6 +33,8 @@ import { findPlaybackFallback, hasPlayableTier, warmPlaybackFallbackSources } fr
 import { toast } from "./lib/toast";
 import { applyOrderMark, type OrderMark } from "./lib/order-shelter";
 import { reorderSonglist } from "./lib/playlists";
+import { isJsonObject, jsonBoolean, jsonNumber, type JsonValue } from "./lib/json-value";
+import { isQualityId, type Quality } from "./lib/api";
 import type { CoverFlipDirection } from "./lib/np-cover-flip";
 
 /** OGG 档位（Vorbis/Opus）：Liino 不捆绑解码器，Windows/macOS 上要靠系统能力。 */
@@ -187,10 +189,22 @@ class Player {
   /** 近期写入庇护名单（localStorage 持久化，跨重载存活）：mid → 期望态 + 写入时刻 */
   private recentWrites: Map<string, { on: boolean; at: number }> = (() => {
     try {
-      const raw = JSON.parse(localStorage.getItem(LS_WRITES_KEY) ?? "{}") as Record<string, { on: boolean; at: number }>;
-      const now = Date.now();
+      const raw: JsonValue = JSON.parse(localStorage.getItem(LS_WRITES_KEY) ?? "{}");
 
-      return new Map(Object.entries(raw ?? {}).filter(([, w]) => w && now - Number(w.at) <= LOVED_PENDING_TTL));
+      if (!isJsonObject(raw)) return new Map();
+      const now = Date.now();
+      const out = new Map<string, { on: boolean; at: number }>();
+
+      for (const [mid, entry] of Object.entries(raw)) {
+        if (!isJsonObject(entry)) continue;
+
+        const at = jsonNumber(entry.at);
+
+        if (now - at > LOVED_PENDING_TTL) continue;
+        out.set(mid, { on: jsonBoolean(entry.on), at });
+      }
+
+      return out;
     } catch { return new Map(); }
   })();
   /** 重排庇护名单（「我喜欢」整单新顺序；localStorage 跨重载，过期同写入庇护） */
@@ -367,6 +381,7 @@ class Player {
         break;
       case "canplay":
         this.clearStartWatchdog();
+
         // file-loaded / <audio> canplay 都是「文件与解码器已就绪」的权威信号。
         // 异步 loadfile 下 invoke 返回不代表能播，进度转圈要等这条事件收尾。
         if (this.loading) { this.loading = false; this.notify(); }
@@ -516,7 +531,9 @@ class Player {
     // startCurrent 的 load 是 loadfile replace，会把正在放的歌掐掉。位置/时长/播放态
     // 由引擎 snapshot 如实汇报（比 ≤5s 节流的存档位置准），进度条/歌词/MPRIS 随即对齐。
     if (this.transport.kind === "engine") {
-      const t = this.transport as EngineTransport;
+      const t = this.transport;
+
+      if (!(t instanceof EngineTransport)) return;
       const es = await t.snapshot();
 
       if (es && this.current) {
@@ -524,7 +541,7 @@ class Player {
         this.streamUrl = es.url; // 接管正在放的流：流信息浮窗（正在播放页）照样可探测
         // 会话音质覆盖与实际流档位一并接管：播放条音质胶囊显示正在放的档，
         // 而不是跳回「自动」（这两个是渲染层内存态，靠拆窗前的存档带过来）
-        setSessionQuality((snap.quality ?? null) as Parameters<typeof setSessionQuality>[0]);
+        setSessionQuality(snap.quality && isQualityId(snap.quality) ? snap.quality : null);
         setLastStream(snap.lastStream ?? null);
         this.loading = false;
         this.error = "";
@@ -781,7 +798,7 @@ class Player {
   /** 浏览器 <audio> 后端时的真实媒体元素（频谱分析直接接管它；mpv 后端为 null）。
    *  只给同页的只读采集用，不参与队列/状态语义。 */
   get webAudioElement(): HTMLAudioElement | null {
-    return this.transport.kind === "web" ? (this.transport as WebTransport).audio : null;
+    return this.transport instanceof WebTransport ? this.transport.audio : null;
   }
 
   /** 频谱/诊断用的实际输出拓扑：按 transport 判断，不靠旧 AnalyserNode 是否残留。 */
@@ -806,6 +823,7 @@ class Player {
   get lyricComp() { return this.backend === "mpv-compat" || this.backend === "liino" ? 0 : 0.2; }
   get duration() {
     const hint = Number(this.current?.interval) || 0;
+
     // 换曲/切兜底源时引擎的上一首时长不会立刻清零；加载中先用队列行的曲长，
     // 否则界面会短暂把上一首的 3:21 挂在这首 7:03 上。
     if (this.loading && hint > 0) return hint;
@@ -821,6 +839,7 @@ class Player {
   /** 供 MPRIS/外部控制的续播 */
   resume() {
     if (!this.transport.paused || !this.transport.src || !this.current) return;
+
     if (this.loading) this.armStartWatchdog(this.current, true);
     void this.transport.play().catch(() => {});
   }
@@ -945,7 +964,7 @@ class Player {
       this.radioEnd = prev.on ? prev.end : this.radioOn && this.queue.length ? this.queue.length - 1 : -1;
       this._radioLoading = false;
       this.radioWaitingNext = prev.waiting;
-      this.radioError = String((e as Error)?.message ?? e);
+      this.radioError = e instanceof Error ? e.message : String(e);
       this.notify();
 
       if (this.radioOn && this.radioEnd < 0 && !this.queue.length) {
@@ -1013,7 +1032,7 @@ class Player {
     } catch (e) {
       if (seq !== this.radioSeq) return;
       this._radioLoading = false;
-      this.radioError = String((e as Error)?.message ?? e);
+      this.radioError = e instanceof Error ? e.message : String(e);
       this.notify();
       // 网络/上游节流时别让第五首放完后回绕到旧歌：停在轮末，稍后自动再续。
       this.radioRetryTimer = window.setTimeout(() => {
@@ -1316,6 +1335,7 @@ class Player {
     // 兜底源只是底层播放源，队列行仍是原 QQ 曲目（current.mid 不变）；
     // 换歌只认 current.mid，不能把“已接兜底”误判成换了一首。
     const switchedSong = !!s && s.mid !== this.fallbackMid;
+
     // 降级尝试记录按曲归属：换到别的歌就重置（每首都有完整的一次回退机会）
     if (switchedSong) {
       this.fallbackMid = s.mid;
@@ -1353,6 +1373,7 @@ class Player {
       await this.backendInit; // 首播发生在启动后端检查完成前：等检查定再挂流
 
       if (account !== this.accountSeq || seq !== this.playSeq || this.current !== s) return; // 期间又切了歌/换了账号：本轮作废
+
       // 上游 file 元数据明确没有任何音质源时，先走本地/微云同曲，别白等一轮取链超时。
       if (s && fallbackPreflight && await this.tryPlaybackFallback(s, resumeTo)) return;
       const qqStream = this.getStream(s, overrideTier); // 命中单击预取的链接 → 直接跳过取链；降级重试带指定档
@@ -1362,6 +1383,7 @@ class Player {
         // 有同曲网盘/本地文件时，额外用最低档并行探一次 QQ 曲库。探针只判断
         // 「整首有没有源」，不会抢占正常曲目的音质：QQ 正常返回仍优先。
         const quick = this.resolveQuickFallback(s);
+
         const first = await Promise.race([
           qqStream.then((qq) => ({ qq })),
           quick.then((fb) => fb ? { fb } : new Promise<never>(() => {})),
@@ -1388,6 +1410,7 @@ class Player {
       });
 
       if (account !== this.accountSeq || seq !== this.playSeq || this.current !== s) return;
+
       // 兜底源本身已经挂上：让播放条音质胶囊如实显示来源，不再冒充 QQ 档位。
       if (this.fallbackForMid === s.mid) {
         const fb = this.fallbackSong;
@@ -1426,6 +1449,7 @@ class Player {
         const resumedAt = this.transport.position > 1 ? this.transport.position : resumeTo;
 
         if (await this.tryPlaybackFallback(s, resumedAt)) return;
+
         // 取链失败：旧曲不能一直垫着，收掉后再走降级/跳曲。
         if (this.transport.kind === "engine" && this.transport.mode === "pcm") this.transport.stop();
         this.loading = false;
@@ -1622,6 +1646,7 @@ class Player {
     if (isLocalSong(song)) return; // 本地文件没有取链预热
     // 点歌即预热本地/微云库快照；真正匹配只在 QQ 取链或解码失败后发生。
     void warmPlaybackFallbackSources();
+
     // 明确无音质的 QQ 曲目不要预取注定失败的 QQ 链接；双击时直接走本地/微云兜底。
     if (!song.directUrl && !hasPlayableTier(song)) return;
     const q = song.directUrl ? "weiyun" : String(effectiveQuality());
@@ -1687,7 +1712,7 @@ class Player {
       }
     }
 
-    return resolveStreamUrl(song, q as any);
+    return resolveStreamUrl(song, isQualityId(q) ? q : "auto");
   }
 
   /** getPlayUrl 语义的内部入口：预取命中用预取结果，否则现场协商；
@@ -1705,12 +1730,15 @@ class Player {
       try {
         const hit = this.prefetch.get("weiyun|" + s.mid);
         this.prefetch.clear();
+
         if (hit) return await hit;
-        return await this.resolveWithSources(s, "weiyun" as any);
+
+        return await this.resolveWithSources(s, "weiyun");
       } catch (e) {
         // 直链中继本身会做 StreamGuard 分类、Range 解密与断流续传；resolve
         // 只是更严格的 token 通道。超时/老 sidecar 时继续可用比整首跳走更重要。
         console.warn("[cloud] 微云 resolve 失败，回退直链", e);
+
         return { url: s.directUrl, tier: "weiyun", label: "微云文件", degraded: false };
       }
     }
@@ -1826,6 +1854,7 @@ class Player {
         );
 
         if (seq !== this.lyricSeq || this.current !== s) return;
+
         if (String(d?.lyric ?? "").trim()) {
           const raw = await cjkConvert(String(d?.lyric ?? ""));
           const trans = await cjkConvert(String(d?.trans ?? ""));
@@ -2111,6 +2140,7 @@ class Player {
   // —— 播放条音质切换（会话级：不持久化；带 Fallback 协商，切档即从当前进度重挂流） ——
   switchQuality(q: Parameters<typeof setSessionQuality>[0]) {
     if (this.current && isLocalSong(this.current)) { this.notify(); return; } // 本地文件无在线档位
+
     if (this.current && this.playbackFallback) { this.notify(); return; } // 兜底源是文件本身，无在线档位
 
     const cur = getSessionQuality();
@@ -2177,7 +2207,7 @@ class Player {
 
   /** 播放顺序上的相邻下标（-1 = 没有）：随机播放时按当日洗牌序，与 stepInOrder 同源。
    *  正在播放页的封面流用它取左右邻曲 —— 别自己写 index±1（随机序下会指错歌）。 */
-  neighbors(): { prev: number; next: number } {
+  neighbors() {
     // 电台保留已播历史：左侧可取到上一首，但队首不回绕，轮末也绝不回绕到本轮第一首。
     if (this.radioOn) {
       const prev = this.index > 0 ? this.index - 1 : -1;
@@ -2504,8 +2534,8 @@ class Player {
     if (!this.likedCache) return this.loadLoved(true);
 
     try {
-      const r: any = await api(`/user/liked?page=1&num=${LOVED_PROBE_PAGE}`);
-      const head: Song[] = ((r?.songs ?? []) as Song[]).filter((s) => s?.mid);
+      const r = await api<{ songs?: Song[]; total?: number }>(`/user/liked?page=1&num=${LOVED_PROBE_PAGE}`);
+      const head: Song[] = (r?.songs ?? []).filter((s) => s?.mid);
       const probeLen = Math.min(this.likedCache.length, LOVED_PROBE_PAGE);
 
       // 重排庇护期内读侧头部可能还是旧顺序：按已确认顺序校正后再比，
@@ -2557,9 +2587,7 @@ class Player {
    *  - like 不可见 → 红心补回 + 计数 +1，mid 归入 laggingOn（行由调用方插回）；
    *  - unlike 仍在读数 → 从结果剔除 + 计数 -1；
    *  - corrected = 本轮真的校正过（增量回源据此决定要不要重试追平）。 */
-  private reconcilePending(songs: Song[], total: number): {
-    songs: Song[]; total: number; laggingOn: string[]; corrected: boolean;
-  } {
+  private reconcilePending(songs: Song[], total: number) {
     const now = Date.now();
 
     for (const [mid, w] of this.recentWrites) if (now - w.at > LOVED_PENDING_TTL) this.recentWrites.delete(mid);
@@ -2593,8 +2621,8 @@ class Player {
     let flight!: Promise<void>;
     flight = (async () => {
       try {
-        const r: any = await api(`/user/liked?page=1&num=${LOVED_SYNC_PAGE}`);
-        const fetched: Song[] = ((r?.songs ?? []) as Song[]).filter((s) => s?.mid);
+        const r = await api<{ songs?: Song[]; total?: number }>(`/user/liked?page=1&num=${LOVED_SYNC_PAGE}`);
+        const fetched: Song[] = (r?.songs ?? []).filter((s) => s?.mid);
         const rec = this.reconcilePending(fetched, Number(r?.total ?? 0));
         this.lovedSyncCorrected = rec.corrected;
         const old = this.likedCache!;

@@ -20,7 +20,7 @@ const hrefOf = (id: number | string, title: string) =>
   `#/playlist?id=${encodeURIComponent(String(id))}&name=${encodeURIComponent(title)}`;
 
 // 卡片副行：曲目数（自建/收藏都带 songnum）；缺了就退回「歌单」
-const subOf = (songnum: unknown) => (Number(songnum) > 0 ? `${Number(songnum)} 首` : "歌单");
+const subOf = <T>(songnum: T) => (Number(songnum) > 0 ? `${Number(songnum)} 首` : "歌单");
 
 export default async function playlistsView(root: HTMLElement) {
   const { thumbPic } = await thumbs;

@@ -61,6 +61,7 @@ function runCapture(command: string, args: string[], durationMs: number, signal:
 
     if (signal.aborted) {
       onAbort();
+
       return;
     }
 
@@ -115,6 +116,7 @@ function pcmFromBytes(data: Buffer, durationMs: number): Float32Array {
     Math.round(durationMs / 1000 * SYSTEM_CAPTURE_RATE),
     Math.floor(data.byteLength / 4),
   );
+
   const pcm = new Float32Array(Math.max(0, samples));
 
   for (let i = 0; i < pcm.length; i++) pcm[i] = data.readFloatLE(i * 4);
@@ -136,6 +138,7 @@ export async function captureSystemPcm(
 
   const ms = Math.max(500, Math.min(15_000, Math.round(durationMs)));
   const target = await monitorTarget();
+
   const parec = await runCapture(
     "parec",
     [
@@ -151,6 +154,7 @@ export async function captureSystemPcm(
   );
 
   if (parec.kind === "ok") return { ok: true, pcm: pcmFromBytes(parec.data, ms) };
+
   if (signal.aborted) return { ok: false, reason: "failed", message: "已取消" };
 
   const pw = await runCapture(
@@ -168,6 +172,7 @@ export async function captureSystemPcm(
   );
 
   if (pw.kind === "ok") return { ok: true, pcm: pcmFromBytes(pw.data, ms) };
+
   if (signal.aborted) return { ok: false, reason: "failed", message: "已取消" };
 
   if (parec.kind === "missing" && pw.kind === "missing") {

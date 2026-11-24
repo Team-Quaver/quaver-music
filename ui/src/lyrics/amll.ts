@@ -112,7 +112,7 @@ const QRC_WORD_LINE = /^\[\d+,\d+\]/m; // 纯文本 QRC 的行首：[起始,时�
 /** 从上游 QRC 文本（可能是 XML 信封）里抽出**纯文本 QRC 正文**；不是信封就原样返回。
  *  注意：信封解出的正文里可能带着 `[kana: ...]` 注音标签 —— 那是逐字歌词的附属数据，
  *  必须在交给 parseQrc 之前摘出来（正文与注音标签共用同一套 `[...]` 行首形状）。 */
-function qrcPayload(src: string): { text: string; kanaTag: string } {
+function qrcPayload(src: string) {
   const c = (src ?? "").trim();
 
   if (!c) return { text: "", kanaTag: "" };
@@ -317,8 +317,8 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
   const applyTopAnchor = () => {
     const want = ctx.lyricTopAnchor?.();
 
-    const next = typeof want === "number" && Number.isFinite(want)
-      ? Math.max(0, Math.min(1, want)) : null;
+    const next = Object.prototype.toString.call(want) === "[object Number]" && Number.isFinite(Number(want))
+      ? Math.max(0, Math.min(1, Number(want))) : null;
 
     if (next === null && alignTop === null) return;
 
@@ -395,7 +395,8 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
   host.addEventListener("wheel", onBrowseWheel, { passive: true });
 
   player.addEventListener("line-click", (e: Event) => {
-    const ce = e as MouseEvent & { line: { getLine(): { startTime: number } } | undefined };
+    // SAFETY: AMLL 行点击事件是带 line 附加字段的 MouseEvent（其类型面未声明该扩展）。
+    const ce = e as MouseEvent & { line?: { getLine(): { startTime: number } } };
     // 歌词行自己的时间轴没被动过，动的是驱动时钟（− delay）：要点「屏幕上这行」就得把
     // delay 加回去换回真实播放位（口径同宿主行级视图的行点击；ctx.seek 收真实毫秒）
     const ms = ce.line?.getLine()?.startTime ?? 0;
@@ -453,7 +454,7 @@ function renderAmll(host: HTMLElement, lines: SparkleKaraokeLine[], ctx: Sparkle
 
   const offNotify = ctx.onNotify(onHostNotify);
 
-  const anchorObserver = typeof ResizeObserver === "function"
+  const anchorObserver = ResizeObserver instanceof Function
     ? new ResizeObserver(() => applyTopAnchor()) : null;
 
   anchorObserver?.observe(host);

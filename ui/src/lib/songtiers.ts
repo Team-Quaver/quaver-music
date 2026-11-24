@@ -15,15 +15,15 @@
 // 的落点排序（resolve 的 deprioritize），不管档位在不在。
 
 /** size_new 位置 → 档位 id（其余档位用 file 上的命名字段） */
-const SIZE_NEW_INDEX: Record<string, number> = {
+const SIZE_NEW_INDEX = {
   master: 0, atmos2: 1, atmos51: 2, "320ogg": 3, "640ogg": 5, atmos71: 6,
-};
+} satisfies Record<string, number>;
 
 /** 命名 size 字段 → 档位 id */
-const SIZE_FIELD: Record<string, string> = {
+const SIZE_FIELD = {
   "128": "size_128mp3", "320": "size_320mp3", flac: "size_flac",
   "192ogg": "size_192ogg", "96ogg": "size_96ogg",
-};
+} satisfies Record<string, string>;
 
 /** 判定这首歌需要隐藏的档位（上游元数据确认无源），返回档位 id 集合。
  *  qualities = 档位全集（调用方给，通常是 QUALITIES 的键）；file = 上游歌曲对象的 file 元数据。
@@ -37,13 +37,14 @@ export function missingTiersOf(qualities: readonly string[], file: any): Set<str
   let seen = false; // 至少认识一个 size 字段才下结论
 
   for (const q of qualities) {
-    const idx = SIZE_NEW_INDEX[q];
-    const v: unknown = idx === undefined ? file[SIZE_FIELD[q] ?? ""] : sn?.[idx];
+    const idx = Object.entries(SIZE_NEW_INDEX).find(([id]) => id === q)?.[1];
+    const field = Object.entries(SIZE_FIELD).find(([id]) => id === q)?.[1] ?? "";
+    const v: unknown = idx === undefined ? file[field] : sn?.[idx];
 
-    if (typeof v !== "number") continue;
+    if (Object.prototype.toString.call(v) !== "[object Number]") continue;
     seen = true;
 
-    if (v <= 0) hide.add(q);
+    if (Number(v) <= 0) hide.add(q);
   }
 
   return seen ? hide : null;

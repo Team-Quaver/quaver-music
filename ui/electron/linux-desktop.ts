@@ -172,7 +172,7 @@ export function readDesktopEntryValue(text: string | null | undefined, key: stri
   return null;
 }
 
-const parseDesktopBool = (v: unknown) => ["true", "1", "yes"].includes(String(v ?? "").trim().toLowerCase());
+const parseDesktopBool = <T>(v: T) => ["true", "1", "yes"].includes(String(v ?? "").trim().toLowerCase());
 
 /**
  * 该 desktop 文件是否被藏起来了（NoDisplay 或 Hidden）。两者语义不同但后果一样：
@@ -204,8 +204,10 @@ async function syncHicolorIcons({ iconSourceDir, dataHome, desktopId }: { iconSo
   const written: string[] = [];
   let files: string[] = [];
 
+  if (!iconSourceDir) return written;
+
   try {
-    files = await readdirAsync(iconSourceDir as string);
+    files = await readdirAsync(iconSourceDir);
   } catch {
     return written; // 素材目录缺失（打包漏配/开发态刚拉仓库）：静默跳过，图标走 fallback
   }
@@ -215,7 +217,7 @@ async function syncHicolorIcons({ iconSourceDir, dataHome, desktopId }: { iconSo
 
     if (!m) continue;
     const sizeDir = `${m[1]}x${m[1]}`;
-    const src = join(iconSourceDir as string, name);
+    const src = join(iconSourceDir, name);
     const destDir = join(dataHome, "icons", "hicolor", sizeDir, "apps");
     const dest = join(destDir, `${desktopId}.png`);
 

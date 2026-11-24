@@ -777,6 +777,12 @@ WebDAV 客户端在 `electron/local/webdav.ts`（PROPFIND + Range；NAS 走挂�
   「打开位置」按钮直接藏掉。
 - **刮削（scrape）**：串行 + 250ms 间隔打 sidecar：`/search` → 打分（歌名吻合是硬门槛，
   宁缺毋滥绝不错配）→ `/song/<qqMid>/lyric?trans&roma` 落缓存 → 无内嵌封面时下载专辑封面。
+  打分口径：**专辑名精确命中优先**（候选排序先看专辑是否完全相等，再比总分）；所有模糊项
+  权重减半（歌名 2→1、歌手 1→0.5、专辑 0.5→0.25），避免同名/翻唱把错误信息与歌词挂上来。
+  QQ 拉伸到歌词或根本没有 QQ 匹配时再走 **LRCLIB**（`/api/get` → `/api/search`，只收
+  `syncedLyrics`；纯文本没有时间轴，播放器解析不出行）。LRCLIB 也按同一套专辑优先/模糊减半
+  规则选结果，且必须至少命中歌手或专辑之一；缓存 JSON 带 `source: "lrclib"`，歌词来源标记
+  为 `lrclib`。测试可用 `QUAVER_LRCLIB_API` 指到假服务，生产默认 https://lrclib.net。
   **扫描发现新歌 → 收尾自动补一轮未匹配刮削**（found>0 才跑，免每次扫描白打网络）。
 - **歌词优先级**（用户明确要求）：官方曲目恒走在线 QRC 管线；**本地曲目仅在刮削命中
   （local.qqMid 非空）时优先复用同一条在线管线**（`pullQqLyric`：qrc=1 → 在位的逐字提供器（内置 AMLL，或被插件顶掉的版本）→
@@ -799,8 +805,8 @@ WebDAV 客户端在 `electron/local/webdav.ts`（PROPFIND + Range；NAS 走挂�
   置 `editedMeta` —— scrapeTrack 的回填恒被跳过（「借匹配拿词/封面/qqMid，不改写用户校正」），
   保存即对该曲 force 重刮；正在播的曲目经 `player.patchCurrentMeta` 就地换展示字段。
 - 验证：`node scripts/verify-local.ts`（解析纯单测 + 真 HTTP 端到端：folder/WebDAV 扫描、
-  Range/416/HEAD、封面抽出、sidecar 歌词、自动刮削落库、口令掩码、移除源清库 + 源码接线
-  含反向断言；已进 verify:static）。
+  Range/416/HEAD、封面抽出、sidecar 歌词、自动刮削落库、专辑精确优先 + LRCLIB 兜底、
+  口令掩码、移除源清库 + 源码接线含反向断言；已进 verify:static）。
 
 ## 页面 CSP（Content-Security-Policy）
 

@@ -17,7 +17,20 @@ export type ListenReportTarget = {
 
 type ReportResponse = { ok?: boolean; reason?: string };
 
-type Sender = (body: Record<string, unknown>, keepalive: boolean) => Promise<ReportResponse>;
+/** /sound-power/report 的请求体（字段名对齐上游；发送端在 player 里序列化）。 */
+export interface ListenReportBody {
+  stream_token: string;
+  song_id: number;
+  mid: string;
+  media_mid: string;
+  audio_time_ms: number;
+  play_duration_seconds: number;
+  song_type: number;
+  singer_id: number;
+  co_singer: string;
+}
+
+type Sender = (body: ListenReportBody, keepalive: boolean) => Promise<ReportResponse>;
 
 type Clock = () => number;
 
@@ -233,7 +246,7 @@ function sameTarget(a: ListenReportTarget | null, b: ListenReportTarget | null):
   return a.mid === b.mid && a.songId === b.songId && a.streamToken === b.streamToken;
 }
 
-function reportBody(job: Job): Record<string, unknown> {
+function reportBody(job: Job): ListenReportBody {
   return {
     stream_token: job.target.streamToken,
     song_id: job.target.songId,

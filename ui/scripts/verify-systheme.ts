@@ -11,6 +11,7 @@ import {
   gsettingsColorScheme, gtkCssTheme, gtkCssThemeFromDirs, gtkTheme, iniValue, isLightHex,
   isLightRGB, kdeTheme, parseColorScheme, parseWindowsPersonalize, readMacShellTheme,
   readSystemTheme, readWindowsShellTheme, watchSystemTheme, watchWindowsShellTheme,
+  type SpawnOpts,
 } from "../electron/systheme.ts";
 
 let pass = 0, fail = 0;
@@ -132,6 +133,7 @@ const base = {
 };
 
 const mk = (o) => ({ ...base, kdeGlobals: kdePath, gtkInis: [gtkPath], desktop: "KDE", ...o });
+
 eq("KDE 会话：以 kdeglobals 为准（GTK 那份是静态快照，忽略）",
   readSystemTheme(mk({ kdeGlobals: write("k1", KDE_DARK), gtkInis: [write("g1", GTK_LIGHT)] })), "dark");
 
@@ -180,17 +182,17 @@ check("确实问的是 org.gnome.desktop.interface color-scheme", (() => {
 
 // spawnSync 挂住 = 主进程假死（会话总线半死时真会这样），两层外部命令都必须钉 timeout
 check("gsettings 调用带 timeout", (() => {
-  let o: { encoding?: string; timeout?: number } = {};
-  gsettingsColorScheme({ run: (_b, _a, opts) => { o = opts; return { stdout: "" }; } });
+  let o: SpawnOpts = {};
+  gsettingsColorScheme({ run: (_b, _a, opts) => { o = opts ?? {}; return { stdout: "" }; } });
 
-  return typeof o?.timeout === "number" && o.timeout > 0;
+  return o.timeout !== undefined && o.timeout > 0;
 })());
 
 check("macOS defaults 调用也带 timeout，且非 mac 平台直接不试", (() => {
-  let o: { encoding?: string; timeout?: number } = {};
-  const got = readMacShellTheme({ platform: "darwin", run: (_b, _a, opts) => { o = opts; return { stdout: "Dark" }; } });
+  let o: SpawnOpts = {};
+  const got = readMacShellTheme({ platform: "darwin", run: (_b, _a, opts) => { o = opts ?? {}; return { stdout: "Dark" }; } });
 
-  return got === "dark" && typeof o?.timeout === "number" && readMacShellTheme({ platform: "linux" }) === null;
+  return got === "dark" && o.timeout !== undefined && readMacShellTheme({ platform: "linux" }) === null;
 })());
 
 // ——— Windows：托盘图的**外壳**判据（注册表）———
@@ -227,11 +229,11 @@ eq("非 Windows 直接不问 reg.exe（run 一旦被调用就会抛）",
   readWindowsShellTheme({ platform: "linux", run: () => { throw new Error("不该被调用"); } }), null);
 
 {
-  let argv: string[] = [], o: { encoding?: string; timeout?: number } = {};
+  let argv: string[] = [], o: SpawnOpts = {};
 
   const got = readWindowsShellTheme({
     platform: "win32",
-    run: (bin, args, opts) => { argv = [bin, ...args]; o = opts; return { stdout: WIN_DARK }; },
+    run: (bin, args, opts) => { argv = [bin, ...args]; o = opts ?? {}; return { stdout: WIN_DARK }; },
   });
 
   eq("win32：深色系统模式 → dark", got, "dark");
@@ -239,7 +241,7 @@ eq("非 Windows 直接不问 reg.exe（run 一旦被调用就会抛）",
     argv?.[0] === "reg.exe" && argv.includes("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
     JSON.stringify(argv));
   check("reg.exe 调用带 timeout（2s 一次的轮询里更不能挂住主进程）",
-    typeof o?.timeout === "number" && o.timeout > 0);
+    o.timeout !== undefined && o.timeout > 0);
 }
 
 eq("reg.exe 拉不起来（spawn 自己失败）→ null，交主进程兜底",

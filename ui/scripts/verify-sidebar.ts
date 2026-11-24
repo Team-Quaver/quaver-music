@@ -252,6 +252,7 @@ ok("max-width 抓手有初值（none→0 不参与插值，必须在展开态给
 // 别的块排到前面时对错块断言（node 脚本自身红，CSS 却是对的）。
 const prm = [...css.matchAll(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g)]
   .map((m) => m[1]!).join("\n");
+
 ok("减弱动效下侧栏成员禁用过渡（直接跳终态）",
   /transition: none/.test(prm) && /\.side-btn svg/.test(prm) && /\.user-meta/.test(prm));
 
@@ -266,8 +267,11 @@ const metaDecl = ruleBody(/\.user-meta \{([^}]*)\}/);
 const colMeta = ruleBody(/body\.side-collapsed \.user-meta \{([^}]*)\}/);
 
 ok("头像行高度钉死（.user min-height，登录态不把头往下推）", /min-height: 48px/.test(userDecl2));
+
 ok(".user-meta 有纵向抓手初值（max-height，none→0 不参与插值）", /max-height: 44px/.test(metaDecl));
+
 ok("缩态把 .user-meta 的高度一起收到 0（只收宽度仍会占纵向版面）", /max-height: 0/.test(colMeta));
+
 ok("max-height 进合并过渡块（与 max-width 同一拍）", /max-height \.24s/.test(mergeBlock));
 
 // ============ ⑦ macOS CSD：原生红绿灯让位 ============
@@ -275,17 +279,24 @@ const electronMain = read("electron/main.ts");
 
 ok("macOS CSD 用 hiddenInset + 自定义红绿灯位置（HIG，不画自绘三钮）",
   /titleBarStyle: "hiddenInset"/.test(electronMain) && /trafficLightPosition/.test(electronMain));
+
 ok("macOS CSD 的 frame 必须为 true（frame:false 会把红绿灯一起摘掉）",
   /frame: macHIG \? true : decorMode === "ssd"/.test(electronMain));
+
 ok("macOS 的 CSD 仍保留应用菜单（系统菜单栏，不是窗口菜单条）",
   /process\.platform === "darwin" \|\| decorMode === "ssd"/.test(electronMain));
+
 ok("mac-csd 收起自绘按钮簇", /body\.mac-csd \.winbtns \{ display: none; \}/.test(cssFlat));
+
 ok("mac-csd 侧栏顶部让出红绿灯带（.user margin，主题改 padding 顶不掉）",
   /body\.mac-csd \.user \{ margin-top: \d+px; \}/.test(cssFlat));
+
 ok("mac-csd 让位带是可拖拽区（-webkit-app-region: drag）",
   /body\.mac-csd \.side-dragtop \{[^}]*app-region: drag/.test(cssFlat));
+
 ok("只有壳层桥存在时才挂 mac-csd（浏览器 dev 保留自绘占位钮）",
   /quaverCSD/.test(prefs) && /classList\.toggle\("mac-csd"/.test(prefs));
+
 ok("壳层注入侧栏让位带节点", /class="side-dragtop"/.test(shell));
 
 // ============ ⑧ 小图标降档：32px 歌单封面不许拉 500/600 原图 ============

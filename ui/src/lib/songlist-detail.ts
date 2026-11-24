@@ -69,6 +69,7 @@ const syncCorrected = new Map<string, boolean>();
 // 近期写入庇护名单（tid → mid → 期望态），localStorage 持久化跨重载存活（同「我喜欢」）
 const recentWrites = (() => {
   try {
+    // SAFETY: 写入端只有 persistWrites（mid → WriteMark）；下面逐项校验时间戳，畸形条目直接丢弃。
     const raw = JSON.parse(localStorage.getItem(LS_WRITES_KEY) ?? "{}") as Record<string, Record<string, WriteMark>>;
     const now = Date.now();
     const map = new Map<string, Map<string, WriteMark>>();
@@ -250,9 +251,7 @@ export async function loadSonglistDetail(id: string | number): Promise<SonglistD
  *  - 加入不可见 → mid 归入 laggingOn（行由调用方插回）+ 计数 +1；
  *  - 删除仍在读数 → 从结果剔除 + 计数 -1；
  *  - corrected = 本轮真的校正过（增量回源据此决定要不要重试追平）。 */
-function reconcileWrites(key: string, songs: any[], total: number): {
-  songs: any[]; total: number; laggingOn: string[]; corrected: boolean;
-} {
+function reconcileWrites(key: string, songs: any[], total: number) {
   const writes = recentWrites.get(key);
 
   if (!writes?.size) return { songs, total, laggingOn: [], corrected: false };
@@ -351,7 +350,7 @@ async function syncSonglist(key: string): Promise<void> {
   const flight = (async () => {
     try {
       const r: any = await api(`/songlist/${key}/detail?page=1&num=${SYNC_PAGE}`);
-      const fetched: any[] = ((r?.songs ?? []) as any[]).filter((s) => s?.mid);
+      const fetched: any[] = (r?.songs ?? []).filter((s: any) => s?.mid);
       const rec = reconcileWrites(key, fetched, Number(r?.total ?? 0));
       syncCorrected.set(key, rec.corrected);
       const old = cache.get(key)!.detail;

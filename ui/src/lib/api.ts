@@ -9,6 +9,8 @@ import { getFallbackSort } from "./prefs";
 import { musicCacheSeed } from "./music-cache";
 import { cfg, cfgSet } from "./config";
 import { missingTiersOf } from "./songtiers";
+import { isJsonObject, jsonNumber, jsonString, type JsonValue } from "./json-value";
+import type { Song } from "../player";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -18,7 +20,7 @@ export class ApiError extends Error {
 
 export const api = async <T = any>(path: string, init?: RequestInit): Promise<T> => {
   const r = await fetch("/api" + path, init);
-  let j: any = null;
+  let j: JsonValue = null;
 
   try {
     j = await r.json();
@@ -26,17 +28,21 @@ export const api = async <T = any>(path: string, init?: RequestInit): Promise<T>
     throw new ApiError(r.status, `HTTP ${r.status} ${path}`);
   }
 
-  if (!r.ok || (typeof j?.code === "number" && j.code !== 0)) {
-    throw new ApiError(r.status, j?.msg ?? `HTTP ${r.status} ${path}`);
+  const code = isJsonObject(j) ? j.code : undefined;
+  const msg = isJsonObject(j) ? j.msg : undefined;
+
+  if (!r.ok || jsonNumber(code, Number.NaN) !== 0 && jsonNumber(code, Number.NaN) !== Number.NaN) {
+    throw new ApiError(r.status, jsonString(msg, `HTTP ${r.status} ${path}`));
   }
 
-  return j.data as T;
+  // SAFETY: 中继信封固定为 {code,msg,data}；data 的形状由调用点的泛型 T 声明（各端点的契约）。
+  return (isJsonObject(j) ? j.data : null) as T;
 };
 
-export const postJson = <T = any>(path: string, body: unknown): Promise<T> =>
+export const postJson = <T = any>(path: string, body: JsonValue): Promise<T> =>
   api<T>(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
-export const songArtists = (s: any) => (s.singer ?? []).map((x: any) => x.name).join(" / ");
+export const songArtists = (s: Partial<Song> | null | undefined) => (s?.singer ?? []).map((x) => x.name).join(" / ");
 
 /** 歌单写接口（PlaylistDetailWrite）的 songType 与读接口 Song.type 不是同一套枚举：
  *  普通歌曲读侧 type=1，写侧是 0 —— 发错枚举时上游 retCode=0、result.dirId=0，
@@ -54,10 +60,10 @@ export const songArtists = (s: any) => (s.singer ?? []).map((x: any) => x.name).
 // subtitle 是另一回事：它是「《小时代》电影主题曲」这类一句话说明，与 title 上的括号后缀不重叠，
 // 展示时作为标题行的次级文本追加（见 songs.ts 的 .rt-sub）。
 /** 剥掉 search 接口 highlight=true 漏进任意字符串字段的 <em> 标签 */
-export const stripEm = (s: unknown) => String(s ?? "").replace(/<\/?em>/gi, "");
+export const stripEm = (s: string | number | null | undefined) => String(s ?? "").replace(/<\/?em>/gi, "");
 
 /** 歌曲展示名：title 优先（= 主名 + 版本后缀），退化到 name */
-export function songTitle(s: any): string {
+export function songTitle(s: Pick<Song, "name" | "title"> | null | undefined): string {
   const name = stripEm(s?.name).trim();
   const title = stripEm(s?.title).trim();
 
@@ -65,7 +71,7 @@ export function songTitle(s: any): string {
 }
 
 /** 歌曲副标题（歌曲说明，可为空） */
-export const songSubtitle = (s: any) => stripEm(s?.subtitle).trim();
+export const songSubtitle = (s: Pick<Song, "subtitle"> | null | undefined) => stripEm(s?.subtitle).trim();
 
 /** 歌曲分享链接（QQ 音乐网页版详情页，与官方「复制链接」同格式） */
 export const songShareUrl = (mid: string) =>
@@ -120,6 +126,7 @@ export const cloudCoverPath = (key: string) =>
 export const coverUrl = (s: any, size = 300) => {
   // 微云条目：刮削/手动导入的封面和条目元数据一起存在 sidecar 的云盘目录。
   if (s?.cloud) return s.cloud.hasCover ? cloudCoverPath(s.cloud.key) : "";
+
   // 本地/NAS 曲目：封面走同源 /api/local/cover/<id>（hasCover 指纹随 Song 走，
   // 没封面回空串 —— 行渲染/正在播放页对空串都有占位）
   if (s?.local) return s.local.hasCover ? localCoverPath(s.local.id) : "";
@@ -188,13 +195,21 @@ export const QUALITIES = {
 
 export type Quality = keyof typeof QUALITIES;
 
+/** 音质档位全集（运行时校验用）：QUALITIES 的键。 */
+export const QUALITY_IDS: Quality[] = Object.keys(QUALITIES).flatMap((id) => (isQualityId(id) ? [id] : []));
+
+/** 运行时判档位 id（QUALITIES 的键）。 */
+export function isQualityId(id: string): id is Quality {
+  return Object.prototype.hasOwnProperty.call(QUALITIES, id);
+}
+
 // 默认音质存在 quaver.conf 的 [Quality] DefaultQuality（Auto｜96ogg｜128｜192ogg｜320｜320ogg｜flac｜640ogg｜atmos2｜atmos51｜atmos71｜master）
 // 表必须与后端 tierTable 全量对齐（getQuality 白名单 + 播放条菜单兜底数据源）：
 // 设置页列表是动态的（/stream/tiers all_tiers），点了一个表里没有的档，syncQ 回读会被白名单弹回「自动」。
 export function getQuality(): Quality | "auto" {
   const q = cfg("Quality.DefaultQuality", "Auto");
 
-  return q && q !== "Auto" && q in QUALITIES ? (q as Quality) : "auto";
+  return q && q !== "Auto" && isQualityId(q) ? q : "auto";
 }
 
 export function setQuality(q: Quality | "auto") {
@@ -211,17 +226,25 @@ export const setSessionQuality = (q: Quality | "auto" | null) => { sessionQualit
 export const effectiveQuality = (): Quality | "auto" => sessionQuality ?? getQuality();
 
 /** 档位短标签（播放条音质胶囊用） */
-export const QUALITY_SHORT: Record<string, string> = {
+export const QUALITY_SHORT = {
   auto: "自动", "96ogg": "流畅·Ogg", "128": "标准", "192ogg": "HQ192·Ogg", "320": "HQ",
   "320ogg": "HQ·Ogg", flac: "SQ", "640ogg": "SQ·Ogg",
   atmos2: "臻品", atmos51: "全景", atmos71: "全景7.1", master: "母带",
-};
+} satisfies Record<Quality | "auto", string>;
+
+/** 任意字符串档位 id → 短标签（表外返回空串，调用方保留兜底文案）。 */
+export const qualityShortOf = (id: string): string =>
+  Object.entries(QUALITY_SHORT).find(([key]) => key === id)?.[1] ?? "";
 
 // —— 单曲档位存在性（播放条音质选择器隐藏无源档）——
 // 判定逻辑与 size_new 位置语义在 lib/songtiers.ts（零依赖纯模块，verify-songtiers 有真单测）；
 // 这里只做档位全集的对接。
-export function songMissingTiers(song: any): Set<Quality> | null {
-  return missingTiersOf(Object.keys(QUALITIES), song?.file) as Set<Quality> | null;
+export function songMissingTiers(song: Pick<Song, "file"> | null | undefined): Set<Quality> | null {
+  const missing = missingTiersOf(QUALITY_IDS, song?.file);
+
+  if (missing === null) return null;
+
+  return new Set([...missing].flatMap((id) => (isQualityId(id) ? [id] : [])));
 }
 
 // —— Typhoeus 播放流：resolve 协商（会员门控 403 / 加密档 451 / 回退降级 degraded）→ token 中继 ——
@@ -347,7 +370,7 @@ export async function resolveStreamUrl(song: any, quality: Quality | "auto" = ef
   }
 
   const mediaId: string = song.file?.media_mid ?? song.media_mid ?? song.mid;
-  let tier = quality as string;
+  let tier: string = quality;
 
   if (tier === "auto") tier = (await getStreamTiers()).max ?? "128";
   // 回退排序开关（设置页）：默认不把「臻品全景声（5.1 / 7.1）」当作优先降档落点（压到链尾兜底）

@@ -55,6 +55,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { configDir, type Env } from "./config.ts";
 import { gtkCssNewest, iniValue, readSystemTheme } from "./systheme.ts";
+import { isJsonArray, isJsonObject, type JsonValue } from "../src/lib/json-value.ts";
 
 /** 一处命中：色值 + 来源（source 给程序判断，label 直接进设置页文案）。 */
 export interface AccentHit {
@@ -84,7 +85,7 @@ export interface AccentOpts {
 // —— 颜色字面量 ——
 
 /** `#rgb` / `#rrggbb` / `#rrggbbaa` → 规范小写 6 位；认不出返回 null（8 位丢 alpha）。 */
-export function normalizeHex(v: unknown): string | null {
+export function normalizeHex(v: string | null | undefined): string | null {
   const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})(?:[0-9a-f]{2})?$/i.exec(String(v ?? "").trim().replace(/^['"]|['"]$/g, ""));
 
   if (!m) return null;
@@ -94,7 +95,7 @@ export function normalizeHex(v: unknown): string | null {
 }
 
 /** KDE 的 `AccentColor=61,174,233`（以及 [Colors:Selection] 的 BackgroundNormal 同格式）→ `#rrggbb`。 */
-export function parseRGBTriple(v: unknown): string | null {
+export function parseRGBTriple(v: string | null | undefined): string | null {
   const m = /^(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})$/.exec(String(v ?? "").trim());
 
   if (!m) return null;
@@ -111,45 +112,51 @@ export function parseRGBTriple(v: unknown): string | null {
 const normKey = (k: string) => k.toLowerCase().replace(/[^a-z]/g, "");
 
 /** 认得的「强调色」键，值 = 优先级（小的赢）。其余键一律不算数（免得捡到 surface 之类的底色）。 */
-const ACCENT_KEY_RANK: Record<string, number> = {
+const ACCENT_KEY_RANK = {
   primary: 0,
   mprimary: 1,
   accent: 2,
   accentcolor: 3,
   accentbgcolor: 4,
-};
+} as const satisfies Record<string, number>;
+
+/** 认得的强调色键名（归一化后）。 */
+type AccentKey = keyof typeof ACCENT_KEY_RANK;
+
+function isAccentKey(key: string): key is AccentKey {
+  return Object.prototype.hasOwnProperty.call(ACCENT_KEY_RANK, key);
+}
 
 interface Candidate {
   /** 归一化后的键名（一定是 ACCENT_KEY_RANK 里有的） */
-  key: string;
+  key: AccentKey;
   /** 路径上离得最近的 dark / light 段（没有 = ""） */
   mode: "dark" | "light" | "";
   color: string;
 }
 
-function walkJSON(node: unknown, key: string | null, mode: "dark" | "light" | "", out: Candidate[]) {
-  if (typeof node === "string") {
-    const color = normalizeHex(node);
+function walkJSON(node: JsonValue, key: AccentKey | null, mode: "dark" | "light" | "", out: Candidate[]) {
+  if (Object.prototype.toString.call(node) === "[object String]") {
+    const color = normalizeHex(String(node));
 
     if (color && key) out.push({ key, mode, color });
 
     return;
   }
 
-  if (Array.isArray(node)) {
+  if (isJsonArray(node)) {
     for (const v of node) walkJSON(v, key, mode, out);
 
     return;
   }
 
-  if (!node || typeof node !== "object") return;
+  if (!isJsonObject(node)) return;
 
-  for (const [rawK, v] of Object.entries(node as Record<string, unknown>)) {
+  for (const [rawK, v] of Object.entries(node)) {
     const nk = normKey(rawK);
-    const isAccent = nk in ACCENT_KEY_RANK;
     // 只有「认得的强调色键」才接管 key —— 否则 {"colors":{"primary":…}} 里的 colors 会把
     // 内层的 primary 名字顶掉。mode 段同理：只在恰好是 dark/light 时才改。
-    walkJSON(v, isAccent ? nk : key, nk === "dark" ? "dark" : nk === "light" ? "light" : mode, out);
+    walkJSON(v, isAccentKey(nk) ? nk : key, nk === "dark" ? "dark" : nk === "light" ? "light" : mode, out);
   }
 }
 
@@ -158,7 +165,7 @@ function walkJSON(node: unknown, key: string | null, mode: "dark" | "light" | ""
  * 排序：键优先级 → 与 mode 一致（0）/ 没表态（1）/ 相反（2）→ 出现顺序。认不出返回 null。
  */
 export function extractAccent(text: string, mode: "dark" | "light"): string | null {
-  let data: unknown;
+  let data: JsonValue;
 
   try { data = JSON.parse(String(text ?? "")); } catch { return null; }
 
@@ -181,7 +188,7 @@ export function extractAccent(text: string, mode: "dark" | "light"): string | nu
 // —— 各来源的纯解析 ——
 
 /** GNOME 47+ 的 accent-color 命名色（org.gnome.libadwaita 的官方九色）→ 色值。 */
-export const GNOME_ACCENTS: Record<string, string> = {
+export const GNOME_ACCENTS = {
   blue: "#3584e4",
   teal: "#2190a4",
   green: "#3a944a",
@@ -191,13 +198,13 @@ export const GNOME_ACCENTS: Record<string, string> = {
   pink: "#d56199",
   purple: "#9141ac",
   slate: "#6f8396",
-};
+} as const satisfies Record<string, string>;
 
 /** `gsettings get … accent-color` 的输出（`'blue'`）→ `#3584e4`；'default' / 认不出返回 null。 */
-export function parseGnomeAccent(raw: unknown): string | null {
+export function parseGnomeAccent(raw: string | null | undefined): string | null {
   const v = String(raw ?? "").trim().replace(/^['"]|['"]$/g, "").toLowerCase();
 
-  return GNOME_ACCENTS[v] ?? null;
+  return Object.entries(GNOME_ACCENTS).find(([name]) => name === v)?.[1] ?? null;
 }
 
 /** GTK 配色 css 里的强调色：libadwaita 的 accent_bg_color 优先，accent_color 兜底。 */
@@ -215,10 +222,10 @@ export function gtkCssAccent(text: string): string | null {
 }
 
 /** macOS `AppleAccentColor`（-1..6，键不存在 = 蓝）→ 色值。取值是系统设置里那八个。 */
-export function parseMacAccent(stdout: unknown): string | null {
+export function parseMacAccent(stdout: string | null | undefined): string | null {
   const v = String(stdout ?? "").trim();
 
-  const table: Record<string, string> = {
+  const table = {
     "-1": "#8e8e93", // 多彩（Graphite）
     "0": "#ff5257",  // 红
     "1": "#ff9f0a",  // 橙
@@ -227,15 +234,15 @@ export function parseMacAccent(stdout: unknown): string | null {
     "4": "#0a84ff",  // 蓝（出厂档）
     "5": "#a855f7",  // 紫
     "6": "#ff2d55",  // 粉
-  };
+  } as const satisfies Record<string, string>;
 
   if (!/^-?\d+$/.test(v)) return null;
 
-  return table[v] ?? null;
+  return Object.entries(table).find(([code]) => code === v)?.[1] ?? null;
 }
 
 /** Windows DWM 的强调色（AccentColor 是 **ABGR** DWORD；ColorizationColor 是 AARRGGBB）→ 色值。 */
-export function parseWindowsAccent(output: unknown): string | null {
+export function parseWindowsAccent(output: string | null | undefined): string | null {
   const src = String(output ?? "");
   const acc = /accentcolor\s+REG_DWORD\s+0x([0-9a-fA-F]+)/i.exec(src);
 

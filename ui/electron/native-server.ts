@@ -75,9 +75,7 @@ function serveSparkle(sub: string, res: ServerResponse, pluginsRoot?: string) {
     return res.end(JSON.stringify({ code: -1, msg: "sparkle: not found" }));
   }
 
-  const type = file.endsWith(".js") || file.endsWith(".mjs") ? "text/javascript"
-    : file.endsWith(".json") ? "application/json"
-    : file.endsWith(".css") ? "text/css" : "application/octet-stream";
+  const type = mimeOf(extname(file));
 
   res.statusCode = 200;
   res.setHeader("content-type", type);
@@ -85,7 +83,7 @@ function serveSparkle(sub: string, res: ServerResponse, pluginsRoot?: string) {
   res.end(readFileSync(target));
 }
 
-const MIME: Record<string, string> = {
+const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript",
   ".mjs": "text/javascript",
@@ -99,13 +97,35 @@ const MIME: Record<string, string> = {
   ".json": "application/json",
   ".woff2": "font/woff2",
   ".mp3": "audio/mpeg",
-};
+} as const satisfies Record<string, string>;
+
+/** 扩展名 → content-type（未知扩展名按二进制流）。 */
+function mimeOf(ext: string): string {
+  return Object.entries(MIME).find(([key]) => key === ext)?.[1] ?? "application/octet-stream";
+}
 
 const SIDECAR = process.env.QUAVER_API ?? "http://127.0.0.1:3200";
 
 // 流中继的可预期中断：客户端切歌/seek/关页面 → AbortError；上游（sidecar/CDN）半路断流
 // → undici 的 TypeError: terminated / premature close。都不是异常，只是常态。
 const EXPECTED_ABORT_CODES = new Set(["ABORT_ERR", "ERR_STREAM_PREMATURE_CLOSE", "ERR_STREAM_DESTROYED"]);
+
+/** 请求体 → fetch 的 BodyInit：Buffer 在运行期就是合法的 ArrayBufferView。 */
+function bodyInit(body: Buffer | undefined): BodyInit | undefined {
+  return body === undefined ? undefined : new Uint8Array(body);
+}
+
+/** fetch 的响应流 → Node 可消费的 web 流（Node 24 的 Readable.fromWeb 接受同构对象）。 */
+function asNodeStream(body: ReadableStream<Uint8Array>): NodeReadableStream {
+  // SAFETY: DOM ReadableStream 与 node:stream/web 的 ReadableStream 在运行期是同一实现，
+  // 只差两套 lib 的声明；Readable.fromWeb 只用到 getReader 这一个口子。
+  return body as NodeReadableStream;
+}
+
+/** EADDRINUSE 判定（端口被占时才回落随机端口）。 */
+function isEaddrInUse(err: Error | null | undefined): boolean {
+  return err instanceof Error && "code" in err && err.code === "EADDRINUSE";
+}
 
 /** 中继断流的各种「正常」形态：DOM AbortError、Node errno 码、undici 的 terminated。 */
 type Abortish = (Error & { code?: string }) | null | undefined;
@@ -127,7 +147,7 @@ async function pipeStream(body: NodeReadableStream, res: ServerResponse, signal?
   try {
     await pipeline(Readable.fromWeb(body), res, { signal });
   } catch (e) {
-    if (!isExpectedAbort(e as Abortish)) console.warn(`[quaver] relay stream aborted: ${e}`);
+    if (!isExpectedAbort(e instanceof Error ? e : null)) console.warn(`[quaver] relay stream aborted: ${String(e)}`);
   }
 }
 
@@ -411,7 +431,7 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
           headers,
           // Buffer 交给 undici 当 body 是运行时合法的，但 DOM 那份 BodyInit 的 ArrayBufferView
           // 泛型与 Buffer<ArrayBufferLike> 判不相容 —— 只在 fetch 边界上转一次。
-          body: await readBody(req) as unknown as BodyInit,
+          body: bodyInit(await readBody(req)),
           redirect: "manual",
           signal: ac.signal,
         });
@@ -423,7 +443,7 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
             if (k === "transfer-encoding" || k === "content-encoding" || k === "connection") return;
             res.appendHeader(k, v);
           });
-          await pipeStream(upstream.body as unknown as NodeReadableStream, res, ac.signal);
+          await pipeStream(asNodeStream(upstream.body), res, ac.signal);
 
           return;
         }
@@ -467,7 +487,7 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
       return res.end("not found");
     }
 
-    const type = MIME[extname(file)] ?? "application/octet-stream";
+    const type = mimeOf(extname(file));
     const size = statSync(file).size;
     res.writeHead(200, { "content-type": type, "content-length": String(size) });
     // 流式而不是 readFile：这份服务器跑在**主进程**里，一次启动要发十几个产物
@@ -485,7 +505,7 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
   } catch (e) {
     // 首选端口被占（别的实例残留 / 端口冲突）→ 回落系统分配。
     // 固定端口的意义是 origin 稳定，但**起不来比 origin 变严重得多**，所以这里绝不硬失败。
-    if (port === 0 || (e as NodeJS.ErrnoException)?.code !== "EADDRINUSE") throw e;
+    if (port === 0 || !isEaddrInUse(e instanceof Error ? e : null)) throw e;
     console.warn(`[quaver] 端口 ${port} 被占用，回落随机端口（本次渲染层 origin 会变）`);
 
     try { server.close(); } catch {}
@@ -494,7 +514,12 @@ export async function startQuaverServer({ dist, logFile, host = "127.0.0.1", por
     await listen(server, 0, host);
   }
 
-  const actual = (server.address() as AddressInfo).port;
+  const address = server.address();
+
+  if (address === null || Object.prototype.toString.call(address) === "[object String]") throw new Error("native-server 未监听 TCP");
+
+  // SAFETY: 上一行已排除 null 与 unix socket 的字符串形态，剩下必为 AddressInfo（带 port）。
+  const actual = (address as AddressInfo).port;
 
   return { server, url: `http://${host}:${actual}/`, close: () => server.close() };
 }

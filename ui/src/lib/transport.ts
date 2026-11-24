@@ -9,6 +9,8 @@
 //   pcm    —— 位置来自 renderer 实际消费的 PCM 样本，不能信 mpv `ao_pcm` 的预写时间戳。
 import { getEqualizerState, getFadeMs } from "./prefs";
 import type { EqState } from "../../electron/audio/eq-config.ts";
+import type { AudioCommand } from "../../electron/bridge-types.ts";
+import { isJsonObject, type JsonValue } from "./json-value";
 
 export type TransportKind = "engine" | "web";
 
@@ -162,8 +164,8 @@ export class WebTransport implements Transport {
 // —— EngineTransport：主进程 mpv 引擎 ————————————————————————————
 
 export type EngineBridge = {
-  invoke(cmd: unknown): Promise<any>;
-  onEvent(cb: (ev: any) => void): () => void;
+  invoke(cmd: AudioCommand): Promise<any>;
+  onEvent(cb: (ev: JsonValue) => void): () => void;
 };
 
 /** pcm 兼容模式的渲染钩子：native 版 EngineTransport 恒为 null，
@@ -285,8 +287,8 @@ export class EngineTransport implements Transport {
     return () => { this.listeners.delete(cb); };
   }
 
-  private onEngineEvent(ev: any) {
-    if (!ev || typeof ev !== "object") return;
+  private onEngineEvent(ev: JsonValue) {
+    if (!isJsonObject(ev)) return;
 
     switch (ev.t) {
       case "state": {
@@ -467,7 +469,7 @@ export class EngineTransport implements Transport {
     this.emit({ type: "time" });
   }
 
-  protected invoke(cmd: Record<string, unknown>): Promise<any> {
+  protected invoke(cmd: AudioCommand): Promise<any> {
     return this.bridge.invoke(cmd);
   }
 
@@ -640,6 +642,7 @@ export class EngineTransport implements Transport {
 
     if (!r?.ok) throw new Error(r?.error ?? "获取音频设备列表失败");
 
+    // SAFETY: 主进程 devices 应答逐项构造 { id, desc }（electron/audio/backend.ts listDevices），形状即 AudioDeviceInfo。
     return { current: String(r.current ?? "auto"), devices: (r.devices ?? []) as AudioDeviceInfo[] };
   }
 

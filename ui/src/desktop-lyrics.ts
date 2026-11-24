@@ -45,33 +45,75 @@ import { amllPlayerByHost, builtinKaraokeProvider } from "./lyrics/amll";
 import type { SparkleKaraokeLine } from "@quaver/sparkle";
 import { bootNativeOverlays } from "./components/NativeDrop";
 
+declare global {
+  interface Window {
+    /** Crotchet 调试注入缝：只在 Crotchet 或无桥页（浏览器直开）挂出，量测脚本用它喂快照。 */
+    __dl?: {
+      injectTrack(p: DlTrackPayload): void;
+      injectSync(p: DlSyncPayload): void;
+      applyStyle(): void;
+      stripDiag(): {
+        applied: number;
+        top: number;
+        pending: number;
+        pendingTop: number;
+        viewH: number;
+        win: string;
+        p: number;
+        centerRel: number;
+        pWant: number;
+        pLocked: boolean;
+        pPending: number;
+        scroll: Array<{ from: number; to: number; tx: number; age: number }>;
+      };
+    };
+  }
+}
+
 const bridge = window.quaverDesktopLyrics;
 const docEl = document.documentElement;
 
+/** 未捕获拒绝的 reason 可能是任意值：只取能读的 message/stack，读不到就原样转字符串。 */
+function reasonText(reason: Error | string | number | boolean | null | undefined): string {
+  if (reason instanceof Error) return reason.stack ?? reason.message;
+
+  return String(reason);
+}
+
 // —— DOM ——
-const root = document.getElementById("dl-root") as HTMLDivElement;
-const clip = document.getElementById("dl-clip") as HTMLDivElement;
-const empty = document.getElementById("dl-empty") as HTMLDivElement;
-const trackInfo = document.getElementById("dl-track-info") as HTMLDivElement;
-const trackSep = document.getElementById("dl-track-sep") as HTMLSpanElement;
-const trackMeta = document.getElementById("dl-track-meta") as HTMLSpanElement;
-const coverImg = document.getElementById("dl-cover") as HTMLImageElement;
-const coverFallback = document.getElementById("dl-cover-fallback") as HTMLSpanElement;
+/** 页面静态骨架的元素一律在模块装载时一次性取齐：缺一个就是 HTML 与脚本不同源，当场炸比运行时空引用好查。 */
+function byId<T extends HTMLElement>(id: string): T {
+  const el = document.getElementById(id);
+
+  if (el === null) throw new Error(`desktop-lyrics.html 缺少 #${id}`);
+
+  // SAFETY: 元素 id 由本页静态 HTML 固定（见 desktop-lyrics.html），调用点按该 id 的标签声明 T。
+  return el as T;
+}
+
+const root = byId<HTMLDivElement>("dl-root");
+const clip = byId<HTMLDivElement>("dl-clip");
+const empty = byId<HTMLDivElement>("dl-empty");
+const trackInfo = byId<HTMLDivElement>("dl-track-info");
+const trackSep = byId<HTMLSpanElement>("dl-track-sep");
+const trackMeta = byId<HTMLSpanElement>("dl-track-meta");
+const coverImg = byId<HTMLImageElement>("dl-cover");
+const coverFallback = byId<HTMLSpanElement>("dl-cover-fallback");
 let failedCover = "";
-const prevBtn = document.getElementById("dl-prev") as HTMLButtonElement;
-const playBtn = document.getElementById("dl-play") as HTMLButtonElement;
-const nextBtn = document.getElementById("dl-next") as HTMLButtonElement;
-const fontDec = document.getElementById("dl-font-dec") as HTMLButtonElement;
-const fontInc = document.getElementById("dl-font-inc") as HTMLButtonElement;
-const weightVal = document.getElementById("dl-weight-val") as HTMLButtonElement;
-const delayDec = document.getElementById("dl-delay-dec") as HTMLButtonElement;
-const delayVal = document.getElementById("dl-delay-val") as HTMLButtonElement;
-const delayInc = document.getElementById("dl-delay-inc") as HTMLButtonElement;
-const lockBtn = document.getElementById("dl-lock") as HTMLButtonElement;
-const closeBtn = document.getElementById("dl-close") as HTMLButtonElement;
-const progress = document.getElementById("dl-progress") as HTMLDivElement;
-const progressFill = document.getElementById("dl-progress-fill") as HTMLElement;
-const grip = document.getElementById("dl-resize") as HTMLDivElement;
+const prevBtn = byId<HTMLButtonElement>("dl-prev");
+const playBtn = byId<HTMLButtonElement>("dl-play");
+const nextBtn = byId<HTMLButtonElement>("dl-next");
+const fontDec = byId<HTMLButtonElement>("dl-font-dec");
+const fontInc = byId<HTMLButtonElement>("dl-font-inc");
+const weightVal = byId<HTMLButtonElement>("dl-weight-val");
+const delayDec = byId<HTMLButtonElement>("dl-delay-dec");
+const delayVal = byId<HTMLButtonElement>("dl-delay-val");
+const delayInc = byId<HTMLButtonElement>("dl-delay-inc");
+const lockBtn = byId<HTMLButtonElement>("dl-lock");
+const closeBtn = byId<HTMLButtonElement>("dl-close");
+const progress = byId<HTMLDivElement>("dl-progress");
+const progressFill = byId<HTMLElement>("dl-progress-fill");
+const grip = byId<HTMLDivElement>("dl-resize");
 
 // 图标两种画法：solid=填充（播放形态），line=描边（方向条/加号/叉）——样式见 desktop-lyrics.css
 const ICON = {
@@ -107,9 +149,9 @@ coverImg.addEventListener("error", () => {
 
 // Crotchet 调试模式（QUAVER_CROTCHET=1）：未捕获异常/拒绝也进主日志流水线（preload console 桥在，
 // console.error 本身已可达；这里补上 window.onerror 与 unhandledrejection 两条漏网鱼）
-if ((window as any).quaverCrotchet) {
+if (window.quaverCrotchet) {
   window.addEventListener("error", (e) => console.error("[dl-window-error]", e.message, `${e.filename}:${e.lineno}:${e.colno}`));
-  window.addEventListener("unhandledrejection", (e) => console.error("[dl-unhandled-rejection]", String((e.reason && (e.reason as any).stack) || e.reason)));
+  window.addEventListener("unhandledrejection", (e) => console.error("[dl-unhandled-rejection]", String(reasonText(e.reason))));
 }
 
 // —— 镜像状态 ——
@@ -340,7 +382,7 @@ const MARQUEE_SPEED_PX_S = 72; // 横向滚动速度（px/s，与字号无关，
 
 interface Box { top: number; bottom: number; left: number; right: number }
 
-const classOf = (el: Element): string => String((el as HTMLElement).className ?? "");
+const classOf = (el: Element): string => el.getAttribute("class") ?? "";
 
 /** 任一行元素：.xxx_lyricLine（和声行是 .xxx_lyricBgLine）；排除行容器 .xxx_lyricLineWrapper。 */
 const isAnyLineEl = (el: Element): boolean =>
@@ -411,13 +453,15 @@ function rowsOf(wrapper: HTMLElement, withBg: boolean): HTMLElement[] {
   const out: HTMLElement[] = [];
 
   const rowsIn = (lineEl: Element): void => {
-    out.push(...(Array.from(lineEl.children) as HTMLElement[]));
+    for (const child of lineEl.children) if (child instanceof HTMLElement) out.push(child);
   };
 
-  for (const kid of Array.from(wrapper.children) as HTMLElement[]) {
+  for (const kid of wrapper.children) {
+    if (!(kid instanceof HTMLElement)) continue;
+
     if (isLineEl(kid)) rowsIn(kid);
     else if (withBg && isBgWrap(kid))
-      for (const bg of Array.from(kid.children) as HTMLElement[]) if (isAnyLineEl(bg)) rowsIn(bg);
+      for (const bg of kid.children) if (bg instanceof HTMLElement && isAnyLineEl(bg)) rowsIn(bg);
   }
 
   return out;
@@ -595,15 +639,18 @@ function tightenStrip(force = false): void {
   const H0 = clip.clientHeight;
 
   if (H0 < 40) return;
-  const playerEl = clip.firstElementChild as HTMLElement | null; // renderAmll 挂进来的 .amll-lyric-player
+  const playerEl = clip.firstElementChild; // renderAmll 挂进来的 .amll-lyric-player
 
-  if (!playerEl) return;
+  if (!(playerEl instanceof HTMLElement)) return;
+
   const clipTop = clip.getBoundingClientRect().top;
   const s = alignApplied * H0;
   const dual = getDesktopLyricsMode() === "dual";
   const boxes: Array<{ el: HTMLElement; top: number; bottom: number; height: number }> = [];
 
-  for (const kid of Array.from(playerEl.children) as HTMLElement[]) {
+  for (const kid of playerEl.children) {
+    if (!(kid instanceof HTMLElement)) continue;
+
     if (!kid.innerText?.trim()) continue; // 间奏点等无字元素不算行
     const r = kid.getBoundingClientRect();
     boxes.push({ el: kid, top: r.top - clipTop, bottom: r.bottom - clipTop, height: r.height });
@@ -759,7 +806,7 @@ if (bridge) {
   });
   // 主进程写盘（托盘/其它窗）后的增量广播 → 字体/字号即时跟随（lib/config 的订阅先合并快照，
   // 监听按注册顺序执行：本模块 import 时先注册 lib/config 的合并器）
-  const cfgBridge = (window as any).quaverConfig;
+  const cfgBridge = window.quaverConfig;
   cfgBridge?.onChanged?.(() => {
     void Promise.resolve(loadConfig()).then(() => { applyStyle(); syncInteractionMode(); });
     syncTools();
@@ -869,8 +916,8 @@ void document.fonts?.ready.then(() => tightenStrip(true));
 
 // Crotchet 调试活体注入缝（与主窗 __player/dev 钩子同口径）：CDP / 控制台可直接喂镜像快照验渲染链路。
 // 无桥页（纯浏览器开的 desktop-lyrics.html）没有实时镜像抢写状态，缝恒开 —— 排版量测就用这条确定性路。
-if ((window as any).quaverCrotchet || !bridge) {
-  (window as any).__dl = {
+if (window.quaverCrotchet || !bridge) {
+  window.__dl = {
     injectTrack: (p: DlTrackPayload) => { track = p; reRender(true); syncTrackInfo(); syncTools(); for (const cb of [...notifyCbs]) cb(); },
     // 与 bridge.onSync 的生产路径逐行对齐（含 tightenStrip 的 4Hz 驱动），量测才有代表性
     injectSync: (p: DlSyncPayload) => { sync = p; syncAt = performance.now(); syncTools(); tightenStrip(); for (const cb of [...notifyCbs]) cb(); },

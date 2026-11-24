@@ -296,7 +296,7 @@ await page.waitForFunction(() => window.__installLocalMsg !== null, { timeout: 8
 
 const msg = await page.evaluate(() => window.__installLocalMsg);
 
-check("installLocal 收到本体与元数据（id 取自插件）", msg?.meta?.id === "smoke-local" && msg?.meta?.name === "冒烟本地插件" && typeof msg.dataBase64 === "string");
+check("installLocal 收到本体与元数据（id 取自插件）", msg?.meta?.id === "smoke-local" && msg?.meta?.name === "冒烟本地插件" && Object.prototype.toString.call(msg.dataBase64) === "[object String]");
 
 await click(catTab("plugin"));
 

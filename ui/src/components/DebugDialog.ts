@@ -21,20 +21,12 @@
 import "./dialog.css";
 import { copyText, escHtml } from "../lib/api";
 import { toast } from "../lib/toast";
+import type { DebugMetricsReply } from "../../electron/bridge-types.ts";
 
-const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const errText = <T>(e: T) => (e instanceof Error ? e.message : String(e));
 
+/** 弹窗表格行：Chromium 进程直接摊开；外部子进程缺 peak/cpu，补零并标 ext。 */
 type ProcRow = { pid: number; tag: string; rssKB: number; peakKB: number; privKB?: number | null; cpu: number; ext?: boolean };
-
-type Metrics = {
-  ok: boolean;
-  app: { version: string; packaged: boolean; platform: string; arch: string; electron: string; chrome: string; node: string; configDir: string };
-  main: { pid: number; rssKB: number; heapUsedMB: number; heapTotalMB: number; externalMB: number; uptimeSec: number };
-  windows: { mainPid: number; dlPid: number };
-  procs: ProcRow[];
-  external: { pid: number; tag: string; rssKB: number | null; privKB: number | null }[];
-  totals: { chromiumRSSKB: number; externalRSSKB: number; privKB: number; privKnown: boolean; count: number };
-};
 
 const REFRESH_MS = 5000;
 const mb = (kb: number): string => (kb >= 1024 ? (kb / 1024).toFixed(0) + " MB" : kb + " KB");
@@ -68,9 +60,7 @@ const kv = (label: string, value: string, hint = ""): string =>
   `<div class="dbg-kv"><span>${escHtml(label)}</span><b>${escHtml(value)}</b>`
   + (hint ? `<i>${escHtml(hint)}</i>` : "") + `</div>`;
 
-const bridge = () => (window as any).quaverDebug as
-  | { devtools(msg: Record<string, unknown>): Promise<any>; metrics(): Promise<any> }
-  | undefined;
+const bridge = () => window.quaverDebug;
 
 let layer: HTMLElement | null = null;
 
@@ -99,7 +89,7 @@ export function showDebugDialog(): void {
   const meta = layer.querySelector<HTMLElement>("[data-meta]")!;
   const auto = layer.querySelector<HTMLInputElement>("[data-auto]")!;
   let timer: number | null = null;
-  let last: Metrics | null = null;
+  let last: DebugMetricsReply | null = null;
 
   const stop = () => { if (timer !== null) { window.clearInterval(timer); timer = null; } };
   const start = () => { stop(); if (auto.checked) timer = window.setInterval(() => void refresh(), REFRESH_MS); };
@@ -180,7 +170,7 @@ export function showDebugDialog(): void {
 
     if (!b) { toast("浏览器 dev 没有主进程，DevTools 只在桌面端可用"); return; }
 
-    const r = await b.devtools({ op: "toggle" }).catch((e: unknown) => ({ ok: false, error: errText(e) }));
+    const r = await b.devtools({ op: "toggle" }).catch((e) => ({ ok: false, error: errText(e) }));
 
     if (!r?.ok) toast("打不开开发者工具：" + String(r?.error ?? "未知原因"));
   };

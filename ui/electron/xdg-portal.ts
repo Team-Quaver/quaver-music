@@ -35,7 +35,80 @@ export interface BusAddress {
 /** variant：值本身要连内层签名一起送。 */
 export interface WireVariant {
   sig: string;
-  value: unknown;
+  value: WireValue;
+}
+
+/** 线上取值：签名串决定形状，`(…)` 是定长元组、`a{…}` 是键值对数组。 */
+export type WireValue =
+  | string
+  | number
+  | bigint
+  | boolean
+  | WireVariant
+  | readonly WireValue[]
+  | { readonly [key: string]: WireValue | undefined };
+
+/** 解出来的头字段：按字段码分开，省得调用侧对一张 `Record<number, unknown>` 逐项断言。 */
+interface MessageFields {
+  path?: string;
+  interface?: string;
+  member?: string;
+  errorName?: string;
+  replySerial?: number;
+  sig?: string;
+}
+
+/** a{sv} 解出来的一条键值对。 */
+type DictEntry = readonly [string, WireValue];
+
+function isVariant(value: WireValue): value is WireVariant {
+  return value instanceof Object && !Array.isArray(value) && "sig" in value && "value" in value;
+}
+
+function isWireList(value: WireValue): value is readonly WireValue[] {
+  return Array.isArray(value);
+}
+
+function isWireEntry(value: WireValue): value is DictEntry {
+  return Array.isArray(value) && value.length === 2;
+}
+
+/** `a{…}` 允许直接给对象（编码端按条目展开）；数组形态原样返回。 */
+function dictionaryEntries(value: WireValue): readonly WireValue[] {
+  if (isWireList(value)) return value;
+
+  if (!(value instanceof Object)) throw new Error("dictionary value must be an object or entry list");
+
+  return Object.entries(value).flatMap(([key, entry]) => (entry === undefined ? [] : [[key, entry] as const]));
+}
+
+/** 标量取文本：容器（变体/数组/字典）走调用点各自的形状，不进这里。 */
+function wireText(value: WireValue): string {
+  if (value instanceof Object) throw new Error("expected scalar text, got container");
+
+  return String(value);
+}
+
+/** 标量取数字：同上。 */
+function wireNumber(value: WireValue): number {
+  if (value instanceof Object) throw new Error("expected scalar number, got container");
+
+  return Number(value);
+}
+
+/** 收一条 `a{sv}` 的键值对数组；`Object.fromEntries` 之前先确认元素形状。 */
+function wireDict(entries: readonly WireValue[] | undefined): Map<string, WireValue> {
+  const out = new Map<string, WireValue>();
+
+  for (const entry of entries ?? []) {
+    if (!Array.isArray(entry) || entry.length !== 2) continue;
+    const [key, value] = entry;
+
+    if (key === undefined || value === undefined) continue;
+    out.set(wireText(key), value);
+  }
+
+  return out;
 }
 
 /** reserve32 的回填句柄。 */
@@ -56,21 +129,21 @@ export interface MessageOptions {
   errorName?: string;
   replySerial?: number;
   sig?: string;
-  body?: unknown;
+  body?: WireValue | readonly WireValue[];
 }
 
-/** 解出来的一条消息。header 字段缺省即 undefined（下面按必然存在收窄成标量）。 */
+/** 解出来的一条消息。header 字段缺省即 undefined；`body` 按签名串逐项解出。 */
 export interface Message {
   type: number;
   serial: number;
-  fields: Record<number, unknown>;
+  fields: MessageFields;
   replySerial: number;
   interface: string;
   member: string;
   path: string;
   errorName: string;
   sig: string;
-  body: unknown[];
+  body: WireValue[];
   consumed: number;
 }
 
@@ -101,8 +174,18 @@ export function parseBusAddress(addr: string | null | undefined, env: NodeJS.Pro
   return dir ? { kind: "unix", path: `${dir}/bus` } : null;
 }
 
+/** 注入 connect 时地址必来自同一份解析：拿不到就按「会话总线不可用」处理。 */
+function requireBusAddress(addr: BusAddress | null): BusAddress {
+  if (addr === null) throw new Error("no session bus address");
+
+  return addr;
+}
+
 // —— 线级类型对齐表（b 布尔线上是 u32；v 变体自身对齐 1，内部的值按各自类型对齐）——
-const ALIGN: Record<string, number> = { y: 1, b: 4, n: 2, q: 2, i: 4, u: 4, x: 8, t: 8, d: 8, s: 4, o: 4, g: 1, v: 1, a: 4, "(": 8, "{": 8 };
+const ALIGN = new Map<string, number>([
+  ["y", 1], ["b", 4], ["n", 2], ["q", 2], ["i", 4], ["u", 4], ["x", 8], ["t", 8],
+  ["d", 8], ["s", 4], ["o", 4], ["g", 1], ["v", 1], ["a", 4], ["(", 8], ["{", 8],
+]);
 
 /** 完整类型在签名串里的结束下标（a/( /{ 需要配对扫描，单字符类型即自身）。 */
 export function sigEnd(sig: string, i: number): number {
@@ -120,7 +203,7 @@ export function sigEnd(sig: string, i: number): number {
     }
   }
 
-  if (!c || !(c in ALIGN)) throw new Error(`bad signature: ${sig}@${i}`);
+  if (!c || !ALIGN.has(c)) throw new Error(`bad signature: ${sig}@${i}`);
 
   return i;
 }
@@ -192,38 +275,37 @@ export class Writer {
  *   s/o/g → string ｜ u/t → number ｜ b → boolean ｜ y → number
  *   v → { sig, value } ｜ a<X> → 数组（a{…} 也可传对象）｜ (…) → 数组
  */
-export function encodeValue(w: Writer, sig: string, v: unknown) {
+export function encodeValue(w: Writer, sig: string, v: WireValue) {
   const c = sig[0];
 
-  if (c === "s" || c === "o") { w.put(4, Buffer.alloc(0)); w.string(v as string); return; }
+  if (c === "s" || c === "o") { w.put(4, Buffer.alloc(0)); w.string(wireText(v)); return; }
 
-  if (c === "u") { w.u32(v as number); return; }
+  if (c === "u") { w.u32(wireNumber(v)); return; }
 
-  if (c === "t" || c === "x") { w.u64(v as number); return; }
+  if (c === "t" || c === "x") { w.u64(wireNumber(v)); return; }
 
   if (c === "b") { w.u32(v ? 1 : 0); return; }
 
-  if (c === "y") { w.u8(v as number); return; }
+  if (c === "y") { w.u8(wireNumber(v)); return; }
 
-  if (c === "g") { w.sigStr(v as string); return; }
+  if (c === "g") { w.sigStr(wireText(v)); return; }
 
   if (c === "v") {
-    const inner = String((v as WireVariant).sig);
+    if (!isVariant(v)) throw new Error("variant value must be { sig, value }");
+    const inner = v.sig;
 
     if (inner.length !== sigEnd(inner, 0) + 1) throw new Error(`variant sig must be one complete type: ${inner}`);
     w.sigStr(inner);
-    encodeValue(w, inner, (v as WireVariant).value);
+    encodeValue(w, inner, v.value);
 
     return;
   }
 
   if (c === "a") {
     const elSig = sig.slice(1, sigEnd(sig, 0) + 1);
-    const elAlign = ALIGN[elSig[0]] ?? 1;
+    const elAlign = ALIGN.get(elSig[0]) ?? 1;
 
-    const items: [string, unknown][] | unknown[] = elSig[0] === "{" && !Array.isArray(v)
-      ? Object.entries((v ?? {}) as Record<string, unknown>)
-      : ((v ?? []) as unknown[]);
+    const items: readonly WireValue[] = elSig[0] === "{" ? dictionaryEntries(v) : isWireList(v) ? v : [];
 
     const marker = w.reserve32();
     // 规范：数组长度 n 不含 length 字段后的首元素对齐垫片，但含元素之间的垫片
@@ -236,7 +318,11 @@ export function encodeValue(w: Writer, sig: string, v: unknown) {
 
       if (contentAt === null) contentAt = w.len;
 
-      if (elSig[0] === "{") { encodeValue(w, elSig[1], (item as [unknown, unknown])[0]); encodeValue(w, elSig.slice(2, -1), (item as [unknown, unknown])[1]); }
+      if (elSig[0] === "{") {
+        if (!isWireEntry(item)) throw new Error("dictionary entry must be a [key, value] pair");
+        encodeValue(w, elSig[1], item[0]);
+        encodeValue(w, elSig.slice(2, -1), item[1]);
+      }
       else encodeValue(w, elSig, item);
     }
 
@@ -248,7 +334,7 @@ export function encodeValue(w: Writer, sig: string, v: unknown) {
   if (c === "(") {
     w.put(8, Buffer.alloc(0));
     const inner = sig.slice(1, sigEnd(sig, 0));
-    const list: unknown[] = Array.isArray(v) ? v : [v];
+    const list: readonly WireValue[] = isWireList(v) ? v : [v];
     let i = 0;
 
     for (let p = 0; p < inner.length; p = sigEnd(inner, p) + 1) encodeValue(w, inner.slice(p, sigEnd(inner, p) + 1), list[i++]);
@@ -259,8 +345,10 @@ export function encodeValue(w: Writer, sig: string, v: unknown) {
   if (c === "{") { // dict entry（只作为数组元素出现，见上；这里兜独立用法）
     w.put(8, Buffer.alloc(0));
     const inner = sig.slice(1, sigEnd(sig, 0));
-    encodeValue(w, inner[0], (v as [unknown, unknown])[0]);
-    encodeValue(w, inner.slice(1), (v as [unknown, unknown])[1]);
+
+    if (!isWireEntry(v)) throw new Error("dictionary entry must be a [key, value] pair");
+    encodeValue(w, inner[0], v[0]);
+    encodeValue(w, inner.slice(1), v[1]);
 
     return;
   }
@@ -310,11 +398,14 @@ export function buildMessage(opts: MessageOptions, endian: Endian = "B") {
   const bodyAt = w.len;
 
   if (opts.sig && opts.body !== undefined) {
-    const values: unknown[] = Array.isArray(opts.body) ? opts.body : [opts.body];
+    const values: readonly WireValue[] = Array.isArray(opts.body) ? opts.body : [opts.body];
     let i = 0;
 
     for (let at = 0; at < opts.sig.length; at = sigEnd(opts.sig, at) + 1) {
-      encodeValue(w, opts.sig.slice(at, sigEnd(opts.sig, at) + 1), values[i++]);
+      const value = values[i++];
+
+      if (value === undefined) throw new Error(`missing value for signature ${opts.sig}@${at}`);
+      encodeValue(w, opts.sig.slice(at, sigEnd(opts.sig, at) + 1), value);
     }
   }
 
@@ -356,7 +447,7 @@ class Reader {
     return s;
   }
   /** 按单个完整类型读一个值。a{…} → [[k,v],…] ｜ (…) → 数组 ｜ v → 展开后的内值。 */
-  value(sig: string): unknown {
+  value(sig: string): WireValue {
     const c = sig[0];
 
     if (c === "s" || c === "o") return this.string(4);
@@ -376,17 +467,17 @@ class Reader {
     if (c === "a") {
       const elSig = sig.slice(1, sigEnd(sig, 0) + 1);
       const byteLen = this.u32();
-      this.align(ALIGN[elSig[0]] ?? 1); // 首元素垫片不计入 n（与编码端同一口径）
+      this.align(ALIGN.get(elSig[0]) ?? 1); // 首元素垫片不计入 n（与编码端同一口径）
       const end = this.off + byteLen;
-      const elAlign = ALIGN[elSig[0]] ?? 1;
-      const out: unknown[] = [];
+      const elAlign = ALIGN.get(elSig[0]) ?? 1;
+      const out: WireValue[] = [];
 
       if (elSig[0] === "{") {
         while (this.off < end) {
           this.align(elAlign);
           const k = this.value(elSig[1]);
           const v = this.value(elSig.slice(2, -1));
-          out.push([k, v] as [unknown, unknown]);
+          out.push([k, v]);
         }
       } else {
         while (this.off < end) {
@@ -403,7 +494,7 @@ class Reader {
     if (c === "(") {
       this.align(8);
       const inner = sig.slice(1, sigEnd(sig, 0));
-      const out: unknown[] = [];
+      const out: WireValue[] = [];
 
       for (let p = 0; p < inner.length; p = sigEnd(inner, p) + 1) out.push(this.value(inner.slice(p, sigEnd(inner, p) + 1)));
 
@@ -433,27 +524,34 @@ export function parseMessage(buf: Buffer): Message | null {
   if (buf.length < bodyStart + bodyLen) return null;
   const r = new Reader(buf, little);
   r.off = 16; // fields 数组内容起点（12..15 是长度）
-  const fields: Record<number, unknown> = {};
+  const fields: MessageFields = {};
 
   while (r.off < fieldsEnd) {
     r.align(8);
     const code = r.u8();
     const sig = r.sig();
-    fields[code] = r.value(sig);
+    const value = r.value(sig);
+
+    if (code === 1) fields.path = wireText(value);
+    else if (code === 2) fields.interface = wireText(value);
+    else if (code === 3) fields.member = wireText(value);
+    else if (code === 4) fields.errorName = wireText(value);
+    else if (code === 5) fields.replySerial = wireNumber(value);
+    else if (code === 8) fields.sig = wireText(value);
   }
 
   r.off = bodyStart;
-  const bodySig = (fields[8] as string | undefined) ?? "";
-  const body: unknown[] = [];
+  const bodySig = fields.sig ?? "";
+  const body: WireValue[] = [];
 
   for (let p = 0; p < bodySig.length; p = sigEnd(bodySig, p) + 1) body.push(r.value(bodySig.slice(p, sigEnd(bodySig, p) + 1)));
 
   return {
     type, serial, fields,
-    // 头字段缺省时线上就是 undefined；只有 reply/error 分支会读它，这里收窄成标量
-    // 让调用侧不必到处判空（判空本身在原代码里也不存在，行为不变）。
-    replySerial: fields[5] as number,
-    interface: fields[2] as string, member: fields[3] as string, path: fields[1] as string, errorName: fields[4] as string, sig: bodySig,
+    // 头字段缺省时线上就是 undefined；只有 reply/error 分支会读它，这里按字段码解出后再兜空串。
+    replySerial: fields.replySerial ?? 0,
+    interface: fields.interface ?? "", member: fields.member ?? "", path: fields.path ?? "",
+    errorName: fields.errorName ?? "", sig: bodySig,
     body,
     consumed: bodyStart + bodyLen,
   };
@@ -462,7 +560,7 @@ export function parseMessage(buf: Buffer): Message | null {
 // —— SASL / socket ——
 
 const hexUid = () => {
-  const uid = typeof process.getuid === "function" ? process.getuid() : 1000;
+  const uid = process.getuid?.() ?? 1000;
 
   return Buffer.from(String(uid), "utf8").toString("hex");
 };
@@ -579,13 +677,20 @@ interface SignalMatch {
 /** Request::Response 的解码结果。 */
 interface RequestResponse {
   code: number;
-  results: Record<string, unknown>;
+  results: PortalResults;
   msg: Message;
+}
+
+/** `Response.results` 只消费两键，其余原样留在 `raw` 里备查。 */
+interface PortalResults {
+  sessionHandle: string;
+  shortcuts: readonly DictEntry[];
+  raw: ReadonlyMap<string, WireValue>;
 }
 
 /** serial → 同步回包等待者。 */
 interface Pending {
-  resolve: (body: unknown[]) => void;
+  resolve: (body: WireValue[]) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -670,15 +775,15 @@ export class PortalShortcuts {
     this.sessionPath = "";
   }
 
-  _send(opts: Omit<MessageOptions, "serial" | "sig" | "body">, sig: string, body: unknown) {
+  _send(opts: Omit<MessageOptions, "serial" | "sig" | "body">, sig: string, body: WireValue | readonly WireValue[]) {
     this.socket!.write(buildMessage({ ...opts, serial: ++this.serial, sig, body }));
 
     return this.serial;
   }
 
   /** 发方法调用并等 method_return / error（portal 的 request 句柄就是同步返回的）。 */
-  _call(dest: string, path: string, iface: string, member: string, sig: string, body: unknown, timeoutMs = 10000) {
-    return new Promise<unknown[]>((resolve, reject) => {
+  _call(dest: string, path: string, iface: string, member: string, sig: string, body: WireValue | readonly WireValue[], timeoutMs = 10000) {
+    return new Promise<WireValue[]>((resolve, reject) => {
       const serial = this._send({ type: 1, destination: dest, path, interface: iface, member }, sig, body);
 
       const timer = setTimeout(() => {
@@ -692,10 +797,11 @@ export class PortalShortcuts {
 
   /** 等一条匹配的信号（Request::Response）。timeoutMs=0 = 不限时（授权弹窗可能悬很久）。 */
   _waitSignal(match: SignalMatch, timeoutMs = 0) {
-    const stashed = match.path ? this.stashed.get(match.path) : null;
+    const path = match.path;
+    const stashed = path === undefined ? null : this.stashed.get(path);
 
-    if (stashed) {
-      this.stashed.delete(match.path as string);
+    if (stashed && path !== undefined) {
+      this.stashed.delete(path);
 
       return Promise.resolve(stashed);
     }
@@ -718,38 +824,39 @@ export class PortalShortcuts {
 
     if (this.applying || this.dead) return; // 跑完这轮后按 wantShortcuts 重来
     this.applying = true;
-    this._run().finally(() => {
+    this._run(shortcuts).finally(() => {
       this.applying = false;
 
       if (this.dead) return;
 
-      if (this.wantShortcuts !== shortcuts) {
-        const next = this.wantShortcuts;
-        this._teardown("rebind");
-        void this.start(next as ShortcutSpec[]);
-      }
+      const next = this.wantShortcuts;
+
+      if (next === null || next === shortcuts) return;
+      this._teardown("rebind");
+      void this.start(next);
     });
   }
 
   setShortcuts(shortcuts: ShortcutSpec[]) { this.start(shortcuts); }
 
-  async _run() {
-    // start() 先写 wantShortcuts 才调 _run，这里必然非空
-    const shortcuts = this.wantShortcuts as ShortcutSpec[];
+  async _run(shortcuts: ShortcutSpec[]) {
     this._teardown("restart"); // 干掉上一次的连接/会话
     this._status("connecting");
 
+    let socket: Socket;
+
     try {
-      this.socket = await (this.connect
-        ? this.connect(parseBusAddress(this.env.DBUS_SESSION_BUS_ADDRESS, this.env) as BusAddress)
+      socket = await (this.connect
+        ? this.connect(requireBusAddress(parseBusAddress(this.env.DBUS_SESSION_BUS_ADDRESS, this.env)))
         : connectSessionBus({ env: this.env }));
     } catch (e) {
-      this._status("unsupported", `会话总线不可用：${(e as Error)?.message ?? e}`);
+      this._status("unsupported", `会话总线不可用：${e instanceof Error ? e.message : e}`);
 
       return;
     }
 
-    const sock = this.socket as Socket;
+    this.socket = socket;
+    const sock = socket;
     sock.setNoDelay(true);
     sock.on("data", (chunk: Buffer) => this._onData(chunk));
     // 闭包捕获 sock：重绑路径会先 _teardown 换新 socket，老事件迟到时不许殃及新连接
@@ -780,10 +887,10 @@ export class PortalShortcuts {
         { handle_token: { sig: "s", value: token }, session_handle_token: { sig: "s", value: "quaver" } },
       ]);
 
-      const resp = await this._waitSignal({ interface: "org.freedesktop.portal.Request", member: "Response", path: requestPath as string }, 15000);
+      const resp = await this._waitSignal({ interface: "org.freedesktop.portal.Request", member: "Response", path: wireText(requestPath ?? "") }, 15000);
 
       if (resp.code !== 0) throw new Error(`CreateSession 被拒（code ${resp.code}）`);
-      this.sessionPath = String(resp.results.session_handle ?? "");
+      this.sessionPath = resp.results.sessionHandle;
 
       if (!this.sessionPath) throw new Error("CreateSession 未返回 session_handle");
 
@@ -793,10 +900,10 @@ export class PortalShortcuts {
 
         if (s.trigger) props.preferred_trigger = { sig: "s", value: s.trigger };
 
-        return [s.id, props] as [string, ShortcutProps];
+        return [s.id, props] as const satisfies readonly [string, ShortcutProps];
       });
 
-      let bindRequest: unknown;
+      let bindRequest: WireValue | undefined;
 
       try {
         [bindRequest] = await this._call(DESKTOP, OBJ, IFACE, "BindShortcuts", "oa(sa{sv})sa{sv}", [
@@ -804,7 +911,7 @@ export class PortalShortcuts {
           { handle_token: { sig: "s", value: `${token}b` } },
         ], 15000);
       } catch (e) {
-        if (!/UnknownMethod|UnknownInterface|InvalidArgs/i.test(String((e as Error)?.message ?? e))) throw e;
+        if (!/UnknownMethod|UnknownInterface|InvalidArgs/i.test(String(e instanceof Error ? e.message : e))) throw e;
         this.log("[hotkeys] portal v2 BindShortcuts rejected, trying legacy v1 a{sv}");
         [bindRequest] = await this._call(DESKTOP, OBJ, IFACE, "BindShortcuts", "oa{sv}sa{sv}", [
           this.sessionPath,
@@ -814,24 +921,24 @@ export class PortalShortcuts {
 
             if (s.trigger) value.preferred_trigger = { sig: "s", value: s.trigger };
 
-            return [s.id, { sig: "a{sv}", value }] as [string, WireVariant];
+            return [s.id, { sig: "a{sv}", value }] as const satisfies readonly [string, WireVariant];
           })),
           "",
           { handle_token: { sig: "s", value: `${token}b` } },
         ], 15000);
       }
 
-      const bindResp = await this._waitSignal({ interface: "org.freedesktop.portal.Request", member: "Response", path: bindRequest as string }, 0);
+      const bindResp = await this._waitSignal({ interface: "org.freedesktop.portal.Request", member: "Response", path: wireText(bindRequest ?? "") }, 0);
 
       if (bindResp.code !== 0) throw new Error(`快捷键绑定被取消（code ${bindResp.code}）`);
       // Response.results.shortcuts 是**实际绑上**的子集 —— 桌面端会把与系统占用冲突的
       // 首选触发串静默丢弃（如 Hyprland 的 Ctrl+Alt+←/→ 切工作区）。差集回传给调用方提示。
-      const boundIds = new Set(((bindResp.results.shortcuts ?? []) as [unknown, unknown][]).map(([id]) => String(id)));
-      const missing = shortcuts.filter((s) => !boundIds.has(s.id)).map((s) => s.id);
+      const boundIds = new Set(bindResp.results.shortcuts.map(([id]) => wireText(id)));
+      const missing = shortcuts.flatMap((s) => (boundIds.has(s.id) ? [] : [s.id]));
       this._status(missing.length ? "partial" : "ready", missing.length ? `未绑上（可能被其他应用占用）：${missing.join("、")}` : "", missing);
       this.log(`[hotkeys] portal ready: ${boundIds.size}/${shortcuts.length} shortcuts${missing.length ? `（未绑上：${missing.join(", ")}）` : ""}, session ${this.sessionPath}`);
     } catch (e) {
-      const msg = String((e as Error)?.message ?? e);
+      const msg = String(e instanceof Error ? e.message : e);
 
       const unsupported = /UnknownMethod|UnknownInterface|InvalidArgs|AccessDenied/i.test(msg)
         || /CreateSession timeout/.test(msg);
@@ -848,7 +955,7 @@ export class PortalShortcuts {
       let msg: Message | null;
 
       try { msg = parseMessage(this.acc); } catch (e) {
-        this.log("[hotkeys] portal bad message:", String((e as Error)?.message ?? e));
+        this.log("[hotkeys] portal bad message:", String(e instanceof Error ? e.message : e));
         this.acc = Buffer.alloc(0);
 
         return;
@@ -877,8 +984,16 @@ export class PortalShortcuts {
     if (msg.type !== 4) return;
 
     if (msg.interface === "org.freedesktop.portal.Request" && msg.member === "Response") {
-      const [code, pairs] = msg.body as [number, [unknown, unknown][]?];
-      const results = Object.fromEntries(((pairs ?? []) as [unknown, unknown][]).map(([k, v]) => [k, v]));
+      const code = wireNumber(msg.body[0] ?? 1);
+      const pairs = msg.body[1];
+      const raw = wireDict(Array.isArray(pairs) ? pairs : undefined);
+      const shortcuts = raw.get("shortcuts");
+
+      const results: PortalResults = {
+        sessionHandle: wireText(raw.get("session_handle") ?? ""),
+        shortcuts: Array.isArray(shortcuts) ? shortcuts.filter(isWireEntry) : [],
+        raw,
+      };
 
       for (const w of [...this.waiters]) {
         const m = w.match;
@@ -903,10 +1018,10 @@ export class PortalShortcuts {
     }
 
     if (msg.interface === IFACE && msg.member === "Activated" && this.sessionPath) {
-      const [session, shortcutId] = msg.body as [string, string?];
+      const [session, shortcutId] = msg.body;
 
-      if (session === this.sessionPath) {
-        try { this.onAction(String(shortcutId ?? "")); } catch (e) { this.log("[hotkeys] onAction failed:", String(e)); }
+      if (session !== undefined && wireText(session) === this.sessionPath) {
+        try { this.onAction(shortcutId === undefined ? "" : wireText(shortcutId)); } catch (e) { this.log("[hotkeys] onAction failed:", String(e)); }
       }
     }
     // Deactivated / ShortcutsChanged / NameAcquired 等：暂无消费方，忽略

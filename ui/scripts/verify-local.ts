@@ -11,22 +11,21 @@
 // 反向断言照旧：每条源码断言给出「变异样本必须为 false」，防断言自身失效。
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { viewsSource } from "./views-source.ts";
 
-const existsSync0 = (p: string): boolean => { try { readFileSync(p); return true; } catch { return false; } };
-
 let pass = 0, fail = 0;
 const section = (t: string) => console.log(`\n=== ${t} ===`);
 
-function check(name: string, cond: unknown, detail = "") {
+function check(name: string, cond: boolean, detail = "") {
   if (cond) { pass++; console.log(`  ✅ ${name}`); }
   else { fail++; console.log(`  ❌ ${name}${detail ? ` — ${detail}` : ""}`); }
 }
 
-const eq = (name: string, got: unknown, want: unknown) =>
+const eq = <T>(name: string, got: T, want: T) =>
   check(name, JSON.stringify(got) === JSON.stringify(want), `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
 
 const UI = fileURLToPath(new URL("..", import.meta.url));
@@ -44,7 +43,7 @@ function txtFrame(id: string, text: string): Buffer {
   return Buffer.concat([fourcc(id), be32(body.length), Buffer.from([0, 0]), body]);
 }
 
-function id3Tag(frames: Buffer[]): { buf: Buffer; size: number } {
+function id3Tag(frames: Buffer[]) {
   const all = Buffer.concat(frames);
   const buf = Buffer.concat([fourcc("ID3"), Buffer.from([3, 0, 0]), syncsafe(all.length), all]);
 
@@ -125,7 +124,7 @@ const L = await import("../electron/local/library.ts");
   eq("LRC UTF-8 直通", L.decodeLrc(Buffer.from("[00:01.00]啊", "utf8")).includes("啊"), true);
   eq("LRC UTF-8 BOM 剥除", L.decodeLrc(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("x")])).startsWith("x"), true);
   const gbk = Buffer.from([0xbe, 0xa9, 0xd6, 0xdd]); // GBK 的「京字」
-  check("LRC GBK 兜底不抛异常", (() => { try { const out = L.decodeLrc(gbk); return typeof out === "string"; } catch { return false; } })());
+  check("LRC GBK 兜底不抛异常", (() => { try { L.decodeLrc(gbk); return true; } catch { return false; } })());
   const LL = await import("../src/lyric.ts");
   eq("歌词格式嗅探 ttml", L.sniffLyricFormat('<tt xmlns="http://www.w3.org/ns/ttml"><body/></tt>', "a.ttml"), "ttml");
   eq("歌词格式嗅探 qrc(xml 信封)", L.sniffLyricFormat('<?xml?><QQMusic><LyricContent="[0,900]&lt;w d=&quot;900&quot;&gt;词&lt;/w&gt;"/></QQMusic>', "x"), "qrc");
@@ -150,7 +149,11 @@ process.env.QUAVER_CONFIG_DIR = join(ROOT, "cfg");
 const DAV_USER = "quaver", DAV_PASS = "s3cret";
 const davMp3 = (() => { const { buf } = id3Tag([txtFrame("TIT2", "NAS 曲"), txtFrame("TPE1", "网络歌手"), txtFrame("TALB", "云专辑")]); return Buffer.concat([buf, ...Array(30).fill(null).map(() => mp3Frame(14))]); })();
 const davLrc = Buffer.from("[00:01.00]来自 NAS 的 sidecar 歌词\n");
-const files: Record<string, Buffer> = { "/davroot/music/NAS 曲.mp3": davMp3, "/davroot/music/NAS 曲.lrc": davLrc };
+
+const files = new Map<string, Buffer>([
+  ["/davroot/music/NAS 曲.mp3", davMp3],
+  ["/davroot/music/NAS 曲.lrc", davLrc],
+]);
 
 const sidecar = createServer(async (req, res) => {
   const u = new URL(req.url ?? "/", "http://x");
@@ -163,13 +166,13 @@ const sidecar = createServer(async (req, res) => {
 
     if (req.method === "PROPFIND") {
       const dir = decodeURIComponent(u.pathname);
-      const items = Object.keys(files).filter((p) => p.startsWith(dir.endsWith("/") ? dir : dir + "/") && !p.slice(dir.length + 1).includes("/"));
-      const xml = `<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">${[dir.endsWith("/") ? dir : dir + "/"].map((p) => `<d:response><d:href>${p}</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response>`).join("")}${items.map((p) => `<d:response><d:href>${encodeURI(p)}</d:href><d:propstat><d:prop><d:getcontentlength>${files[p].length}</d:getcontentlength><d:getlastmodified>Tue, 13 Oct 2026 10:00:00 GMT</d:getlastmodified></d:prop></d:propstat></d:response>`).join("")}</d:multistatus>`;
+      const items = Array.from(files.keys()).filter((p) => p.startsWith(dir.endsWith("/") ? dir : dir + "/") && !p.slice(dir.length + 1).includes("/"));
+      const xml = `<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">${[dir.endsWith("/") ? dir : dir + "/"].map((p) => `<d:response><d:href>${p}</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response>`).join("")}${items.map((p) => `<d:response><d:href>${encodeURI(p)}</d:href><d:propstat><d:prop><d:getcontentlength>${files.get(p)?.length ?? 0}</d:getcontentlength><d:getlastmodified>Tue, 13 Oct 2026 10:00:00 GMT</d:getlastmodified></d:prop></d:propstat></d:response>`).join("")}</d:multistatus>`;
       res.statusCode = 207; res.setHeader("content-type", "application/xml"); return res.end(xml);
     }
 
     const p = decodeURIComponent(u.pathname);
-    const body = files[p];
+    const body = files.get(p);
 
     if (!body || req.method === "PROPFIND") { res.statusCode = 404; return res.end("nf"); }
 
@@ -200,6 +203,13 @@ const sidecar = createServer(async (req, res) => {
       return res.end(JSON.stringify({ code: 0, msg: "ok", data: { song: [{ mid: "QQMID1", title: "随手曲", name: "随手曲", interval: 205, singer: [{ name: "未知歌", mid: "SG1" }], album: { name: "", mid: "AL1", pmid: "AL1_00" } }], total_num: 1 } }));
     }
 
+    if (kw.includes("专辑曲")) {
+      return res.end(JSON.stringify({ code: 0, msg: "ok", data: { song: [
+        { mid: "BADALB", title: "专辑曲", name: "专辑曲", interval: 120, singer: [{ name: "LR歌手", mid: "LR1" }], album: { name: "错误专辑", mid: "WA", pmid: "WA_1" } },
+        { mid: "GOODALB", title: "专辑曲", name: "专辑曲", interval: 120, singer: [{ name: "LR歌手", mid: "LR1" }], album: { name: "正确专辑", mid: "GA", pmid: "GA_1" } },
+      ], total_num: 2 } }));
+    }
+
     if (kw.includes("改名曲")) {
       return res.end(JSON.stringify({ code: 0, msg: "ok", data: { song: [{ mid: "ZZ003", title: "改名曲", name: "改名曲", interval: 99, singer: [{ name: "在线歌手", mid: "SG3" }], album: { name: "", mid: "A3", pmid: "A3_9" } }], total_num: 1 } }));
     }
@@ -211,13 +221,42 @@ const sidecar = createServer(async (req, res) => {
     return res.end(JSON.stringify({ code: 0, msg: "ok", data: { lyric: "[00:03.00]刮削到的歌词", trans: "[00:03.00]scraped", roma: "" } }));
   }
 
+  if (/^\/song\/(BADALB|GOODALB)\/lyric$/.test(u.pathname)) {
+    return res.end(JSON.stringify({ code: 0, msg: "ok", data: { lyric: "", trans: "", roma: "" } }));
+  }
+
+  if (u.pathname === "/api/get") {
+    res.statusCode = 404;
+
+    return res.end(JSON.stringify({ message: "Failed to find specified track", name: "TrackNotFound", statusCode: 404 }));
+  }
+
+  if (u.pathname === "/api/search") {
+    const track = u.searchParams.get("track_name") ?? "";
+
+    const rows = track.includes("专辑曲")
+      ? [{ trackName: "专辑曲", artistName: "LR歌手", albumName: "正确专辑", duration: 120, instrumental: false, syncedLyrics: "[00:01.00]LRCLIB 歌词\n" }]
+      : [];
+
+    return res.end(JSON.stringify(rows));
+  }
+
   res.statusCode = 404;
   res.end(JSON.stringify({ code: -1, msg: "nope" }));
 });
 
 await new Promise<void>((r) => sidecar.listen(0, "127.0.0.1", r));
 
-process.env.QUAVER_API = `http://127.0.0.1:${(sidecar.address() as { port: number }).port}`;
+const addr = sidecar.address();
+
+if (addr === null) throw new Error("sidecar 未监听 TCP");
+
+// SAFETY: listen(0, "127.0.0.1") 绑定的是 TCP，Node 只会返回 AddressInfo；字符串形态只属于 unix socket。
+const sidecarPort = (addr as AddressInfo).port;
+
+process.env.QUAVER_API = `http://127.0.0.1:${sidecarPort}`;
+
+process.env.QUAVER_LRCLIB_API = `http://127.0.0.1:${sidecarPort}`;
 
 // 音乐目录（folder 源素材）：嵌套 + 两个同名文件（relPath 必须保住目录段 → id 不冲突）
 const MUS = join(ROOT, "music");
@@ -242,7 +281,7 @@ const { startQuaverServer } = await import("../electron/native-server.ts");
 const { server: app, url: appUrl } = await startQuaverServer({ dist: join(ROOT, "dist-empty"), logFile: join(ROOT, "dev.log"), port: 0 });
 const base = appUrl + "api";
 const jget = async (p: string) => { const r = await fetch(base + p); return { status: r.status, ct: r.headers.get("content-type"), body: await r.json().catch(() => null) }; };
-const jpost = async (p: string, b: unknown) => { const r = await fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }); return { status: r.status, body: await r.json().catch(() => null) }; };
+const jpost = async <T>(p: string, b: T) => { const r = await fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }); return { status: r.status, body: await r.json().catch(() => null) }; };
 
 const waitIdle = async (what: "scan" | "scrape") => {
   for (let i = 0; i < 200; i++) {
@@ -349,6 +388,28 @@ section("端到端：扫描自动刮削（假 sidecar）→ QRC 前置条件落�
   check("在线歌词入缓存且可取（本地通路兜底内容）", ly.source === "qq" && ly.lyric.includes("刮削到的歌词") && ly.trans.includes("scraped"));
 }
 
+section("端到端：专辑精确匹配优先 + LRCLIB 歌词兜底");
+
+{
+  const MUS2 = join(ROOT, "music-album");
+
+  mkdirSync(MUS2, { recursive: true });
+  const { buf } = id3Tag([txtFrame("TIT2", "专辑曲"), txtFrame("TPE1", "LR歌手"), txtFrame("TALB", "正确专辑")]);
+
+  writeFileSync(join(MUS2, "专辑曲.mp3"), Buffer.concat([buf, ...Array(20).fill(null).map(() => mp3Frame(14))]));
+  const add = await jpost("/local/source/add", { kind: "folder", name: "专辑测试", path: MUS2 });
+  check("专辑测试源添加成功", add.status === 200 && !!add.body?.data?.source?.id, JSON.stringify(add.body));
+  await jpost("/local/scan", {});
+  await waitIdle("scan");
+  await waitIdle("scrape");
+  const lib = (await jget("/local/library")).body.data;
+  const t = lib.tracks.find((x: any) => x.title === "专辑曲");
+  check("同名同歌手时选专辑精确命中的候选", t?.match?.qqMid === "GOODALB", JSON.stringify(t?.match));
+  check("QQ 无词时落 LRCLIB 并记录来源", t?.lyricSource === "lrclib" && t?.match?.lyricLrclib === true, JSON.stringify(t?.match));
+  const ly = (await jget(`/local/lyric/${t.id}`)).body.data;
+  check("LRCLIB 同步歌词可读", ly.source === "lrclib" && ly.lyric.includes("LRCLIB 歌词"), JSON.stringify(ly).slice(0, 160));
+}
+
 section("端到端：手动导入歌词/封面 + 元数据校正（右键菜单的服务面）");
 
 {
@@ -376,7 +437,7 @@ section("端到端：手动导入歌词/封面 + 元数据校正（右键菜单�
   eq("非图封面 422", r.status, 422);
   // 撤销导入 → 回到 sidecar file
   const revRes = await fetch(`${base}/local/lyric/import/${tagged.id}`, { method: "DELETE" });
-  const rev = (await revRes.json()) as any;
+  const rev: { data?: { track?: { lyricSource?: string } } } = await revRes.json();
   check("撤销导入成功", rev?.data?.track?.lyricSource === "file", JSON.stringify(rev?.data).slice(0, 80));
   ly = (await jget(`/local/lyric/${tagged.id}`)).body.data;
   check("撤销后回到 sidecar", ly.source === "file", JSON.stringify(ly).slice(0, 80));
@@ -413,7 +474,7 @@ section("端到端：移除源清库");
   check("其余源不受影响", after.sources.length === lib.sources.length - 1);
 }
 
-(app as any).close?.();
+app.close();
 
 sidecar.close();
 
@@ -447,7 +508,7 @@ section("源码接线：player/渲染层绕开 QQ 通路");
   const api = src("src/lib/api.ts");
   check("coverUrl 本地分支（同源路径 + 版本穿透）", /if \(s\?\.local\)[\s\S]{0,120}localCoverPath\(s\.local\.id\)/.test(api));
   const session = src("src/lib/session.ts");
-  check("会话存档保留 local 指纹", /local: \(s as any\)\.local/.test(session));
+  check("会话存档保留 local 指纹", /local: s\.local/.test(session) && /parseStoredLocal\(value\.local\)/.test(session));
   const songs = src("src/lib/songs.ts");
   check("本地行藏红心 + 时长占位", /hooks\.hideLove \|\| isLocal/.test(songs) && /isLocal && !\(s\.interval > 0\)/.test(songs));
   const mpris = src("src/mpris.ts");

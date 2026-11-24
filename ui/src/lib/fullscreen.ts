@@ -8,7 +8,7 @@
 // 不一），同值只回调一次；订阅时先对齐一次当前态，订阅者拿到的第一个值一定是确定的。
 
 export function isFullscreen(): boolean {
-  const bridge = (window as any).quaverCSD;
+  const bridge = window.quaverCSD;
 
   if (bridge?.isFullscreen) return !!bridge.isFullscreen();
 
@@ -16,7 +16,7 @@ export function isFullscreen(): boolean {
 }
 
 export function setFullscreen(on: boolean): void {
-  const bridge = (window as any).quaverCSD;
+  const bridge = window.quaverCSD;
 
   if (bridge?.fullscreen) { bridge.fullscreen(on); return; }
 
@@ -27,7 +27,7 @@ export function setFullscreen(on: boolean): void {
 export function onFullscreenChange(cb: (on: boolean) => void): () => void {
   let last: boolean | null = null;
   const fire = (v: boolean) => { if (v !== last) { last = v; cb(v); } };
-  const bridge = (window as any).quaverCSD;
+  const bridge = window.quaverCSD;
   const off = bridge?.onFullscreen?.((v: boolean) => fire(v));
   const dom = () => fire(document.fullscreenElement != null);
   document.addEventListener("fullscreenchange", dom);

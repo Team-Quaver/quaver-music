@@ -63,7 +63,7 @@ ok("快速登录: 头像+昵称整组即登录按钮（无单独「点击登录�
   && !has(view, "点击登录"));
 
 ok("快速登录: 点击登录提交 uin 到 POST /login/qq-quick",
-  re(view, /postJson\("\/login\/qq-quick", \{ uin: d\.uin \}\)/));
+  re(view, /postJson\("\/login\/qq-quick", \{ uin: d\.uin \?\? 0 \}\)/));
 
 ok("快速登录: 成功后仍跳回首页", has(view, 'location.href = "/index.html"'));
 
@@ -98,7 +98,7 @@ ok("DOM: 三个标签都是 button.tag + role=tab + aria-selected + data-ch",
 
 ok("DOM: 默认选中第一个标签（.sel + aria-selected=true 都落在同一颗上）",
   /<button class="tag sel" type="button" role="tab" aria-selected="true" data-ch="(\w+)">/.test(view)
-  && re(view, /let channel = \(?tabs\[0\]\?\.dataset\.ch \?\? "mobile"\)?/));
+  && re(view, /let channel = loginChannelOf\(tabs\[0\]\?\.dataset\.ch\)/));
 
 // Go sidecar 的登录类型表 = app.go 的 qrTypeNames（写错是 422，不是静默失败）
 const backend = new Set([...appGo.matchAll(/^\t"([a-z]+)":\s+modules\.QRType/gm)].map((m) => m[1]));

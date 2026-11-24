@@ -489,11 +489,11 @@ section("安装收尾接线");
   check("包管理器更新: 下载落用户「下载」目录（mode=downloads → app.getPath('downloads')）",
     has(up, 'uniqueDest(app.getPath("downloads"), assetBasename(url))'));
   check("包管理器更新: updater 下载模式按包型切 downloads",
-    re(updater, /isPackageKind\(kind\) \? "downloads"/));
+    re(updater, /isPackageKind\(picked\.kind\) \? "downloads"/));
 
   // 下载完不再交系统默认应用（xdg-open 会落到无关程序/静默失败）：改为在用户终端里跑包管理器
   check("包管理器更新: 下载完走 install-linux-package（不再 open-path 安装包）",
-    re(updater, /bridge\(\)\.invoke\(\{ op: "install-linux-package", kind, path, id \}\)/)
+    re(updater, /ipc\.invoke\(\{ op: "install-linux-package", kind, path, id \}\)/)
     && !has(updater, 'if (kind === "deb" || kind === "rpm" || kind === "flatpak") return { type: "installer-downloaded"'));
   check("包管理器更新: 弹窗有「安装中」与「是否退出」两态",
     has(dialog, 'setMain("安装中…", false') && has(dialog, "现在退出 Quaver Music 完成更新吗"));
@@ -532,7 +532,7 @@ section("完整性校验与商店托管接线");
   check("update.ts: 落盘后 sha256 校验，失败删档报错",
     re(up, /createHash\("sha256"\)/) && has(up, "sha256 校验失败") && re(up, /sha256\) \{/));
   check("updater: 下载 op 带上 asset.sha256",
-    re(updater, /sha256: info\.picked!\.asset\.sha256 \|\| undefined/));
+    re(updater, /sha256: picked\.asset\.sha256 \|\| undefined/));
   // 避免重复下载：本地已存在校验通过的包（下载目录同名文件 / AppImage 本体 / 残留临时文件）直接复用
   check("update.ts: 下载前复用已校验文件（reuseIfValid → deduped）",
     has(up, "reuseIfValid") && has(up, "deduped: true"));

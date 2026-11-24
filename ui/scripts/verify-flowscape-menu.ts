@@ -18,6 +18,7 @@ try {
       storage: { get: () => null, set: () => {} },
       registerNowPlayingView: (v: any) => { view = v; }, registerSettingsSection: () => {},
     });
+
     const ctx = {
       current: () => song, songAt: () => null, cover: () => "", expanded: () => true,
       time: () => 0, duration: () => 10, paused: () => true, loading: () => false,
@@ -28,7 +29,8 @@ try {
       karaokeActive: () => false, karaoke: () => [], lyrics: () => ({ lines: [] }),
       onNotify: () => () => {}, collapse: () => {},
     };
-    (window as any).__dispose = view.render(document.querySelector("#host")!, ctx);
+
+    Object.assign(window, { __dispose: view.render(document.querySelector("#host")!, ctx) });
   }, code);
 
   await page.click("#fs-more");
@@ -36,18 +38,23 @@ try {
 
   const separators = await page.$$eval(".fs-mmenu .fs-msep", (els) => els.map((e) => {
     const r = e.getBoundingClientRect();
+
     return { top: r.top, bottom: r.bottom };
   }));
+
   assert.equal(separators.length, 1, `分隔线数量应为 1，实际 ${separators.length}`);
   const lastRow = await page.$eval(".fs-mmenu .fs-mrow:last-of-type", (e) => e.getBoundingClientRect().bottom);
   assert.ok(separators[0].bottom < lastRow, "分隔线应位于最后一个菜单项之前");
 
   await page.click(".fs-msub-btn");
   await page.waitForSelector(".fs-mslist.open", { timeout: 1000 });
+
   const overlay = await page.$eval(".fs-mslist.open", (e) => {
     const z = Number(getComputedStyle(e).zIndex);
+
     return { z, text: e.textContent?.trim(), rect: e.getBoundingClientRect() };
   });
+
   assert.ok(overlay.z > 50, `歌手子菜单 z-index 应高于 np overlay(50)，实际 ${overlay.z}`);
   assert.match(overlay.text ?? "", /A/);
   assert.match(overlay.text ?? "", /B/);

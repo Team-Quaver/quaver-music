@@ -58,6 +58,7 @@ async function startStreamServer(): Promise<{ url: string; close: () => void }> 
   });
 
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+  // SAFETY: listen(..., "127.0.0.1") 成功后 address() 必为 AddressInfo（含 port）。
   const port = (server.address() as { port: number }).port;
 
   return { url: `http://127.0.0.1:${port}/api/stream/probe-token`, close: () => server.close() };
@@ -67,7 +68,7 @@ async function startStreamServer(): Promise<{ url: string; close: () => void }> 
 function captureEvents() {
   const events: any[] = [];
 
-  liinoEngine.send = (ev: unknown) => { events.push(ev); };
+  liinoEngine.send = <T>(ev: T) => { events.push(ev); };
 
   return events;
 }
@@ -124,7 +125,7 @@ app.whenReady().then(async () => {
   ok("loaded 事件已广播（渲染层据此熄转圈）", events.some((e) => e?.t === "loaded"));
 
   const deadline = Date.now() + 8000;
-  let state = null as any;
+  let state: { paused?: boolean; buffering?: boolean; pos: number; dur: number } | null = null;
 
   while (Date.now() < deadline) {
     await sleep(120);
@@ -185,6 +186,7 @@ app.whenReady().then(async () => {
   //    这是 Windows 解码器（WinRT/WMF）最容易退化的契约；渲染层还有一层
   //    「落点不对就补一次普通 seek」的兜底，见 liino-engine.ts:maybeResume。
   const resumeMark = events.length;
+
   const resume = await liinoEngine.call({
     cmd: "load", url: stream.url, paused: false, startAt: 0.8, epoch: 5, client: "probe-page-2",
   });
@@ -196,7 +198,7 @@ app.whenReady().then(async () => {
 
   while (Date.now() < resumeDeadline) {
     await sleep(80);
-    resumeState = [...events.slice(resumeMark)].reverse().find((e) => e?.t === "state");
+    resumeState = events.slice(resumeMark).reverse().find((e) => e?.t === "state");
 
     if (resumeState && !resumeState.paused && resumeState.pos > 0.6) break;
   }
@@ -229,7 +231,7 @@ app.whenReady().then(async () => {
 
   const snap = await liinoEngine.call({ cmd: "snapshot" });
 
-  ok("snapshot 可被窗口重建后的页面接管", snap.ok === true && typeof snap.running === "boolean", JSON.stringify(snap).slice(0, 200));
+  ok("snapshot 可被窗口重建后的页面接管", snap.ok === true && Object.prototype.toString.call(snap.running) === "[object Boolean]", JSON.stringify(snap).slice(0, 200));
 
   liinoEngine.shutdown();
   await sleep(150);
@@ -240,6 +242,6 @@ app.whenReady().then(async () => {
   console.log(fails ? `\n${fails} 项失败` : "\n全部通过");
   app.exit(fails ? 1 : 0);
 }).catch((e) => {
-  console.log("探针异常:", String((e as Error)?.stack ?? e));
+  console.log("探针异常:", e instanceof Error ? e.stack ?? e.message : String(e));
   app.exit(2);
 });

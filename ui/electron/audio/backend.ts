@@ -13,6 +13,7 @@ import { ipcMain, type BrowserWindow } from "electron";
 import { audioEngine, type AudioEngine, type EngineLog } from "./engine.ts";
 import { liinoEngine, type LiinoEngine } from "./liino-engine.ts";
 import { caught, selectedBackend, type AudioBackendKind } from "./liino-runtime.ts";
+import type { AudioReply } from "../bridge-types.ts";
 
 /** 两个后端共享的命令面（渲染层只看这一层，不关心底下是 mpv 还是 Liino）。 */
 export type AnyAudioEngine = AudioEngine | LiinoEngine;
@@ -32,10 +33,13 @@ export interface AudioEngineBoot {
 
 /** 当前生效的后端（boot 之前为 null；诊断面板与信号收尾路径都读它）。 */
 let active: AnyAudioEngine | null = null;
+
 /** 最近一次 boot 的窗口引用/日志/baseUrl：运行时切换要拿同一套参数重建另一个引擎。 */
 let bootState: AudioEngineBoot | null = null;
+
 /** handler 只注册一次；重复 init（窗口重建）不能重复 handle。 */
 let wired = false;
+
 /** 切换串行化：连续点两档后端时，后一笔必须等前一笔把旧引擎拆干净。 */
 let switchTail: Promise<unknown> = Promise.resolve();
 
@@ -52,12 +56,14 @@ export function getAudioEngine(): AnyAudioEngine {
  *  native 侧只写入会话配置，下一首 open 才生效。 */
 export function setAudioAdaptiveRate(on: boolean): void {
   if (bootState) bootState.adaptiveRate = on;
+
   if (active?.kind === "liino") active.setAdaptiveRate(on);
 }
 
 /** 设置页改了“切声卡时钟”策略：同样只写入会话配置，下一首 open 才生效。 */
 export function setAudioAdaptiveRateSwitch(on: boolean): void {
   if (bootState) bootState.adaptiveRateSwitch = on;
+
   if (active?.kind === "liino") active.setAdaptiveRateSwitch(on);
 }
 
@@ -67,7 +73,7 @@ function wireAudioIpc(): void {
   wired = true;
   ipcMain.handle("quaver:audio", (_e, cmd) => {
     // SAFETY: 渲染层传来的就是结构化克隆后的普通对象；cmd 是否为 backend 只做字段级判断
-    if (cmd && typeof cmd === "object" && cmd.cmd === "backend") {
+    if (Object.prototype.toString.call(cmd) === "[object Object]" && cmd.cmd === "backend") {
       return switchAudioBackend(String(cmd.value ?? "")).catch((e) => ({ ok: false, error: String(caught(e)) }));
     }
 
@@ -140,7 +146,7 @@ export async function bootAudioEngine(boot: AudioEngineBoot): Promise<AnyAudioEn
  * 运行时切换后端（设置页 radio）。返回切换后的 status 回包，渲染层据此重建 transport。
  * 拆旧 → 建新 严格串行；Liino 不可用时如实回落 mpv（status.backend 会说 mpv）。
  */
-export async function switchAudioBackend(preference: string): Promise<Record<string, unknown>> {
+export async function switchAudioBackend(preference: string): Promise<AudioReply> {
   const want = selectedBackend(preference);
 
   let note = "";

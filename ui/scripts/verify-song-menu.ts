@@ -207,12 +207,12 @@ ok("player: 插队/立即插队/删除/排序都同步维护逐首来源",
 
 ok("session: 队列来源随存档往返（重启后仍能回去）",
   has(src.session, "source: sourceHash(snap.source)")
-  && has(src.session, "source: sourceHash(d.source)"));
+  && has(src.session, "source: sourceHash(jsonString(parsed.source))"));
 
 ok("session: 逐首来源随存档往返（过滤/截断时保持与 queue 同下标）",
   has(src.session, "sources: keptOrigins")
   && has(src.session, "origin: sourceHash(snap.sources?.[i])")
-  && has(src.session, "const sources = kept.map((i) => sourceHash(rawSources[i]));"));
+  && has(src.session, "const sources = kept.map((i) => sourceHash(jsonString(rawSources[i], \"\")));"));
 
 ok("来源展示名: 懒加载模块从 hash 推导（不把解析塞进首屏）",
   has(read("src/lib/queue-source.ts"), "export function queueSourceLabel")
@@ -274,10 +274,10 @@ ok("session: 瘦身掉不必要的大字段（vs/vi/vf/pay 不进存档）",
   !/\bvs:|\bvi:|\bvf:|\bpay:/.test(slimBody));
 
 ok("session: 但 file.media_mid 必须留（高档位取链用它，常与 mid 不同）",
-  /.media_mid = mediaMid/.test(slimBody));
+  /media_mid: mediaMid/.test(slimBody));
 
 ok("session: 读档做结构校验（脏数据不炸启动）",
-  re(src.session, /export function loadSession[\s\S]{0,500}JSON\.parse\(raw\)/) && has(src.session, "typeof s.mid === \"string\""));
+  re(src.session, /export function loadSession[\s\S]{0,500}JSON\.parse\(raw\)/) && has(src.session, "const mid = jsonString(value.mid);"));
 
 ok("player: 启动还原在 backendInit 之后", re(src.player, /this\.backendInit\.then\(\(\) => this\.restoreSession\(\)\)/));
 
@@ -316,7 +316,7 @@ ok("菜单: 锚点被记下来（滚动判据要用它）",
   has(src.menu, "let anchorEl: HTMLElement | null = null;") && has(src.menu, "anchorEl = anchor ?? null;"));
 
 ok("菜单: bindSongMenu 把行作为锚点传给 openSongMenu",
-  re(src.menu, /openSongMenu\(me\.clientX, me\.clientY, get\(\), row\)/));
+  re(src.menu, /openSongMenu\(e\.clientX, e\.clientY, get\(\), row\)/));
 
 ok("菜单: 关闭时清锚点", re(src.menu, /anchorEl = null;\s*bindGlobal\(false\)/));
 

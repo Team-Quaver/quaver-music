@@ -242,4 +242,3 @@ const wave: SparkleNpSpectrumMode = {
 };
 
 export const builtinSpectrumModes: readonly SparkleNpSpectrumMode[] = [bars, mirror, wave];
-export const builtinSpectrumLabels: Readonly<Record<string, string>> = { bars: "柱状", mirror: "镜像", wave: "波形" };

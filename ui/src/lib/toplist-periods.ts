@@ -47,7 +47,7 @@ function isoWeekStart(year: number, week: number): Date {
   return addDays(mondayOf(jan4), (week - 1) * 7);
 }
 
-function isoWeekOf(d: Date): { year: number; week: number } {
+function isoWeekOf(d: Date) {
   const thursday = addDays(d, 3 - ((d.getUTCDay() + 6) % 7));
   const year = thursday.getUTCFullYear();
   const firstThursday = addDays(mondayOf(utcDay(year, 0, 4)), 3);
@@ -86,7 +86,7 @@ function weekLabel(start: Date): string {
 }
 
 function inferUpdateType(meta: ToplistPeriodMeta): number {
-  if (typeof meta.update_type === "number") return meta.update_type;
+  if (Object.prototype.toString.call(meta.update_type) === "[object Number]") return Number(meta.update_type);
   const p = String(meta.period ?? "");
 
   if (/^\d{4}_\d{1,2}$/.test(p)) return 0;

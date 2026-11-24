@@ -17,6 +17,7 @@ import { applyControlBar } from "../lib/control-bar";
 import { applyPlaylistMode } from "../lib/playlist-mode";
 import { applyThemeTransparent } from "./theme-transparent";
 import { sparkBlockReason } from "./policy";
+import { isJsonArray, jsonString, type JsonValue } from "../lib/json-value";
 import {
   activateStyle, mountStyleLayer, onStyleChange, resetStyle, stylePacks, styleState,
 } from "./style-layer";
@@ -44,9 +45,9 @@ export const sparkSetOfficialOffIds = (ids: string[]) => localStorage.setItem(OF
 
 const readList = (key: string): string[] => {
   try {
-    const v = JSON.parse(localStorage.getItem(key) ?? "[]");
+    const v: JsonValue = JSON.parse(localStorage.getItem(key) ?? "[]");
 
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+    return isJsonArray(v) ? v.map((x) => jsonString(x)).filter(Boolean) : [];
   } catch {
     return [];
   }
@@ -240,7 +241,7 @@ export async function enableSparklePlugin(plugin: SparklePlugin): Promise<boolea
   try {
     const dispose = plugin.setup(makeContext(id));
 
-    if (typeof dispose === "function") record.dispose = dispose;
+    if (dispose instanceof Function) record.dispose = dispose;
     sparkSetEnabledIds([...sparkEnabledIds(), id]);
 
     if (OFFICIAL_META.some((m) => m.id === id)) {

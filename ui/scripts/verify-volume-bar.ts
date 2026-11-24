@@ -28,7 +28,7 @@ const icons = src("src/lib/icons.ts");
 
 let pass = 0, fail = 0;
 
-const check = (name: string, cond: unknown, detail = "") => {
+const check = (name: string, cond: boolean, detail = "") => {
   if (cond) { pass++; console.log(`  ✅ ${name}`); }
   else { fail++; console.log(`  ❌ ${name}${detail ? ` — ${detail}` : ""}`); }
 };
@@ -80,6 +80,7 @@ check("高音量三层声波都在（不再明显小于相邻图标）", /volHig
 // x≈23.74，加上 1.7 描边半宽 = 24.59，右缘被 24 视窗裁掉。这里从源码路径直接算墨迹
 // 右缘，锁住「描边完整在视窗内 + 左右留白大体对称」。
 const highArc = icons.match(/volHigh: svg\('[^']*M([\d.]+) ([\d.]+)a([\d.]+) [\d.]+ 0 0 1 0 ([\d.]+)"\/>', 18, 1\.7\)/);
+
 const inkRight = highArc
   ? Number(highArc[1]) + (Number(highArc[3]) - Math.sqrt(Number(highArc[3]) ** 2 - (Number(highArc[4]) / 2) ** 2)) + 0.85
   : Infinity;
@@ -239,14 +240,14 @@ interface PlayerWindow extends Window {
 }
 
 const read = () => page.evaluate(() => {
-  const vol = document.querySelector("#pb-vol") as HTMLInputElement;
+  const vol = document.querySelector<HTMLInputElement>("#pb-vol")!;
 
   return {
     // SAFETY: __player 由 src/main.ts 在启动时挂上（页内调试缝，契约见 verify-launch）
     pv: Math.round((window as PlayerWindow).__player.volume * 100),
     val: Number(vol.value),
     css: parseInt(vol.style.getPropertyValue("--v"), 10),
-    num: parseInt((document.querySelector("#pb-volnum") as HTMLElement).textContent ?? "", 10),
+    num: parseInt(document.querySelector("#pb-volnum")?.textContent ?? "", 10),
     active: document.activeElement?.id || document.activeElement?.tagName,
   };
 });
@@ -256,7 +257,7 @@ type Snap = Awaited<ReturnType<typeof read>>;
 const agrees = (r: Snap) => r.pv === r.val && r.val === r.css && r.css === r.num;
 
 const at = (sel: string, dx = 0) => page.evaluate((s: string, off: number) => {
-  const r = (document.querySelector(s) as HTMLElement).getBoundingClientRect();
+  const r = document.querySelector<HTMLElement>(s)!.getBoundingClientRect();
 
   return { x: (s === ".player" ? r.x + off : r.x + r.width / 2), y: r.y + r.height / 2 };
 }, sel, dx);
@@ -276,15 +277,18 @@ const rehover = async () => {
   const m = await at("#pb-mute");
   await page.mouse.move(m.x - 80, m.y - 80); await sleep(260);
   await page.mouse.move(m.x, m.y); await sleep(260);
-  // SAFETY: __player 由 src/main.ts 挂载（页内调试缝）
-  await page.evaluate(() => (window as PlayerWindow).__player.setVolume(0.5));
+  await page.evaluate(() => window.__quaverPlayer.setVolume(0.5));
 };
 
 await rehover();
 
-for (const [name, focus] of [["未聚焦", false], ["滑杆已聚焦（回归点）", true]] as [string, boolean][]) {
+const focusCases: Array<[string, boolean]> = [["未聚焦", false], ["滑杆已聚焦（回归点）", true]];
+
+for (const [name, focus] of focusCases) {
   await page.evaluate((f) => {
-    const v = document.querySelector("#pb-vol") as HTMLInputElement;
+    const v = document.querySelector<HTMLInputElement>("#pb-vol");
+
+    if (!v) return;
 
     if (f) v.focus(); else v.blur();
   }, focus);

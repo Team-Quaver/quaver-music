@@ -16,12 +16,12 @@ import { EQ_PRESET_FREQS, EQ_PRESETS, matchPreset, presetBands } from "../electr
 let pass = 0, fail = 0;
 const section = (t: string) => console.log(`\n=== ${t} ===`);
 
-const check = (name: string, cond: unknown, detail = "") => {
+const check = (name: string, cond: boolean, detail = "") => {
   if (cond) { pass++; console.log(`  ✅ ${name}`); }
   else { fail++; console.log(`  ❌ ${name}${detail ? ` — ${detail}` : ""}`); }
 };
 
-const eq = (name: string, got: unknown, want: unknown) =>
+const eq = <G, W>(name: string, got: G, want: W) =>
   check(name, JSON.stringify(got) === JSON.stringify(want), `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
 
 const UI = fileURLToPath(new URL("..", import.meta.url));
@@ -61,7 +61,7 @@ eq("旧开发版 10 点平直默认自动迁成空曲线（懒加载迁移）", 
 
 section("内置 10 Band 预设");
 
-const expectedPresets: Record<string, number[]> = {
+const expectedPresets = {
   pop: [1, 2, 3, 4, 3, 1, -1, 1, 2, 3],
   rock: [4, 3, 1, 0, -1, 0, 1, 2, 3, 4],
   classical: [3, 2, 1, 1, 0, 0, 0, 1, 2, 3],
@@ -75,14 +75,14 @@ const expectedPresets: Record<string, number[]> = {
   "bass-cut": [-4, -3, -2, -1, 0, 0, 0, 0, 0, 0],
   "treble-cut": [0, 0, 0, 0, 0, 0, -1, -2, -3, -4],
   smile: [4, 3, 1, -1, -2, -2, -1, 1, 3, 4],
-};
+} satisfies Record<string, number[]>;
 
 eq("预设名称与顺序", EQ_PRESETS.map((p) => p.label), ["流行", "摇滚", "古典", "爵士", "电子", "乡村", "耳机补偿", "高音增强", "低音增强", "中音/人声增强", "低音减弱", "高音减弱", "微笑曲线"]);
 
 eq("预设频点固定为 10 Band", [...EQ_PRESET_FREQS], [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]);
 
 for (const p of EQ_PRESETS) {
-  eq(`预设「${p.label}」增益表`, [...p.gains], expectedPresets[p.id]);
+  eq(`预设「${p.label}」增益表`, [...p.gains], Object.entries(expectedPresets).find(([id]) => id === p.id)?.[1]);
   const bands = presetBands(p);
   check(`预设「${p.label}」生成 10 个 bell 节点`,
     bands.length === 10 && bands.every((b, i) => b.freq === EQ_PRESET_FREQS[i] && b.gain === p.gains[i] && b.q === 1.41 && b.type === "bell"));
@@ -244,7 +244,7 @@ check("anti-slop：事件目标不再用 as 断言", !/e\.target as (Element|HTM
 
 check("anti-slop：下拉类型不再 as 断言", !/type\.value as EqBandType/.test(dialog) && /isEqBandType\(nextType\)/.test(dialog));
 
-check("anti-slop：APO 属性不再用开放 dictionary", !/Record<string, number>/.test(core) && /attrs: \{ freq\?: number; gain\?: number; q\?: number; bw\?: number \}/.test(core));
+check("anti-slop：APO 属性不再用开放 dictionary", !/Record<string, number>/.test(core) && /interface FilterAttrs \{\s*freq\?: number;\s*gain\?: number;\s*q\?: number;\s*bw\?: number;\s*\}/.test(core));
 
 check("EQ 是模态窗：遮罩 + aria-modal + 点遮罩关闭", /className = "eq-overlay"/.test(dialog) && /aria-modal", "true"/.test(dialog) && /e\.target === overlay/.test(dialog) && dialogCss.includes(".eq-overlay"));
 

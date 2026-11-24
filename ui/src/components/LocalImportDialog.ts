@@ -7,6 +7,7 @@
 // 语义提醒（写进提示文案，用户须知）：这份校正是「刮削用 + 展示用」的权威值 ——
 // 之后在线匹配只借 qqMid 拿词/封面，不再回填覆盖这三个字段；撤销只能再改一次。
 import "./dialog.css";
+
 let layer: HTMLElement | null = null;
 
 export interface LocalMetaEdit {
@@ -69,7 +70,7 @@ export function showLocalMetaDialog(init: LocalMetaEdit): Promise<LocalMetaEdit 
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") close(null);
 
-    if (e.key === "Enter" && (e.target as HTMLElement)?.tagName === "INPUT") { e.preventDefault(); saveBtn.click(); }
+    if (e.key === "Enter" && e.target instanceof HTMLElement && e.target.tagName === "INPUT") { e.preventDefault(); saveBtn.click(); }
   };
 
   window.addEventListener("keydown", onKey);

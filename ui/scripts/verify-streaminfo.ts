@@ -180,8 +180,8 @@ ok("np: 胶囊与浮窗都在 ⋮ 容器内（morewrap）",
 
 ok("np: 浮窗节点 id=np-qinfo（role=dialog）", has(src.np, 'id="np-qinfo"') && has(src.np, 'role="dialog"'));
 
-ok("np: 胶囊文案 = 当前音质设置（QUALITY_SHORT[effectiveQuality()]）",
-  has(src.np, "QUALITY_SHORT[effectiveQuality()]"));
+ok("np: 胶囊文案 = 当前音质设置（qualityShortOf(effectiveQuality())）",
+  has(src.np, "qualityShortOf(effectiveQuality())"));
 
 ok("np: 浮窗数据源 = lib/streaminfo（探测 + 格式化）",
   has(src.np, "probeStreamInfo") && has(src.np, "cachedStreamInfo")
@@ -193,8 +193,10 @@ ok("np: 浮窗行齐全（编码/采样率/采样精度/码率/声道）",
 
 ok("np: 探测回来自动落行（开着 + 还是同一条流才画）",
   re(src.np, /qinfoOpen\(\) && player\.streamUrl === url\)? fillQInfo\(url, info(, si)?\)/));
+
 ok("np: streaminfo 懒加载（音质浮窗点开才 import，不进首屏闭包）",
   has(src.np, 'import("../lib/streaminfo")'));
+
 ok("np: 点胶囊开浮窗先收 ⋮ 菜单（同锚区互斥）",
   re(src.np, /closeMoreMenu\(\);[\s\S]{0,80}qInfo\.classList\.add\("open"\)/));
 

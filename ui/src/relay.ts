@@ -69,21 +69,24 @@ export function serveSparkle(sub: string, res: ServerResponse) {
   res.end(readFileSync(target));
 }
 
-const json = (obj: unknown, status = 200) =>
+/** 中继 JSON 响应体：只发本文件自己构造的信封/数据。 */
+type RelayJson = Readonly<Record<string, string | number | boolean | null | undefined>> | readonly RelayJson[];
+
+const json = (obj: RelayJson, status = 200) =>
   new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json" } });
 
 // 流中继的可预期中断：客户端切歌/seek/关页面 → AbortError；上游（sidecar/CDN）半路断流
 // → undici 的 TypeError: terminated / premature close。都不是异常，只是常态。
 const EXPECTED_ABORT_CODES = new Set(["ABORT_ERR", "ERR_STREAM_PREMATURE_CLOSE", "ERR_STREAM_DESTROYED"]);
 
-function isExpectedAbort(e: unknown): boolean {
-  const err = e as { name?: string; code?: string; message?: string } | null;
+function isExpectedAbort(e: Error | null | undefined): boolean {
+  if (!e) return true;
 
-  if (!err) return true;
+  const code = "code" in e && Object.prototype.toString.call(e.code) === "[object String]" ? String(e.code) : "";
 
-  if (err.name === "AbortError" || (err.code && EXPECTED_ABORT_CODES.has(err.code))) return true;
+  if (e.name === "AbortError" || (code && EXPECTED_ABORT_CODES.has(code))) return true;
 
-  return /terminated|premature close|aborted|socket hang up/i.test(String(err.message ?? ""));
+  return /terminated|premature close|aborted|socket hang up/i.test(e.message);
 }
 
 // 中继一条上游流并接管全部错误。
@@ -96,10 +99,17 @@ async function pipeStream(body: ReadableStream<Uint8Array>, res: ServerResponse,
   const { pipeline } = await import("node:stream/promises");
 
   try {
-    await pipeline(Readable.fromWeb(body as never), res, { signal });
+    // SAFETY: fetch 的 ReadableStream 与 node:stream/web 的同构，fromWeb 只用到 getReader。
+    await pipeline(Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]), res, { signal });
   } catch (e) {
-    if (!isExpectedAbort(e)) console.warn(`[relay] stream aborted: ${e}`);
+    if (!isExpectedAbort(e instanceof Error ? e : null)) console.warn(`[relay] stream aborted: ${String(e)}`);
   }
+}
+
+/** 请求体 → fetch 的 BodyInit：Uint8Array 在运行期就是合法的 ArrayBufferView。 */
+function bodyInit(body: Uint8Array | undefined): BodyInit | undefined {
+  // SAFETY: Uint8Array 是 BodyInit 允许的 ArrayBufferView；两套 lib 的泛型参数写法不同。
+  return body as BodyInit | undefined;
 }
 
 function readBody(req: IncomingMessage): Promise<Uint8Array | undefined> {
@@ -354,7 +364,7 @@ export function apiRelay(): Connect.NextHandleFunction {
       const upstream = await fetch(target, {
         method: req.method,
         headers,
-        body: (await readBody(req)) as BodyInit | undefined,
+        body: bodyInit(await readBody(req)),
         redirect: "manual",
         signal: ac.signal,
       });

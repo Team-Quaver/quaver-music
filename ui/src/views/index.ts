@@ -22,7 +22,7 @@ export type ViewLike = ViewFn | SparkleView;
 
 type Loader = () => Promise<ViewFn>;
 
-const loaders: Record<string, Loader> = {
+const loaders = {
   "/": () => import("./home").then((m) => m.default),
   "/search": () => import("./search").then((m) => m.default),
   "/guess": () => import("./guess").then((m) => m.default),
@@ -41,7 +41,10 @@ const loaders: Record<string, Loader> = {
   "/log": () => import("./log").then((m) => m.default),
   "/user": () => import("./user").then((m) => m.default),
   "/login": () => import("./login").then((m) => m.default),
-};
+} satisfies Record<string, Loader>;
+
+const loaderFor = (path: string): Loader | undefined =>
+  Object.entries(loaders).find(([route]) => route === path)?.[1];
 
 const loaded = new Map<string, ViewFn>();
 const inFlight = new Set<string>();
@@ -51,7 +54,7 @@ export async function loadView(path: string): Promise<ViewLike> {
   const cached = loaded.get(path);
 
   if (cached) return cached;
-  const loader = loaders[path];
+  const loader = loaderFor(path);
 
   if (!loader) {
     const spark = sparkleViewAt(path);
@@ -69,7 +72,7 @@ export async function loadView(path: string): Promise<ViewLike> {
 
 /** 预取某路由的视图模块（hover/pointerdown 触发；重复调用、未知路由、已加载都是 no-op）。 */
 export function prefetchView(path: string): void {
-  const loader = loaders[path];
+  const loader = loaderFor(path);
 
   if (!loader || loaded.has(path) || inFlight.has(path)) return;
   inFlight.add(path);

@@ -27,9 +27,9 @@ import {
 } from "../lib/updater";
 import { setLastNotified } from "../lib/prefs";
 
-const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const errText = <T>(e: T) => (e instanceof Error ? e.message : String(e));
 
-const esc = (s: unknown) =>
+const esc = <T>(s: T) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 const fmtSize = (n: number) => (n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
@@ -201,7 +201,7 @@ export function showUpdateDialog(info: UpdateInfo): void {
         laterBtn.hidden = false;
         laterBtn.textContent = "稍后";
         setMain("退出并安装", true, () => {
-          void quitAndInstallWindows(path).catch((e: unknown) => toast(`更新失败：${errText(e)}`, "err"));
+          void quitAndInstallWindows(path).catch((e) => toast(`更新失败：${errText(e)}`, "err"));
           close();
         });
       } else if (step.type === "package-installing") {

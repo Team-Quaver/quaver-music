@@ -30,7 +30,7 @@ import {
   parseFlac, parseId3v1, parseId3v2, parseMp4, parseOgg, parseWav, sniffFormat,
   type AudioFormat, type EmbeddedPicture, type FileTags, type TagSource,
 } from "./tags.ts";
-import { DavError, davAuthHeaders, davJoin, davReadRange, propfind, type DavAuth, type DavEntry } from "./webdav.ts";
+import { DavError, davAuthHeaders, davReadRange, propfind, type DavAuth, type DavEntry } from "./webdav.ts";
 
 // ———————————————————————————————————————————— 类型 ————————————————————————————————————————————
 
@@ -61,12 +61,14 @@ export interface LocalMatch {
   albumPmid: string;
   /** QQ 专辑封面已下载到 covers/<id>.jpg */
   coverQq: boolean;
-  /** 在线歌词已落 lyrics/<id>.json */
+  /** QQ 在线歌词已落 lyrics/<id>.json */
   lyricQq: boolean;
+  /** LRCLIB 歌词已落 lyrics/<id>.json */
+  lyricLrclib: boolean;
   scrapedAt: number;
 }
 
-export type LyricSourceKind = "" | "file" | "embed" | "qq" | "import";
+export type LyricSourceKind = "" | "file" | "embed" | "qq" | "lrclib" | "import";
 
 export interface LocalTrack {
   id: string;
@@ -125,6 +127,24 @@ export interface ScrapeState {
   startedAt: number;
   finishedAt: number;
   lastError: string;
+}
+
+export interface StartScanResult {
+  started: boolean;
+  busy?: true;
+  error?: string;
+}
+
+export interface StartScrapeResult {
+  started: boolean;
+  busy?: true;
+  total: number;
+}
+
+export interface RevealResult {
+  ok: boolean;
+  path?: string;
+  error?: string;
 }
 
 interface LibraryDb {
@@ -188,15 +208,15 @@ function loadDb(): LibraryDb {
   if (cache) return cache;
 
   try {
-    const raw = JSON.parse(readFileSync(dbFile(), "utf8"));
+    const raw: Partial<LibraryDb> = JSON.parse(readFileSync(dbFile(), "utf8"));
 
-    if (raw && Array.isArray(raw.sources) && raw.tracks && typeof raw.tracks === "object") {
+    if (Array.isArray(raw.sources) && raw.tracks) {
       cache = { version: 1, sources: raw.sources, tracks: raw.tracks };
 
       return cache;
     }
   } catch (e) {
-    const err = e as { code?: string };
+    const err: Error & { code?: string } = e instanceof Error ? e : new Error(String(e));
 
     if (err && err.code !== "ENOENT") {
       // 解析失败：留一份损坏副本再重建，别把用户配置无声删掉
@@ -431,7 +451,7 @@ function parseWavLikeInfo(buf: Buffer, listOff: number, out: FileTags): void {
     const fs = buf.readUInt32LE(q + 4);
 
     if (q + 8 + fs > buf.length) break;
-    const v = buf.toString("utf8", q + 8, q + 8 + fs).replace(/\u0000+$/, "").trim();
+    const v = buf.toString("utf8", q + 8, q + 8 + fs).replaceAll("\u0000", "").trim();
     mergeId3(
       fid === "INAM" ? { title: v } : fid === "IART" ? { artist: v } : fid === "INAL" ? { album: v } : {},
       out,
@@ -558,6 +578,8 @@ async function materializeTrack(args: {
   } else if (sidecarLrc) { lyricSource = "file"; lyricRel = sidecarLrc.rel; }
   else if (tags.lyrics.trim()) { lyricSource = "embed"; lyricRel = lyricFileRel; }
   else if (keepMatch && match?.lyricQq && existsSync(join(libRoot(), qqSidecar))) { lyricSource = "qq"; }
+  else if (keepMatch && match?.lyricLrclib && existsSync(join(libRoot(), qqSidecar))) { lyricSource = "lrclib"; }
+  else if (prev?.lyricSource === "lrclib" && existsSync(join(libRoot(), qqSidecar))) { lyricSource = "lrclib"; }
 
   return {
     id, sourceId, relPath, file,
@@ -572,7 +594,7 @@ async function materializeTrack(args: {
 
 // ———————————————————————————————————————————— 扫描 ————————————————————————————————————————————
 
-export function startScan(): { started: boolean; busy?: true; error?: string } {
+export function startScan(): StartScanResult {
   if (scanFlight && scanState.running) return { started: false, busy: true };
   scanState.running = true;
   scanState.processed = scanState.found = scanState.kept = scanState.removed = 0;
@@ -590,7 +612,7 @@ export function startScan(): { started: boolean; busy?: true; error?: string } {
         try {
           await scanSource(src, aliveIds);
         } catch (e) {
-          pushError(scanState, `「${src.name}」扫描失败：${errText(e)}`);
+          pushError(scanState, `「${src.name}」扫描失败：${errText(e instanceof Error ? e : new Error(String(e)))}`);
         }
       }
 
@@ -612,8 +634,8 @@ export function startScan(): { started: boolean; busy?: true; error?: string } {
         startScrape({});
       }
     } catch (e) {
-      scanState.lastError = errText(e);
-      pushError(scanState, errText(e));
+      scanState.lastError = errText(e instanceof Error ? e : new Error(String(e)));
+      pushError(scanState, errText(e instanceof Error ? e : new Error(String(e))));
     } finally {
       scanState.running = false;
       scanState.finishedAt = Date.now();
@@ -649,7 +671,7 @@ async function scanSource(src: LocalSource, aliveIds: Set<string>): Promise<void
         else if (r === "updated") scanState.found++;
         else scanState.kept++;
       } catch (e) {
-        pushError(scanState, `${f.rel}：${errText(e)}`);
+        pushError(scanState, `${f.rel}：${errText(e instanceof Error ? e : new Error(String(e)))}`);
       }
 
       if (scanState.processed % 16 === 0) await yieldLoop();
@@ -702,7 +724,7 @@ async function scanSource(src: LocalSource, aliveIds: Set<string>): Promise<void
             scanState.kept++;
           }
         } catch (e2) {
-          pushError(scanState, `${rel}：${errText(e2)}`);
+          pushError(scanState, `${rel}：${errText(e2 instanceof Error ? e2 : new Error(String(e2)))}`);
         }
 
         if (scanState.processed % 4 === 0) await yieldLoop();
@@ -758,15 +780,15 @@ function pushError(state: { errors: string[] }, msg: string): void {
   if (state.errors.length < 50 && !state.errors.includes(msg)) state.errors.push(msg);
 }
 
-function errText(e: unknown): string {
+function errText(e: Error): string {
   if (e instanceof DavError) return e.message;
-  const err = e as { code?: string; message?: string };
+  const err: Error & { code?: string } = e;
 
-  if (err?.code === "ENOENT") return "文件不存在";
+  if (err.code === "ENOENT") return "文件不存在";
 
-  if (err?.code === "EACCES" || err?.code === "EPERM") return "无权限读取";
+  if (err.code === "EACCES" || err.code === "EPERM") return "无权限读取";
 
-  return String(err?.message ?? e ?? "未知错误");
+  return err.message || "未知错误";
 }
 
 // ———————————————————————————————————————————— 在线刮削（QQ 侧：歌曲信息 + 歌词 + 封面） ————————————————————————————————————————————
@@ -781,9 +803,11 @@ async function sidecarGet<T = any>(pathWithQuery: string, timeoutMs = 15000): Pr
 
   try { j = await r.json(); } catch { throw new Error(`sidecar HTTP ${r.status}（非 JSON）`); }
 
-  if (!r.ok || (typeof j?.code === "number" && j.code !== 0)) throw new Error(String(j?.msg ?? `sidecar HTTP ${r.status}`));
+  const code = Number(j?.code);
 
-  return j.data as T;
+  if (!r.ok || (Number.isFinite(code) && code !== 0)) throw new Error(String(j?.msg ?? `sidecar HTTP ${r.status}`));
+
+  return j.data;
 }
 
 function searchKeyword(t: LocalTrack): string {
@@ -800,7 +824,25 @@ interface SearchSongLite {
   album?: { name?: string; mid?: string; pmid?: string };
 }
 
-/** 打分：歌名吻合是硬门槛，歌手/专辑加分。 */
+// 打分权重：精确项保持全权重，模糊项一律减半。
+// 专辑精确命中额外加权，并在排序时优先于「专辑只模糊命中/没命中」的候选 ——
+// 同名曲/翻唱很多，专辑是避免把错误歌曲信息与歌词挂上去的关键信号。
+const SCORE_TITLE_EXACT = 3;
+const SCORE_TITLE_FUZZY = 1;
+const SCORE_ARTIST_EXACT = 2;
+const SCORE_ARTIST_FUZZY = 0.5;
+const SCORE_ALBUM_EXACT = 1;
+const SCORE_ALBUM_FUZZY = 0.25;
+
+/** 专辑精确命中：归一化后完全相等（大小写/空白/标点已在 normText 中抹平）。 */
+function exactAlbum(t: { album: string }, c: { album?: { name?: string } }): boolean {
+  const want = normText(t.album);
+  const got = normText(c.album?.name ?? "");
+
+  return !!want && got === want;
+}
+
+/** 打分：歌名吻合是硬门槛，歌手/专辑加分；所有模糊项权重减半。 */
 function scoreMatch(t: LocalTrack, c: SearchSongLite): number {
   if (!c?.mid) return 0;
   const ct = normText(c.title || c.name || "");
@@ -809,25 +851,186 @@ function scoreMatch(t: LocalTrack, c: SearchSongLite): number {
   if (!ct || !want) return 0;
   let score = 0;
 
-  if (ct === want) score += 3;
-  else if (ct.includes(want) || want.includes(ct)) score += 2;
+  if (ct === want) score += SCORE_TITLE_EXACT;
+  else if (ct.includes(want) || want.includes(ct)) score += SCORE_TITLE_FUZZY;
   else return 0; // 歌名都不沾：直接否（宁缺毋滥，绝不错配）
   const artist = normText(t.artist || t.albumArtist);
   const singers = (c.singer ?? []).map((s) => normText(s?.name ?? ""));
 
   if (artist) {
-    if (singers.some((s) => s === artist)) score += 2;
-    else if (singers.some((s) => s.includes(artist) || artist.includes(s))) score += 1;
+    if (singers.some((s) => s === artist)) score += SCORE_ARTIST_EXACT;
+    else if (singers.some((s) => s.includes(artist) || artist.includes(s))) score += SCORE_ARTIST_FUZZY;
   }
 
   const album = normText(t.album);
 
-  if (album && c.album?.name && normText(c.album.name).includes(album)) score += 0.5;
+  if (album && c.album?.name) {
+    const ca = normText(c.album.name);
+
+    if (ca === album) score += SCORE_ALBUM_EXACT;
+    else if (ca.includes(album) || album.includes(ca)) score += SCORE_ALBUM_FUZZY;
+  }
 
   return score;
 }
 
-export function startScrape(opts: { ids?: string[]; all?: boolean; force?: boolean } = {}): { started: boolean; busy?: true; total: number } {
+// ———————————————————————————————————————————— LRCLIB 歌词（QQ 无词时的兜底） ————————————————————————————————————————————
+
+interface LrclibTrack {
+  trackName?: string;
+  artistName?: string;
+  albumName?: string;
+  duration?: number;
+  instrumental?: boolean;
+  syncedLyrics?: string;
+  plainLyrics?: string;
+}
+
+interface LrclibScore {
+  score: number;
+  albumExact: boolean;
+  secondary: boolean;
+}
+
+function lrclibBase(): string {
+  return String(process.env.QUAVER_LRCLIB_API ?? "https://lrclib.net").replace(/\/+$/, "");
+}
+
+/** LRCLIB 公开 API：404 = 未收录；其余非 2xx 一律当作「这次没拿到」，不影响整体刮削。 */
+async function lrclibGet(pathWithQuery: string): Promise<LrclibTrack | LrclibTrack[] | null> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch(lrclibBase() + pathWithQuery, {
+        headers: {
+          accept: "application/json",
+          "user-agent": "Quaver/2.1 (https://github.com/team-quaver/quaver-music)",
+        },
+        signal: AbortSignal.timeout(12000),
+      });
+
+      if ((r.status === 429 || r.status === 503) && attempt === 0) {
+        const sec = Number(r.headers.get("retry-after") ?? "");
+
+        await sleep(Number.isFinite(sec) && sec > 0 ? Math.min(sec, 5) * 1000 : 1000);
+        continue;
+      }
+
+      if (!r.ok) return null;
+      const data: LrclibTrack | LrclibTrack[] = await r.json();
+
+      return data;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function scoreLrclib(want: { title: string; artist: string; album: string }, c: LrclibTrack): LrclibScore {
+  const ct = normText(c.trackName ?? "");
+  const wt = normText(want.title);
+
+  if (!ct || !wt) return { score: 0, albumExact: false, secondary: false };
+  let score = 0;
+
+  if (ct === wt) score += SCORE_TITLE_EXACT;
+  else if (ct.includes(wt) || wt.includes(ct)) score += SCORE_TITLE_FUZZY;
+  else return { score: 0, albumExact: false, secondary: false };
+
+  const artist = normText(want.artist);
+  const ca = normText(c.artistName ?? "");
+  let secondary = false;
+
+  if (artist) {
+    if (ca === artist) { score += SCORE_ARTIST_EXACT; secondary = true; }
+    else if (ca && (ca.includes(artist) || artist.includes(ca))) { score += SCORE_ARTIST_FUZZY; secondary = true; }
+  }
+
+  const album = normText(want.album);
+  const cal = normText(c.albumName ?? "");
+  let albumExact = false;
+
+  if (album && cal) {
+    if (cal === album) { score += SCORE_ALBUM_EXACT; albumExact = true; secondary = true; }
+    else if (cal.includes(album) || album.includes(cal)) { score += SCORE_ALBUM_FUZZY; secondary = true; }
+  }
+
+  return { score, albumExact, secondary };
+}
+
+/** 取同步歌词（纯文本没有时间轴，播放器解析不出行，不能冒充 LRC）。 */
+function lrclibLyricOf(c: LrclibTrack): string {
+  if (c.instrumental) return "";
+
+  return String(c.syncedLyrics ?? "").trim();
+}
+
+/** 按「专辑精确优先 → 加权分」选一条同步歌词；低于 3 分宁可不挂，避免错词。 */
+function pickLrclib(cands: LrclibTrack[], want: { title: string; artist: string; album: string }): string {
+  const scored = cands.flatMap((c) => {
+    const s = scoreLrclib(want, c);
+
+    return s.score >= 3 && s.secondary ? [{ c, ...s }] : [];
+  });
+
+  scored.sort((a, b) => Number(b.albumExact) - Number(a.albumExact) || b.score - a.score);
+
+  for (const x of scored) {
+    const lyric = lrclibLyricOf(x.c);
+
+    if (lyric) return lyric;
+  }
+
+  return "";
+}
+
+/** 本地曲目的 LRCLIB 兜底。至少要有歌名 +（歌手或专辑）两个信号才查，单靠歌名太容易错。 */
+async function fetchLrclibLyric(q: { title: string; artist: string; album: string; duration: number }): Promise<string> {
+  const title = q.title.trim();
+  const artist = q.artist.trim();
+  const album = q.album.trim();
+
+  if (!title || (!artist && !album)) return "";
+
+  const want = { title, artist, album };
+
+  if (artist) {
+    const get = new URLSearchParams({ track_name: title, artist_name: artist });
+
+    if (album) get.set("album_name", album);
+
+    if (q.duration > 0) get.set("duration", String(Math.round(q.duration)));
+    const exact = await lrclibGet(`/api/get?${get.toString()}`);
+
+    if (exact && !Array.isArray(exact)) {
+      const lyric = lrclibLyricOf(exact);
+      const scored = scoreLrclib(want, exact);
+
+      if (lyric && scored.score >= 3 && scored.secondary) return lyric;
+    }
+  }
+
+  const search = new URLSearchParams({ track_name: title });
+
+  if (artist) search.set("artist_name", artist);
+
+  if (album) search.set("album_name", album);
+  const found = await lrclibGet(`/api/search?${search.toString()}`);
+
+  return Array.isArray(found) ? pickLrclib(found, want) : "";
+}
+
+function writeCachedLyric(t: LocalTrack, lyric: string, trans: string, roma: string, source: "qq" | "lrclib"): void {
+  ensureLibDirs();
+  writeFilePrivate(
+    join(lyricsDir(), `${t.id}.json`),
+    JSON.stringify({ lyric, trans, roma, source }),
+    0o600,
+  );
+}
+
+export function startScrape(opts: { ids?: string[]; all?: boolean; force?: boolean } = {}): StartScrapeResult {
   if (scrapeFlight && scrapeState.running) return { started: false, busy: true, total: scrapeState.total };
   const db = loadDb();
   let targets: LocalTrack[];
@@ -863,7 +1066,7 @@ export function startScrape(opts: { ids?: string[]; all?: boolean; force?: boole
           else scrapeState.failed++;
         } catch (e) {
           scrapeState.failed++;
-          scrapeState.lastError = errText(e);
+          scrapeState.lastError = errText(e instanceof Error ? e : new Error(String(e)));
         }
 
         scrapeState.processed++;
@@ -876,7 +1079,7 @@ export function startScrape(opts: { ids?: string[]; all?: boolean; force?: boole
 
       if (changed) saveDb();
     } catch (e) {
-      scrapeState.lastError = errText(e);
+      scrapeState.lastError = errText(e instanceof Error ? e : new Error(String(e)));
     } finally {
       scrapeState.running = false;
       scrapeState.finishedAt = Date.now();
@@ -890,7 +1093,7 @@ export function startScrape(opts: { ids?: string[]; all?: boolean; force?: boole
 export type ScrapeOutcome = "matched" | "unmatched" | "skip" | "error";
 
 async function scrapeTrack(t: LocalTrack, force: boolean): Promise<ScrapeOutcome> {
-  if (!force && t.match && t.match.lyricQq && t.match.coverQq) return "skip";
+  if (!force && t.match && (t.match.lyricQq || t.match.lyricLrclib) && t.match.coverQq) return "skip";
   const kw = searchKeyword(t);
 
   if (!kw) return "error";
@@ -900,32 +1103,67 @@ async function scrapeTrack(t: LocalTrack, force: boolean): Promise<ScrapeOutcome
     data = await sidecarGet(`/search?keyword=${encodeURIComponent(kw)}&type=0&page=1&num=10`);
   } catch (e) {
     t.match = t.match ?? null;
-    scrapeState.lastError = errText(e);
+    scrapeState.lastError = errText(e instanceof Error ? e : new Error(String(e)));
 
     return "error";
   }
 
-  const cands = (data?.song ?? []).map((c) => ({ c, s: scoreMatch(t, c) })).filter((x) => x.s >= 3);
+  const cands = (data?.song ?? []).map((c) => ({ c, s: scoreMatch(t, c), albumExact: exactAlbum(t, c) })).filter((x) => x.s >= 3);
+  // 专辑精确命中优先；同组内再按加权分（模糊项已减半）排序。
+  cands.sort((a, b) => Number(b.albumExact) - Number(a.albumExact) || b.s - a.s);
 
-  if (!cands.length) return "unmatched";
-  cands.sort((a, b) => b.s - a.s);
-  const best = cands[0].c;
+  const best = cands[0]?.c;
+
+  // QQ 没匹配到不代表没有歌词：本地标签仍可用于 LRCLIB（至少歌名 + 歌手/专辑才查）。
+  if (!best) {
+    if (t.lyricSource !== "import" && !t.lyricSource && (force || !t.match?.lyricLrclib)) {
+      const lyric = await fetchLrclibLyric({
+        title: t.title,
+        artist: t.artist || t.albumArtist,
+        album: t.album,
+        duration: t.durationSec,
+      });
+
+      if (lyric) {
+        writeCachedLyric(t, lyric, "", "", "lrclib");
+        t.lyricSource = "lrclib";
+      }
+    }
+
+    return "unmatched";
+  }
+
   const mid = String(best.mid);
 
   // 歌词（LRC 行级，顺带翻译/音译；别拉 QRC，格式留给 Sparkle 逐字管线之外）
   let lyricQq = t.match?.lyricQq ?? false;
+  let lyricLrclib = t.match?.lyricLrclib ?? false;
 
-  if (force || !lyricQq) {
+  if (t.lyricSource !== "import" && (force || (!lyricQq && !lyricLrclib))) {
     try {
       const l = await sidecarGet(`/song/${encodeURIComponent(mid)}/lyric?trans=1&roma=1`);
       const raw = String(l?.lyric ?? "");
 
       if (raw.trim()) {
-        ensureLibDirs();
-        writeFilePrivate(join(lyricsDir(), `${t.id}.json`), JSON.stringify({ lyric: raw, trans: String(l?.trans ?? ""), roma: String(l?.roma ?? "") }), 0o600);
+        writeCachedLyric(t, raw, String(l?.trans ?? ""), String(l?.roma ?? ""), "qq");
         lyricQq = true;
+        lyricLrclib = false;
       }
     } catch { /* 歌词失败不判整体失败 */ }
+
+    if (!lyricQq) {
+      const lyric = await fetchLrclibLyric({
+        title: best.title || best.name || t.title,
+        artist: (best.singer ?? []).map((s) => s?.name).filter(Boolean).join(" / ") || t.artist || t.albumArtist,
+        album: best.album?.name || t.album,
+        duration: best.interval || t.durationSec,
+      });
+
+      if (lyric) {
+        writeCachedLyric(t, lyric, "", "", "lrclib");
+        lyricLrclib = true;
+      }
+    }
   }
 
   // 封面：无内嵌件时下载 QQ 专辑封面（500x500）
@@ -958,7 +1196,7 @@ async function scrapeTrack(t: LocalTrack, force: boolean): Promise<ScrapeOutcome
   if (!t.durationSec && best.interval) t.durationSec = best.interval;
   t.coverRel = t.coverRel || (coverQq ? `covers/${t.id}.jpg` : "");
 
-  if (!t.lyricSource && lyricQq) t.lyricSource = "qq";
+  if (!t.lyricSource) t.lyricSource = lyricQq ? "qq" : lyricLrclib ? "lrclib" : "";
 
   t.match = {
     qqMid: mid,
@@ -969,7 +1207,7 @@ async function scrapeTrack(t: LocalTrack, force: boolean): Promise<ScrapeOutcome
     singerMid: best.singer?.[0]?.mid ?? "",
     albumMid: best.album?.mid ?? "",
     albumPmid: best.album?.pmid ?? "",
-    coverQq, lyricQq,
+    coverQq, lyricQq, lyricLrclib,
     scrapedAt: Date.now(),
   };
 
@@ -1016,7 +1254,18 @@ export function sniffLyricFormat(text: string, name = ""): "lrc" | "qrc" | "ttml
  *  候选名里会拼路径的字符（分隔符/控制字符）替换成空格 —— 这些名字**只**在库目录内做拼装，
  *  目录本身来自 quaver.conf，请求参数指不到库外（同 /api/bg 红线；消费侧还有一道 resolve 包含校验）。 */
 export function ttmlLibraryCandidates(q: { qq?: string; name?: string; artist?: string }): string[] {
-  const safe = (v: string) => String(v ?? "").replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim();
+  const safe = (v: string) => {
+    let out = "";
+
+    for (const ch of String(v ?? "")) {
+      const code = ch.codePointAt(0) ?? 0;
+
+      out += `\\/:*?"<>|`.includes(ch) || code < 0x20 ? " " : ch;
+    }
+
+    return out.replace(/\s+/g, " ").trim();
+  };
+
   const out: string[] = [];
   const qq = safe(q.qq ?? "");
 
@@ -1080,7 +1329,7 @@ export function imageFormat(b: Buffer): string {
   return "";
 }
 
-// ———————————————————————————————————————————— 歌词解析（import > file > qq > embed） ————————————————————————————————————————————
+// ———————————————————————————————————————————— 歌词解析（import > file > qq/lrclib > embed） ————————————————————————————————————————————
 
 /** 尽力解码 LRC：UTF-8/BOM → GBK → latin1。GBK 依赖 Node 的 full-icu TextDecoder。 */
 export function decodeLrc(buf: Buffer): string {
@@ -1096,7 +1345,7 @@ export function decodeLrc(buf: Buffer): string {
 }
 
 async function resolveLyric(t: LocalTrack, src: LocalSource): Promise<{ lyric: string; trans: string; roma: string; source: string; format: string }> {
-  let qq: { lyric?: string; trans?: string; roma?: string } | null = null;
+  let qq: { lyric?: string; trans?: string; roma?: string; source?: string } | null = null;
 
   try {
     const p = join(lyricsDir(), `${t.id}.json`);
@@ -1139,7 +1388,10 @@ async function resolveLyric(t: LocalTrack, src: LocalSource): Promise<{ lyric: s
     } catch { /* 回落下一级 */ }
   }
 
-  if (!main.lyric && qq?.lyric?.trim()) { main.lyric = qq.lyric; main.source = "qq"; }
+  if (!main.lyric && qq?.lyric?.trim()) {
+    main.lyric = qq.lyric;
+    main.source = qq.source === "lrclib" || t.lyricSource === "lrclib" ? "lrclib" : "qq";
+  }
 
   if (!main.lyric) {
     try {
@@ -1171,7 +1423,7 @@ function davStreamUrl(src: LocalSource, relPath: string): string {
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 
-function json(res: ServerResponse, data: unknown, status = 200): void {
+function json<T>(res: ServerResponse, data: T, status = 200): void {
   res.statusCode = status;
 
   for (const [k, v] of Object.entries(JSON_HEADERS)) res.setHeader(k, v);
@@ -1188,15 +1440,15 @@ function jsonErr(res: ServerResponse, status: number, msg: string): void {
 function mimeByExt(file: string): string {
   const e = extname(file).toLowerCase();
 
-  const MAP: Record<string, string> = {
-    ".mp3": "audio/mpeg", ".mp2": "audio/mpeg", ".flac": "audio/flac", ".ogg": "audio/ogg", ".oga": "audio/ogg",
-    ".opus": "audio/ogg", ".m4a": "audio/mp4", ".m4b": "audio/mp4", ".aac": "audio/aac", ".wav": "audio/wav",
-    ".aif": "audio/aiff", ".aiff": "audio/aiff", ".ape": "audio/ape", ".wv": "audio/wavpack", ".mpc": "audio/musepack",
-    ".dsf": "audio/x-dsf", ".dff": "audio/x-dff", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
-    ".gif": "image/gif", ".webp": "image/webp",
-  };
+  const MAP = new Map<string, string>([
+    [".mp3", "audio/mpeg"], [".mp2", "audio/mpeg"], [".flac", "audio/flac"], [".ogg", "audio/ogg"], [".oga", "audio/ogg"],
+    [".opus", "audio/ogg"], [".m4a", "audio/mp4"], [".m4b", "audio/mp4"], [".aac", "audio/aac"], [".wav", "audio/wav"],
+    [".aif", "audio/aiff"], [".aiff", "audio/aiff"], [".ape", "audio/ape"], [".wv", "audio/wavpack"], [".mpc", "audio/musepack"],
+    [".dsf", "audio/x-dsf"], [".dff", "audio/x-dff"], [".jpg", "image/jpeg"], [".jpeg", "image/jpeg"], [".png", "image/png"],
+    [".gif", "image/gif"], [".webp", "image/webp"],
+  ]);
 
-  return MAP[e] ?? "application/octet-stream";
+  return MAP.get(e) ?? "application/octet-stream";
 }
 
 const RANGE_RE = /^bytes=(\d*)-(\d*)$/;
@@ -1288,7 +1540,7 @@ async function serveWebdavFile(res: ServerResponse, src: LocalSource, relPath: s
   }
 
   const auth = { username: src.username, password: src.password };
-  const headers: Record<string, string> = { ...davAuthHeaders(auth) };
+  const headers = { ...davAuthHeaders(auth) };
 
   if (range) headers.range = `bytes=${range.start}-${range.end}`;
   let up: Response;
@@ -1296,7 +1548,7 @@ async function serveWebdavFile(res: ServerResponse, src: LocalSource, relPath: s
   try {
     up = await fetch(url, { headers, signal: AbortSignal.timeout(30000) });
   } catch (e) {
-    jsonErr(res, 502, `NAS 上游连接失败：${errText(e)}`);
+    jsonErr(res, 502, `NAS 上游连接失败：${errText(e instanceof Error ? e : new Error(String(e)))}`);
 
     return;
   }
@@ -1327,11 +1579,12 @@ async function serveWebdavFile(res: ServerResponse, src: LocalSource, relPath: s
   res.once("close", onClose);
 
   try {
+    // SAFETY: fetch 的 Web ReadableStream 与 Node Readable.fromWeb 的 DOM 声明不兼容，运行时结构一致。
     const node = Readable.fromWeb(up.body as never);
     // 上游理会了 Range 且区间一致 → 原样转管道；否则（无视 Range 回全量）本地掐头去尾，保住 Range 语义
     const passthrough = upRanged && (!range || (up.headers.get("content-range") ?? "").includes(`${target.start}-${target.end}/`));
-    const srcIt = passthrough ? node : sliceBytes(node as AsyncIterable<Buffer>, target.start, target.end);
-    await pipeline(srcIt as Readable, res, { signal: ac.signal });
+    const srcIt = passthrough ? node : sliceBytes(node, target.start, target.end);
+    await pipeline(srcIt, res, { signal: ac.signal });
   } catch (e) {
     if (!/AbortError|premature|destroyed|terminated/i.test(String(e))) console.warn(`[local-library] webdav stream aborted: ${e}`);
   } finally {
@@ -1462,7 +1715,7 @@ export async function handleLocalApi(req: IncomingMessage, res: ServerResponse, 
 
       // 立即探一次根目录：连不通就别存坏源
       try { await propfind(src.url, { username: src.username, password: src.password }); }
-      catch (e) { jsonErr(res, 502, `WebDAV 探测失败：${errText(e)}`); return true; }
+      catch (e) { jsonErr(res, 502, `WebDAV 探测失败：${errText(e instanceof Error ? e : new Error(String(e)))}`); return true; }
     }
 
     loadDb().sources.push(src);
@@ -1604,7 +1857,7 @@ export async function handleLocalApi(req: IncomingMessage, res: ServerResponse, 
 
     if (!t) { jsonErr(res, 404, "曲目不在库中"); return true; }
 
-    const clean = (v: unknown) => String(v ?? "").trim().slice(0, 200);
+    const clean = (v: string | number | null | undefined) => String(v ?? "").trim().slice(0, 200);
     const title = clean(body?.title); const artist = clean(body?.artist); const album = clean(body?.album);
 
     if (!title && !artist && !album) { jsonErr(res, 422, "至少填一项（曲名/歌手/专辑）"); return true; }
@@ -1638,7 +1891,17 @@ export async function handleLocalApi(req: IncomingMessage, res: ServerResponse, 
       const lrcBack = !!t.lyricRel && !!src && (src.kind === "webdav" || existsSync(join(src.path ?? "", t.lyricRel)));
 
       if (lrcBack) t.lyricSource = "file";
-      else if (existsSync(join(lyricsDir(), `${t.id}.json`))) t.lyricSource = "qq";
+      else if (existsSync(join(lyricsDir(), `${t.id}.json`))) {
+        let source: LyricSourceKind = "qq";
+
+        try {
+          const cached: { source?: string } = JSON.parse(readFileSync(join(lyricsDir(), `${t.id}.json`), "utf8"));
+
+          if (cached.source === "lrclib") source = "lrclib";
+        } catch { /* 缓存坏：按 QQ 旧格式处理 */ }
+
+        t.lyricSource = source;
+      }
       else if (existsSync(join(lyricsDir(), `${t.id}.txt`))) t.lyricSource = "embed";
       else t.lyricSource = "";
     }
@@ -1677,7 +1940,7 @@ export async function handleLocalApi(req: IncomingMessage, res: ServerResponse, 
       const size = await davSize(src, t.relPath);
       await serveWebdavFile(res, src, t.relPath, req, size, isHead);
     } catch (e) {
-      jsonErr(res, e instanceof DavError && e.status === 404 ? 404 : 502, errText(e));
+      jsonErr(res, e instanceof DavError && e.status === 404 ? 404 : 502, errText(e instanceof Error ? e : new Error(String(e))));
     }
 
     return true;
@@ -1775,7 +2038,7 @@ function randomHex(n: number): string {
 function readJsonBody(req: IncomingMessage): Promise<any> {
   return new Promise((res, rej) => {
     const chunks: Buffer[] = [];
-    req.on("data", (c) => chunks.push(c as Buffer));
+    req.on("data", (c) => chunks.push(c));
     req.on("end", () => {
       try { res(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}")); } catch (e) { rej(e); }
     });
@@ -1785,15 +2048,16 @@ function readJsonBody(req: IncomingMessage): Promise<any> {
 
 /** 主进程 IPC（quaver:local reveal）用：按 id 现读磁盘上的库，回绝对路径。
  *  渲染层只报 id；路径只从库文件来 —— 与 /api/bg 同一条「请求参数不参与拼路径」的红线。 */
-export function revealTarget(id: string): { ok: boolean; path?: string; error?: string } {
+export function revealTarget(id: string): RevealResult {
   if (!TRACK_ID_RE.test(String(id ?? ""))) return { ok: false, error: "bad id" };
 
   try {
     const raw = JSON.parse(readFileSync(dbFile(), "utf8"));
-    const t = raw?.tracks?.[id] as LocalTrack | undefined;
+    const t: LocalTrack | undefined = raw?.tracks?.[id];
 
     if (!t) return { ok: false, error: "曲目不在库中" };
-    const src = (raw.sources as LocalSource[]).find((s) => s.id === t.sourceId);
+    const sources: LocalSource[] = raw?.sources ?? [];
+    const src = sources.find((s) => s.id === t.sourceId);
 
     if (!src) return { ok: false, error: "源已移除" };
 
@@ -1803,7 +2067,7 @@ export function revealTarget(id: string): { ok: boolean; path?: string; error?: 
 
     return { ok: true, path: t.file };
   } catch (e) {
-    return { ok: false, error: errText(e) };
+    return { ok: false, error: errText(e instanceof Error ? e : new Error(String(e))) };
   }
 }
 

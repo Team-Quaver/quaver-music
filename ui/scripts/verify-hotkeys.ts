@@ -30,8 +30,15 @@ import {
 } from "../electron/global-hotkeys.ts";
 import type { PortalStatus } from "../electron/xdg-portal.ts";
 import type { HotkeyPayload } from "../electron/global-hotkeys.ts";
+import { testDouble } from "./test-double.ts";
 
 const UI_ROOT = fileURLToPath(new URL("..", import.meta.url));
+
+/** a{sv} 解出来的一条键值对。 */
+function isPair(value: unknown): value is [string, unknown] {
+  return Array.isArray(value) && value.length === 2 && Object.prototype.toString.call(value[0]) === "[object String]";
+}
+
 let pass = 0, fail = 0;
 const section = (t) => console.log(`\n=== ${t} ===`);
 
@@ -91,19 +98,29 @@ section("prefs.ts acceleratorFromEvent / set·getHotkey");
   }).then((res) => {
     writeFileSync(join(dir, "bundle.mjs"), res[0].output.find((o) => o.type === "chunk").code);
   });
+
   const storageMock = {
     store: new Map<string, string>(),
     getItem(k: string) { return this.store.has(k) ? this.store.get(k) : null; },
     setItem(k: string, v: string) { void this.store.set(k, String(v)); },
     removeItem(k: string) { void this.store.delete(k); },
   };
-  globalThis.localStorage = storageMock as unknown as Storage;
-  globalThis.document = {
+
+  globalThis.localStorage = testDouble<Storage, typeof storageMock>(storageMock);
+
+  const documentMock = {
     documentElement: { dataset: {}, classList: { toggle() {} }, style: { setProperty() {}, removeProperty() {} } },
     body: { classList: { toggle() {} } },
     addEventListener() {}, visibilityState: "visible",
-  } as unknown as Document;
-  globalThis.window = { matchMedia: () => ({ matches: false, addEventListener() {} }), addEventListener() {}, setTimeout, clearTimeout } as unknown as Window & typeof globalThis;
+  };
+
+  globalThis.document = testDouble<Document, typeof documentMock>(documentMock);
+
+  const windowMock = {
+    matchMedia: () => ({ matches: false, addEventListener() {} }), addEventListener() {}, setTimeout, clearTimeout,
+  };
+
+  globalThis.window = testDouble<Window & typeof globalThis, typeof windowMock>(windowMock);
   const P = await import(join(dir, "bundle.mjs"));
 
   const ev = (key: string, mods: { c?: number; a?: number; s?: number; m?: number } = {}) => ({ key, ctrlKey: !!mods.c, altKey: !!mods.a, shiftKey: !!mods.s, metaKey: !!mods.m });
@@ -299,11 +316,11 @@ section("xdg-portal.ts 编解码");
   });
 
   const sigBack = parseMessage(sig)!;
-  const [sigSession, sigId, sigTs, sigOpts] = sigBack.body as [string, string, number, [string, unknown][]];
-  const sigDict = Object.fromEntries(sigOpts ?? []);
+  const [sigSession, sigId, sigTs, sigOpts] = sigBack.body;
+  const sigDict = new Map<string, unknown>(Array.isArray(sigOpts) ? sigOpts.filter(isPair) : []);
   check("Activated 信号体往返（o s t a{sv}）",
     sigSession === "/org/freedesktop/portal/desktop/session/1_1/quaver" && sigId === "toggle"
-    && sigTs === 1730000000000000 && sigDict.activation_token === "tok");
+    && sigTs === 1730000000000000 && sigDict.get("activation_token") === "tok");
 
   const bind = buildMessage({
     type: 1, serial: 9, path: "/org/freedesktop/portal/desktop", interface: "org.freedesktop.portal.GlobalShortcuts",
@@ -312,11 +329,12 @@ section("xdg-portal.ts 编解码");
   });
 
   const bindBack = parseMessage(bind)!;
-  const bindShortcuts = bindBack.body[1] as [string, [string, unknown][]][];
-  const bindDict = Object.fromEntries(bindShortcuts[0][1] ?? []);
+  const bindShortcuts = bindBack.body[1];
+  const firstBind = Array.isArray(bindShortcuts) && Array.isArray(bindShortcuts[0]) ? bindShortcuts[0] : [];
+  const bindDict = new Map<string, unknown>(Array.isArray(firstBind[1]) ? firstBind[1] : []);
   check("BindShortcuts v2 体往返",
-    bindShortcuts[0][0] === "toggle" && bindDict.description === "暂停/播放"
-    && bindDict.preferred_trigger === "CTRL+ALT+F5" && bindBack.body[2] === "" && Array.isArray(bindBack.body[3]) && bindBack.body[3].length === 0);
+    firstBind[0] === "toggle" && bindDict.get("description") === "暂停/播放"
+    && bindDict.get("preferred_trigger") === "CTRL+ALT+F5" && bindBack.body[2] === "" && Array.isArray(bindBack.body[3]) && bindBack.body[3].length === 0);
   eq("parseBusAddress 首个 unix 段优先（abstract 合法）", parseBusAddress("unix:abstract=/x,guid=1;unix:path=/run/user/0/bus", {}),
     { kind: "abstract", path: "/x" });
   eq("parseBusAddress abstract", parseBusAddress("unix:abstract=/run/dbus-x", {}), { kind: "abstract", path: "/run/dbus-x" });

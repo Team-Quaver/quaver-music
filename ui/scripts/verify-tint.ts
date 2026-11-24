@@ -202,12 +202,12 @@ check("正在编辑的框不被回填打断", views.includes("if (el && document
 
 check("色相条拖动时用拖动值回填滑块（免得往返抖动）", views.includes("paintColor(hue)"));
 
-check("模式切换只重建通道行（不重渲染整页）", /colorMode = b\.dataset\.mode as ColorMode; renderFields\(\);/.test(views));
+check("模式切换只重建通道行（不重渲染整页）", /colorMode = next;[\s\S]{0,40}?renderFields\(\);/.test(views));
 
 check("prefs 里默认色与 schema 默认同值", prefs.includes('export const TINT_DEFAULT_COLOR = "#19c2d8";'));
 
 check("prefs 的档位白名单是四档（含 system）",
-  /const TINT_MODES: readonly string\[\] = \["default", "cover", "system", "custom"\]/.test(prefs));
+  /const TINT_MODES = \["default", "cover", "system", "custom"\] as const satisfies readonly TintMode\[\]/.test(prefs));
 
 check("prefs 的 setTintColor 解析不动就不写盘", /if \(!c\) return;/.test(prefs));
 
@@ -254,7 +254,7 @@ const blockOf = (sel) => {
 
 const popBlock = blockOf(".tint-pop");
 
-check("浮窗样式取得到（取不到就是下面的断言在骗人）", typeof popBlock === "string" && popBlock.includes("position"), String(popBlock).slice(0, 80));
+check("浮窗样式取得到（取不到就是下面的断言在骗人）", popBlock !== null && popBlock.includes("position"), String(popBlock).slice(0, 80));
 
 check("浮窗是绝对定位的浮层（不占版面、往卡片旁边弹）", /position:\s*absolute/.test(popBlock ?? ""));
 
@@ -421,10 +421,10 @@ check("…反向：--tint-row（另一个 token）不该被误伤", !legacyTintV
 section("主题交接策略（纯逻辑）");
 
 /** 造一个「只有 tint 不同」的主题；tint 是第三方给的任意值，所以断言成 never 再传进去 */
-const mkTheme = (tint?: unknown) => {
-  const theme: { id: string; name: string; css: string; tint?: unknown } = { id: "t", name: "T", css: "" };
-
-  if (tint !== undefined) theme.tint = tint;
+const mkTheme = <T>(tint?: T) => {
+  const theme = tint === undefined
+    ? { id: "t", name: "T", css: "" }
+    : { id: "t", name: "T", css: "", tint };
 
   // SAFETY: 测试夹具故意带第三方任意值，never 只用于绕过策略入参的 SDK 形状约束
   return theme as never;

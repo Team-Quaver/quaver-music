@@ -106,6 +106,7 @@ export default async function singerView(root: HTMLElement, q: URLSearchParams) 
 
   sticky.right.append(playAll.el);
   root.append(body);
+
   // 右下角浮动圆钮只读当前标签面板的可见行；搜索/切换标签由 root 的 DOM 变更触发同步
   const fabs = mountListFabs(root, () => {
     const panel = activePanel && activeTab !== "album" ? panelSongs.get(activePanel) ?? [] : [];

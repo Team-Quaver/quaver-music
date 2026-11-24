@@ -15,6 +15,69 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, openSync } from "node:fs";
 import { join } from "node:path";
 import puppeteer from "puppeteer-core";
+import { isJsonObject, jsonString, type JsonValue } from "../src/lib/json-value.ts";
+
+/** 一个入口 chunk 闭包的读数。 */
+interface ProbeEntry {
+  js: number;
+  cssBytes: number;
+  lazyBytes: number;
+  files: string[];
+  css: string[];
+  lazy: string[];
+}
+
+/** chunk-graph 里一块的读数（模块 id 列表已按体积截断）。 */
+interface ProbeChunk {
+  bytes: number;
+  kind: string;
+  modules: string[];
+}
+
+/** 静态面：入口 chunk 闭包与逐块字节数。 */
+interface ProbeStatic {
+  entries: Map<string, ProbeEntry>;
+  chunks: Map<string, ProbeChunk>;
+}
+
+/** 一次活体采样的指标快照（CDP Performance.getMetrics 的键值表）。 */
+interface ProbeSample {
+  name: string;
+  heapUsed: number;
+  heapTotal: number;
+  nodes: number;
+  listeners: number;
+  scriptMs: number;
+  layoutMs: number;
+  jsBytes: number;
+  jsCount: number;
+  cssBytes: number;
+  rssTotal: number;
+  pids: number;
+  procs: Array<{ pid: number; role: string; rss: number }>;
+}
+
+/** manifest.json：chunk 名 → 记录。 */
+interface ManifestIndex {
+  [key: string]: ManifestChunk;
+}
+
+/** cn2t 词典加载的耗时 / 堆增量（或「产物里没有」的跳过说明）。 */
+interface ProbeDict {
+  importMs?: number;
+  trieMs?: number;
+  totalMs?: number;
+  text?: string;
+  error?: string;
+  heapDeltaMB?: number;
+  skipped?: string;
+}
+
+/** 一次探针运行的完整报告（写进 <label>.report.json）。 */
+interface ProbeReport {
+  static?: ProbeStatic;
+  live?: unknown;
+}
 
 const UI = import.meta.dirname.replace(/\/scripts$/, "");
 const DIST = join(UI, "dist");
@@ -32,10 +95,35 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** dist/.vite/manifest.json 里一条 chunk 记录（只声明本探针会读的字段）。 */
 type ManifestChunk = { file?: string; src?: string; isEntry?: boolean; css?: string[]; imports?: string[]; dynamicImports?: string[] };
 
-function manifest() {
+function manifest(): ManifestIndex {
   const p = join(DIST, ".vite", "manifest.json");
 
-  return (existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : {}) as Record<string, ManifestChunk>;
+  if (!existsSync(p)) return {};
+
+  const parsed: JsonValue = JSON.parse(readFileSync(p, "utf8"));
+
+  if (!isJsonObject(parsed)) return {};
+
+  const out: Record<string, ManifestChunk> = {};
+
+  for (const [key, value] of Object.entries(parsed)) {
+    if (!isJsonObject(value)) continue;
+    out[key] = {
+      file: jsonString(value.file) || undefined,
+      src: jsonString(value.src) || undefined,
+      isEntry: value.isEntry === true,
+      css: jsonStrings(value.css),
+      imports: jsonStrings(value.imports),
+      dynamicImports: jsonStrings(value.dynamicImports),
+    };
+  }
+
+  return out;
+}
+
+/** 取字符串数组字段（缺失/形状不对返回 undefined）。 */
+function jsonStrings(value: JsonValue | undefined): string[] | undefined {
+  return Array.isArray(value) ? value.flatMap((entry) => (Object.prototype.toString.call(entry) === "[object String]" ? [String(entry)] : [])) : undefined;
 }
 
 const bytes = (rel) => { const f = join(DIST, rel); return existsSync(f) ? statSync(f).size : 0; };
@@ -45,7 +133,7 @@ function reportStatic() {
   const keys = Object.keys(m);
   console.log("\n=== ① 产物 dist/ ===");
 
-  if (!keys.length) { console.log("  ⚠ 缺 dist/.vite/manifest.json"); return {}; }
+  if (!keys.length) { console.log("  ⚠ 缺 dist/.vite/manifest.json"); return null; }
 
   const byFile = new Map(keys.map((k) => [m[k].file, k]));
 
@@ -66,16 +154,22 @@ function reportStatic() {
     return seen;
   };
 
-  const out: { entries: Record<string, unknown>; chunks: Record<string, unknown> } = { entries: {}, chunks: {} };
+  const out: ProbeStatic = { entries: new Map(), chunks: new Map() };
 
   for (const e of keys.filter((k) => m[k].isEntry)) {
     const files = closure(e);
     const js = files.reduce((s, f) => s + bytes(f), 0);
     const css = [...new Set(files.flatMap((f) => m[byFile.get(f)!]?.css ?? []))];
     const cssBytes = css.reduce((s, f) => s + bytes(f), 0);
-    const lazy = [...new Set(files.flatMap((f) => m[byFile.get(f)!]?.dynamicImports ?? []).map((k) => m[k]?.file).filter(Boolean) as string[])];
+
+    const lazy = [...new Set(files.flatMap((f) => m[byFile.get(f)!]?.dynamicImports ?? []).flatMap((k) => {
+      const file = m[k]?.file;
+
+      return file ? [file] : [];
+    }))];
+
     const lazyBytes = lazy.reduce((s, f) => s + bytes(f), 0);
-    out.entries[e] = { js, cssBytes, lazyBytes, files, css, lazy };
+    out.entries.set(e, { js, cssBytes, lazyBytes, files, css, lazy });
     console.log(`  ${e.padEnd(22)} 首屏 JS ${kb(js)}KB/${files.length}chunk + CSS ${kb(cssBytes)}KB ｜ 懒加载可达 ${kb(lazyBytes)}KB/${lazy.length}`);
     console.log(`      ${files.map((f) => `${f.split("/").pop()}=${(bytes(f) / 1024).toFixed(0)}k`).join("  ")}`);
 
@@ -91,7 +185,7 @@ function reportStatic() {
     const mods = g.modules ?? [];
     const top = mods.slice(0, 2).map((t) => t.id.replace(/^.*(node_modules|src|vendor|third_party)/, "$1").slice(0, 44)).join(" · ");
     console.log("    " + kb(g.bytes) + "KB " + rel.split("/").pop()!.padEnd(26) + " " + g.kind.padEnd(8) + String(mods.length).padStart(3) + " mods" + (top ? " ｜ " + top : ""));
-    out.chunks[rel] = { bytes: g.bytes, kind: g.kind, modules: mods.map((m) => m.id) };
+    out.chunks.set(rel, { bytes: g.bytes, kind: g.kind, modules: mods.map((m) => m.id) });
   }
 
   console.log("  （chunk-graph 每块只留最大的 60 个模块；全量在 dist/.vite/chunk-graph.json）");
@@ -153,10 +247,10 @@ async function live() {
   const cdp = await page.createCDPSession();
   // 懒加载缝坏掉的第一信号是控制台报错（404 的 chunk、被 CSP 拦的 import）——全程收集，最后点名
   const errors: string[] = [];
-  page.on("pageerror", (e: unknown) => errors.push("pageerror: " + String(e && (e as Error).message || e).slice(0, 160)));
+  page.on("pageerror", (e) => errors.push("pageerror: " + (e instanceof Error ? e.message : String(e)).slice(0, 160)));
   page.on("console", (m) => { if (m.type() === "error") errors.push("console.error: " + m.text().slice(0, 160)); });
   await cdp.send("Performance.enable");
-  const samples: Record<string, unknown>[] = [];
+  const samples: ProbeSample[] = [];
 
   const sample = async (name) => {
     let perf;
@@ -208,7 +302,12 @@ async function live() {
   await sleep(5000);
   await sample("boot");
 
-  for (const [name, hash, wait] of [["settings", "#/settings", 2000], ["guess", "#/guess", 2600], ["daily", "#/daily", 2600], ["liked", "#/liked", 2600], ["search", "#/search?q=%E5%91%8A%E7%99%BD", 3600], ["home", "#/", 2000]] as [string, string, number][]) { await go(hash, wait); await sample(name); }
+  const routes: Array<[string, string, number]> = [
+    ["settings", "#/settings", 2000], ["guess", "#/guess", 2600], ["daily", "#/daily", 2600],
+    ["liked", "#/liked", 2600], ["search", "#/search?q=%E5%91%8A%E7%99%BD", 3600], ["home", "#/", 2000],
+  ];
+
+  for (const [name, hash, wait] of routes) { await go(hash, wait); await sample(name); }
 
   // 反复进出「最重的两个页面」后残留多少：堆应当回到首轮水位（涨 = 有东西没解绑）
   const leakBefore = (await cdp.send("Runtime.getHeapUsage")).usedSize;
@@ -231,7 +330,7 @@ async function live() {
 
   const h0 = (await cdp.send("Runtime.getHeapUsage")).usedSize;
 
-  const dict: Record<string, unknown> = cn2tAsset
+  const dict: ProbeDict = cn2tAsset
     ? await page.evaluate(async (asset) => {
         const t0 = performance.now();
         const mod = await import(/* @vite-ignore */ asset);
@@ -250,7 +349,11 @@ async function live() {
   await cdp.send("HeapProfiler.collectGarbage").catch(() => {});
   await sleep(800);
   await sample("steady-gc");
-  const loaded = await page.evaluate(() => performance.getEntriesByType("resource").filter((r) => r.name.endsWith('.js')).map((r) => `${r.name.split("/").pop()}(${((r as PerformanceResourceTiming).decodedBodySize / 1024).toFixed(0)}k)`));
+
+  const loaded = await page.evaluate(() => performance.getEntriesByType("resource")
+    .filter((entry): entry is PerformanceResourceTiming => entry instanceof PerformanceResourceTiming && entry.name.endsWith(".js"))
+    .map((entry) => `${entry.name.split("/").pop()}(${(entry.decodedBodySize / 1024).toFixed(0)}k)`));
+
   console.log("  实际加载 JS：", loaded.join(" "));
   const uniq = [...new Set(errors)];
   console.log("  页面错误(懒加载缝): " + (uniq.length ? uniq.join(" | ") : "无"));
@@ -268,9 +371,13 @@ async function live() {
 
 mkdirSync(PERIODIR, { recursive: true });
 
-const result: Record<string, unknown> = {};
+const result: ProbeReport = {};
 
-if (!flag("live-only")) result.static = reportStatic();
+if (!flag("live-only")) {
+  const stat = reportStatic();
+
+  if (stat) result.static = stat;
+}
 
 if (!flag("static")) { mkdirSync(PERIODIR, { recursive: true }); result.live = await live(); }
 

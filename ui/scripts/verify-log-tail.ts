@@ -73,10 +73,12 @@ let fails = 0;
 
 const ok = (name: string, cond: boolean, note = "") => {
   console.log(`${cond ? "PASS" : "FAIL"} ${name}${note ? " — " + note : ""}`);
+
   if (!cond) fails++;
 };
 
 const srv = await startQuaverServer({ dist: dir, logFile: file });
+
 const get = async (tail: number) => {
   const r = await fetch(new URL(`api/log?tail=${tail}`, srv.url));
 
@@ -84,6 +86,7 @@ const get = async (tail: number) => {
 
   return r.text();
 };
+
 const oldBody = (tail: number, path = file) =>
   readWholeTail(path).split("\n").slice(-Math.max(1, Math.min(5000, tail))).join("\n");
 
@@ -96,6 +99,7 @@ try {
   // —— 2. 多字节 + 大文件（远超窗口）：仍逐字等价 ——
   const chunk = Array.from({ length: 20_000 }, (_, i) => `#${i} ${"日本語とEnglish混在".repeat(4)}`).join("\n") + "\n";
   writeFileSync(file, chunk);
+
   for (let i = 0; i < 3; i++) appendFileSync(file, chunk);
 
   const size = statSync(file).size;
@@ -156,4 +160,5 @@ for (const rel of ["src/relay.ts", "electron/native-server.ts"]) {
 }
 
 console.log(fails ? `\n${fails} FAILED` : "\nall passed");
+
 process.exit(fails ? 1 : 0);
