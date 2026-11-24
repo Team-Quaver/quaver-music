@@ -450,6 +450,17 @@ section("安装收尾接线");
 {
   const up = noComments(readSrc("electron/update.ts"));
   const updater = noComments(readSrc("src/lib/updater.ts"));
+  // 主进程直接跑 TS 源码：electron/** 里 import 的仓内文件必须同时进 asar，
+  // 否则开发态正常、打包态 ERR_MODULE_NOT_FOUND（曾漏掉 src/lib/update-core.ts）。
+  const builder = readFileSync(new URL("../../packages/electron-builder-base.yml", import.meta.url), "utf8");
+  const mainImports = [...up.matchAll(/from\s+"(\.\.?\/[^"]+)"/g)].map((m) => m[1]);
+  const outsideElectron = mainImports.filter((p) => !p.startsWith("./"));
+  check("打包: electron/ 跨目录 import 的源码都在 files 里",
+    outsideElectron.every((p) => {
+      const rel = p.replace(/^\.\.\//, "").replace(/^\.\//, "");
+
+      return builder.includes(`- ${rel}`);
+    }), outsideElectron.join(", "));
   // assisted NSIS 只在 isForceRun && Silent 时拉起应用；更新走 /S 静默 → 少了 --force-run 就装完不启动
   check("Windows: 静默安装器带 --force-run（否则静默装完没人拉起 quaver）",
     re(up, /spawn\(path, \["\/S", "--force-run"\]/));

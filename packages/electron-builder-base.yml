@@ -10,6 +10,9 @@ artifactName: Quaver-${version}-${arch}.${ext}
 asar: true
 files:
   - electron/**
+  # electron/update.ts 直接 import 这份纯逻辑（Node 类型剥离按源码路径解析），
+  # 只收 electron/** 会让打包态缺文件：ERR_MODULE_NOT_FOUND .../src/lib/update-core.ts。
+  - src/lib/update-core.ts
   - dist/**
   - package.json
 extraResources:
