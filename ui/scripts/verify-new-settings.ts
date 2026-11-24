@@ -34,6 +34,7 @@ await step("默认音质=权限内最高档", async () => {
   const sel = await page.$eval("#quality-grid .sel", (el) => el.getAttribute("data-q"));
 
   if (sel === "auto") throw new Error("selected=" + sel);
+
   if (sel !== st) throw new Error(`selected=${sel} DefaultQuality=${st}`);
 
   return `selected ${sel}`;
