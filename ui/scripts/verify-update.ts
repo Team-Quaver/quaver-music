@@ -4,9 +4,9 @@
 // 末尾还有一段**源码级接线断言**：渠道切换这条链（updater 判定 → 弹窗措辞 → 设置页入口）
 // 拆在三个文件里，纯逻辑单测覆盖不到「有没有接上」。
 // 跑： node scripts/verify-update.ts
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as viteBuild } from "vite";
 import { viewsSource } from "./views-source.ts";
@@ -451,16 +451,29 @@ section("安装收尾接线");
   const up = noComments(readSrc("electron/update.ts"));
   const updater = noComments(readSrc("src/lib/updater.ts"));
   // 主进程直接跑 TS 源码：electron/** 里 import 的仓内文件必须同时进 asar，
-  // 否则开发态正常、打包态 ERR_MODULE_NOT_FOUND（曾漏掉 src/lib/update-core.ts）。
+  // 否则开发态正常、打包态 ERR_MODULE_NOT_FOUND（曾漏掉 src/lib/update-core.ts、
+  // src/lib/json-value.ts）。扫全部 electron 源码，别再只盯 update.ts。
   const builder = readFileSync(new URL("../../packages/electron-builder-base.yml", import.meta.url), "utf8");
-  const mainImports = [...up.matchAll(/from\s+"(\.\.?\/[^"]+)"/g)].map((m) => m[1]);
-  const outsideElectron = mainImports.filter((p) => !p.startsWith("./"));
-  check("打包: electron/ 跨目录 import 的源码都在 files 里",
-    outsideElectron.every((p) => {
-      const rel = p.replace(/^\.\.\//, "").replace(/^\.\//, "");
+  const electronRoot = new URL("../electron/", import.meta.url);
 
-      return builder.includes(`- ${rel}`);
-    }), outsideElectron.join(", "));
+  const electronSources = readdirSync(electronRoot, { recursive: true })
+    .map(String)
+    .filter((f) => f.endsWith(".ts") || f.endsWith(".cts"));
+
+  const crossDirImports = new Set<string>();
+
+  for (const file of electronSources) {
+    const src = noComments(readFileSync(new URL(file, electronRoot), "utf8"));
+
+    for (const m of src.matchAll(/from\s+"(\.\.?\/[^"]+)"/g)) {
+      const resolved = relative(UI_ROOT, fileURLToPath(new URL(m[1], new URL(file, electronRoot))));
+
+      if (!resolved.startsWith("electron/")) crossDirImports.add(resolved);
+    }
+  }
+
+  const missing = [...crossDirImports].filter((p) => !builder.includes(`- ${p}`));
+  check("打包: electron/ 跨目录 import 的源码都在 files 里", missing.length === 0, missing.join(", "));
   // assisted NSIS 只在 isForceRun && Silent 时拉起应用；更新走 /S 静默 → 少了 --force-run 就装完不启动
   check("Windows: 静默安装器带 --force-run（否则静默装完没人拉起 quaver）",
     re(up, /spawn\(path, \["\/S", "--force-run"\]/));

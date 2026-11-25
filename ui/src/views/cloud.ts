@@ -14,7 +14,7 @@ import {
   cloudItemToSong, invalidateCloudLibrary, loadCloudLibrary, peekCloudLibrary,
   type CloudItem, type CloudLibrary,
 } from "../lib/cloud";
-import { errText, h, mountHead, mountStickyBar, playAllButton } from "./_shared";
+import { errText, h, mountHead, mountListFabs, mountStickyBar, playAllButton, revealRow } from "./_shared";
 import { bindSongMenu } from "../components/SongMenu";
 import { songListTools } from "../components/ListTools";
 
@@ -130,6 +130,9 @@ export default async function cloudView(root: HTMLElement) {
       const { item, song } = row;
       const el = h("div", "row cloud-row");
 
+      el.dataset.cloudKey = item.key;
+
+      if (song) el.dataset.songMid = String(song.mid ?? "");
       el.innerHTML = `
         <span class="idx">${i + 1}</span>
         <span class="rthumb">${item.hasCover && song ? `<img src="${coverUrl(song, 150)}" alt="" loading="lazy"/>` : ""}</span>
@@ -170,6 +173,31 @@ export default async function cloudView(root: HTMLElement) {
     // 没有 data-songkey 时不匹配任何行，调用是无害的，但保持「重画后必调」这条不变量）。
     player.markActive();
   };
+
+  // 微云行是自绘的（还允许不可播放条目留在列表里），不套 renderSongRows 的 data-songkey；
+  // 定位键用条目 key / 歌曲 mid 自己匹配，其余交互仍交给 mountListFabs。
+  const currentRow = (): HTMLElement | null => {
+    const current = player.current;
+
+    if (!current) return null;
+    const rowsEls = [...rowsBox.querySelectorAll<HTMLElement>(".cloud-row")];
+    const cloudKey = String(current.cloud?.key ?? "");
+    const mid = String(current.mid ?? "");
+    const byCloud = cloudKey ? rowsEls.find((el) => el.dataset.cloudKey === cloudKey) : undefined;
+
+    return byCloud ?? rowsEls.find((el) => mid && el.dataset.songMid === mid) ?? null;
+  };
+
+  const fabs = mountListFabs(root, () => [...rowsBox.querySelectorAll<HTMLElement>(".cloud-row")], {
+    locate: {
+      has: () => !!currentRow(),
+      go: () => {
+        const row = currentRow();
+
+        if (row) revealRow(row, root.closest<HTMLElement>(".route") ?? root);
+      },
+    },
+  });
 
   // 工具条：本地搜索 + 排序（与本地音乐/我喜欢同一套组件）。原序 = 微云返回顺序。
   const tools = songListTools({
@@ -400,5 +428,6 @@ export default async function cloudView(root: HTMLElement) {
     stopPolling();
     window.removeEventListener("quaver:cloud-changed", onCloudChanged);
     sticky.off();
+    fabs.off();
   };
 }

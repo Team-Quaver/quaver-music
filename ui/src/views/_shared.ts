@@ -239,7 +239,13 @@ export function playAllButton(getVisible: () => Song[]) {
 export function mountListFabs(
   root: HTMLElement,
   getRows: () => HTMLElement[],
-  opts: { getScroller?: () => HTMLElement; getScrollTargets?: () => HTMLElement[] } = {},
+  opts: {
+    getScroller?: () => HTMLElement;
+    getScrollTargets?: () => HTMLElement[];
+    /** 自定义「定位正在播放」：分类视图需要先切到对应分组，自绘行（微云）也没有
+     *  data-songkey 可匹配。has() 决定定位键显隐；go() 负责准备目标并滚动。 */
+    locate?: { has: () => boolean; go: () => void };
+  } = {},
 ) {
   const defaultScroller = routeScroller(root);
   const getScroller = opts.getScroller ?? (() => defaultScroller);
@@ -278,13 +284,13 @@ export function mountListFabs(
   };
 
   const syncLocate = () => {
-    setHidden(locate, !playingRow());
+    setHidden(locate, !(opts.locate?.has() ?? !!playingRow()));
   };
 
   const syncTop = () => { setHidden(top, getScroller().scrollTop <= 8); };
   const sync = () => { syncLocate(); syncTop(); };
 
-  locate.addEventListener("click", () => {
+  const goLocate = () => {
     const matches = getRows().filter((item) => !item.hidden && item.dataset.songkey === String(player.current?.mid ?? ""));
 
     const row = matches.find((item) => item.classList.contains("playing"))
@@ -294,13 +300,13 @@ export function mountListFabs(
     if (!row) return;
     const requested = getScroller();
     const scroller = row.closest<HTMLElement>("[data-list-scroller]") ?? requested;
-    // content-visibility:auto 会把远离视口的行折叠成估算高度，rect 先读一次把行真实展开。
-    // offsetTop 是相对最近定位祖先的内容坐标；这里用它与容器 rect 的差值换算成容器内坐标。
-    void row.getBoundingClientRect();
-    const rowOffset = row.offsetTop;
-    const target = rowOffset - (scroller.clientHeight - row.offsetHeight) / 2;
 
-    scroller.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+    revealRow(row, scroller);
+  };
+
+  locate.addEventListener("click", () => {
+    if (opts.locate) opts.locate.go();
+    else goLocate();
   });
   top.addEventListener("click", () => getScroller().scrollTo({ top: 0, behavior: "smooth" }));
 
@@ -334,6 +340,19 @@ export function mountListFabs(
       fabs.remove();
     },
   };
+}
+
+/** 把列表行滚到滚动容器中央。
+ *  content-visibility:auto 会把远离视口的行折叠成估算高度，rect 先读一次把行真实展开。 */
+export function revealRow(row: HTMLElement, scroller?: HTMLElement) {
+  const target = scroller ?? row.closest<HTMLElement>("[data-list-scroller]");
+
+  if (!target) return;
+  const rowRect = row.getBoundingClientRect();
+  const rowTop = target.scrollTop + rowRect.top - target.getBoundingClientRect().top;
+  const center = rowTop - (target.clientHeight - rowRect.height) / 2;
+
+  target.scrollTo({ top: Math.max(0, center), behavior: "smooth" });
 }
 
 /** 视图所在滚动容器（`.route`）；拿不到时退回自身 */

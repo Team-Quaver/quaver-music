@@ -31,7 +31,7 @@ import { renderSongRows } from "../lib/songs";
 import { player } from "../player";
 import type { Song } from "../player";
 import { songListTools } from "../components/ListTools";
-import { errText, h, mountHead, mountListFabs, mountStickyBar, playAllButton } from "./_shared";
+import { errText, h, mountHead, mountListFabs, mountStickyBar, playAllButton, revealRow } from "./_shared";
 
 const VIEWS = [
   { key: "list", label: "列表" },
@@ -501,6 +501,23 @@ export default async function allSongsView(root: HTMLElement, q: URLSearchParams
     ? tools.visible()
     : selectedGroup()?.songs ?? [];
 
+  const groupOfCurrent = (kind: "artist" | "album") => {
+    const key = String(player.current?.mid ?? "");
+
+    if (!key) return null;
+    const groups = kind === "artist" ? artistGroups : albumGroups;
+
+    return groups?.find((group) => group.songs.some((song) => String(song.mid ?? "") === key)) ?? null;
+  };
+
+  const rowOfCurrent = (host: HTMLElement) => {
+    const key = String(player.current?.mid ?? "");
+
+    return key
+      ? [...host.querySelectorAll<HTMLElement>(".row[data-songkey]")].find((row) => row.dataset.songkey === key) ?? null
+      : null;
+  };
+
   const playAll = playAllButton(visiblePlaylist);
   let fabs: ReturnType<typeof mountListFabs> | null = null;
 
@@ -603,6 +620,53 @@ export default async function allSongsView(root: HTMLElement, q: URLSearchParams
       albumBrowser.list,
       albumBrowser.tracks,
     ],
+    locate: {
+      has: () => {
+        if (activeView === "list") return !!rowOfCurrent(listRows);
+
+        return !!groupOfCurrent(activeView);
+      },
+      go: () => {
+        const key = String(player.current?.mid ?? "");
+
+        if (!key) return;
+
+        if (activeView === "list") {
+          const row = rowOfCurrent(listRows);
+
+          if (row) revealRow(row, scroller);
+
+          return;
+        }
+
+        const kind = activeView;
+        const group = groupOfCurrent(kind);
+
+        if (!group) return;
+
+        if (kind === "artist") { selectedArtist = group.key; paintArtistDetail(); }
+        else { selectedAlbum = group.key; paintAlbumDetail(); }
+
+        const browser = kind === "artist" ? artistBrowser : albumBrowser;
+        const card = browser.list.querySelector<HTMLElement>(`[data-group-key="${CSS.escape(group.key)}"]`);
+
+        if (card) {
+          const cardRect = card.getBoundingClientRect();
+          const listRect = browser.list.getBoundingClientRect();
+
+          if (cardRect.top < listRect.top) {
+            browser.list.scrollTo({ top: browser.list.scrollTop - (listRect.top - cardRect.top), behavior: "smooth" });
+          } else if (cardRect.bottom > listRect.bottom) {
+            browser.list.scrollTo({ top: browser.list.scrollTop + (cardRect.bottom - listRect.bottom), behavior: "smooth" });
+          }
+        }
+
+        const rowsHost = browser.tracks.querySelector<HTMLElement>(".all-browser__rows") ?? browser.tracks;
+        const row = rowOfCurrent(rowsHost);
+
+        if (row) revealRow(row, rowsHost);
+      },
+    },
   });
 
   return () => {

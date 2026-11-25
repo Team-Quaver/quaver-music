@@ -16,7 +16,7 @@ import type { LibrarySnapshot } from "../lib/local.ts";
 import { renderSongRows } from "../lib/songs";
 import { player } from "../player";
 import type { Song } from "../player";
-import { h, mountHead, mountStickyBar, playAllButton } from "./_shared";
+import { h, mountHead, mountListFabs, mountStickyBar, playAllButton } from "./_shared";
 
 // 系统歌单封面：Accent 渐变底（底色/渐变在 style.css，与每日/我喜欢的封面同组），
 // 图标沿用侧栏「本地音乐」的文件夹形，纯白描边。
@@ -44,6 +44,7 @@ export default async function localView(root: HTMLElement) {
   const box = h("div", "rows local-rows", `<div class="muted">载入中…</div>`);
 
   root.append(box);
+  const fabs = mountListFabs(root, () => [...box.querySelectorAll<HTMLElement>(".row[data-songkey]")]);
 
   let snap: LibrarySnapshot | null = null;
   let items: Song[] = [];
@@ -110,5 +111,5 @@ export default async function localView(root: HTMLElement) {
 
   apply();
 
-  return () => { off(); sticky.off(); };
+  return () => { off(); sticky.off(); fabs.off(); };
 }
