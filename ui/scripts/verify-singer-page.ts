@@ -152,7 +152,7 @@ await step("热歌面板：歌曲列表渲染（≥10 行）", async () => {
   return `rows=${info.rows}, first=${info.first}`;
 });
 
-await step("专辑面板：卡片网格 + 「查看全部」指向 singer-albums", async () => {
+await step("专辑面板：卡片网格渲染，且不再提供「查看全部」入口", async () => {
   await page.click('.tag-tabs .tag[data-tab="album"]'); await sleep(200);
 
   const info = await page.evaluate(() => {
@@ -167,7 +167,7 @@ await step("专辑面板：卡片网格 + 「查看全部」指向 singer-albums
 
   if (!info.href.startsWith("#/album?mid=")) throw new Error("album card href wrong: " + info.href);
 
-  if (!info.more.startsWith("#/singer-albums?mid=0025NhlN2yWrP4")) throw new Error("bad 查看全部 href: " + info.more);
+  if (info.more) throw new Error("unexpected 查看全部 entry: " + info.more);
 
   return `albums=${info.cards}`;
 });
