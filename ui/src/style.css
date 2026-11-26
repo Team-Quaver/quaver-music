@@ -945,11 +945,9 @@ body:not(.ssd) .content-top::before, body:not(.ssd) .content-top::after { flex-b
 html:not([data-theme="dark"]) .fav-btn.failed { background: #fdecec; border-color: #f3b4b4; color: #c62828; }
 /* 歌手页分区标题（热门歌曲/最新发布/专辑）：比信息头大名字小一档 */
 .sec-title { margin: 22px 0 10px; font-size: 16px; font-weight: 800; color: var(--ink); }
-/* 分区标题行（标题 + 右侧「查看全部」链接，如歌手页专辑区） */
+/* 分区标题行（标题在左，统计等信息在右，如歌手页专辑区） */
 .sec-row { display: flex; align-items: baseline; justify-content: space-between; margin: 22px 0 10px; }
 .sec-row .sec-title { margin: 0; }
-.sec-more { font-size: 12.5px; color: var(--ink2); text-decoration: none; white-space: nowrap; }
-.sec-more:hover { color: var(--cvg-accent, var(--acc)); }
 
 /* —— 下翻吸顶：单行紧凑条（歌单/歌手页）与吸顶页头（首页/每日30首/我喜欢/猜你喜欢） ——
    条挂在 .route（滚动容器）里用 position:sticky 贴顶；占位就是原来那一行（工具条/标签行/标题行），

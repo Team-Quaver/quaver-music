@@ -117,16 +117,16 @@ await step("歌手页：热歌/新歌 两个标签各有一份独立列表（ord
   return `hot rows=${hot.rows} "${hot.first}" / new rows=${nw.rows} "${nw.first}"`;
 });
 
-await step("专辑标签「查看全部」入口存在且指向 singer-albums", async () => {
+await step("专辑标签不再提供「查看全部」入口（与内联全量专辑网格重复）", async () => {
   await page.click('.tag-tabs .tag[data-tab="album"]');
   await sleep(200);
 
-  const href = await page.evaluate(() =>
+  const more = await page.evaluate(() =>
     document.querySelector(".tag-body .tag-panel:not([hidden]) .sec-more")?.getAttribute("href") ?? "");
 
-  if (!href.startsWith("#/singer-albums?mid=0025NhlN2yWrP4")) throw new Error("bad href: " + href);
+  if (more) throw new Error("unexpected 查看全部 entry: " + more);
 
-  return href;
+  return "no entry";
 });
 
 // —— 点返回钮 → 回首页 ——

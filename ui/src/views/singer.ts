@@ -151,8 +151,7 @@ export default async function singerView(root: HTMLElement, q: URLSearchParams) 
   if (albums.length) {
     const more = h("div", "sec-row");
     more.style.marginTop = "0";
-    more.innerHTML = `<span class="muted">共 ${albumData?.total ?? albums.length} 张</span>
-      <a class="sec-more" href="#/singer-albums?mid=${encodeURIComponent(mid)}&name=${encodeURIComponent(displayName)}">查看全部 ›</a>`;
+    more.innerHTML = `<span class="muted">共 ${albumData?.total ?? albums.length} 张</span>`;
     const grid = h("div", "grid");
     grid.innerHTML = albumCardsHtml(albums);
     const none = h("div", "rows muted", "没有匹配的专辑");
@@ -170,7 +169,7 @@ export default async function singerView(root: HTMLElement, q: URLSearchParams) 
       }
 
       none.hidden = !q || shown > 0;
-      more.hidden = !!q; // 搜索态下「共 N 张 / 查看全部」先收起来，免得跟筛选结果打架
+      more.hidden = !!q; // 搜索态下「共 N 张」先收起来，免得跟筛选结果打架
     });
   } else {
     albumPanel.innerHTML = `<div class="rows muted">暂无专辑</div>`;
